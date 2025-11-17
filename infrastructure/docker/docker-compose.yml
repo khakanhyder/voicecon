@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: voicecon_postgres
+    environment:
+      POSTGRES_DB: voicecon
+      POSTGRES_USER: voicecon_user
+      POSTGRES_PASSWORD: voicecon_password_dev
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../backend/alembic:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voicecon_user -d voicecon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voicecon_network
+
+  # Redis for caching and Celery broker
+  redis:
+    image: redis:7-alpine
+    container_name: voicecon_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - voicecon_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: voicecon_backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ../../backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://voicecon_user:voicecon_password_dev@postgres:5432/voicecon
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - BACKEND_CORS_ORIGINS=["http://localhost:3000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - voicecon_network
+
+  # Celery Worker for background tasks
+  celery_worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: voicecon_celery_worker
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    volumes:
+      - ../../backend:/app
+    environment:
+      - DATABASE_URL=postgresql://voicecon_user:voicecon_password_dev@postgres:5432/voicecon
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - SECRET_KEY=dev-secret-key-change-in-production
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    networks:
+      - voicecon_network
+
+  # Celery Beat for scheduled tasks
+  celery_beat:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: voicecon_celery_beat
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    volumes:
+      - ../../backend:/app
+    environment:
+      - DATABASE_URL=postgresql://voicecon_user:voicecon_password_dev@postgres:5432/voicecon
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    networks:
+      - voicecon_network
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: voicecon_frontend
+    command: npm run dev
+    volumes:
+      - ../../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - voicecon_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  voicecon_network:
+    driver: bridge

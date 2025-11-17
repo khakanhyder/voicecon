@@ -1,0 +1,77 @@
+# FastAPI and ASGI server
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.27
+asyncpg==0.29.0  # Async PostgreSQL driver
+psycopg2-binary==2.9.9  # Sync PostgreSQL driver for Alembic
+alembic==1.13.1
+pgvector==0.2.4  # PostgreSQL vector extension support
+
+# Redis
+redis==5.0.1
+aioredis==2.0.1
+
+# Data validation
+pydantic==2.6.1
+pydantic-settings==2.1.0
+email-validator==2.1.0.post1
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==42.0.2
+
+# HTTP client
+httpx==0.26.0
+aiohttp==3.9.3
+
+# Task queue
+celery==5.3.6
+flower==2.0.1  # Celery monitoring
+
+# WebSocket
+websockets==12.0
+
+# External Service SDKs
+# OpenAI
+openai==1.12.0
+
+# Anthropic
+anthropic==0.18.1
+
+# Deepgram (STT)
+deepgram-sdk==3.2.0
+
+# ElevenLabs (TTS)
+elevenlabs==0.2.27
+
+# Twilio
+twilio==8.13.0
+
+# Stripe
+stripe==8.5.0
+
+# SendGrid
+sendgrid==6.11.0
+
+# AWS
+boto3==1.34.42  # For S3 storage
+
+# Utilities
+python-dotenv==1.0.1
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Monitoring & Logging
+sentry-sdk[fastapi]==1.40.5
+
+# Data processing
+pandas==2.2.0  # For analytics
+numpy==1.26.4
+
+# Testing (in production too for health checks)
+pytest==8.0.1
+pytest-asyncio==0.23.5

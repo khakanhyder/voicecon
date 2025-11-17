@@ -1,0 +1,31 @@
+Generic single-database configuration with an async dbapi.
+
+## Create a new migration
+
+```bash
+alembic revision --autogenerate -m "Description of changes"
+```
+
+## Apply migrations
+
+```bash
+alembic upgrade head
+```
+
+## Rollback migration
+
+```bash
+alembic downgrade -1
+```
+
+## View migration history
+
+```bash
+alembic history
+```
+
+## View current revision
+
+```bash
+alembic current
+```
