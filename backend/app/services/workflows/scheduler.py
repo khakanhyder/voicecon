@@ -12,7 +12,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.workflow import TriggerType
-from app.core.database import async_session_maker
+from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class WorkflowScheduler:
         """Main scheduler loop."""
         while self._running:
             try:
-                async with async_session_maker() as db:
+                async with AsyncSessionLocal() as db:
                     await self._check_scheduled_workflows(db)
             except Exception as e:
                 logger.error(f"Scheduler loop error: {e}", exc_info=True)

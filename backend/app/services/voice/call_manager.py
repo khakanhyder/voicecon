@@ -18,13 +18,14 @@ from enum import Enum
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.voice import get_stt_service, AudioChunk, TranscriptionResult
+from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.llm_service import get_llm_service
-from app.services.voice.providers.base import ChatMessage
+from app.services.voice.providers.base import ChatMessage, AudioChunk, TranscriptionResult
 from app.services.voice.audio_utils import AudioBuffer, AudioStream
 from app.models.call import Call, CallLog
 from app.models.agent import Agent
+from app.services.billing.usage_tracker import UsageTracker
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class CallSession:
 
         # Agent configuration
         self.agent: Optional[Agent] = None
+        self.organization_id: Optional[uuid.UUID] = None
 
         # Tasks
         self._tasks: list[asyncio.Task] = []
@@ -93,6 +95,9 @@ class CallSession:
 
         if not self.agent:
             raise ValueError(f"Agent not found: {self.agent_id}")
+
+        # Store organization_id for usage tracking
+        self.organization_id = self.agent.organization_id
 
         # Update call state
         await self._update_call_state(CallState.ANSWERED)
@@ -466,6 +471,17 @@ class CallSession:
                 "transcript": self.transcript,
                 "total_sentences": len(self.transcript),
             })
+
+        # Record usage for billing (only if call was completed successfully)
+        if self.state == CallState.COMPLETED and self.organization_id:
+            try:
+                await UsageTracker.record_call_usage(
+                    db=self.db,
+                    call_id=self.call_id,
+                    organization_id=self.organization_id,
+                )
+            except Exception as e:
+                logger.error(f"Error recording usage for call {self.call_id}: {e}")
 
 
 class CallManager:

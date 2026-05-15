@@ -39,7 +39,7 @@ interface Agent {
   tokenUsage: number;
 }
 
-export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange }) => {
+export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange: _dateRange }) => {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   // Sample agent data - In production, fetch from API
@@ -286,7 +286,7 @@ export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange })
               <YAxis dataKey="name" type="category" width={120} stroke="#9ca3af" style={{ fontSize: '12px' }} />
               <Tooltip />
               <Bar dataKey="calls" radius={[0, 4, 4, 0]}>
-                {performanceData.map((entry, index) => (
+                {performanceData.map((_entry, index) => (
                   <Cell key={`cell-${index}`} fill={getPerformanceColor(index)} />
                 ))}
               </Bar>

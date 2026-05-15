@@ -38,7 +38,7 @@ class VoiceConfig(BaseModel):
     @validator("provider")
     def validate_provider(cls, v):
         """Validate TTS provider."""
-        allowed = ["elevenlabs", "google", "azure"]
+        allowed = ["elevenlabs", "google", "azure", "openai"]
         if v not in allowed:
             raise ValueError(f"Provider must be one of: {allowed}")
         return v

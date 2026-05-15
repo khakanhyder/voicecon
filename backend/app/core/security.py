@@ -4,28 +4,37 @@ Security utilities for authentication, password hashing, and JWT tokens.
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from cryptography.fernet import Fernet
 import secrets
 
 from app.core.config import settings
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a plain password against a hashed password.
+    Verify a plain password against a hashed password using bcrypt.
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(
+        plain_password.encode('utf-8'),
+        hashed_password.encode('utf-8') if isinstance(hashed_password, str) else hashed_password
+    )
 
 
 def get_password_hash(password: str) -> str:
     """
     Hash a password using bcrypt.
+    Truncates password to 72 bytes if necessary (bcrypt limitation).
     """
-    return pwd_context.hash(password)
+    # Truncate password to 72 bytes to avoid bcrypt error
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+
+    # Generate salt and hash
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def create_access_token(

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Node, Edge } from 'reactflow';
+import { Node, Edge } from 'react-flow-renderer';
 
 interface FlowState {
   flows: Record<string, { nodes: Node[]; edges: Edge[] }>;

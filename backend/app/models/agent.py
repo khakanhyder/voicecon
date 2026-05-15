@@ -103,6 +103,12 @@ class Agent(Base):
     phone_numbers: Mapped[List["PhoneNumber"]] = relationship(
         "PhoneNumber", back_populates="agent"
     )
+    metrics: Mapped[List["AgentMetrics"]] = relationship(
+        "AgentMetrics", back_populates="agent", cascade="all, delete-orphan"
+    )
+    agent_knowledge_bases: Mapped[List["AgentKnowledgeBase"]] = relationship(
+        "AgentKnowledgeBase", back_populates="agent", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Agent(id={self.id}, name={self.name})>"
@@ -239,7 +245,7 @@ class KnowledgeBaseDocument(Base):
     content_type: Mapped[Optional[str]] = mapped_column(String(50))  # text, url, pdf, docx
     source_url: Mapped[Optional[str]] = mapped_column(Text)
 
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    document_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Vector embedding for similarity search (pgvector)
     embedding_vector = Column(Vector(1536))  # OpenAI embedding dimension

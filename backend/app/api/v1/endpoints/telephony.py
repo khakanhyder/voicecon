@@ -19,7 +19,7 @@ from app.database import get_db
 from app.models.call import Call, PhoneNumber
 from app.models.agent import Agent
 from app.services.telephony.twilio_service import get_twilio_service
-from app.core.security import get_current_user, get_current_active_user
+from app.core.dependencies import get_current_user, get_current_active_user
 from app.models.user import User
 
 logger = logging.getLogger(__name__)

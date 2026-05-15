@@ -104,7 +104,7 @@ class IntegrationConnection(Base):
     error_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Metadata
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    integration_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Timestamps
@@ -118,6 +118,9 @@ class IntegrationConnection(Base):
     organization: Mapped["Organization"] = relationship("Organization")
     connector: Mapped["IntegrationConnector"] = relationship(
         "IntegrationConnector", back_populates="connections"
+    )
+    metrics: Mapped[List["IntegrationMetrics"]] = relationship(
+        "IntegrationMetrics", back_populates="integration", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

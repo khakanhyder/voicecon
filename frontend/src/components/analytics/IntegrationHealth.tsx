@@ -35,7 +35,7 @@ interface Integration {
   uptime: number;
 }
 
-export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange }) => {
+export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange: _dateRange }) => {
   // Sample integration data
   const integrations: Integration[] = [
     {

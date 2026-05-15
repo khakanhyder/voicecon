@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Node, Edge } from 'reactflow';
+import { Node, Edge } from 'react-flow-renderer';
 import {
   BookTemplate,
   Phone,
@@ -7,7 +7,6 @@ import {
   ShoppingCart,
   HelpCircle,
   FileText,
-  Users,
   TrendingUp,
   Copy,
   Eye,

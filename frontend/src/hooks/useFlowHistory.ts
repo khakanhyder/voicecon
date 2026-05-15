@@ -1,5 +1,5 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
-import { Node, Edge } from 'reactflow';
+import { useRef, useCallback, useState } from 'react';
+import { Node, Edge } from 'react-flow-renderer';
 import { FlowHistory, debounce } from '@/lib/flowHistory';
 
 interface UseFlowHistoryOptions {

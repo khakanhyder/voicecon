@@ -9,6 +9,16 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# Development stage - keeps node_modules in image for volume mount
+FROM base AS dev
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json* ./
+ENV NODE_ENV development
+EXPOSE 3000
+CMD ["npm", "run", "dev"]
+
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app

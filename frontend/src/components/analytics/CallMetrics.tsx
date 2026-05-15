@@ -25,7 +25,7 @@ interface CallMetricsProps {
   };
 }
 
-export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange }) => {
+export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange }) => {
   const [activeTab, setActiveTab] = useState<'volume' | 'duration' | 'outcomes'>('volume');
 
   // Sample data - In production, fetch from API based on dateRange

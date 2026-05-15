@@ -22,7 +22,7 @@ from app.models.call import PhoneNumber
 from app.models.agent import Agent
 from app.models.user import User
 from app.services.telephony.twilio_service import get_twilio_service
-from app.core.security import get_current_active_user
+from app.core.dependencies import get_current_active_user
 
 logger = logging.getLogger(__name__)
 

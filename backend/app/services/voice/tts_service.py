@@ -3,7 +3,7 @@ Text-to-Speech Service Manager.
 Handles provider selection, instantiation, and management.
 """
 import logging
-from typing import Optional, AsyncIterator, Dict, Type
+from typing import Optional, AsyncIterator, Dict, Type, Any
 
 from app.services.voice.providers.base import (
     BaseTTSProvider,
@@ -152,7 +152,7 @@ class TTSService:
             Default model ID
         """
         defaults = {
-            TTSProviderEnum.ELEVENLABS: "eleven_monolingual_v1",
+            TTSProviderEnum.ELEVENLABS: "eleven_flash_v2_5",  # 75ms TTFA
             # TTSProviderEnum.PLAYHT: "PlayHT2.0",
             # TTSProviderEnum.OPENAI: "tts-1",
         }

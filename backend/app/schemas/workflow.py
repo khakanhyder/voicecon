@@ -154,8 +154,9 @@ class WorkflowCreate(BaseModel):
 
     @validator('workflow_steps')
     def validate_steps(cls, v):
+        # Allow empty workflow steps (can be added later)
         if not v:
-            raise ValueError('Workflow must have at least one step')
+            return v
 
         # Validate step IDs are unique
         step_ids = [step.id for step in v]
@@ -204,6 +205,18 @@ class WorkflowResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+
+    @validator('id', 'user_id', 'organization_id', pre=True)
+    def convert_uuid_to_str(cls, v):
+        if v is not None and not isinstance(v, str):
+            return str(v)
+        return v
+
+    @validator('workflow_steps', pre=True)
+    def convert_workflow_steps(cls, v):
+        if isinstance(v, dict) and 'steps' in v:
+            return v['steps']
+        return v if v else []
 
     class Config:
         from_attributes = True

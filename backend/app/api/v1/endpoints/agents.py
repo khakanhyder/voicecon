@@ -6,15 +6,20 @@ Handles agent CRUD, configuration, testing, and templates.
 import logging
 import uuid
 import asyncio
-from typing import Optional, List
+import base64
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import re
+import json
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
+from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
+from app.core.dependencies import get_current_active_user
+from app.models.user import User, OrganizationMember
 from app.models.agent import Agent, AgentFunction
 from app.schemas.agent import (
     AgentCreate,
@@ -55,17 +60,33 @@ async def create_agent(
         Created agent
     """
     try:
+        # Get user's organization
+        org_result = await db.execute(
+            select(OrganizationMember)
+            .where(OrganizationMember.user_id == current_user.id)
+            .limit(1)
+        )
+        org_member = org_result.scalar_one_or_none()
+
+        if not org_member:
+            raise HTTPException(
+                status_code=400,
+                detail="User is not associated with any organization"
+            )
+
         agent_service = get_agent_service()
 
         agent = await agent_service.create_agent(
             agent_data=agent_data,
             user_id=current_user.id,
-            organization_id=current_user.organizations[0].id,
+            organization_id=org_member.organization_id,
             db=db,
         )
 
         return agent
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating agent: {e}", exc_info=True)
         raise HTTPException(
@@ -443,6 +464,384 @@ async def test_agent(
             status_code=500,
             detail=f"Failed to test agent: {str(e)}"
         )
+
+
+class SpeakRequest(BaseModel):
+    """Request to synthesize speech for an agent response."""
+    text: str = Field(..., description="Text to convert to speech")
+
+
+@router.post("/{agent_id}/speak")
+async def agent_speak(
+    agent_id: uuid.UUID,
+    request: SpeakRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Convert text to speech using the agent's configured TTS provider.
+    Returns base64-encoded MP3 audio.
+    """
+    try:
+        result = await db.execute(
+            select(Agent).where(
+                and_(Agent.id == agent_id, Agent.user_id == current_user.id)
+            )
+        )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        tts_service = get_tts_service()
+        tts_result = await tts_service.synthesize(
+            text=request.text,
+            provider=agent.tts_provider,
+            voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+        )
+
+        audio_b64 = base64.b64encode(tts_result.audio_data).decode("utf-8")
+        return {
+            "audio_base64": audio_b64,
+            "audio_format": tts_result.format or "mp3",
+            "duration_seconds": tts_result.duration,
+            "text": request.text,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error synthesizing speech: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+
+
+class RespondRequest(BaseModel):
+    message: str
+    history: list = []
+
+
+@router.post("/{agent_id}/respond")
+async def agent_respond(
+    agent_id: uuid.UUID,
+    request: RespondRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Low-latency combined LLM + TTS endpoint.
+    Streams sentences as SSE: each event contains sentence text + base64 audio.
+    Sentences are synthesized as they arrive from the LLM — no waiting for full response.
+    """
+    result = await db.execute(
+        select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == current_user.id))
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Gather agent conversation config
+    end_call_phrases = list(agent.end_call_phrases or [])
+    interrupt_enabled = bool(agent.interrupt_enabled)
+    max_tokens_cap = min(agent.llm_max_tokens or 150, 150)
+
+    async def generate():
+        try:
+            llm_service = get_llm_service()
+            tts_service = get_tts_service()
+
+            messages = []
+            system_text = (agent.system_prompt or "You are a helpful voice assistant.")
+            system_text += (
+                "\n\nIMPORTANT: You are speaking in a live voice call. "
+                "Keep every reply SHORT (1-2 sentences max). "
+                "Never use lists, bullet points, or markdown. "
+                "Speak naturally and conversationally."
+            )
+            if end_call_phrases:
+                phrases_str = ", ".join(f'"{p}"' for p in end_call_phrases)
+                system_text += (
+                    f"\n\nWhen the user wants to end the conversation or says goodbye, "
+                    f"respond warmly and use one of these exact phrases to end: {phrases_str}."
+                )
+            messages.append(ChatMessage(role="system", content=system_text))
+            for h in request.history[-10:]:
+                raw_role = h.get("role", "user")
+                role = "assistant" if raw_role == "agent" else raw_role
+                messages.append(ChatMessage(role=role, content=h.get("text", "")))
+            messages.append(ChatMessage(role="user", content=request.message))
+
+            full_response = ""
+            sentence_buffer = ""
+
+            async def tts_chunk(text: str):
+                """Synthesize one chunk and return SSE payload string."""
+                text = text.strip()
+                if len(text) < 2:
+                    return None
+                try:
+                    tts_result = await tts_service.synthesize(
+                        text=text,
+                        provider=agent.tts_provider,
+                        voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+                        model="eleven_flash_v2_5",
+                    )
+                    audio_b64 = base64.b64encode(tts_result.audio_data).decode()
+                    return json.dumps({
+                        "type": "sentence",
+                        "text": text,
+                        "audio_base64": audio_b64,
+                        "audio_format": tts_result.format or "mp3",
+                    })
+                except Exception as e:
+                    logger.error(f"TTS error: {e}")
+                    return json.dumps({"type": "sentence", "text": text, "audio_base64": None})
+
+            async for chunk in llm_service.chat_stream(
+                messages=messages,
+                provider=agent.llm_provider,
+                model=agent.llm_model,
+                temperature=float(agent.llm_temperature),
+                max_tokens=max_tokens_cap,
+            ):
+                full_response += chunk
+                sentence_buffer += chunk
+
+                flush_chunks = []
+                while True:
+                    m = re.search(r'(?<=[.!?])\s+', sentence_buffer)
+                    if m:
+                        flush_chunks.append(sentence_buffer[:m.start() + 1])
+                        sentence_buffer = sentence_buffer[m.end():]
+                        continue
+                    if len(sentence_buffer) >= 45:
+                        m2 = re.search(r'(?<=[,;])\s+', sentence_buffer)
+                        if m2:
+                            flush_chunks.append(sentence_buffer[:m2.start() + 1])
+                            sentence_buffer = sentence_buffer[m2.end():]
+                            continue
+                    break
+
+                for fc in flush_chunks:
+                    payload = await tts_chunk(fc)
+                    if payload:
+                        yield f"data: {payload}\n\n"
+
+            # Flush remaining buffer
+            if sentence_buffer.strip():
+                payload = await tts_chunk(sentence_buffer)
+                if payload:
+                    yield f"data: {payload}\n\n"
+
+            # Check if agent response contains an end-call phrase
+            end_call_triggered = False
+            if end_call_phrases:
+                full_lower = full_response.lower()
+                for phrase in end_call_phrases:
+                    if phrase.lower() in full_lower:
+                        end_call_triggered = True
+                        break
+
+            yield f"data: {json.dumps({'type': 'done', 'full_text': full_response, 'end_call': end_call_triggered})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in respond stream: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.websocket("/{agent_id}/stt")
+async def agent_stt_websocket(
+    websocket: WebSocket,
+    agent_id: uuid.UUID,
+    token: str = Query(default=""),
+):
+    """
+    Real-time Deepgram STT WebSocket proxy.
+    Client sends raw audio bytes (WebM/Opus); server forwards to Deepgram and returns
+    transcript events as JSON. Auth via 'token' query param (browser WS can't set headers).
+    """
+    await websocket.accept()
+
+    # Authenticate
+    from app.core.security import decode_token
+    from app.database import AsyncSessionLocal
+    from app.models.user import User
+
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        await websocket.close(code=4001)
+        return
+
+    user_id = payload.get("sub")
+
+    async with AsyncSessionLocal() as db:
+        user_result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            await websocket.close(code=4001)
+            return
+
+        result = await db.execute(
+            select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == user.id))
+        )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            await websocket.close(code=4004)
+            return
+
+        stt_model = getattr(agent, "stt_model", None) or "nova-3"
+        stt_language = getattr(agent, "stt_language", None) or "en"
+
+    from app.core.config import settings
+
+    if not getattr(settings, "DEEPGRAM_API_KEY", None):
+        await websocket.send_json({"type": "error", "message": "Deepgram API key not configured"})
+        await websocket.close()
+        return
+
+    dg_url = (
+        f"wss://api.deepgram.com/v1/listen"
+        f"?model={stt_model}"
+        f"&language={stt_language}"
+        f"&interim_results=true"
+        f"&smart_format=false"
+        f"&no_delay=true"
+        f"&endpointing=300"
+        f"&utterance_end_ms=1000"
+    )
+
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.ws_connect(
+                dg_url,
+                headers={"Authorization": f"Token {settings.DEEPGRAM_API_KEY}"},
+            ) as dg_ws:
+                await websocket.send_json({"type": "ready"})
+
+                async def relay_client_to_deepgram():
+                    try:
+                        async for data in websocket.iter_bytes():
+                            if not dg_ws.closed:
+                                await dg_ws.send_bytes(data)
+                    except WebSocketDisconnect:
+                        pass
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            await dg_ws.close()
+                        except Exception:
+                            pass
+
+                async def relay_deepgram_to_client():
+                    try:
+                        async for msg in dg_ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                msg_type = data.get("type")
+                                if msg_type == "Results":
+                                    alts = data.get("channel", {}).get("alternatives", [{}])
+                                    transcript = alts[0].get("transcript", "") if alts else ""
+                                    if transcript:
+                                        await websocket.send_json({
+                                            "type": "transcript",
+                                            "text": transcript,
+                                            "is_final": data.get("is_final", False),
+                                            "speech_final": data.get("speech_final", False),
+                                        })
+                                elif msg_type == "UtteranceEnd":
+                                    await websocket.send_json({"type": "utterance_end"})
+                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+                                break
+                    except Exception:
+                        pass
+
+                await asyncio.gather(relay_client_to_deepgram(), relay_deepgram_to_client())
+
+    except Exception as e:
+        logger.error(f"STT WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@router.post("/{agent_id}/transcribe")
+async def agent_transcribe(
+    agent_id: uuid.UUID,
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Transcribe audio file to text using agent's configured STT provider (Deepgram).
+    Accepts WAV/WebM audio upload, returns transcript text.
+    """
+    try:
+        result = await db.execute(
+            select(Agent).where(
+                and_(Agent.id == agent_id, Agent.user_id == current_user.id)
+            )
+        )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Read audio bytes
+        audio_bytes = await audio.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Empty audio file")
+
+        # Use Deepgram HTTPS API (non-streaming for test mode)
+        import aiohttp
+        from app.core.config import settings
+
+        url = "https://api.deepgram.com/v1/listen"
+        params = {
+            "language": agent.stt_language or "en",
+            "model": agent.stt_model or "nova-2",
+            "punctuate": "true",
+            "smart_format": "true",
+        }
+        headers = {
+            "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+            "Content-Type": audio.content_type or "audio/webm",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, params=params, data=audio_bytes) as resp:
+                if resp.status == 401:
+                    raise HTTPException(status_code=500, detail="Invalid Deepgram API key")
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise HTTPException(status_code=500, detail=f"Deepgram error: {body}")
+                data = await resp.json()
+
+        # Extract transcript
+        try:
+            transcript = data["results"]["channels"][0]["alternatives"][0]["transcript"]
+        except (KeyError, IndexError):
+            transcript = ""
+
+        return {
+            "transcript": transcript,
+            "language": agent.stt_language or "en",
+            "confidence": data.get("results", {}).get("channels", [{}])[0]
+                          .get("alternatives", [{}])[0].get("confidence", 0),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error transcribing audio: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 
 @router.get("/templates/list")

@@ -12,6 +12,18 @@ from app.models.analytics import (
     CallMetrics, AgentMetrics, IntegrationMetrics,
     DailySummary, RealTimeMetrics, MetricsCache
 )
+from app.models.knowledge_base import (
+    KnowledgeBase, Document, DocumentChunk,
+    AgentKnowledgeBase, SearchQuery
+)
+from app.models.subscription import (
+    SubscriptionPlan, Subscription, UsageRecord,
+    Invoice, PaymentFailure
+)
+from app.models.template import (
+    AgentTemplate, WorkflowTemplate, TemplateInstallation,
+    TemplateReview, TemplateVersion
+)
 
 __all__ = [
     "Base",
@@ -43,4 +55,22 @@ __all__ = [
     "DailySummary",
     "RealTimeMetrics",
     "MetricsCache",
+    # Knowledge base models
+    "KnowledgeBase",
+    "Document",
+    "DocumentChunk",
+    "AgentKnowledgeBase",
+    "SearchQuery",
+    # Subscription models
+    "SubscriptionPlan",
+    "Subscription",
+    "UsageRecord",
+    "Invoice",
+    "PaymentFailure",
+    # Template models
+    "AgentTemplate",
+    "WorkflowTemplate",
+    "TemplateInstallation",
+    "TemplateReview",
+    "TemplateVersion",
 ]

@@ -43,7 +43,10 @@ class User(Base):
 
     # Relationships
     organizations: Mapped[List["OrganizationMember"]] = relationship(
-        "OrganizationMember", back_populates="user", cascade="all, delete-orphan"
+        "OrganizationMember",
+        foreign_keys="[OrganizationMember.user_id]",
+        back_populates="user",
+        cascade="all, delete-orphan"
     )
     api_keys: Mapped[List["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"

@@ -1,7 +1,32 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/store/authStore'
 
 export default function HomePage() {
+  const router = useRouter()
+  const { isAuthenticated, isLoading } = useAuthStore()
+
+  // Redirect authenticated users to analytics dashboard
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.push('/dashboard/analytics')
+    }
+  }, [isAuthenticated, isLoading, router])
+
+  // Show loading state while checking auth
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    )
+  }
+
+  // Show landing page for non-authenticated users
   return (
     <div className="flex min-h-screen flex-col">
       {/* Header */}

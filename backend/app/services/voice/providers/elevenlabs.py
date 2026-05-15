@@ -110,6 +110,9 @@ class ElevenLabsTTS(BaseTTSProvider):
         self._cache_enabled = kwargs.get("enable_cache", True)
         self._max_cache_size = kwargs.get("max_cache_size", 100)
 
+        # Usage tracking
+        self._usage_stats = []
+
         logger.info(f"Initialized ElevenLabs TTS: voice={voice_id}, model={model_id}")
 
     def _get_cache_key(self, text: str, voice_id: str, settings: Dict) -> str:

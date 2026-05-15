@@ -47,6 +47,7 @@ class ConversationContext:
         self.max_history = max_history
         self.max_tokens = max_tokens
         self._messages: deque[ChatMessage] = deque(maxlen=max_history)
+        self._rag_context: Optional[str] = None  # Knowledge base context
 
     def add_message(self, role: str, content: str, **kwargs):
         """
@@ -60,18 +61,37 @@ class ConversationContext:
         message = ChatMessage(role=role, content=content, **kwargs)
         self._messages.append(message)
 
+    def set_rag_context(self, context: str):
+        """
+        Set knowledge base context from RAG.
+
+        Args:
+            context: Retrieved context from knowledge base
+        """
+        self._rag_context = context
+
+    def clear_rag_context(self):
+        """Clear knowledge base context."""
+        self._rag_context = None
+
     def get_messages(self) -> List[ChatMessage]:
         """
-        Get all messages including system prompt.
+        Get all messages including system prompt and RAG context.
 
         Returns:
             List of ChatMessage objects
         """
         messages = []
 
-        # Add system prompt if set
+        # Add system prompt with RAG context if set
         if self.system_prompt:
-            messages.append(ChatMessage(role="system", content=self.system_prompt))
+            system_content = self.system_prompt
+
+            # Inject RAG context if available
+            if self._rag_context:
+                system_content += f"\n\n{self._rag_context}"
+
+            messages.append(ChatMessage(role="system", content=system_content))
 
         # Add conversation history
         messages.extend(list(self._messages))

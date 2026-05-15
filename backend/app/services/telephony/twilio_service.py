@@ -15,7 +15,7 @@ from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 from twilio.request_validator import RequestValidator
 
 from app.core.config import settings
-from app.models.phone_number import PhoneNumber
+from app.models.call import PhoneNumber
 from app.models.agent import Agent
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

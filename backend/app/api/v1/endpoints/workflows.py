@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc
 
 from app.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
+from app.core.dependencies import get_current_active_user
+from app.models.user import User, OrganizationMember
 from app.models.integration import Workflow, WorkflowExecution
 from app.schemas.workflow import (
     WorkflowCreate,
@@ -59,6 +59,20 @@ async def create_workflow(
         HTTPException: If creation fails
     """
     try:
+        # Get user's organization
+        org_result = await db.execute(
+            select(OrganizationMember)
+            .where(OrganizationMember.user_id == current_user.id)
+            .limit(1)
+        )
+        org_member = org_result.scalar_one_or_none()
+
+        if not org_member:
+            raise HTTPException(
+                status_code=400,
+                detail="User is not associated with any organization"
+            )
+
         # Convert steps to dict format for storage
         workflow_steps_dict = {
             "steps": [step.dict() for step in workflow_data.workflow_steps]
@@ -67,7 +81,7 @@ async def create_workflow(
         # Create workflow
         workflow = Workflow(
             user_id=current_user.id,
-            organization_id=current_user.organization_id,
+            organization_id=org_member.organization_id,
             name=workflow_data.name,
             description=workflow_data.description,
             trigger_type=workflow_data.trigger_type,
@@ -88,6 +102,8 @@ async def create_workflow(
 
         return workflow
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create workflow: {e}", exc_info=True)
         await db.rollback()

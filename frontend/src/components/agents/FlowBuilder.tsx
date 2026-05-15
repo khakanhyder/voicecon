@@ -15,8 +15,8 @@ import ReactFlow, {
   NodeTypes,
   MarkerType,
   BackgroundVariant,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+} from 'react-flow-renderer';
+import 'react-flow-renderer/dist/style.css';
 
 import { StartNode } from './nodes/StartNode';
 import { MessageNode } from './nodes/MessageNode';
@@ -29,7 +29,6 @@ import { NodeToolbar } from './NodeToolbar';
 import { NodeConfigPanel } from './NodeConfigPanel';
 import { FlowValidation } from './FlowValidation';
 import { TemplateLibrary } from './TemplateLibrary';
-import { useFlowStore } from '@/store/flowStore';
 import { validateFlow } from '@/lib/flowValidation';
 import { useFlowHistory } from '@/hooks/useFlowHistory';
 import { Button } from '@/components/ui/button';

@@ -102,7 +102,7 @@ export const OAuthCallback: React.FC = () => {
 
         // Redirect after 2 seconds
         setTimeout(() => {
-          router.push('/integrations/connected');
+          router.push('/dashboard/integrations/connected');
         }, 2000);
       } catch (err: any) {
         console.error('OAuth exchange error:', err);
@@ -164,7 +164,7 @@ export const OAuthCallback: React.FC = () => {
             </Alert>
             <div className="flex flex-col gap-2">
               <Button
-                onClick={() => router.push('/integrations')}
+                onClick={() => router.push('/dashboard/integrations')}
                 className="w-full"
               >
                 Back to Integrations

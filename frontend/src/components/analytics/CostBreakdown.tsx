@@ -25,7 +25,7 @@ interface CostBreakdownProps {
   };
 }
 
-export const CostBreakdown: React.FC<CostBreakdownProps> = ({ dateRange }) => {
+export const CostBreakdown: React.FC<CostBreakdownProps> = ({ dateRange: _dateRange }) => {
   // Cost breakdown by service
   const costByService = [
     { name: 'LLM (GPT-4)', cost: 452.75, percentage: 45.3, color: '#3b82f6' },

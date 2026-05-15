@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f in /tmp/claude/c--Users-irtis-Downloads-voicecon-voicecon/tasks/*.output)",
+      "Bash(do echo \"=== $f ===\")",
+      "Read(//c/Users/irtis/Downloads/voicecon/voicecon/**)",
+      "Bash(done)",
+      "Bash(docker compose up -d)",
+      "Bash(curl -s --max-time 5 http://localhost:8000/health)",
+      "Bash(curl -s --max-time 5 -o /dev/null -w \"Frontend HTTP %{http_code}\" http://localhost:3000)",
+      "Bash(docker compose logs frontend --tail=30)",
+      "Bash(docker compose restart frontend)",
+      "Bash(docker compose logs frontend --tail=15)",
+      "Bash(docker compose up -d --no-build frontend)",
+      "Bash(docker compose logs frontend --tail=10)",
+      "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(docker compose logs frontend --tail=5)",
+      "Bash(docker compose logs frontend)",
+      "Bash(docker compose exec frontend sh -c \"wget -q -O - http://localhost:3000 2>&1 | head -5\")",
+      "Bash(docker compose ps -a)",
+      "Bash(docker compose logs celery_worker --tail=30)",
+      "Bash(docker run --rm -v \"c:/Users/irtis/Downloads/voicecon/voicecon/frontend:/app\" -v /app/.next --network docker_voicecon_network -e NEXT_PUBLIC_API_URL=http://localhost:8000 docker-frontend sh -c \"cd /app && npx next dev -H 0.0.0.0 2>&1\")",
+      "Bash(docker compose ps)",
+      "Bash(docker run --rm -d --name test_frontend2 -p 3000:3000 docker-frontend)",
+      "Bash(docker stop test_frontend2)",
+      "Bash(docker run --rm -d --name test_frontend3 -v \"c:/Users/irtis/Downloads/voicecon/voicecon/frontend:/app\" -v /app/node_modules -p 3000:3000 docker-frontend sh -c \"npm run dev 2>&1; echo EXIT_CODE:$?\")",
+      "Bash(docker compose logs frontend --tail=8)",
+      "Bash(docker compose ps frontend)"
+    ]
+  }
+}

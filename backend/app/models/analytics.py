@@ -159,7 +159,7 @@ class IntegrationMetrics(Base):
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     integration_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("integration_connections.id", ondelete="CASCADE"), nullable=False
     )
 
     # Time dimension
@@ -204,7 +204,7 @@ class IntegrationMetrics(Base):
     )
 
     # Relationships
-    integration = relationship("Integration", back_populates="metrics")
+    integration = relationship("IntegrationConnection", back_populates="metrics")
 
     # Indexes
     __table_args__ = (

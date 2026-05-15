@@ -374,11 +374,11 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({ integration 
 
         {testResults.passed && (
           <div className="flex gap-3">
-            <Button onClick={() => router.push('/integrations/connected')} className="gap-2">
+            <Button onClick={() => router.push('/dashboard/integrations/connected')} className="gap-2">
               <CheckCircle className="w-4 h-4" />
               View Connected Integrations
             </Button>
-            <Button variant="outline" onClick={() => router.push('/integrations')}>
+            <Button variant="outline" onClick={() => router.push('/dashboard/integrations')}>
               Browse More Integrations
             </Button>
           </div>
@@ -474,7 +474,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({ integration 
                   </Button>
                 )}
 
-                <Button variant="outline" onClick={() => router.push('/integrations')} size="lg">
+                <Button variant="outline" onClick={() => router.push('/dashboard/integrations')} size="lg">
                   Cancel
                 </Button>
               </>

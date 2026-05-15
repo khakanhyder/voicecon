@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Node } from 'reactflow';
+import { Node } from 'react-flow-renderer';
 import { X, Trash2, Settings, HelpCircle, TestTube, Copy, Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +41,7 @@ export const EnhancedNodeConfigPanel: React.FC<EnhancedNodeConfigPanelProps> = (
   useEffect(() => {
     const errors = validateNodeData(node.type || '', localData);
     setValidationErrors(
-      errors.map((message, idx) => ({
+      errors.map((message) => ({
         field: 'general',
         message,
       }))

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc
 
 from app.database import get_db
-from app.core.security import get_current_active_user
+from app.core.dependencies import get_current_active_user
 from app.models.user import User
 from app.models.integration import (
     IntegrationConnector,

@@ -18,7 +18,7 @@ from app.schemas.agent import (
     AgentFunctionUpdate,
     AgentTemplate,
 )
-from app.core.security import encrypt_value, decrypt_value
+from app.core.security_fixed import encrypt_value, decrypt_value
 
 logger = logging.getLogger(__name__)
 

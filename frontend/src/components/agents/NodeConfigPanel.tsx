@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Node } from 'reactflow';
+import { Node } from 'react-flow-renderer';
 import { X, Trash2, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

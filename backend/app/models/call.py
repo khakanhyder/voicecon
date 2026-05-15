@@ -129,7 +129,7 @@ class Call(Base):
     provider_call_sid: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
 
     # Metadata
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    call_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     tags: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
 
     # Timestamps

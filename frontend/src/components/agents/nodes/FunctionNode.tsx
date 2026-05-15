@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps } from 'react-flow-renderer';
 import { Code, AlertCircle } from 'lucide-react';
 
 export interface FunctionNodeData {
