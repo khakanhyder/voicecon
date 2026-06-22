@@ -1,8 +1,8 @@
 """
 Application configuration management using Pydantic Settings.
 """
-from typing import List, Optional, Any
-from pydantic import Field, field_validator, PostgresDsn
+from typing import List, Optional
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,10 +38,10 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis URL")
 
-    # CORS
-    BACKEND_CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000"],
-        description="Allowed CORS origins"
+    # CORS — stored as raw string; parse via cors_origins property
+    BACKEND_CORS_ORIGINS: str = Field(
+        default="http://localhost:3000",
+        description="Allowed CORS origins (comma-separated or JSON array)"
     )
 
     # API Keys - External Services
@@ -97,22 +97,19 @@ class Settings(BaseSettings):
     WS_MESSAGE_QUEUE_SIZE: int = 100
     WS_HEARTBEAT_INTERVAL: int = 30
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    @classmethod
-    def assemble_cors_origins(cls, v: Any) -> List[str]:
+    @property
+    def cors_origins(self) -> List[str]:
+        v = (self.BACKEND_CORS_ORIGINS or "").strip()
         if not v:
             return ["http://localhost:3000"]
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                return ["http://localhost:3000"]
-            if v.startswith("["):
-                import json
+        if v.startswith("["):
+            import json
+            try:
                 return json.loads(v)
-            return [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, list):
-            return v
-        raise ValueError(v)
+            except Exception:
+                pass
+        origins = [o.strip() for o in v.split(",") if o.strip()]
+        return origins or ["http://localhost:3000"]
 
     @field_validator("CELERY_BROKER_URL", mode="before")
     @classmethod
