@@ -25,13 +25,13 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
 
     # Security
-    SECRET_KEY: str = Field(..., description="Secret key for JWT tokens")
+    SECRET_KEY: str = Field(default="change-me-in-production-use-a-long-random-string", description="Secret key for JWT tokens")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
 
     # Database
-    DATABASE_URL: str = Field(..., description="PostgreSQL database URL")
+    DATABASE_URL: str = Field(default="mysql+aiomysql://root:password@localhost:3306/voicecon", description="Database URL")
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
 
