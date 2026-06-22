@@ -7,8 +7,7 @@ from decimal import Decimal
 from typing import Optional
 import uuid
 
-from sqlalchemy import String, Integer, Numeric, ForeignKey, Text, DateTime, Boolean, Index
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import String, Integer, Numeric, ForeignKey, Text, DateTime, Boolean, Index, JSON, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,7 +18,7 @@ class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
@@ -43,7 +42,7 @@ class SubscriptionPlan(Base):
     overage_rate_per_call: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0.05"))
 
     # Features
-    features: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # JSON feature flags
+    features: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)  # JSON feature flags
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -72,13 +71,13 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
     plan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=False
     )
 
     # Stripe data
@@ -106,7 +105,7 @@ class Subscription(Base):
     current_period_calls: Mapped[int] = mapped_column(Integer, default=0)
 
     # Metadata
-    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -134,13 +133,13 @@ class UsageRecord(Base):
     __tablename__ = "usage_records"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
 
     # Usage details
@@ -151,7 +150,7 @@ class UsageRecord(Base):
 
     # Reference
     resource_type: Mapped[Optional[str]] = mapped_column(String(50))  # call, agent, etc.
-    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
 
     # Stripe data
     stripe_usage_record_id: Mapped[Optional[str]] = mapped_column(String(255))
@@ -162,7 +161,7 @@ class UsageRecord(Base):
     period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Metadata
-    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -181,13 +180,13 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
 
     # Stripe data
@@ -223,7 +222,7 @@ class Invoice(Base):
     charge_id: Mapped[Optional[str]] = mapped_column(String(255))
 
     # Line items
-    line_items: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    line_items: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Attempt tracking
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -231,7 +230,7 @@ class Invoice(Base):
     next_payment_attempt: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     # Metadata
-    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    stripe_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -256,13 +255,13 @@ class PaymentFailure(Base):
     __tablename__ = "payment_failures"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("invoices.id"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
 
     # Failure details

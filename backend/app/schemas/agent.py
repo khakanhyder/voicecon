@@ -11,37 +11,21 @@ from uuid import UUID
 # LLM Configuration
 class LLMConfig(BaseModel):
     """LLM configuration schema."""
-    provider: str = Field(default="openai", description="LLM provider (openai, anthropic)")
-    model: str = Field(default="gpt-4", description="Model name")
+    provider: str = Field(default="openai", description="LLM provider")
+    model: str = Field(default="gpt-5.4-nano", description="Model name")
     temperature: Decimal = Field(default=Decimal("0.7"), ge=0, le=2, description="Temperature (0-2)")
     max_tokens: int = Field(default=1000, ge=1, le=4000, description="Max tokens")
     api_key: Optional[str] = Field(default=None, description="Custom API key (will be encrypted)")
-
-    @validator("provider")
-    def validate_provider(cls, v):
-        """Validate LLM provider."""
-        allowed = ["openai", "anthropic"]
-        if v not in allowed:
-            raise ValueError(f"Provider must be one of: {allowed}")
-        return v
 
 
 # Voice/TTS Configuration
 class VoiceConfig(BaseModel):
     """Voice/TTS configuration schema."""
     provider: str = Field(default="elevenlabs", description="TTS provider")
-    voice_id: Optional[str] = Field(default="rachel", description="Voice ID or name")
+    voice_id: Optional[str] = Field(default="21m00Tcm4TlvDq8ikWAM", description="Voice ID or name")
     speed: Decimal = Field(default=Decimal("1.0"), ge=0.5, le=2.0, description="Speech speed")
     pitch: Decimal = Field(default=Decimal("1.0"), ge=0.5, le=2.0, description="Speech pitch")
     api_key: Optional[str] = Field(default=None, description="Custom API key")
-
-    @validator("provider")
-    def validate_provider(cls, v):
-        """Validate TTS provider."""
-        allowed = ["elevenlabs", "google", "azure", "openai"]
-        if v not in allowed:
-            raise ValueError(f"Provider must be one of: {allowed}")
-        return v
 
 
 # STT Configuration
@@ -51,14 +35,6 @@ class STTConfig(BaseModel):
     language: str = Field(default="en", description="Language code")
     model: Optional[str] = Field(default="nova-2", description="Model name")
     api_key: Optional[str] = Field(default=None, description="Custom API key")
-
-    @validator("provider")
-    def validate_provider(cls, v):
-        """Validate STT provider."""
-        allowed = ["deepgram", "google", "azure", "whisper"]
-        if v not in allowed:
-            raise ValueError(f"Provider must be one of: {allowed}")
-        return v
 
 
 # Conversation Settings

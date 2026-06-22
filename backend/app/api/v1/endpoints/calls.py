@@ -169,7 +169,7 @@ async def create_call(
         to_number=call_data.to_number,
         direction="outbound",
         status="initiated",
-        start_time=datetime.utcnow(),
+        started_at=datetime.utcnow(),
     )
 
     db.add(call)
@@ -233,7 +233,7 @@ async def list_calls(
         query = query.where(Call.status == status)
 
     # Order by most recent
-    query = query.order_by(Call.start_time.desc())
+    query = query.order_by(Call.started_at.desc())
 
     # Get total count
     count_query = select(Call).where(Call.user_id == current_user.id)
@@ -256,6 +256,119 @@ async def list_calls(
         "skip": skip,
         "limit": limit,
     }
+
+
+@router.get("/stats")
+async def get_call_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get call statistics for the current user.
+    """
+    from sqlalchemy import func
+
+    total_calls_result = await db.execute(
+        select(func.count(Call.id)).where(Call.user_id == current_user.id)
+    )
+    total_calls = total_calls_result.scalar()
+
+    completed_calls_result = await db.execute(
+        select(func.count(Call.id)).where(
+            and_(
+                Call.user_id == current_user.id,
+                Call.status == "completed"
+            )
+        )
+    )
+    completed_calls = completed_calls_result.scalar()
+
+    duration_result = await db.execute(
+        select(func.sum(Call.duration_seconds)).where(Call.user_id == current_user.id)
+    )
+    total_duration = duration_result.scalar() or 0
+
+    cost_result = await db.execute(
+        select(func.sum(Call.cost_total)).where(Call.user_id == current_user.id)
+    )
+    total_cost = cost_result.scalar() or 0
+
+    call_manager = get_call_manager()
+    active_calls = await call_manager.get_active_calls_count()
+
+    return {
+        "total_calls": total_calls,
+        "completed_calls": completed_calls,
+        "active_calls": active_calls,
+        "total_duration_seconds": total_duration,
+        "total_duration_minutes": round(total_duration / 60, 2),
+        "total_cost": float(total_cost),
+        "average_duration_seconds": round(total_duration / total_calls, 2) if total_calls > 0 else 0,
+        "completion_rate": round(completed_calls / total_calls * 100, 2) if total_calls > 0 else 0,
+    }
+
+
+# Phone Number Management
+
+@router.post("/phone-numbers", response_model=PhoneNumberResponse, status_code=status.HTTP_201_CREATED)
+async def create_phone_number(
+    phone_data: PhoneNumberCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Register a new phone number.
+    """
+    result = await db.execute(
+        select(PhoneNumber).where(
+            PhoneNumber.phone_number == phone_data.phone_number
+        )
+    )
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phone number already registered",
+        )
+
+    phone_number = PhoneNumber(
+        user_id=current_user.id,
+        organization_id=current_user.organizations[0].id if current_user.organizations else None,
+        phone_number=phone_data.phone_number,
+        provider="twilio",
+        capabilities={"voice": True, "sms": True},
+        status="active",
+    )
+
+    db.add(phone_number)
+    await db.commit()
+    await db.refresh(phone_number)
+
+    logger.info(f"Phone number created: {phone_number.id} ({phone_data.phone_number})")
+
+    return phone_number
+
+
+@router.get("/phone-numbers", response_model=list[PhoneNumberResponse])
+async def list_phone_numbers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List all phone numbers for the current user.
+    """
+    result = await db.execute(
+        select(PhoneNumber).where(
+            and_(
+                PhoneNumber.user_id == current_user.id,
+                PhoneNumber.status == "active"
+            )
+        ).order_by(PhoneNumber.created_at.desc())
+    )
+    phone_numbers = result.scalars().all()
+
+    return phone_numbers
 
 
 @router.get("/{call_id}", response_model=CallResponse)
@@ -294,8 +407,6 @@ async def delete_call(
 ):
     """
     Delete a call record.
-
-    Note: This only deletes the record, it cannot cancel an active call.
     """
     result = await db.execute(
         select(Call).where(
@@ -317,123 +428,3 @@ async def delete_call(
     await db.commit()
 
 
-# Phone Number Management
-
-@router.post("/phone-numbers", response_model=PhoneNumberResponse, status_code=status.HTTP_201_CREATED)
-async def create_phone_number(
-    phone_data: PhoneNumberCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Register a new phone number.
-
-    TODO: Integrate with telephony provider to provision number.
-    """
-    # Check if number already exists
-    result = await db.execute(
-        select(PhoneNumber).where(
-            PhoneNumber.phone_number == phone_data.phone_number
-        )
-    )
-    existing = result.scalar_one_or_none()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone number already registered",
-        )
-
-    # Create phone number record
-    phone_number = PhoneNumber(
-        user_id=current_user.id,
-        organization_id=current_user.organizations[0].id if current_user.organizations else None,
-        phone_number=phone_data.phone_number,
-        provider="twilio",  # TODO: Make configurable
-        capabilities={"voice": True, "sms": True},
-        is_active=True,
-    )
-
-    db.add(phone_number)
-    await db.commit()
-    await db.refresh(phone_number)
-
-    logger.info(f"Phone number created: {phone_number.id} ({phone_data.phone_number})")
-
-    return phone_number
-
-
-@router.get("/phone-numbers", response_model=list[PhoneNumberResponse])
-async def list_phone_numbers(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    List all phone numbers for the current user.
-    """
-    result = await db.execute(
-        select(PhoneNumber).where(
-            and_(
-                PhoneNumber.user_id == current_user.id,
-                PhoneNumber.is_active == True
-            )
-        ).order_by(PhoneNumber.created_at.desc())
-    )
-    phone_numbers = result.scalars().all()
-
-    return phone_numbers
-
-
-@router.get("/stats")
-async def get_call_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Get call statistics for the current user.
-    """
-    from sqlalchemy import func
-
-    # Total calls
-    total_calls_result = await db.execute(
-        select(func.count(Call.id)).where(Call.user_id == current_user.id)
-    )
-    total_calls = total_calls_result.scalar()
-
-    # Completed calls
-    completed_calls_result = await db.execute(
-        select(func.count(Call.id)).where(
-            and_(
-                Call.user_id == current_user.id,
-                Call.status == "completed"
-            )
-        )
-    )
-    completed_calls = completed_calls_result.scalar()
-
-    # Total duration (in minutes)
-    duration_result = await db.execute(
-        select(func.sum(Call.duration)).where(Call.user_id == current_user.id)
-    )
-    total_duration = duration_result.scalar() or 0
-
-    # Total cost
-    cost_result = await db.execute(
-        select(func.sum(Call.cost)).where(Call.user_id == current_user.id)
-    )
-    total_cost = cost_result.scalar() or 0
-
-    # Active calls count
-    call_manager = get_call_manager()
-    active_calls = await call_manager.get_active_calls_count()
-
-    return {
-        "total_calls": total_calls,
-        "completed_calls": completed_calls,
-        "active_calls": active_calls,
-        "total_duration_seconds": total_duration,
-        "total_duration_minutes": round(total_duration / 60, 2),
-        "total_cost": float(total_cost),
-        "average_duration_seconds": round(total_duration / total_calls, 2) if total_calls > 0 else 0,
-        "completion_rate": round(completed_calls / total_calls * 100, 2) if total_calls > 0 else 0,
-    }

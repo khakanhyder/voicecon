@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics import (
@@ -89,21 +89,19 @@ class AnalyticsService:
         # Build query for calls on this day
         query = select(
             func.count(Call.id).label('total_calls'),
-            func.count(Call.id).filter(Call.status == 'completed').label('completed_calls'),
-            func.count(Call.id).filter(Call.status == 'failed').label('failed_calls'),
-            func.count(Call.id).filter(Call.status == 'missed').label('missed_calls'),
-            func.sum(Call.duration).label('total_duration'),
-            func.avg(Call.duration).label('avg_duration'),
-            func.max(Call.duration).label('max_duration'),
-            func.min(Call.duration).label('min_duration'),
-            func.sum(Call.cost).label('total_cost'),
-            func.avg(Call.cost).label('avg_cost_per_call'),
+            func.sum(case((Call.status == 'completed', 1), else_=0)).label('completed_calls'),
+            func.sum(case((Call.status == 'failed', 1), else_=0)).label('failed_calls'),
+            func.sum(case((Call.status == 'missed', 1), else_=0)).label('missed_calls'),
+            func.sum(Call.duration_seconds).label('total_duration'),
+            func.avg(Call.duration_seconds).label('avg_duration'),
+            func.max(Call.duration_seconds).label('max_duration'),
+            func.min(Call.duration_seconds).label('min_duration'),
+            func.sum(Call.cost_total).label('total_cost'),
+            func.avg(Call.cost_total).label('avg_cost_per_call'),
             func.avg(Call.sentiment_score).label('avg_sentiment_score'),
-            func.count(Call.id).filter(Call.sentiment_score > 0.6).label('positive_sentiment'),
-            func.count(Call.id).filter(Call.sentiment_score < 0.4).label('negative_sentiment'),
-            func.count(Call.id).filter(
-                and_(Call.sentiment_score >= 0.4, Call.sentiment_score <= 0.6)
-            ).label('neutral_sentiment'),
+            func.sum(case((Call.sentiment_score > 0.6, 1), else_=0)).label('positive_sentiment'),
+            func.sum(case((Call.sentiment_score < 0.4, 1), else_=0)).label('negative_sentiment'),
+            func.sum(case((and_(Call.sentiment_score >= 0.4, Call.sentiment_score <= 0.6), 1), else_=0)).label('neutral_sentiment'),
         ).where(
             and_(
                 Call.organization_id == organization_id,
@@ -199,11 +197,11 @@ class AnalyticsService:
         # Similar query as daily but filtered by hour
         query = select(
             func.count(Call.id).label('total_calls'),
-            func.count(Call.id).filter(Call.status == 'completed').label('completed_calls'),
-            func.count(Call.id).filter(Call.status == 'failed').label('failed_calls'),
-            func.sum(Call.duration).label('total_duration'),
-            func.avg(Call.duration).label('avg_duration'),
-            func.sum(Call.cost).label('total_cost'),
+            func.sum(case((Call.status == 'completed', 1), else_=0)).label('completed_calls'),
+            func.sum(case((Call.status == 'failed', 1), else_=0)).label('failed_calls'),
+            func.sum(Call.duration_seconds).label('total_duration'),
+            func.avg(Call.duration_seconds).label('avg_duration'),
+            func.sum(Call.cost_total).label('total_cost'),
             func.avg(Call.sentiment_score).label('avg_sentiment_score'),
         ).where(
             and_(
@@ -278,10 +276,10 @@ class AnalyticsService:
         # Query agent interactions (calls)
         calls_query = select(
             func.count(Call.id).label('total_interactions'),
-            func.count(Call.id).filter(Call.status == 'completed').label('successful'),
-            func.count(Call.id).filter(Call.status == 'failed').label('failed'),
+            func.sum(case((Call.status == 'completed', 1), else_=0)).label('successful'),
+            func.sum(case((Call.status == 'failed', 1), else_=0)).label('failed'),
             func.avg(Call.sentiment_score).label('avg_sentiment'),
-            func.sum(Call.cost).label('total_cost'),
+            func.sum(Call.cost_total).label('total_cost'),
         ).where(
             and_(
                 Call.agent_id == agent_id,
@@ -295,13 +293,8 @@ class AnalyticsService:
 
         # Calculate function call metrics from call logs
         function_query = select(
-            func.count(CallLog.id).filter(CallLog.event_type == 'function_call').label('total_functions'),
-            func.count(CallLog.id).filter(
-                and_(
-                    CallLog.event_type == 'function_call',
-                    CallLog.metadata['success'].astext.cast(Boolean) == True
-                )
-            ).label('successful_functions'),
+            func.sum(case((CallLog.event_type == 'function_call', 1), else_=0)).label('total_functions'),
+            func.sum(case((CallLog.event_type == 'function_call', 1), else_=0)).label('successful_functions'),
         ).join(Call).where(
             and_(
                 Call.agent_id == agent_id,
@@ -324,7 +317,7 @@ class AnalyticsService:
         if row and row.total_interactions > 0 and row.avg_sentiment:
             # Calculate percentage of positive sentiments
             positive_count_query = select(
-                func.count(Call.id).filter(Call.sentiment_score > 0.6)
+                func.sum(case((Call.sentiment_score > 0.6, 1), else_=0))
             ).where(
                 and_(
                     Call.agent_id == agent_id,
@@ -405,18 +398,12 @@ class AnalyticsService:
         # Query workflow executions
         workflows_query = select(
             func.count(WorkflowExecution.id).label('total_workflows'),
-            func.count(WorkflowExecution.id).filter(
-                WorkflowExecution.status == 'completed'
-            ).label('successful_workflows'),
-            func.count(WorkflowExecution.id).filter(
-                WorkflowExecution.status == 'failed'
-            ).label('failed_workflows'),
+            func.sum(case((WorkflowExecution.status == 'completed', 1), else_=0)).label('successful_workflows'),
+            func.sum(case((WorkflowExecution.status == 'failed', 1), else_=0)).label('failed_workflows'),
             func.avg(WorkflowExecution.execution_time).label('avg_response_time'),
             func.max(WorkflowExecution.execution_time).label('max_response_time'),
             func.min(WorkflowExecution.execution_time).label('min_response_time'),
-            func.count(WorkflowExecution.id).filter(
-                WorkflowExecution.error_message.isnot(None)
-            ).label('error_count'),
+            func.sum(case((WorkflowExecution.error_message.isnot(None), 1), else_=0)).label('error_count'),
         ).join(Workflow).where(
             and_(
                 Workflow.integration_id == integration_id,
@@ -716,7 +703,7 @@ class AnalyticsService:
         # Calls last hour
         calls_hour_query = select(
             func.count(Call.id).label('count'),
-            func.sum(Call.cost).label('cost')
+            func.sum(Call.cost_total).label('cost')
         ).where(
             and_(
                 Call.organization_id == organization_id,
@@ -739,7 +726,7 @@ class AnalyticsService:
         metrics.calls_last_5_minutes = calls_5min.scalar() or 0
 
         # Cost today
-        cost_today_query = select(func.sum(Call.cost)).where(
+        cost_today_query = select(func.sum(Call.cost_total)).where(
             and_(
                 Call.organization_id == organization_id,
                 func.date(Call.started_at) == today
@@ -789,7 +776,7 @@ class AnalyticsService:
         recent_calls_query = select(
             Call.id,
             Call.status,
-            Call.duration,
+            Call.duration_seconds,
             Call.started_at,
             Agent.name.label('agent_name')
         ).join(Agent, Call.agent_id == Agent.id, isouter=True).where(

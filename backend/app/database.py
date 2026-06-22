@@ -9,9 +9,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 
-# Convert postgres:// to postgresql:// for SQLAlchemy
-DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") \
-    if "postgresql://" in settings.DATABASE_URL else settings.DATABASE_URL
+# Build async URL: mysql:// → mysql+aiomysql://
+_raw_url = settings.DATABASE_URL
+if _raw_url.startswith("mysql://"):
+    DATABASE_URL = _raw_url.replace("mysql://", "mysql+aiomysql://", 1)
+elif _raw_url.startswith("mysql+aiomysql://"):
+    DATABASE_URL = _raw_url
+else:
+    DATABASE_URL = _raw_url
 
 # Async engine for async operations
 async_engine = create_async_engine(
@@ -31,9 +36,8 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
-# Sync engine for Alembic migrations
-SYNC_DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://") \
-    if "postgresql://" in settings.DATABASE_URL else settings.DATABASE_URL
+# Build sync URL for Alembic: mysql+aiomysql:// → mysql+pymysql://
+SYNC_DATABASE_URL = DATABASE_URL.replace("mysql+aiomysql://", "mysql+pymysql://", 1)
 
 sync_engine = create_engine(
     SYNC_DATABASE_URL,

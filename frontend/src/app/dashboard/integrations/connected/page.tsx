@@ -1,13 +1,34 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConnectionStatus } from '@/components/integrations/ConnectionStatus';
+import { apiClient } from '@/lib/api';
+import { API_ENDPOINTS } from '@/lib/constants';
+import { toast } from 'sonner';
+
+interface ApiConnection {
+  id: string;
+  name: string | null;
+  status: string;
+  is_active: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  connector: {
+    id: string;
+    slug: string;
+    name: string;
+    category: string | null;
+    auth_type: string;
+  };
+}
 
 interface ConnectedIntegration {
+  connectionId: string;
   slug: string;
   name: string;
   icon: string;
@@ -18,20 +39,26 @@ interface ConnectedIntegration {
   authType: string;
 }
 
-const integrationMetadata: Record<string, { name: string; icon: string; category: string }> = {
-  salesforce: { name: 'Salesforce', icon: '🔷', category: 'crm' },
-  hubspot: { name: 'HubSpot', icon: '🟠', category: 'crm' },
-  'google-calendar': { name: 'Google Calendar', icon: '📅', category: 'calendar' },
-  slack: { name: 'Slack', icon: '💬', category: 'communication' },
-  twilio: { name: 'Twilio', icon: '📞', category: 'communication' },
-  zapier: { name: 'Zapier', icon: '⚡', category: 'productivity' },
-  'google-sheets': { name: 'Google Sheets', icon: '📊', category: 'productivity' },
-  airtable: { name: 'Airtable', icon: '🗂️', category: 'productivity' },
-  stripe: { name: 'Stripe', icon: '💳', category: 'other' },
-  calendly: { name: 'Calendly', icon: '🗓️', category: 'calendar' },
-  zendesk: { name: 'Zendesk', icon: '🎫', category: 'crm' },
-  'microsoft-teams': { name: 'Microsoft Teams', icon: '👥', category: 'communication' },
+const catalogMetadata: Record<string, { icon: string; category: string }> = {
+  salesforce: { icon: '🔷', category: 'crm' },
+  hubspot: { icon: '🟠', category: 'crm' },
+  'google-calendar': { icon: '📅', category: 'calendar' },
+  slack: { icon: '💬', category: 'communication' },
+  twilio: { icon: '📞', category: 'communication' },
+  zapier: { icon: '⚡', category: 'productivity' },
+  'google-sheets': { icon: '📊', category: 'productivity' },
+  airtable: { icon: '🗂️', category: 'productivity' },
+  stripe: { icon: '💳', category: 'other' },
+  calendly: { icon: '🗓️', category: 'calendar' },
+  zendesk: { icon: '🎫', category: 'crm' },
+  'microsoft-teams': { icon: '👥', category: 'communication' },
 };
+
+function apiStatusToDisplay(s: string): 'connected' | 'error' | 'pending' {
+  if (s === 'active') return 'connected';
+  if (s === 'error' || s === 'expired') return 'error';
+  return 'pending';
+}
 
 export default function ConnectedIntegrationsPage() {
   const router = useRouter();
@@ -39,97 +66,72 @@ export default function ConnectedIntegrationsPage() {
   const [connectedIntegrations, setConnectedIntegrations] = useState<ConnectedIntegration[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadConnectedIntegrations();
+  const loadConnectedIntegrations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get<{ connections: ApiConnection[]; total: number }>(
+        API_ENDPOINTS.INTEGRATION_CONNECTIONS
+      );
+      const mapped: ConnectedIntegration[] = res.data.connections.map((conn) => {
+        const slug = conn.connector.slug;
+        const meta = catalogMetadata[slug] || { icon: '🔗', category: 'other' };
+        return {
+          connectionId: conn.id,
+          slug,
+          name: conn.connector.name,
+          icon: meta.icon,
+          category: conn.connector.category || meta.category,
+          connectedAt: conn.created_at,
+          status: apiStatusToDisplay(conn.status),
+          lastSync: conn.last_sync_at || undefined,
+          authType: conn.connector.auth_type,
+        };
+      });
+      setConnectedIntegrations(mapped);
+    } catch {
+      setConnectedIntegrations([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const loadConnectedIntegrations = () => {
-    setLoading(true);
-
-    // Load from localStorage (in production, fetch from API)
-    const connected = localStorage.getItem('connected_integrations');
-    const statuses = JSON.parse(localStorage.getItem('integration_statuses') || '{}');
-
-    if (connected) {
-      try {
-        const slugs = JSON.parse(connected);
-        const integrations: ConnectedIntegration[] = slugs.map((slug: string) => {
-          const connectionData = localStorage.getItem(`integration_${slug}`);
-          const data = connectionData ? JSON.parse(connectionData) : {};
-          const metadata = integrationMetadata[slug] || {
-            name: slug,
-            icon: '🔗',
-            category: 'other',
-          };
-
-          return {
-            slug,
-            ...metadata,
-            connectedAt: data.connectedAt || new Date().toISOString(),
-            status: statuses[slug] || 'connected',
-            lastSync: data.lastSync,
-            authType: data.authType || 'oauth2',
-          };
-        });
-
-        setConnectedIntegrations(integrations);
-      } catch (error) {
-        console.error('Error loading connected integrations:', error);
-      }
-    }
-
-    setLoading(false);
-  };
-
-  const handleDisconnect = (slug: string) => {
-    if (!confirm(`Are you sure you want to disconnect ${integrationMetadata[slug]?.name || slug}?`)) {
-      return;
-    }
-
-    // Remove from connected integrations
-    const connected = localStorage.getItem('connected_integrations');
-    if (connected) {
-      const connectedSet = new Set(JSON.parse(connected));
-      connectedSet.delete(slug);
-      localStorage.setItem('connected_integrations', JSON.stringify([...connectedSet]));
-    }
-
-    // Remove status
-    const statuses = JSON.parse(localStorage.getItem('integration_statuses') || '{}');
-    delete statuses[slug];
-    localStorage.setItem('integration_statuses', JSON.stringify(statuses));
-
-    // Remove connection data
-    localStorage.removeItem(`integration_${slug}`);
-
-    // Reload
+  useEffect(() => {
     loadConnectedIntegrations();
+  }, [loadConnectedIntegrations]);
+
+  const handleDisconnect = async (slug: string) => {
+    const integration = connectedIntegrations.find((i) => i.slug === slug);
+    if (!integration) return;
+    if (!confirm(`Are you sure you want to disconnect ${integration.name}?`)) return;
+
+    try {
+      await apiClient.delete(API_ENDPOINTS.INTEGRATION_CONNECTION(integration.connectionId));
+      toast.success(`${integration.name} disconnected`);
+      await loadConnectedIntegrations();
+    } catch {
+      toast.error('Failed to disconnect integration');
+    }
   };
 
   const handleTestConnection = async (slug: string) => {
-    // Update status to pending
-    const statuses = JSON.parse(localStorage.getItem('integration_statuses') || '{}');
-    statuses[slug] = 'pending';
-    localStorage.setItem('integration_statuses', JSON.stringify(statuses));
-    loadConnectedIntegrations();
+    const integration = connectedIntegrations.find((i) => i.slug === slug);
+    if (!integration) return;
 
-    // Simulate connection test
-    setTimeout(() => {
-      const success = Math.random() > 0.2; // 80% success rate
-      const statuses = JSON.parse(localStorage.getItem('integration_statuses') || '{}');
-      statuses[slug] = success ? 'connected' : 'error';
-      localStorage.setItem('integration_statuses', JSON.stringify(statuses));
+    // Optimistically set to pending
+    setConnectedIntegrations((prev) =>
+      prev.map((i) => (i.slug === slug ? { ...i, status: 'pending' } : i))
+    );
 
-      // Update last sync
-      const connectionData = localStorage.getItem(`integration_${slug}`);
-      if (connectionData) {
-        const data = JSON.parse(connectionData);
-        data.lastSync = new Date().toISOString();
-        localStorage.setItem(`integration_${slug}`, JSON.stringify(data));
-      }
-
-      loadConnectedIntegrations();
-    }, 2000);
+    try {
+      await apiClient.post(
+        API_ENDPOINTS.INTEGRATION_CONNECTION_TEST(integration.connectionId)
+      );
+      toast.success(`${integration.name} connection verified`);
+    } catch {
+      toast.error(`${integration.name} connection test failed`);
+    } finally {
+      await loadConnectedIntegrations();
+    }
   };
 
   const filteredIntegrations = connectedIntegrations.filter(
@@ -158,9 +160,7 @@ export default function ConnectedIntegrationsPage() {
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Connected Integrations</h1>
-              <p className="text-gray-600">
-                Manage your active integration connections
-              </p>
+              <p className="text-gray-600">Manage your active integration connections</p>
             </div>
           </div>
 
@@ -172,7 +172,7 @@ export default function ConnectedIntegrationsPage() {
                 <span className="text-sm font-medium">Total Connected</span>
               </div>
               <div className="text-2xl font-bold text-blue-900">
-                {connectedIntegrations.length}
+                {loading ? '—' : connectedIntegrations.length}
               </div>
             </div>
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -180,7 +180,9 @@ export default function ConnectedIntegrationsPage() {
                 <CheckCircle className="w-5 h-5" />
                 <span className="text-sm font-medium">Active</span>
               </div>
-              <div className="text-2xl font-bold text-green-900">{connectedCount}</div>
+              <div className="text-2xl font-bold text-green-900">
+                {loading ? '—' : connectedCount}
+              </div>
             </div>
             {errorCount > 0 && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -211,18 +213,20 @@ export default function ConnectedIntegrationsPage() {
       <div className="max-w-6xl mx-auto px-6 py-8">
         {loading ? (
           <div className="text-center py-12">
-            <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-600">Loading integrations...</p>
           </div>
         ) : filteredIntegrations.length > 0 ? (
           <div className="space-y-4">
             {filteredIntegrations.map((integration) => (
               <ConnectionStatus
-                key={integration.slug}
+                key={integration.connectionId}
                 integration={integration}
                 onTest={() => handleTestConnection(integration.slug)}
                 onDisconnect={() => handleDisconnect(integration.slug)}
-                onConfigure={() => router.push(`/dashboard/integrations/${integration.slug}`)}
+                onConfigure={() =>
+                  router.push(`/dashboard/integrations/${integration.slug}`)
+                }
               />
             ))}
           </div>
@@ -234,9 +238,7 @@ export default function ConnectedIntegrationsPage() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
                   No integrations found
                 </h3>
-                <p className="text-gray-600 mb-6">
-                  Try adjusting your search query
-                </p>
+                <p className="text-gray-600 mb-6">Try adjusting your search query</p>
               </>
             ) : (
               <>
@@ -244,9 +246,7 @@ export default function ConnectedIntegrationsPage() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
                   No Connected Integrations
                 </h3>
-                <p className="text-gray-600 mb-6">
-                  Start by connecting your first integration
-                </p>
+                <p className="text-gray-600 mb-6">Start by connecting your first integration</p>
                 <Button onClick={() => router.push('/dashboard/integrations')}>
                   Browse Integrations
                 </Button>

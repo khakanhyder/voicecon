@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.core.dependencies import get_current_active_user
-from app.models.user import User
+from app.core.dependencies import get_current_active_user, get_current_user_organization
+from app.models.user import User, Organization
 from app.services.analytics import AnalyticsService
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,7 @@ async def get_call_metrics(
     end_date: date = Query(..., description="End date"),
     agent_id: Optional[str] = Query(None, description="Filter by agent"),
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -140,7 +141,7 @@ async def get_call_metrics(
 
         # Get aggregated metrics
         metrics = await analytics_service.aggregate_call_metrics(
-            organization_id=current_user.organization_id,
+            organization_id=organization.id,
             start_date=start_date,
             end_date=end_date,
             granularity="daily",
@@ -213,6 +214,7 @@ async def get_agent_metrics(
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -228,7 +230,7 @@ async def get_agent_metrics(
 
         while current_date <= end_date:
             metrics = await analytics_service.aggregate_agent_metrics(
-                organization_id=current_user.organization_id,
+                organization_id=organization.id,
                 agent_id=agent_uuid,
                 metric_date=current_date
             )
@@ -284,6 +286,7 @@ async def get_integration_metrics(
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -299,7 +302,7 @@ async def get_integration_metrics(
 
         while current_date <= end_date:
             metrics = await analytics_service.aggregate_integration_metrics(
-                organization_id=current_user.organization_id,
+                organization_id=organization.id,
                 integration_id=integration_uuid,
                 metric_date=current_date
             )
@@ -348,6 +351,7 @@ async def get_integration_metrics(
 async def get_daily_summary(
     summary_date: date = Query(..., description="Summary date"),
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -359,7 +363,7 @@ async def get_daily_summary(
         analytics_service = AnalyticsService(db)
 
         summary = await analytics_service.generate_daily_summary(
-            organization_id=current_user.organization_id,
+            organization_id=organization.id,
             summary_date=summary_date
         )
 
@@ -394,6 +398,7 @@ async def get_daily_summary(
 @router.get("/realtime", response_model=RealTimeMetricsResponse)
 async def get_realtime_metrics(
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -405,7 +410,7 @@ async def get_realtime_metrics(
         analytics_service = AnalyticsService(db)
 
         metrics = await analytics_service.update_realtime_metrics(
-            organization_id=current_user.organization_id
+            organization_id=organization.id
         )
 
         return RealTimeMetricsResponse(
@@ -436,6 +441,7 @@ async def trigger_aggregation(
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
@@ -450,7 +456,7 @@ async def trigger_aggregation(
         # Trigger aggregation in background
         background_tasks.add_task(
             analytics_service.aggregate_call_metrics,
-            organization_id=current_user.organization_id,
+            organization_id=organization.id,
             start_date=start_date,
             end_date=end_date,
             granularity="daily"
@@ -473,6 +479,7 @@ async def trigger_aggregation(
 @router.get("/dashboard")
 async def get_dashboard_summary(
     current_user: User = Depends(get_current_active_user),
+    organization: Organization = Depends(get_current_user_organization),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -486,12 +493,20 @@ async def get_dashboard_summary(
 
         # Get real-time metrics
         realtime = await analytics_service.update_realtime_metrics(
-            organization_id=current_user.organization_id
+            organization_id=organization.id
+        )
+
+        # Pre-aggregate today's call metrics so generate_daily_summary reads fresh data
+        await analytics_service.aggregate_call_metrics(
+            organization_id=organization.id,
+            start_date=today,
+            end_date=today,
+            granularity="daily",
         )
 
         # Get today's summary (or generate if doesn't exist)
         summary = await analytics_service.generate_daily_summary(
-            organization_id=current_user.organization_id,
+            organization_id=organization.id,
             summary_date=today
         )
 

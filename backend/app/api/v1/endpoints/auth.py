@@ -2,6 +2,7 @@
 Authentication endpoints for user login, registration, and token management.
 """
 from datetime import datetime
+import uuid as _uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -157,7 +158,7 @@ async def refresh_token(
         raise credentials_exception()
 
     # Verify user still exists and is active
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_active:

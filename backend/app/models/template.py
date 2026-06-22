@@ -6,8 +6,7 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-from sqlalchemy import String, Integer, Text, ForeignKey, DateTime, Boolean, Numeric, Index
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy import String, Integer, Text, ForeignKey, DateTime, Boolean, Numeric, Index, JSON, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,7 +17,7 @@ class AgentTemplate(Base):
     __tablename__ = "agent_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Basic Information
@@ -29,19 +28,19 @@ class AgentTemplate(Base):
 
     # Categorization
     category: Mapped[str] = mapped_column(String(100), nullable=False)  # customer_support, sales, etc.
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     # Template Configuration
     version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.0.0")
-    agent_config: Mapped[dict] = mapped_column(JSONB, nullable=False)  # Agent configuration
+    agent_config: Mapped[dict] = mapped_column(JSON, nullable=False)  # Agent configuration
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     first_message: Mapped[Optional[str]] = mapped_column(Text)
-    functions: Mapped[Optional[list]] = mapped_column(JSONB)  # Pre-configured functions
+    functions: Mapped[Optional[list]] = mapped_column(JSON)  # Pre-configured functions
 
     # Visual Assets
     icon: Mapped[Optional[str]] = mapped_column(String(500))  # Icon URL or emoji
     banner_image: Mapped[Optional[str]] = mapped_column(String(500))
-    screenshots: Mapped[Optional[list]] = mapped_column(JSONB)  # Array of screenshot URLs
+    screenshots: Mapped[Optional[list]] = mapped_column(JSON)  # Array of screenshot URLs
 
     # Author Information
     author_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -60,16 +59,16 @@ class AgentTemplate(Base):
     review_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Customization Options
-    customizable_fields: Mapped[Optional[list]] = mapped_column(JSONB)  # Fields users can customize
-    required_integrations: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))  # Required integration types
+    customizable_fields: Mapped[Optional[list]] = mapped_column(JSON)  # Fields users can customize
+    required_integrations: Mapped[Optional[list[str]]] = mapped_column(JSON)  # Required integration types
 
     # Documentation
     setup_guide: Mapped[Optional[str]] = mapped_column(Text)  # Markdown setup instructions
-    use_cases: Mapped[Optional[list]] = mapped_column(JSONB)  # Example use cases
+    use_cases: Mapped[Optional[list]] = mapped_column(JSON)  # Example use cases
     demo_url: Mapped[Optional[str]] = mapped_column(String(500))
 
     # Metadata
-    template_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    template_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -97,7 +96,7 @@ class WorkflowTemplate(Base):
     __tablename__ = "workflow_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Basic Information
@@ -108,17 +107,17 @@ class WorkflowTemplate(Base):
 
     # Categorization
     category: Mapped[str] = mapped_column(String(100), nullable=False)
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     # Workflow Configuration
     version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.0.0")
-    workflow_definition: Mapped[dict] = mapped_column(JSONB, nullable=False)  # Complete workflow
-    trigger_config: Mapped[dict] = mapped_column(JSONB, nullable=False)  # Trigger configuration
+    workflow_definition: Mapped[dict] = mapped_column(JSON, nullable=False)  # Complete workflow
+    trigger_config: Mapped[dict] = mapped_column(JSON, nullable=False)  # Trigger configuration
 
     # Visual Assets
     icon: Mapped[Optional[str]] = mapped_column(String(500))
     banner_image: Mapped[Optional[str]] = mapped_column(String(500))
-    screenshots: Mapped[Optional[list]] = mapped_column(JSONB)
+    screenshots: Mapped[Optional[list]] = mapped_column(JSON)
 
     # Author Information
     author_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -137,15 +136,15 @@ class WorkflowTemplate(Base):
     review_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Requirements
-    required_integrations: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
-    compatible_agents: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))  # Agent template slugs
+    required_integrations: Mapped[Optional[list[str]]] = mapped_column(JSON)
+    compatible_agents: Mapped[Optional[list[str]]] = mapped_column(JSON)  # Agent template slugs
 
     # Documentation
     setup_guide: Mapped[Optional[str]] = mapped_column(Text)
-    use_cases: Mapped[Optional[list]] = mapped_column(JSONB)
+    use_cases: Mapped[Optional[list]] = mapped_column(JSON)
 
     # Metadata
-    template_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    template_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -173,30 +172,30 @@ class TemplateInstallation(Base):
     __tablename__ = "template_installations"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
 
     # Template References (one of these will be set)
     agent_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agent_templates.id")
+        Uuid(as_uuid=True), ForeignKey("agent_templates.id")
     )
     workflow_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflow_templates.id")
+        Uuid(as_uuid=True), ForeignKey("workflow_templates.id")
     )
 
     # Installation Details
     installed_version: Mapped[str] = mapped_column(String(50), nullable=False)
-    customizations: Mapped[Optional[dict]] = mapped_column(JSONB)  # User customizations
+    customizations: Mapped[Optional[dict]] = mapped_column(JSON)  # User customizations
 
     # Created Resources
     created_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id")
+        Uuid(as_uuid=True), ForeignKey("agents.id")
     )
     created_workflow_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflows.id")
+        Uuid(as_uuid=True), ForeignKey("workflows.id")
     )
 
     # Status
@@ -204,7 +203,7 @@ class TemplateInstallation(Base):
     uninstalled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     # Metadata
-    installation_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    installation_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Timestamps
     installed_at: Mapped[datetime] = mapped_column(
@@ -229,21 +228,21 @@ class TemplateReview(Base):
     __tablename__ = "template_reviews"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
 
     # Template References (one of these will be set)
     agent_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agent_templates.id")
+        Uuid(as_uuid=True), ForeignKey("agent_templates.id")
     )
     workflow_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflow_templates.id")
+        Uuid(as_uuid=True), ForeignKey("workflow_templates.id")
     )
 
     # Review Content
@@ -285,15 +284,15 @@ class TemplateVersion(Base):
     __tablename__ = "template_versions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Template References (one of these will be set)
     agent_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agent_templates.id")
+        Uuid(as_uuid=True), ForeignKey("agent_templates.id")
     )
     workflow_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflow_templates.id")
+        Uuid(as_uuid=True), ForeignKey("workflow_templates.id")
     )
 
     # Version Information
@@ -301,7 +300,7 @@ class TemplateVersion(Base):
     changelog: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Configuration Snapshot
-    config_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    config_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     # Release Information
     is_breaking_change: Mapped[bool] = mapped_column(Boolean, default=False)

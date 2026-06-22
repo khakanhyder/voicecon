@@ -544,6 +544,9 @@ async def agent_respond(
     max_tokens_cap = min(agent.llm_max_tokens or 150, 150)
 
     async def generate():
+        # Yield a keepalive SSE comment immediately so the HTTP response opens
+        # before any blocking LLM/TTS work begins.
+        yield ": keepalive\n\n"
         try:
             llm_service = get_llm_service()
             tts_service = get_tts_service()
@@ -571,34 +574,49 @@ async def agent_respond(
 
             full_response = ""
             sentence_buffer = ""
+            # Queue of in-flight TTS tasks — started immediately when a sentence is
+            # detected, running concurrently while the LLM keeps streaming tokens.
+            pending_tts: list[asyncio.Task] = []
 
-            async def tts_chunk(text: str):
-                """Synthesize one chunk and return SSE payload string."""
+            # Use the fastest model for voice; upgrade slow legacy defaults silently.
+            llm_model = agent.llm_model
+            if not llm_model or llm_model in ("gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o-mini", "gpt-4.1-nano"):
+                llm_model = "gpt-5.4-nano"
+
+            def _start_tts(text: str) -> "asyncio.Task | None":
+                """Fire-and-forget TTS task — never blocks the LLM loop."""
                 text = text.strip()
                 if len(text) < 2:
                     return None
-                try:
-                    tts_result = await tts_service.synthesize(
-                        text=text,
-                        provider=agent.tts_provider,
-                        voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
-                        model="eleven_flash_v2_5",
-                    )
-                    audio_b64 = base64.b64encode(tts_result.audio_data).decode()
-                    return json.dumps({
-                        "type": "sentence",
-                        "text": text,
-                        "audio_base64": audio_b64,
-                        "audio_format": tts_result.format or "mp3",
-                    })
-                except Exception as e:
-                    logger.error(f"TTS error: {e}")
-                    return json.dumps({"type": "sentence", "text": text, "audio_base64": None})
+
+                async def _synth() -> "str | None":
+                    try:
+                        tts_result = await asyncio.wait_for(
+                            tts_service.synthesize(
+                                text=text,
+                                provider=agent.tts_provider,
+                                voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+                                model="eleven_flash_v2_5",
+                            ),
+                            timeout=5.0,
+                        )
+                        audio_b64 = base64.b64encode(tts_result.audio_data).decode()
+                        return json.dumps({
+                            "type": "sentence",
+                            "text": text,
+                            "audio_base64": audio_b64,
+                            "audio_format": tts_result.format or "mp3",
+                        })
+                    except Exception as e:
+                        logger.warning(f"TTS error (text-only fallback): {e}")
+                        return json.dumps({"type": "sentence", "text": text, "audio_base64": None})
+
+                return asyncio.create_task(_synth())
 
             async for chunk in llm_service.chat_stream(
                 messages=messages,
                 provider=agent.llm_provider,
-                model=agent.llm_model,
+                model=llm_model,
                 temperature=float(agent.llm_temperature),
                 max_tokens=max_tokens_cap,
             ):
@@ -612,7 +630,7 @@ async def agent_respond(
                         flush_chunks.append(sentence_buffer[:m.start() + 1])
                         sentence_buffer = sentence_buffer[m.end():]
                         continue
-                    if len(sentence_buffer) >= 45:
+                    if len(sentence_buffer) >= 25:
                         m2 = re.search(r'(?<=[,;])\s+', sentence_buffer)
                         if m2:
                             flush_chunks.append(sentence_buffer[:m2.start() + 1])
@@ -620,18 +638,41 @@ async def agent_respond(
                             continue
                     break
 
+                # Launch TTS for each new sentence — non-blocking
                 for fc in flush_chunks:
-                    payload = await tts_chunk(fc)
+                    task = _start_tts(fc)
+                    if task:
+                        pending_tts.append(task)
+
+                # Immediately drain any tasks that already finished (preserving order)
+                while pending_tts and pending_tts[0].done():
+                    payload = await pending_tts.pop(0)
                     if payload:
                         yield f"data: {payload}\n\n"
 
-            # Flush remaining buffer
+            # Flush remaining sentence buffer
             if sentence_buffer.strip():
-                payload = await tts_chunk(sentence_buffer)
+                task = _start_tts(sentence_buffer.strip())
+                if task:
+                    pending_tts.append(task)
+
+            # Drain remaining TTS tasks in order
+            for task in pending_tts:
+                payload = await task
                 if payload:
                     yield f"data: {payload}\n\n"
 
-            # Check if agent response contains an end-call phrase
+            # Fallback when LLM returned nothing
+            if not full_response.strip():
+                fallback = "I'm sorry, I didn't get a response. Could you try again?"
+                task = _start_tts(fallback)
+                if task:
+                    payload = await task
+                    if payload:
+                        yield f"data: {payload}\n\n"
+                full_response = fallback
+
+            # End-call phrase detection
             end_call_triggered = False
             if end_call_phrases:
                 full_lower = full_response.lower()
@@ -644,13 +685,128 @@ async def agent_respond(
 
         except Exception as e:
             logger.error(f"Error in respond stream: {e}", exc_info=True)
+            err_msg = "I'm having a technical issue right now. Please try again."
+            if "quota" in str(e).lower() or "429" in str(e):
+                err_msg = "The AI service is temporarily unavailable. Please try again shortly."
+            elif "rate" in str(e).lower():
+                err_msg = "I'm receiving too many requests. Please wait a moment and try again."
+            yield f"data: {json.dumps({'type': 'sentence', 'text': err_msg, 'audio_base64': None})}\n\n"
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_text': err_msg, 'end_call': False})}\n\n"
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class SessionLogRequest(BaseModel):
+    """Request to log a completed web test session as a call record."""
+    started_at: datetime
+    duration_seconds: int = Field(ge=0)
+    messages: list = Field(default_factory=list)  # [{"role": "user"|"agent", "text": "..."}]
+
+
+@router.post("/{agent_id}/log-session")
+async def log_agent_session(
+    agent_id: uuid.UUID,
+    request: SessionLogRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Log a completed web-based test call session to the call history.
+    Called by the frontend at the end of each test call.
+    """
+    from app.models.call import Call
+    from sqlalchemy import select, and_
+
+    result = await db.execute(
+        select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == current_user.id))
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Build plain-text transcript
+    transcript_lines = [
+        f"{m.get('role', 'user').upper()}: {m.get('text', '')}"
+        for m in request.messages
+        if m.get('text', '').strip()
+    ]
+    transcript = "\n".join(transcript_lines)
+
+    from datetime import timedelta
+    ended_at = request.started_at + timedelta(seconds=request.duration_seconds)
+
+    call = Call(
+        user_id=current_user.id,
+        organization_id=agent.organization_id,
+        agent_id=agent.id,
+        direction="test",
+        from_number="web-test",
+        to_number="web-test",
+        status="completed",
+        started_at=request.started_at,
+        ended_at=ended_at,
+        duration_seconds=request.duration_seconds,
+        billable_duration_seconds=request.duration_seconds,
+        transcript=transcript,
+        transcript_json={"messages": request.messages},
+        call_metadata={"source": "web_test", "agent_name": agent.name},
+    )
+
+    db.add(call)
+    try:
+        await db.commit()
+        await db.refresh(call)
+        logger.info(f"Logged web test session for agent {agent_id}: {call.id} ({request.duration_seconds}s, {len(request.messages)} messages)")
+        return {"id": str(call.id), "status": "logged"}
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to log session: {e}")
+        raise HTTPException(status_code=500, detail="Failed to log session")
+
+
+@router.post("/{agent_id}/calls/{call_id}/recording")
+async def upload_call_recording(
+    agent_id: uuid.UUID,
+    call_id: uuid.UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a browser-recorded audio file for a test call."""
+    import os
+    from app.models.call import Call
+
+    result = await db.execute(
+        select(Call).where(and_(
+            Call.id == call_id,
+            Call.user_id == current_user.id,
+            Call.agent_id == agent_id,
+        ))
+    )
+    call = result.scalar_one_or_none()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    recordings_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'recordings')
+    os.makedirs(recordings_dir, exist_ok=True)
+
+    filename = f"{call_id}.webm"
+    filepath = os.path.join(recordings_dir, filename)
+    contents = await file.read()
+    with open(filepath, 'wb') as f:
+        f.write(contents)
+
+    call.recording_url = f"/recordings/{filename}"
+    call.recording_duration = call.duration_seconds
+    await db.commit()
+
+    logger.info(f"Saved recording for call {call_id}: {len(contents)} bytes")
+    return {"recording_url": call.recording_url}
 
 
 @router.websocket("/{agent_id}/stt")

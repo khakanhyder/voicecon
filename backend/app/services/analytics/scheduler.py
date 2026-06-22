@@ -246,7 +246,7 @@ class AnalyticsScheduler:
 
         async with get_db_session() as db:
             analytics_service = AnalyticsService(db)
-            deleted_count = await analytics_service.cleanup_expired_cache()
+            deleted_count = await analytics_service.clear_expired_cache()
             await db.commit()
 
         logger.info(f"Cleaned up {deleted_count} expired cache entries")

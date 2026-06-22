@@ -19,6 +19,7 @@ from app.services.call.transcript_service import get_transcript_service, Transcr
 from app.services.call.analytics_service import get_analytics_service
 from app.services.function_executor import get_function_executor
 from app.models.agent import Agent, AgentFunction
+from app.models.tool import Tool
 from app.models.call import Call, CallLog
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,8 +96,9 @@ class VoiceSession:
         # Conversation context
         self.conversation: Optional[ConversationContext] = None
 
-        # Agent functions
+        # Agent functions (webhook-based per-agent) + global assigned tools
         self.agent_functions: list[AgentFunction] = []
+        self.agent_tools: list[Tool] = []
 
         # Transcript entries
         self.transcript_entries: list[TranscriptEntry] = []
@@ -125,12 +127,20 @@ class VoiceSession:
     async def start(self) -> None:
         """Start the voice session."""
         try:
-            # Load agent functions
+            # Load agent webhook functions
             self.agent_functions = await self.function_executor.get_agent_functions(
                 agent_id=str(self.agent.id),
                 db=self.db,
             )
-            logger.info(f"Loaded {len(self.agent_functions)} functions for agent")
+            # Load globally assigned tools
+            self.agent_tools = await self.function_executor.get_agent_assigned_tools(
+                agent_id=str(self.agent.id),
+                db=self.db,
+            )
+            logger.info(
+                f"Loaded {len(self.agent_functions)} functions + "
+                f"{len(self.agent_tools)} tools for agent"
+            )
 
             # Create conversation context
             system_prompt = self.agent.system_prompt or "You are a helpful AI assistant."
@@ -420,13 +430,19 @@ class VoiceSession:
 
             messages = self.conversation.get_messages()
 
-            # Prepare function definitions if agent has functions
+            # Prepare function definitions: webhook functions + global tools
             functions = None
-            if self.agent_functions:
-                functions = [
-                    self.function_executor.get_function_definition(func)
-                    for func in self.agent_functions
-                ]
+            func_defs = [
+                self.function_executor.get_function_definition(f)
+                for f in self.agent_functions
+            ]
+            tool_defs = [
+                self.function_executor.get_tool_function_definition(t)
+                for t in self.agent_tools
+            ]
+            all_defs = func_defs + tool_defs
+            if all_defs:
+                functions = all_defs
 
             # Generate response (with function calling if available)
             if functions and provider == "openai":
@@ -506,26 +522,42 @@ class VoiceSession:
 
             logger.info(f"Executing function: {function_name} with args: {function_args}")
 
-            # Find function by name
+            # Find function by name — check webhook functions first, then global tools
             agent_function = next(
                 (f for f in self.agent_functions if f.name == function_name),
                 None
             )
 
-            if not agent_function:
-                # Function not found, return error
-                return f"I tried to use a function called {function_name}, but it's not available."
-
-            # Execute function
-            result = await self.function_executor.execute_function(
-                function=agent_function,
-                parameters=function_args,
-                call_id=self.call_id,
-                db=self.db,
+            # Also check global tools (name is normalised: spaces→_, lowercased)
+            matched_tool = next(
+                (t for t in self.agent_tools
+                 if t.name.replace(" ", "_").lower()[:64] == function_name),
+                None
             )
 
-            # Format result for LLM
-            formatted_result = self.function_executor.format_for_llm(agent_function, result)
+            if agent_function:
+                result = await self.function_executor.execute_function(
+                    function=agent_function,
+                    parameters=function_args,
+                    call_id=self.call_id,
+                    db=self.db,
+                )
+                formatted_result = self.function_executor.format_for_llm(agent_function, result)
+
+            elif matched_tool:
+                result = await self.function_executor.execute_global_tool(
+                    tool=matched_tool,
+                    parameters=function_args,
+                    call_id=self.call_id,
+                    db=self.db,
+                )
+                if result.get("success"):
+                    formatted_result = f"Tool {matched_tool.name} returned: {json.dumps(result.get('result', {}))}"
+                else:
+                    formatted_result = f"Tool {matched_tool.name} failed: {result.get('error', 'unknown error')}"
+
+            else:
+                return f"I tried to use a capability called {function_name}, but it's not configured."
 
             # Add function result to conversation
             messages.append({
@@ -552,7 +584,7 @@ class VoiceSession:
 
         try:
             provider = self.agent.tts_provider or "elevenlabs"
-            voice_id = self.agent.tts_voice or "rachel"
+            voice_id = self.agent.tts_voice_id or "rachel"
 
             # Synthesize with streaming for low latency
             audio_chunks = []

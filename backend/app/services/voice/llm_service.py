@@ -248,8 +248,8 @@ class LLMService:
             Default model name
         """
         defaults = {
-            LLMProviderEnum.OPENAI: "gpt-4-turbo-preview",
-            LLMProviderEnum.ANTHROPIC: "claude-3-sonnet-20240229",
+            LLMProviderEnum.OPENAI: "gpt-5.4-nano",
+            LLMProviderEnum.ANTHROPIC: "claude-haiku-4-5-20251001",
         }
         return defaults.get(provider, "default")
 

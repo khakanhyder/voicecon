@@ -66,7 +66,7 @@ const nodeTypes: NodeTypeConfig[] = [
     label: 'Function',
     icon: <Code className="w-5 h-5" />,
     description: 'Call external API or function',
-    color: 'bg-indigo-500',
+    color: 'bg-blue-500',
     defaultData: {
       label: 'Function',
       functionName: 'api_call',

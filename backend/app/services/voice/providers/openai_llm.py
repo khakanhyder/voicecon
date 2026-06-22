@@ -35,19 +35,52 @@ class OpenAILLM(BaseLLMProvider):
     - Token counting and cost tracking
     """
 
-    # Pricing per 1M tokens (as of 2025)
+    # Pricing per 1M tokens (as of 2025-2026, estimated)
     PRICING = {
-        "gpt-4": {"prompt": 30.00, "completion": 60.00},
-        "gpt-4-turbo": {"prompt": 10.00, "completion": 30.00},
+        # GPT-5.5 series (Apr 2026)
+        "gpt-5.5":             {"prompt": 15.00, "completion": 60.00},
+        "gpt-5.5-pro":         {"prompt": 30.00, "completion": 120.00},
+        # GPT-5.4 series (Mar 2026)
+        "gpt-5.4":             {"prompt": 8.00,  "completion": 32.00},
+        "gpt-5.4-mini":        {"prompt": 0.60,  "completion": 2.40},
+        "gpt-5.4-nano":        {"prompt": 0.12,  "completion": 0.48},
+        "gpt-5.4-pro":         {"prompt": 20.00, "completion": 80.00},
+        # GPT-5.2 series (Dec 2025)
+        "gpt-5.2":             {"prompt": 8.00,  "completion": 32.00},
+        "gpt-5.2-pro":         {"prompt": 20.00, "completion": 80.00},
+        # GPT-5.1 series (Nov 2025)
+        "gpt-5.1":             {"prompt": 7.00,  "completion": 28.00},
+        # GPT-5 base (Aug 2025)
+        "gpt-5":               {"prompt": 5.00,  "completion": 20.00},
+        "gpt-5-mini":          {"prompt": 0.50,  "completion": 2.00},
+        "gpt-5-nano":          {"prompt": 0.12,  "completion": 0.48},
+        "gpt-5-pro":           {"prompt": 15.00, "completion": 60.00},
+        # GPT-4.1 series (Apr 2025)
+        "gpt-4.1":             {"prompt": 2.00,  "completion": 8.00},
+        "gpt-4.1-mini":        {"prompt": 0.40,  "completion": 1.60},
+        "gpt-4.1-nano":        {"prompt": 0.10,  "completion": 0.40},
+        # GPT-4o series
+        "gpt-4o":              {"prompt": 2.50,  "completion": 10.00},
+        "gpt-4o-mini":         {"prompt": 0.15,  "completion": 0.60},
+        # Reasoning models
+        "o4-mini":             {"prompt": 1.10,  "completion": 4.40},
+        "o3":                  {"prompt": 10.00, "completion": 40.00},
+        "o3-mini":             {"prompt": 1.10,  "completion": 4.40},
+        "o1-pro":              {"prompt": 150.00, "completion": 600.00},
+        "o1":                  {"prompt": 15.00, "completion": 60.00},
+        "o1-mini":             {"prompt": 3.00,  "completion": 12.00},
+        # Legacy
+        "gpt-4":               {"prompt": 30.00, "completion": 60.00},
+        "gpt-4-turbo":         {"prompt": 10.00, "completion": 30.00},
         "gpt-4-turbo-preview": {"prompt": 10.00, "completion": 30.00},
-        "gpt-3.5-turbo": {"prompt": 0.50, "completion": 1.50},
-        "gpt-3.5-turbo-16k": {"prompt": 3.00, "completion": 4.00},
+        "gpt-3.5-turbo":       {"prompt": 0.50,  "completion": 1.50},
+        "gpt-3.5-turbo-16k":   {"prompt": 3.00,  "completion": 4.00},
     }
 
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-4-turbo-preview",
+        model: str = "gpt-5.4-nano",
         temperature: float = 0.7,
         max_tokens: int = 1000,
         **kwargs
@@ -128,12 +161,19 @@ class OpenAILLM(BaseLLMProvider):
             # Format messages
             formatted_messages = self._format_messages(messages)
 
+            model_id = kwargs.get("model", self.model)
+            # GPT-5.x and o-series require max_completion_tokens; all others accept both
+            use_completion_tokens = any(
+                model_id.startswith(p) for p in ("gpt-5", "o1", "o3", "o4")
+            )
+            token_key = "max_completion_tokens" if use_completion_tokens else "max_tokens"
+
             # Prepare request
             request_params = {
-                "model": kwargs.get("model", self.model),
+                "model": model_id,
                 "messages": formatted_messages,
                 "temperature": kwargs.get("temperature", self.temperature),
-                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+                token_key: kwargs.get("max_tokens", self.max_tokens),
                 "top_p": kwargs.get("top_p", self.top_p),
                 "frequency_penalty": kwargs.get("frequency_penalty", self.frequency_penalty),
                 "presence_penalty": kwargs.get("presence_penalty", self.presence_penalty),
@@ -230,12 +270,18 @@ class OpenAILLM(BaseLLMProvider):
             # Format messages
             formatted_messages = self._format_messages(messages)
 
+            model_id = kwargs.get("model", self.model)
+            use_completion_tokens = any(
+                model_id.startswith(p) for p in ("gpt-5", "o1", "o3", "o4")
+            )
+            token_key = "max_completion_tokens" if use_completion_tokens else "max_tokens"
+
             # Prepare request
             request_params = {
-                "model": kwargs.get("model", self.model),
+                "model": model_id,
                 "messages": formatted_messages,
                 "temperature": kwargs.get("temperature", self.temperature),
-                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+                token_key: kwargs.get("max_tokens", self.max_tokens),
                 "top_p": kwargs.get("top_p", self.top_p),
                 "frequency_penalty": kwargs.get("frequency_penalty", self.frequency_penalty),
                 "presence_penalty": kwargs.get("presence_penalty", self.presence_penalty),

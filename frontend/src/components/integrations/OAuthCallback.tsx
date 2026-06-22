@@ -123,7 +123,7 @@ export const OAuthCallback: React.FC = () => {
       <div className="max-w-md w-full bg-white border rounded-lg p-8">
         {status === 'processing' && (
           <div className="text-center">
-            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto mb-4" />
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Completing Authorization...
             </h2>

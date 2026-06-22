@@ -5,12 +5,12 @@ python-multipart==0.0.9
 
 # Database
 sqlalchemy==2.0.27
-asyncpg==0.29.0  # Async PostgreSQL driver
-psycopg2-binary==2.9.9  # Sync PostgreSQL driver for Alembic
+aiomysql==0.2.0  # Async MySQL driver
+pymysql==1.1.0  # Sync MySQL driver for Alembic
+greenlet==3.2.5  # Required by SQLAlchemy async
 alembic==1.13.1
-pgvector==0.2.4  # PostgreSQL vector extension support
 
-# Redis
+# Redis (optional - install via: brew install redis)
 redis==5.0.1
 aioredis==2.0.1
 
@@ -37,7 +37,7 @@ websockets==12.0
 
 # External Service SDKs
 # OpenAI
-openai==1.12.0
+openai==2.41.1
 
 # Anthropic
 anthropic==0.18.1

@@ -60,11 +60,9 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
     if not db_healthy:
         all_healthy = False
 
-    # Check Redis
+    # Check Redis (optional - degraded but not unhealthy if unavailable)
     redis_healthy, redis_info = await check_redis()
     checks["redis"] = redis_info
-    if not redis_healthy:
-        all_healthy = False
 
     # Check external services
     llm_healthy, llm_info = await check_llm_service()
@@ -150,7 +148,6 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
 
     all_healthy = all([
         db_healthy,
-        redis_healthy,
         llm_healthy,
         voice_healthy
     ])

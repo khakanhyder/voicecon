@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from app.models.agent import AgentFunction
 from app.models.call import CallLog
+from app.models.tool import Tool, AgentToolAssignment
 
 logger = logging.getLogger(__name__)
 
@@ -439,6 +440,152 @@ class FunctionExecutor:
 
         functions = result.scalars().all()
         return functions
+
+
+    # ── Global Tool support ───────────────────────────────────────────────────
+
+    async def get_agent_assigned_tools(
+        self,
+        agent_id: str,
+        db: AsyncSession,
+    ) -> List[Tool]:
+        """Fetch all active globally-assigned tools for an agent."""
+        result = await db.execute(
+            select(AgentToolAssignment)
+            .where(AgentToolAssignment.agent_id == agent_id)
+        )
+        assignments = result.scalars().all()
+        tools: List[Tool] = []
+        for a in assignments:
+            await db.refresh(a, ["tool"])
+            if a.tool and a.tool.is_active:
+                tools.append(a.tool)
+        return tools
+
+    def get_tool_function_definition(self, tool: Tool) -> Dict[str, Any]:
+        """Return LLM function-calling definition for a global Tool."""
+        cfg = tool.config or {}
+        # Build a minimal JSON-schema parameter spec from the tool config
+        parameters: Dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+
+        t = tool.tool_type
+        if t == "transfer_call":
+            parameters["properties"]["destination"] = {"type": "string", "description": "Phone number or SIP URI to transfer to"}
+            parameters["required"].append("destination")
+        elif t == "hang_up":
+            parameters["properties"]["reason"] = {"type": "string", "description": "Reason for ending the call"}
+        elif t == "send_sms":
+            parameters["properties"]["message"] = {"type": "string", "description": "SMS message to send"}
+            parameters["required"].append("message")
+        elif t == "leave_voicemail":
+            parameters["properties"]["message"] = {"type": "string", "description": "Voicemail message to leave"}
+            parameters["required"].append("message")
+        elif t == "dtmf":
+            parameters["properties"]["digits"] = {"type": "string", "description": "DTMF digits to send"}
+            parameters["required"].append("digits")
+        elif t == "handoff":
+            parameters["properties"]["reason"] = {"type": "string", "description": "Reason for handoff"}
+        elif t == "query_knowledge_base":
+            parameters["properties"]["query"] = {"type": "string", "description": "Search query for the knowledge base"}
+            parameters["required"].append("query")
+        elif t in ("api_request", "slack", "mcp", "google_sheets", "google_calendar",
+                   "gohighlevel", "custom_tool"):
+            parameters["properties"]["message"] = {"type": "string", "description": "Message or payload to send"}
+            parameters["properties"]["data"] = {"type": "object", "description": "Additional data"}
+        else:
+            parameters["properties"]["input"] = {"type": "string", "description": "Input for this tool"}
+
+        # If the tool has a custom parameters schema in config, use it
+        if "parameters" in cfg and isinstance(cfg["parameters"], dict):
+            parameters = cfg["parameters"]
+
+        return {
+            "name": tool.name.replace(" ", "_").lower()[:64],
+            "description": tool.description or f"{tool.tool_type} tool",
+            "parameters": parameters,
+        }
+
+    async def execute_global_tool(
+        self,
+        tool: Tool,
+        parameters: Dict[str, Any],
+        call_id: Optional[str] = None,
+        db: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        """Execute a global Tool by its type and config."""
+        start_time = time.time()
+        cfg = tool.config or {}
+        t = tool.tool_type
+
+        try:
+            if t == "api_request":
+                url = cfg.get("url") or parameters.get("url")
+                if not url:
+                    raise ValueError("No URL configured for api_request tool")
+                method = cfg.get("method", "POST").upper()
+                headers = {**cfg.get("headers", {})}
+                body = {**cfg.get("body", {}), **parameters}
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.request(method, url, headers=headers, json=body)
+                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
+
+            elif t == "slack":
+                webhook_url = cfg.get("webhook_url")
+                if not webhook_url:
+                    raise ValueError("No webhook_url configured for Slack tool")
+                msg = parameters.get("message") or cfg.get("default_message", "Voicecon agent notification")
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(webhook_url, json={"text": msg})
+                    result = {"status_code": resp.status_code, "ok": resp.text == "ok"}
+
+            elif t == "mcp":
+                server_url = cfg.get("server_url")
+                if not server_url:
+                    raise ValueError("No server_url configured for MCP tool")
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(server_url, json={"tool": cfg.get("tool_name"), "params": parameters})
+                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
+
+            elif t == "custom_tool":
+                url = cfg.get("url")
+                if not url:
+                    raise ValueError("No URL configured for custom_tool")
+                method = cfg.get("method", "POST").upper()
+                headers = {**cfg.get("headers", {})}
+                if cfg.get("auth_type") == "bearer" and cfg.get("auth_token"):
+                    headers["Authorization"] = f"Bearer {cfg['auth_token']}"
+                elif cfg.get("auth_type") == "basic" and cfg.get("username") and cfg.get("password"):
+                    import base64
+                    creds = base64.b64encode(f"{cfg['username']}:{cfg['password']}".encode()).decode()
+                    headers["Authorization"] = f"Basic {creds}"
+                async with httpx.AsyncClient(timeout=cfg.get("timeout", 30)) as client:
+                    resp = await client.request(method, url, headers=headers, json=parameters)
+                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
+
+            elif t in ("transfer_call", "hang_up", "leave_voicemail", "dtmf", "send_sms", "sip_request"):
+                # Telephony actions — return structured action for the call handler to interpret
+                result = {"action": t, "config": cfg, "parameters": parameters, "requires_telephony": True}
+
+            elif t == "handoff":
+                result = {"action": "handoff", "destination": cfg.get("destination"), "message": cfg.get("message")}
+
+            elif t == "query_knowledge_base":
+                result = {"action": "query_kb", "knowledge_base_id": cfg.get("knowledge_base_id"), "query": parameters.get("query")}
+
+            elif t in ("google_sheets", "google_calendar", "gohighlevel"):
+                result = {"note": f"{t} requires OAuth credentials — configure in Integrations", "config": cfg}
+
+            else:
+                result = {"executed": True, "tool_type": t, "parameters": parameters}
+
+            execution_time = int((time.time() - start_time) * 1000)
+            logger.info(f"Global tool {tool.name} ({t}) executed in {execution_time}ms")
+            return {"success": True, "tool_name": tool.name, "result": result, "execution_time_ms": execution_time}
+
+        except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            logger.error(f"Global tool {tool.name} ({t}) failed: {e}")
+            return {"success": False, "tool_name": tool.name, "error": str(e), "execution_time_ms": execution_time}
 
 
 # Global function executor instance

@@ -63,7 +63,7 @@ export default function WorkflowsPage() {
       {workflows.length === 0 ? (
         <div className="rounded-lg border bg-card p-8 text-center">
           <div className="mx-auto max-w-md space-y-4">
-            <div className="text-6xl">⚡</div>
+            <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-2xl bg-blue-50"><svg className="h-8 w-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></div>
             <h2 className="text-2xl font-semibold">No workflows yet</h2>
             <p className="text-muted-foreground">
               Build your first automation workflow to connect your agents with apps
@@ -82,8 +82,8 @@ export default function WorkflowsPage() {
               onClick={() => router.push(`/dashboard/workflows/${workflow.id}`)}
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center text-2xl">
-                  ⚡
+                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 </div>
                 <div className={`px-2 py-1 rounded text-xs font-medium ${
                   workflow.is_active

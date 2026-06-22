@@ -74,7 +74,9 @@ export default function HomePage() {
             <h2 className="mb-12 text-center text-3xl font-bold">Platform Features</h2>
             <div className="grid gap-8 md:grid-cols-3">
               <div className="rounded-lg border bg-card p-6">
-                <div className="mb-4 text-4xl">🎙️</div>
+                <div className="mb-4 h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                  <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                </div>
                 <h3 className="mb-2 text-xl font-semibold">Voice AI Agents</h3>
                 <p className="text-muted-foreground">
                   Create intelligent voice agents with multiple LLM, TTS, and STT providers.
@@ -82,7 +84,9 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="rounded-lg border bg-card p-6">
-                <div className="mb-4 text-4xl">🔗</div>
+                <div className="mb-4 h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+                  <svg className="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                </div>
                 <h3 className="mb-2 text-xl font-semibold">500+ Integrations</h3>
                 <p className="text-muted-foreground">
                   Connect with CRM, marketing tools, calendars, and more. Pre-built connectors
@@ -90,7 +94,9 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="rounded-lg border bg-card p-6">
-                <div className="mb-4 text-4xl">⚡</div>
+                <div className="mb-4 h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </div>
                 <h3 className="mb-2 text-xl font-semibold">No-Code Workflows</h3>
                 <p className="text-muted-foreground">
                   Visual workflow builder with triggers, actions, and conditions. Automate

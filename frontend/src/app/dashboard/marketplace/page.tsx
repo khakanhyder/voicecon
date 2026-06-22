@@ -129,7 +129,7 @@ export default function MarketplacePage() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <Store className="w-8 h-8 text-indigo-600" />
+              <Store className="w-8 h-8 text-blue-600" />
               Template Marketplace
             </h1>
             <p className="text-gray-600 mt-1">
@@ -185,7 +185,7 @@ export default function MarketplacePage() {
                     onClick={() => setSelectedCategory(category.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                       selectedCategory === category.id
-                        ? 'bg-indigo-50 text-indigo-700 font-medium'
+                        ? 'bg-blue-50 text-blue-700 font-medium'
                         : 'text-gray-700 hover:bg-gray-50'
                     }`}
                   >
@@ -223,7 +223,7 @@ export default function MarketplacePage() {
                 onClick={() => setActiveTab('agents')}
                 className={`px-4 py-2 font-medium rounded-lg transition-colors ${
                   activeTab === 'agents'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-50 border'
                 }`}
               >
@@ -233,7 +233,7 @@ export default function MarketplacePage() {
                 onClick={() => setActiveTab('workflows')}
                 className={`px-4 py-2 font-medium rounded-lg transition-colors ${
                   activeTab === 'workflows'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-50 border'
                 }`}
               >
@@ -244,7 +244,7 @@ export default function MarketplacePage() {
             {/* Templates List */}
             {isLoading ? (
               <div className="bg-white border rounded-lg p-12 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                <div className="w-16 h-16 mx-auto mb-4 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Loading templates...</h3>
               </div>
             ) : filteredTemplates.length === 0 ? (
@@ -268,7 +268,7 @@ export default function MarketplacePage() {
                     <div className="p-6 pb-4">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-2xl">
+                          <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-2xl">
                             {template.icon}
                           </div>
                           <div>
@@ -340,13 +340,13 @@ export default function MarketplacePage() {
 
                     {/* Actions */}
                     <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-between">
-                      <button className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1">
+                      <button className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
                         <ExternalLink className="w-4 h-4" />
                         View Details
                       </button>
 
                       <Button
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-blue-600 hover:bg-blue-700"
                         onClick={() => handleInstall(template.slug)}
                         disabled={installingSlug === template.slug}
                       >

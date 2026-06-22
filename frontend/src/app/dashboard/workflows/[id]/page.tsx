@@ -45,7 +45,7 @@ export default function WorkflowDetailPage() {
 
   const fetchWorkflow = async () => {
     try {
-      const response = await apiClient.get<Workflow>(`${API_ENDPOINTS.WORKFLOWS}${workflowId}`)
+      const response = await apiClient.get<Workflow>(API_ENDPOINTS.WORKFLOW(workflowId))
       setWorkflow(response.data)
     } catch (error) {
       console.error('Failed to fetch workflow:', error)
@@ -62,7 +62,7 @@ export default function WorkflowDetailPage() {
     setIsToggling(true)
     try {
       const response = await apiClient.patch<Workflow>(
-        `${API_ENDPOINTS.WORKFLOWS}${workflowId}`,
+        API_ENDPOINTS.WORKFLOW(workflowId),
         { is_active: !workflow.is_active }
       )
       setWorkflow(response.data)
@@ -82,7 +82,7 @@ export default function WorkflowDetailPage() {
 
     setIsDeleting(true)
     try {
-      await apiClient.delete(`${API_ENDPOINTS.WORKFLOWS}${workflowId}`)
+      await apiClient.delete(API_ENDPOINTS.WORKFLOW(workflowId))
       toast.success('Workflow deleted successfully')
       router.push('/dashboard/workflows')
     } catch (error) {
@@ -228,25 +228,43 @@ export default function WorkflowDetailPage() {
 
         {workflow.workflow_steps.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            <div className="text-4xl mb-2">⚡</div>
+            <div className="text-4xl mb-2">🎙️</div>
             <p>No steps configured yet</p>
-            <p className="text-sm">Add steps to define your workflow automation</p>
+            <p className="text-sm">Open the builder to add voice call steps</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {workflow.workflow_steps.map((step: any, index: number) => (
-              <div key={index} className="p-4 border rounded-lg">
-                <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
-                    {index + 1}
+          <div className="relative space-y-0">
+            {workflow.workflow_steps.map((step: any, index: number) => {
+              const typeColors: Record<string, string> = {
+                speak: 'bg-blue-500', ask: 'bg-purple-500', condition: 'bg-yellow-500',
+                transfer: 'bg-green-500', tool: 'bg-orange-500', webhook: 'bg-cyan-500',
+                ai: 'bg-indigo-500', end: 'bg-red-500',
+              }
+              const typeLabels: Record<string, string> = {
+                speak: 'Speak', ask: 'Ask Question', condition: 'Branch', transfer: 'Transfer',
+                tool: 'Run Tool', webhook: 'Webhook', ai: 'AI Response', end: 'End Call',
+              }
+              const color = typeColors[step.type] || 'bg-gray-500'
+              const label = typeLabels[step.type] || step.type
+              return (
+                <div key={index} className="flex items-stretch gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-8 h-8 rounded-lg ${color} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                      {index + 1}
+                    </div>
+                    {index < workflow.workflow_steps.length - 1 && (
+                      <div className="w-px flex-1 bg-border my-1" />
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <div className="font-medium">{step.name || `Step ${index + 1}`}</div>
-                    <div className="text-sm text-muted-foreground capitalize">{step.type}</div>
+                  <div className="flex-1 pb-3">
+                    <div className="p-3 border rounded-lg bg-muted/20">
+                      <div className="font-medium text-sm">{step.name || `Step ${index + 1}`}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

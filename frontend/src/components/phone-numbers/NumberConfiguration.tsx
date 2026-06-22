@@ -46,8 +46,8 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <SettingsIcon className="w-5 h-5 text-indigo-600" />
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <SettingsIcon className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900">Configure Number</h2>
@@ -77,7 +77,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   value={friendlyName}
                   onChange={(e) => setFriendlyName(e.target.value)}
                   placeholder="e.g., Main Support Line"
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="text-xs text-gray-500 mt-1">A descriptive name for this number</p>
               </div>
@@ -89,7 +89,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
@@ -112,7 +112,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   value={voiceUrl}
                   onChange={(e) => setVoiceUrl(e.target.value)}
                   placeholder="https://your-app.com/voice/webhook"
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Webhook URL for incoming voice calls
@@ -128,7 +128,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   value={smsUrl}
                   onChange={(e) => setSmsUrl(e.target.value)}
                   placeholder="https://your-app.com/sms/webhook"
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Webhook URL for incoming SMS messages
@@ -144,7 +144,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   value={statusCallback}
                   onChange={(e) => setStatusCallback(e.target.value)}
                   placeholder="https://your-app.com/status/callback"
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Receive call status updates (ringing, answered, completed)
@@ -162,7 +162,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   type="checkbox"
                   checked={recordCalls}
                   onChange={(e) => setRecordCalls(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <div>
                   <div className="text-sm font-medium text-gray-900">Record Calls</div>
@@ -177,7 +177,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
                   type="checkbox"
                   checked={transcribeCalls}
                   onChange={(e) => setTranscribeCalls(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <div>
                   <div className="text-sm font-medium text-gray-900">Transcribe Calls</div>
@@ -250,7 +250,7 @@ export const NumberConfiguration: React.FC<NumberConfigurationProps> = ({
           <Button onClick={onClose} variant="outline">
             Cancel
           </Button>
-          <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700">
+          <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
             <Save className="w-4 h-4 mr-2" />
             Save Configuration
           </Button>

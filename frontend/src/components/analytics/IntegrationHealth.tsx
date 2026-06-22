@@ -168,7 +168,7 @@ export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange:
         {integrations.map((integration) => (
           <div
             key={integration.id}
-            className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-indigo-300 transition-all"
+            className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-all"
           >
             <div className="flex items-center justify-between">
               {/* Left: Integration Info */}

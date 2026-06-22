@@ -50,7 +50,7 @@ export default function EditWorkflowPage() {
 
   const fetchWorkflow = async () => {
     try {
-      const response = await apiClient.get<Workflow>(`${API_ENDPOINTS.WORKFLOWS}${workflowId}`)
+      const response = await apiClient.get<Workflow>(API_ENDPOINTS.WORKFLOW(workflowId))
       const workflow = response.data
 
       setFormData({
@@ -77,7 +77,7 @@ export default function EditWorkflowPage() {
     setIsLoading(true)
 
     try {
-      await apiClient.patch(`${API_ENDPOINTS.WORKFLOWS}${workflowId}`, {
+      await apiClient.patch(API_ENDPOINTS.WORKFLOW(workflowId), {
         name: formData.name,
         description: formData.description,
         trigger_config: formData.agentId ? { agent_id: formData.agentId } : {},

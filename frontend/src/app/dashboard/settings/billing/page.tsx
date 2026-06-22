@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CreditCard,
-  DollarSign,
   Calendar,
   Download,
   AlertCircle,
   CheckCircle,
-  TrendingUp,
   Clock,
   Phone,
-  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { apiClient } from '@/lib/api';
+import { API_ENDPOINTS } from '@/lib/constants';
 
 interface SubscriptionPlan {
   id: string;
@@ -72,139 +71,37 @@ interface Invoice {
   hosted_invoice_url: string | null;
 }
 
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+}
+
 export default function BillingPage() {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [loading, setLoading] = useState(true);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
-  // Sample data - In production, fetch from API
-  const availablePlans: SubscriptionPlan[] = [
-    {
-      id: '1',
-      name: 'Starter',
-      description: 'Perfect for trying out voice AI',
-      price_monthly: 29,
-      price_yearly: 290,
-      included_minutes: 1000,
-      included_calls: 100,
-      max_agents: 1,
-      max_phone_numbers: 1,
-      max_knowledge_bases: 1,
-      overage_rate_per_minute: 0.015,
-      overage_rate_per_call: 0.05,
-      features: {
-        'Voice calls': true,
-        'SMS support': true,
-        'Basic analytics': true,
-        'Email support': true,
-      },
-      is_active: true,
-      is_public: true,
-    },
-    {
-      id: '2',
-      name: 'Professional',
-      description: 'For growing businesses',
-      price_monthly: 99,
-      price_yearly: 990,
-      included_minutes: 5000,
-      included_calls: 500,
-      max_agents: 5,
-      max_phone_numbers: 5,
-      max_knowledge_bases: 10,
-      overage_rate_per_minute: 0.012,
-      overage_rate_per_call: 0.04,
-      features: {
-        'Voice calls': true,
-        'SMS support': true,
-        'Advanced analytics': true,
-        'Priority support': true,
-        'Custom workflows': true,
-        'API access': true,
-      },
-      is_active: true,
-      is_public: true,
-    },
-    {
-      id: '3',
-      name: 'Enterprise',
-      description: 'For large organizations',
-      price_monthly: 299,
-      price_yearly: 2990,
-      included_minutes: 20000,
-      included_calls: 2000,
-      max_agents: 20,
-      max_phone_numbers: 20,
-      max_knowledge_bases: 50,
-      overage_rate_per_minute: 0.01,
-      overage_rate_per_call: 0.03,
-      features: {
-        'Voice calls': true,
-        'SMS support': true,
-        'Advanced analytics': true,
-        'Dedicated support': true,
-        'Custom workflows': true,
-        'API access': true,
-        'White-label': true,
-        'SLA guarantee': true,
-      },
-      is_active: true,
-      is_public: true,
-    },
-  ];
+  useEffect(() => {
+    const fetchAll = async () => {
+      setLoading(true);
+      const [plansRes, subRes, usageRes, invRes] = await Promise.allSettled([
+        apiClient.get<SubscriptionPlan[]>(API_ENDPOINTS.BILLING_PLANS),
+        apiClient.get<Subscription | null>(API_ENDPOINTS.BILLING_SUBSCRIPTION),
+        apiClient.get<Usage>(API_ENDPOINTS.BILLING_USAGE),
+        apiClient.get<Invoice[]>(API_ENDPOINTS.BILLING_INVOICES),
+      ]);
 
-  const currentSubscription: Subscription = {
-    id: '1',
-    plan_id: '2',
-    plan_name: 'Professional',
-    status: 'active',
-    billing_period: 'monthly',
-    current_period_start: '2024-01-01T00:00:00Z',
-    current_period_end: '2024-02-01T00:00:00Z',
-    trial_end: null,
-    canceled_at: null,
-    current_period_minutes: 3245,
-    current_period_calls: 289,
-  };
+      if (plansRes.status === 'fulfilled') setPlans(plansRes.value.data);
+      if (subRes.status === 'fulfilled') setSubscription(subRes.value.data);
+      if (usageRes.status === 'fulfilled') setUsage(usageRes.value.data);
+      if (invRes.status === 'fulfilled') setInvoices(invRes.value.data);
+      setLoading(false);
+    };
 
-  const currentUsage: Usage = {
-    minutes_used: 3245,
-    minutes_included: 5000,
-    minutes_overage: 0,
-    calls_used: 289,
-    calls_included: 500,
-    calls_overage: 0,
-    estimated_overage_cost: 0,
-  };
-
-  const invoices: Invoice[] = [
-    {
-      id: '1',
-      invoice_number: 'INV-2024-001',
-      status: 'paid',
-      amount_due: 99.0,
-      amount_paid: 99.0,
-      total: 99.0,
-      period_start: '2024-01-01T00:00:00Z',
-      period_end: '2024-02-01T00:00:00Z',
-      due_date: '2024-01-07T00:00:00Z',
-      paid_at: '2024-01-05T00:00:00Z',
-      invoice_pdf: '#',
-      hosted_invoice_url: '#',
-    },
-    {
-      id: '2',
-      invoice_number: 'INV-2023-012',
-      status: 'paid',
-      amount_due: 99.0,
-      amount_paid: 99.0,
-      total: 99.0,
-      period_start: '2023-12-01T00:00:00Z',
-      period_end: '2024-01-01T00:00:00Z',
-      due_date: '2023-12-07T00:00:00Z',
-      paid_at: '2023-12-05T00:00:00Z',
-      invoice_pdf: '#',
-      hosted_invoice_url: '#',
-    },
-  ];
+    fetchAll();
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -222,13 +119,14 @@ export default function BillingPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-  };
+
+  const currentPlan = plans.find((p) => p.id === subscription?.plan_id);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -246,138 +144,180 @@ export default function BillingPage() {
               <h2 className="text-xl font-bold text-gray-900">Current Plan</h2>
               <p className="text-sm text-gray-600">Your active subscription</p>
             </div>
-            <span
-              className={`px-3 py-1 text-sm font-semibold rounded ${getStatusColor(
-                currentSubscription.status
-              )}`}
-            >
-              {currentSubscription.status.toUpperCase()}
-            </span>
+            {loading ? (
+              <Skeleton className="w-20 h-7" />
+            ) : subscription ? (
+              <span
+                className={`px-3 py-1 text-sm font-semibold rounded ${getStatusColor(
+                  subscription.status
+                )}`}
+              >
+                {subscription.status.toUpperCase()}
+              </span>
+            ) : null}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div>
-              <div className="text-sm text-gray-600 mb-1">Plan</div>
-              <div className="text-2xl font-bold text-indigo-600">
-                {currentSubscription.plan_name}
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-8 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
+          ) : subscription ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Plan</div>
+                <div className="text-2xl font-bold text-blue-600">{subscription.plan_name}</div>
+                {currentPlan && (
+                  <div className="text-sm text-gray-500">
+                    ${currentPlan.price_monthly}/month
+                  </div>
+                )}
               </div>
-              <div className="text-sm text-gray-500">
-                ${availablePlans.find((p) => p.id === currentSubscription.plan_id)?.price_monthly}
-                /month
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Current Period</div>
+                <div className="text-sm font-medium text-gray-900">
+                  {formatDate(subscription.current_period_start)} -{' '}
+                  {formatDate(subscription.current_period_end)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  Renews {formatDate(subscription.current_period_end)}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Payment Method</div>
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm font-medium text-gray-900">•••• 4242</span>
+                </div>
+                <button className="text-xs text-blue-600 hover:text-blue-700 mt-1">
+                  Update payment method
+                </button>
               </div>
             </div>
-
-            <div>
-              <div className="text-sm text-gray-600 mb-1">Current Period</div>
-              <div className="text-sm font-medium text-gray-900">
-                {formatDate(currentSubscription.current_period_start)} -{' '}
-                {formatDate(currentSubscription.current_period_end)}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                Renews on {formatDate(currentSubscription.current_period_end)}
-              </div>
+          ) : (
+            <div className="py-8 text-center text-gray-500">
+              <p className="mb-4">No active subscription found.</p>
+              <p className="text-sm">Choose a plan below to get started.</p>
             </div>
+          )}
 
-            <div>
-              <div className="text-sm text-gray-600 mb-1">Payment Method</div>
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-medium text-gray-900">•••• 4242</span>
-              </div>
-              <button className="text-xs text-indigo-600 hover:text-indigo-700 mt-1">
-                Update payment method
-              </button>
+          {subscription && (
+            <div className="flex gap-3">
+              <Button variant="outline">Change Plan</Button>
+              <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
+                Cancel Subscription
+              </Button>
             </div>
-          </div>
-
-          <div className="flex gap-3">
-            <Button variant="outline">Change Plan</Button>
-            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
-              Cancel Subscription
-            </Button>
-          </div>
+          )}
         </div>
 
         {/* Usage This Period */}
         <div className="bg-white border rounded-lg p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Usage This Period</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Minutes Usage */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium text-gray-900">Call Minutes</span>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {[1, 2].map((i) => (
+                <div key={i} className="space-y-3">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-5 w-28" />
+                    <Skeleton className="h-5 w-20" />
+                  </div>
+                  <Skeleton className="h-2 w-full rounded-full" />
                 </div>
-                <span className="text-sm font-semibold text-gray-900">
-                  {currentUsage.minutes_used} / {currentUsage.minutes_included}
-                </span>
-              </div>
-
-              <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (currentUsage.minutes_used / currentUsage.minutes_included) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-gray-600">
-                <span>
-                  {Math.round((currentUsage.minutes_used / currentUsage.minutes_included) * 100)}%
-                  used
-                </span>
-                {currentUsage.minutes_overage > 0 && (
-                  <span className="text-red-600 font-semibold">
-                    +{currentUsage.minutes_overage} overage
+              ))}
+            </div>
+          ) : usage ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Minutes */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <span className="font-medium text-gray-900">Call Minutes</span>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {usage.minutes_used} / {usage.minutes_included}
                   </span>
-                )}
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        usage.minutes_included > 0
+                          ? (usage.minutes_used / usage.minutes_included) * 100
+                          : 0
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-600">
+                  <span>
+                    {usage.minutes_included > 0
+                      ? Math.round((usage.minutes_used / usage.minutes_included) * 100)
+                      : 0}
+                    % used
+                  </span>
+                  {usage.minutes_overage > 0 && (
+                    <span className="text-red-600 font-semibold">
+                      +{usage.minutes_overage} overage
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Calls */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-5 h-5 text-green-600" />
+                    <span className="font-medium text-gray-900">Total Calls</span>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {usage.calls_used} / {usage.calls_included}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                  <div
+                    className="bg-green-600 h-2 rounded-full"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        usage.calls_included > 0
+                          ? (usage.calls_used / usage.calls_included) * 100
+                          : 0
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-600">
+                  <span>
+                    {usage.calls_included > 0
+                      ? Math.round((usage.calls_used / usage.calls_included) * 100)
+                      : 0}
+                    % used
+                  </span>
+                  {usage.calls_overage > 0 && (
+                    <span className="text-red-600 font-semibold">
+                      +{usage.calls_overage} overage
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
+          ) : (
+            <p className="text-gray-500 text-sm">No usage data available.</p>
+          )}
 
-            {/* Calls Usage */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-5 h-5 text-green-600" />
-                  <span className="font-medium text-gray-900">Total Calls</span>
-                </div>
-                <span className="text-sm font-semibold text-gray-900">
-                  {currentUsage.calls_used} / {currentUsage.calls_included}
-                </span>
-              </div>
-
-              <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                <div
-                  className="bg-green-600 h-2 rounded-full"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (currentUsage.calls_used / currentUsage.calls_included) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-gray-600">
-                <span>
-                  {Math.round((currentUsage.calls_used / currentUsage.calls_included) * 100)}% used
-                </span>
-                {currentUsage.calls_overage > 0 && (
-                  <span className="text-red-600 font-semibold">
-                    +{currentUsage.calls_overage} overage
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {currentUsage.estimated_overage_cost > 0 && (
+          {usage && usage.estimated_overage_cost > 0 && (
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
@@ -387,7 +327,7 @@ export default function BillingPage() {
                   </h4>
                   <p className="text-sm text-yellow-800">
                     Your usage has exceeded the included limits. Estimated additional charges: $
-                    {currentUsage.estimated_overage_cost.toFixed(2)}
+                    {usage.estimated_overage_cost.toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -402,7 +342,6 @@ export default function BillingPage() {
               <h2 className="text-xl font-bold text-gray-900">Available Plans</h2>
               <p className="text-sm text-gray-600">Choose the plan that fits your needs</p>
             </div>
-
             <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
               <button
                 onClick={() => setBillingPeriod('monthly')}
@@ -428,81 +367,108 @@ export default function BillingPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {availablePlans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`border-2 rounded-lg p-6 ${
-                  plan.id === currentSubscription.plan_id
-                    ? 'border-indigo-600 bg-indigo-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="mb-4">
-                  <h3 className="text-lg font-bold text-gray-900">{plan.name}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{plan.description}</p>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="border-2 rounded-lg p-6 space-y-4">
+                  <Skeleton className="h-6 w-28" />
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-12 w-24" />
+                  <div className="space-y-2">
+                    {[1, 2, 3, 4].map((j) => (
+                      <Skeleton key={j} className="h-4 w-full" />
+                    ))}
+                  </div>
+                  <Skeleton className="h-10 w-full" />
                 </div>
+              ))}
+            </div>
+          ) : plans.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {plans
+                .filter((p) => p.is_active && p.is_public)
+                .map((plan) => (
+                  <div
+                    key={plan.id}
+                    className={`border-2 rounded-lg p-6 ${
+                      plan.id === subscription?.plan_id
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="mb-4">
+                      <h3 className="text-lg font-bold text-gray-900">{plan.name}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{plan.description}</p>
+                    </div>
 
-                <div className="mb-6">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-4xl font-bold text-gray-900">
-                      ${billingPeriod === 'monthly' ? plan.price_monthly : (plan.price_yearly || 0) / 12}
-                    </span>
-                    <span className="text-gray-600">/month</span>
-                  </div>
-                  {billingPeriod === 'yearly' && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Billed ${plan.price_yearly} annually
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-3 mb-6">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span>{plan.included_minutes.toLocaleString()} minutes/month</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span>{plan.included_calls.toLocaleString()} calls/month</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span>Up to {plan.max_agents} agents</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span>Up to {plan.max_phone_numbers} phone numbers</span>
-                  </div>
-                  {Object.entries(plan.features).map(([feature, enabled]) =>
-                    enabled ? (
-                      <div key={feature} className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>{feature}</span>
+                    <div className="mb-6">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-4xl font-bold text-gray-900">
+                          $
+                          {billingPeriod === 'monthly'
+                            ? plan.price_monthly
+                            : Math.round(((plan.price_yearly ?? plan.price_monthly * 10) / 12) * 10) /
+                              10}
+                        </span>
+                        <span className="text-gray-600">/month</span>
                       </div>
-                    ) : null
-                  )}
-                </div>
+                      {billingPeriod === 'yearly' && plan.price_yearly && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Billed ${plan.price_yearly} annually
+                        </p>
+                      )}
+                    </div>
 
-                {plan.id === currentSubscription.plan_id ? (
-                  <Button disabled className="w-full">
-                    Current Plan
-                  </Button>
-                ) : (
-                  <Button className="w-full bg-indigo-600 hover:bg-indigo-700">
-                    {parseInt(plan.id) > parseInt(currentSubscription.plan_id)
-                      ? 'Upgrade'
-                      : 'Downgrade'}
-                  </Button>
-                )}
+                    <div className="space-y-3 mb-6">
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span>{plan.included_minutes.toLocaleString()} minutes/month</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span>{plan.included_calls.toLocaleString()} calls/month</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span>Up to {plan.max_agents} agents</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <span>Up to {plan.max_phone_numbers} phone numbers</span>
+                      </div>
+                      {Object.entries(plan.features || {}).map(([feature, enabled]) =>
+                        enabled ? (
+                          <div
+                            key={feature}
+                            className="flex items-center gap-2 text-sm text-gray-600"
+                          >
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span>{feature}</span>
+                          </div>
+                        ) : null
+                      )}
+                    </div>
 
-                <div className="mt-4 pt-4 border-t text-xs text-gray-500">
-                  <div>Overage: ${plan.overage_rate_per_minute}/min</div>
-                  <div>Extra calls: ${plan.overage_rate_per_call}/call</div>
-                </div>
-              </div>
-            ))}
-          </div>
+                    {plan.id === subscription?.plan_id ? (
+                      <Button disabled className="w-full">
+                        Current Plan
+                      </Button>
+                    ) : (
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                        {subscription ? 'Switch Plan' : 'Get Started'}
+                      </Button>
+                    )}
+
+                    <div className="mt-4 pt-4 border-t text-xs text-gray-500">
+                      <div>Overage: ${plan.overage_rate_per_minute}/min</div>
+                      <div>Extra calls: ${plan.overage_rate_per_call}/call</div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm">No plans available.</p>
+          )}
         </div>
 
         {/* Invoice History */}
@@ -512,64 +478,91 @@ export default function BillingPage() {
             <p className="text-sm text-gray-600 mt-1">Download and view past invoices</p>
           </div>
 
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Invoice
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Period
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {invoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {invoice.invoice_number}
-                    </div>
-                    {invoice.paid_at && (
-                      <div className="text-xs text-gray-500">
-                        Paid {formatDate(invoice.paid_at)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(invoice.period_start)} - {formatDate(invoice.period_end)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(
-                        invoice.status
-                      )}`}
-                    >
-                      {invoice.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-gray-900">
-                    ${invoice.total.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button className="text-indigo-600 hover:text-indigo-900 text-sm font-medium flex items-center gap-1 ml-auto">
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
-                  </td>
-                </tr>
+          {loading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center justify-between py-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : invoices.length > 0 ? (
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Invoice
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Period
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {invoices.map((invoice) => (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {invoice.invoice_number}
+                      </div>
+                      {invoice.paid_at && (
+                        <div className="text-xs text-gray-500">
+                          Paid {formatDate(invoice.paid_at)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatDate(invoice.period_start)} — {formatDate(invoice.period_end)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(
+                          invoice.status
+                        )}`}
+                      >
+                        {invoice.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-gray-900">
+                      ${invoice.total.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      {invoice.invoice_pdf ? (
+                        <a
+                          href={invoice.invoice_pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 ml-auto"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </a>
+                      ) : (
+                        <span className="text-gray-400 text-sm">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="px-6 py-12 text-center text-gray-500">
+              <p>No invoices yet.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

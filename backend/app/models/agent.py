@@ -5,10 +5,8 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 from decimal import Decimal
-from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, Integer, ARRAY, JSON, Numeric
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, Integer, JSON, Numeric, Uuid
 from sqlalchemy.orm import relationship, Mapped, mapped_column
-from pgvector.sqlalchemy import Vector
 
 from app.database import Base
 
@@ -19,13 +17,13 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -61,7 +59,7 @@ class Agent(Base):
     interrupt_sensitivity: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.5"))
     silence_timeout: Mapped[int] = mapped_column(Integer, default=3000)  # milliseconds
     max_call_duration: Mapped[int] = mapped_column(Integer, default=1800)  # seconds
-    end_call_phrases: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    end_call_phrases: Mapped[List[str]] = mapped_column(JSON, default=list)
 
     # Advanced Features
     sentiment_analysis_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -75,7 +73,7 @@ class Agent(Base):
     # Metadata
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
-    tags: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    tags: Mapped[List[str]] = mapped_column(JSON, default=list)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
     # Timestamps
@@ -120,10 +118,10 @@ class AgentFunction(Base):
     __tablename__ = "agent_functions"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -160,19 +158,19 @@ class Squad(Base):
     __tablename__ = "squads"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     initial_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id")
+        Uuid(as_uuid=True), ForeignKey("agents.id")
     )
 
     # Transfer rules (JSONB for complex logic)
@@ -205,13 +203,13 @@ class SquadMember(Base):
     __tablename__ = "squad_members"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     squad_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("squads.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("squads.id", ondelete="CASCADE"), nullable=False
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
 
     role: Mapped[Optional[str]] = mapped_column(String(100))
@@ -234,10 +232,10 @@ class KnowledgeBaseDocument(Base):
     __tablename__ = "knowledge_base_documents"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -247,13 +245,13 @@ class KnowledgeBaseDocument(Base):
 
     document_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    # Vector embedding for similarity search (pgvector)
-    embedding_vector = Column(Vector(1536))  # OpenAI embedding dimension
+    # Vector embedding stored as JSON array (ChromaDB handles actual vector search)
+    embedding_vector = Column(Text, nullable=True)
 
     # Chunking support
     chunk_index: Mapped[Optional[int]] = mapped_column(Integer)
     parent_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("knowledge_base_documents.id")
+        Uuid(as_uuid=True), ForeignKey("knowledge_base_documents.id")
     )
 
     # Status
@@ -281,10 +279,10 @@ class AgentFlow(Base):
     __tablename__ = "agent_flows"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)

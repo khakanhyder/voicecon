@@ -128,7 +128,7 @@ export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange 
           onClick={() => setActiveTab('volume')}
           className={`px-4 py-2 font-medium transition-colors relative ${
             activeTab === 'volume'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
@@ -139,7 +139,7 @@ export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange 
           onClick={() => setActiveTab('duration')}
           className={`px-4 py-2 font-medium transition-colors relative ${
             activeTab === 'duration'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
@@ -150,7 +150,7 @@ export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange 
           onClick={() => setActiveTab('outcomes')}
           className={`px-4 py-2 font-medium transition-colors relative ${
             activeTab === 'outcomes'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
@@ -258,9 +258,9 @@ export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange 
         <div className="space-y-6">
           {/* Summary Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-indigo-50 rounded-lg p-4">
+            <div className="bg-blue-50 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-indigo-600" />
+                <Clock className="w-4 h-4 text-blue-600" />
                 <span className="text-sm font-medium text-indigo-900">Avg Duration</span>
               </div>
               <p className="text-2xl font-bold text-indigo-900">{formatDuration(153)}</p>

@@ -697,7 +697,7 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
-            <BookTemplate className="w-6 h-6 text-indigo-600" />
+            <BookTemplate className="w-6 h-6 text-blue-600" />
             <h2 className="text-2xl font-bold text-gray-900">Flow Templates</h2>
           </div>
           <button
@@ -719,7 +719,7 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
                   onClick={() => setSelectedCategory(category.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
                     selectedCategory === category.id
-                      ? 'bg-indigo-100 text-indigo-700 font-medium'
+                      ? 'bg-blue-100 text-blue-700 font-medium'
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
@@ -742,14 +742,14 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
                         key={template.id}
                         className={`bg-white border-2 rounded-lg p-5 cursor-pointer transition-all hover:shadow-lg ${
                           selectedTemplate?.id === template.id
-                            ? 'border-indigo-500 shadow-md'
+                            ? 'border-blue-500 shadow-md'
                             : 'border-gray-200'
                         }`}
                         onClick={() => setSelectedTemplate(template)}
                       >
                         {/* Template Icon & Name */}
                         <div className="flex items-start gap-3 mb-3">
-                          <div className="p-3 bg-indigo-100 rounded-lg text-indigo-600">
+                          <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
                             {template.icon}
                           </div>
                           <div className="flex-1">
@@ -782,7 +782,7 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
                                 e.stopPropagation();
                                 handleApplyTemplate(template);
                               }}
-                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
                             >
                               <Copy className="w-4 h-4" />
                               Use Template
@@ -823,7 +823,7 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
                         </div>
                         <button
                           onClick={() => handleApplyTemplate(selectedTemplate)}
-                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
                         >
                           <Copy className="w-4 h-4" />
                           Use This Template
@@ -861,7 +861,7 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
                             {selectedTemplate.nodes.map((node, idx) => (
                               <div key={node.id} className="bg-white border rounded-lg p-4">
                                 <div className="flex items-start gap-3">
-                                  <div className="flex items-center justify-center w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full text-sm font-medium">
+                                  <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-600 rounded-full text-sm font-medium">
                                     {idx + 1}
                                   </div>
                                   <div className="flex-1">

@@ -5,8 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 from decimal import Decimal
-from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, Integer, ARRAY, JSON, Numeric
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, Integer, JSON, Numeric, Uuid
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.database import Base
@@ -18,16 +17,16 @@ class PhoneNumber(Base):
     __tablename__ = "phone_numbers"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id")
+        Uuid(as_uuid=True), ForeignKey("agents.id")
     )
 
     phone_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
@@ -69,22 +68,22 @@ class Call(Base):
     __tablename__ = "calls"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id")
+        Uuid(as_uuid=True), ForeignKey("agents.id")
     )
     squad_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("squads.id")
+        Uuid(as_uuid=True), ForeignKey("squads.id")
     )
     phone_number_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("phone_numbers.id")
+        Uuid(as_uuid=True), ForeignKey("phone_numbers.id")
     )
 
     # Call Details
@@ -115,7 +114,7 @@ class Call(Base):
     sentiment_label: Mapped[Optional[str]] = mapped_column(String(50))
     emotions: Mapped[Optional[dict]] = mapped_column(JSON)
     intent: Mapped[Optional[str]] = mapped_column(String(255))
-    topics: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    topics: Mapped[List[str]] = mapped_column(JSON, default=list)
 
     # Costs
     cost_stt: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
@@ -130,7 +129,7 @@ class Call(Base):
 
     # Metadata
     call_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
-    tags: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    tags: Mapped[List[str]] = mapped_column(JSON, default=list)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -158,10 +157,10 @@ class CallLog(Base):
     __tablename__ = "call_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     call_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(as_uuid=True), ForeignKey("calls.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     log_type: Mapped[str] = mapped_column(String(50), nullable=False)  # stt, llm, tts, function, etc.

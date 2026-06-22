@@ -192,9 +192,9 @@ export const CostBreakdown: React.FC<CostBreakdownProps> = ({ dateRange: _dateRa
             ))}
 
             {/* Total */}
-            <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg border-2 border-indigo-200 mt-4">
+            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-2 border-blue-200 mt-4">
               <div className="flex items-center gap-3">
-                <DollarSign className="w-5 h-5 text-indigo-600" />
+                <DollarSign className="w-5 h-5 text-blue-600" />
                 <p className="font-bold text-indigo-900">Total Cost</p>
               </div>
               <p className="text-xl font-bold text-indigo-900">{formatCurrency(totalCost)}</p>

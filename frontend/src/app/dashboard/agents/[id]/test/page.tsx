@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { Phone } from 'lucide-react'
 
 interface Agent {
   id: string
@@ -87,6 +88,16 @@ export default function TestAgentPage() {
   const idleTimeoutRef = useRef(8000)
   const maxCallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Session tracking for call history logging
+  const callStartedAtRef = useRef<Date | null>(null)
+  const elapsedSecondsRef = useRef(0)
+
+  // Recording
+  const recordingCtxRef = useRef<AudioContext | null>(null)
+  const recordingDestRef = useRef<MediaStreamAudioDestinationNode | null>(null)
+  const callRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordingChunksRef = useRef<Blob[]>([])
+
   // Deepgram STT
   const deepgramWsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -106,6 +117,7 @@ export default function TestAgentPage() {
 
   useEffect(() => { callStateRef.current = callState }, [callState])
   useEffect(() => { idleTimeoutRef.current = idleTimeout }, [idleTimeout])
+  useEffect(() => { elapsedSecondsRef.current = elapsedSeconds }, [elapsedSeconds])
 
   useEffect(() => {
     fetchAgent()
@@ -118,7 +130,7 @@ export default function TestAgentPage() {
 
   const fetchAgent = async () => {
     try {
-      const res = await apiClient.get<Agent>(`${API_ENDPOINTS.AGENTS}${agentId}`)
+      const res = await apiClient.get<Agent>(API_ENDPOINTS.AGENT(agentId))
       const a = res.data
       setAgent(a)
       // Wire up agent conversation settings
@@ -156,18 +168,24 @@ export default function TestAgentPage() {
     if (recognitionRef.current) { try { recognitionRef.current.stop() } catch {} }
     if (deepgramWsRef.current) { try { deepgramWsRef.current.close() } catch {}; deepgramWsRef.current = null }
     if (mediaRecorderRef.current) { try { mediaRecorderRef.current.stop() } catch {}; mediaRecorderRef.current = null }
+    if (callRecorderRef.current && callRecorderRef.current.state !== 'inactive') {
+      try { callRecorderRef.current.stop() } catch {}
+    }
     if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current = null }
     if (abortControllerRef.current) { abortControllerRef.current.abort() }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     cancelAnimationFrame(animFrameRef.current)
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    if (recordingCtxRef.current) { recordingCtxRef.current.close().catch(() => {}); recordingCtxRef.current = null }
+    recordingDestRef.current = null
     if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null }
     audioQueueRef.current = []
     isPlayingRef.current = false
   }
 
-  // ── VOLUME VISUALIZER ─────────────────────────────────────────────────────
+  // ── VOLUME VISUALIZER + RECORDING SETUP ──────────────────────────────────
   const startVolumeMonitor = (stream: MediaStream) => {
+    // Visualizer context
     const ctx = new AudioContext()
     audioCtxRef.current = ctx
     const src = ctx.createMediaStreamSource(stream)
@@ -183,6 +201,26 @@ export default function TestAgentPage() {
       animFrameRef.current = requestAnimationFrame(tick)
     }
     animFrameRef.current = requestAnimationFrame(tick)
+
+    // Recording context — separate so we can close it independently
+    try {
+      const recCtx = new AudioContext()
+      recordingCtxRef.current = recCtx
+      const dest = recCtx.createMediaStreamDestination()
+      recordingDestRef.current = dest
+      // Route mic into recording
+      const micSrc = recCtx.createMediaStreamSource(stream)
+      micSrc.connect(dest)
+      // Start recorder
+      recordingChunksRef.current = []
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''
+      const recorder = new MediaRecorder(dest.stream, mimeType ? { mimeType } : undefined)
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) recordingChunksRef.current.push(e.data) }
+      recorder.start(2000) // chunk every 2s
+      callRecorderRef.current = recorder
+    } catch {}
   }
 
   // ── IDLE TIMER ────────────────────────────────────────────────────────────
@@ -224,6 +262,14 @@ export default function TestAgentPage() {
         for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
         const url = URL.createObjectURL(new Blob([buf], { type: mime }))
         const audio = new Audio(url)
+        // Route TTS audio into recording context
+        if (recordingCtxRef.current && recordingDestRef.current) {
+          try {
+            const ttsNode = recordingCtxRef.current.createMediaElementSource(audio)
+            ttsNode.connect(recordingDestRef.current)
+            ttsNode.connect(recordingCtxRef.current.destination)
+          } catch {}
+        }
         currentAudioRef.current = audio
         await new Promise<void>((resolve) => {
           const done = () => { drainResolveRef.current = null; resolve() }
@@ -255,12 +301,48 @@ export default function TestAgentPage() {
 
   // ── END CALL (exported via ref) ───────────────────────────────────────────
   const endCall = useCallback(() => {
+    const startedAt = callStartedAtRef.current
+    const duration = elapsedSecondsRef.current
+    const history = [...historyRef.current]
+    callStartedAtRef.current = null
+
+    // Snapshot recording chunks before stopAll clears context
+    const recorder = callRecorderRef.current
+    const chunks = [...recordingChunksRef.current]
+    const mimeType = recorder?.mimeType || 'audio/webm'
+
     stopAll()
     setCallState('ended')
     setLiveText('')
     setAgentText('')
     setSttMode('none')
-  }, [])
+
+    if (!startedAt) return
+
+    // Wait briefly for recorder to flush final chunk, then log + upload
+    setTimeout(async () => {
+      const allChunks = [...chunks, ...recordingChunksRef.current]
+      recordingChunksRef.current = []
+      callRecorderRef.current = null
+
+      try {
+        const res = await apiClient.post<{ id: string }>(`/api/v1/agents/${agentId}/log-session`, {
+          started_at: startedAt.toISOString(),
+          duration_seconds: duration,
+          messages: history,
+        })
+
+        if (allChunks.length > 0) {
+          const blob = new Blob(allChunks, { type: mimeType })
+          if (blob.size > 1000) {
+            const fd = new FormData()
+            fd.append('file', blob, 'recording.webm')
+            await apiClient.post(`/api/v1/agents/${agentId}/calls/${res.data.id}/recording`, fd)
+          }
+        }
+      } catch {}
+    }, 400)
+  }, [agentId])
   useEffect(() => { endCallRef.current = endCall }, [endCall])
 
   // ── LLM + TTS STREAM ──────────────────────────────────────────────────────
@@ -271,7 +353,7 @@ export default function TestAgentPage() {
     setAgentText('')
     stopAudioNow()
 
-    const token = localStorage.getItem('voicecon_access_token') || ''
+    const token = localStorage.getItem('access_token') || ''
     try {
       const ctrl = new AbortController()
       abortControllerRef.current = ctrl
@@ -366,7 +448,7 @@ export default function TestAgentPage() {
       return
     }
 
-    const token = localStorage.getItem('voicecon_access_token') || ''
+    const token = localStorage.getItem('access_token') || ''
     const wsBase = API_BASE.replace(/^http(s?)/, (_, s) => `ws${s}`)
     const wsUrl = `${wsBase}/api/v1/agents/${agentId}/stt?token=${encodeURIComponent(token)}`
 
@@ -567,6 +649,8 @@ export default function TestAgentPage() {
     historyRef.current = []
     isActiveRef.current = true
     deepgramAvailableRef.current = true
+    callStartedAtRef.current = new Date()
+    elapsedSecondsRef.current = 0
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -603,7 +687,7 @@ export default function TestAgentPage() {
   const streamGreeting = async (text: string) => {
     try {
       const res = await apiClient.post<{ audio_base64: string; audio_format: string }>(
-        `${API_ENDPOINTS.AGENTS}${agentId}/speak`, { text }
+        `${API_ENDPOINTS.AGENT(agentId)}/speak`, { text }
       )
       const mime = res.data.audio_format === 'mp3' ? 'audio/mpeg' : `audio/${res.data.audio_format}`
       const bytes = atob(res.data.audio_base64)
@@ -611,6 +695,14 @@ export default function TestAgentPage() {
       for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
       const url = URL.createObjectURL(new Blob([buf], { type: mime }))
       const audio = new Audio(url)
+      // Route greeting into recording context
+      if (recordingCtxRef.current && recordingDestRef.current) {
+        try {
+          const ttsNode = recordingCtxRef.current.createMediaElementSource(audio)
+          ttsNode.connect(recordingDestRef.current)
+          ttsNode.connect(recordingCtxRef.current.destination)
+        } catch {}
+      }
       currentAudioRef.current = audio
       await audio.play()
       await new Promise<void>(r => { audio.onended = () => r() })
@@ -637,9 +729,9 @@ export default function TestAgentPage() {
   const stateInfo: Record<CallState, { label: string; bar: string }> = {
     idle:       { label: 'Ready to start', bar: '' },
     starting:   { label: 'Connecting...', bar: 'bg-yellow-500/10 border-b border-yellow-500/20' },
-    listening:  { label: '🎤 Listening...', bar: 'bg-green-500/10 border-b border-green-500/20' },
-    processing: { label: '💭 Thinking...', bar: 'bg-blue-500/10 border-b border-blue-500/20' },
-    speaking:   { label: '🔊 Speaking...', bar: 'bg-purple-500/10 border-b border-purple-500/20' },
+    listening:  { label: 'Listening...', bar: 'bg-green-500/10 border-b border-green-500/20' },
+    processing: { label: 'Thinking...', bar: 'bg-blue-500/10 border-b border-blue-500/20' },
+    speaking:   { label: 'Speaking...', bar: 'bg-purple-500/10 border-b border-purple-500/20' },
     ended:      { label: 'Call ended', bar: '' },
   }
 
@@ -654,7 +746,7 @@ export default function TestAgentPage() {
           <h1 className="text-2xl font-bold">Live Call: {agent?.name}</h1>
           <p className="text-sm text-muted-foreground">
             {agent?.llm_model} · {agent?.tts_provider} Flash ·{' '}
-            {sttMode === 'deepgram' ? 'Deepgram Nova-3 ⚡' : sttMode === 'webspeech' ? 'Web Speech (fallback)' : 'STT pending'}
+            {sttMode === 'deepgram' ? 'Deepgram Nova-3' : sttMode === 'webspeech' ? 'Web Speech (fallback)' : 'STT pending'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -685,7 +777,7 @@ export default function TestAgentPage() {
               )}
               <span className="text-sm font-medium">{stateInfo[callState].label}</span>
               {sttMode === 'deepgram' && isLive && (
-                <span className="text-xs text-green-700 bg-green-500/15 px-1.5 py-0.5 rounded font-medium">Deepgram ⚡</span>
+                <span className="text-xs text-green-700 bg-green-500/15 px-1.5 py-0.5 rounded font-medium">Deepgram</span>
               )}
             </div>
             {isLive && (
@@ -700,10 +792,12 @@ export default function TestAgentPage() {
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.length === 0 && !isLive && (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-3">
-                <div className="text-5xl">🎙️</div>
-                <p className="font-medium text-lg">Vapi-style Voice Agent</p>
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+                  <Phone className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+                <p className="font-medium text-lg">Live Voice Agent</p>
                 <p className="text-sm max-w-xs">
-                  Always-on Deepgram STT · ElevenLabs Flash TTS · Barge-in · Auto end-call phrases.
+                  Real-time Deepgram STT · ElevenLabs TTS · Barge-in · Auto end-call detection.
                 </p>
               </div>
             )}
@@ -764,20 +858,20 @@ export default function TestAgentPage() {
           {/* Controls */}
           <div className="border-t p-3">
             {!isLive ? (
-              <Button className="w-full" size="lg" onClick={startCall}>📞 Start Live Call</Button>
+              <Button className="w-full" size="lg" onClick={startCall}>Start Live Call</Button>
             ) : (
               <div className="space-y-2">
                 <form onSubmit={sendTextMessage} className="flex gap-2">
                   <input
                     value={textInput}
                     onChange={e => setTextInput(e.target.value)}
-                    placeholder={callState === 'listening' ? '🎤 Just speak, or type here...' : 'Type a message...'}
+                    placeholder={callState === 'listening' ? 'Just speak, or type here...' : 'Type a message...'}
                     disabled={callState === 'processing'}
                     className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   />
                   <Button type="submit" size="sm" disabled={!textInput.trim() || callState === 'processing'}>Send</Button>
                 </form>
-                <Button onClick={endCall} variant="destructive" className="w-full" size="sm">📵 End Call</Button>
+                <Button onClick={endCall} variant="destructive" className="w-full" size="sm">End Call</Button>
               </div>
             )}
           </div>
@@ -790,8 +884,8 @@ export default function TestAgentPage() {
             <div className="space-y-2 text-sm">
               {[
                 { label: 'LLM', value: agent?.llm_model },
-                { label: 'TTS', value: 'ElevenLabs Flash ⚡' },
-                { label: 'STT', value: sttMode === 'deepgram' ? 'Deepgram Nova-3 ⚡' : sttMode === 'webspeech' ? 'Web Speech' : 'Auto' },
+                { label: 'TTS', value: 'ElevenLabs' },
+                { label: 'STT', value: sttMode === 'deepgram' ? 'Deepgram Nova-3' : sttMode === 'webspeech' ? 'Web Speech' : 'Auto' },
                 { label: 'Barge-in', value: agent?.interrupt_enabled ? `On (${agent.interrupt_sensitivity})` : 'Off' },
                 { label: 'Max duration', value: agent ? `${Math.floor(agent.max_call_duration / 60)}m` : '—' },
               ].map(({ label, value }) => (
@@ -820,11 +914,11 @@ export default function TestAgentPage() {
 
           <div className="rounded-xl border bg-card p-4 space-y-1.5 text-sm">
             <h3 className="font-semibold">Pipeline</h3>
-            <p className="text-muted-foreground">⚡ Deepgram Nova-3 (~150ms)</p>
-            <p className="text-muted-foreground">🧠 LLM sentence streaming</p>
-            <p className="text-muted-foreground">🔊 ElevenLabs Flash (~75ms)</p>
-            <p className="text-muted-foreground">🛑 Barge-in during processing</p>
-            <p className="text-muted-foreground">📵 Auto end-call on phrases</p>
+            <p className="text-muted-foreground">Deepgram Nova-3 (~150ms)</p>
+            <p className="text-muted-foreground">LLM sentence streaming</p>
+            <p className="text-muted-foreground">ElevenLabs TTS (~75ms)</p>
+            <p className="text-muted-foreground">Barge-in during processing</p>
+            <p className="text-muted-foreground">Auto end-call on phrases</p>
           </div>
 
           {/* Idle Timeout */}

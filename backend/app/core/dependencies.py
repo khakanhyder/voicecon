@@ -2,6 +2,7 @@
 FastAPI dependencies for authentication, authorization, and common operations.
 """
 from typing import Optional, Generator
+import uuid as _uuid
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,10 +58,14 @@ async def get_current_user(
     Raises:
         HTTPException: If user not found or inactive
     """
-    # Import here to avoid circular imports
     from app.models.user import User
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise credentials_exception()
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
 
     if user is None:

@@ -27,7 +27,7 @@ class PhoneNumberResponse(PhoneNumberBase):
     provider: str
     provider_number_id: Optional[str] = None
     capabilities: Dict[str, Any] = Field(default_factory=dict)
-    is_active: bool
+    status: str = "active"
     created_at: datetime
     updated_at: datetime
 
@@ -51,7 +51,7 @@ class CallCreate(CallBase):
 class CallResponse(BaseModel):
     """Schema for call response."""
     id: uuid.UUID
-    agent_id: uuid.UUID
+    agent_id: Optional[uuid.UUID] = None
     user_id: uuid.UUID
     organization_id: Optional[uuid.UUID] = None
     phone_number_id: Optional[uuid.UUID] = None
@@ -59,15 +59,23 @@ class CallResponse(BaseModel):
     to_number: str
     direction: str
     status: str
-    start_time: datetime
-    end_time: Optional[datetime] = None
-    duration: Optional[int] = None
+    started_at: Optional[datetime] = None
+    answered_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
     recording_url: Optional[str] = None
+    recording_duration: Optional[int] = None
     transcript: Optional[str] = None
-    summary: Optional[str] = None
+    transcript_json: Optional[Dict[str, Any]] = None
     sentiment_score: Optional[float] = None
-    cost: Optional[float] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    sentiment_label: Optional[str] = None
+    cost_stt: Optional[float] = None
+    cost_llm: Optional[float] = None
+    cost_tts: Optional[float] = None
+    cost_telephony: Optional[float] = None
+    cost_total: Optional[float] = None
+    tags: List[str] = Field(default_factory=list)
+    call_metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

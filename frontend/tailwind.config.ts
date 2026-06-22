@@ -70,6 +70,12 @@ const config: Config = {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
       },
+      ringWidth: {
+        '3': '3px',
+      },
+      fontSize: {
+        'xs': ['0.75rem', { lineHeight: '1.1rem' }],
+      },
     },
   },
   plugins: [require('@tailwindcss/forms'), require('@tailwindcss/typography')],

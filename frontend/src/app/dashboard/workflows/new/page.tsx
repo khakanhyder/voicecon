@@ -26,7 +26,7 @@ export default function NewWorkflowPage() {
     setIsLoading(true)
 
     try {
-      await apiClient.post(API_ENDPOINTS.WORKFLOWS, {
+      const res = await apiClient.post<{ id: string }>(API_ENDPOINTS.WORKFLOWS, {
         name: formData.name,
         description: formData.description,
         trigger_type: formData.triggerType,
@@ -38,9 +38,8 @@ export default function NewWorkflowPage() {
         max_retries: 3,
         retry_delay: 60,
       })
-
-      toast.success('Workflow created successfully!')
-      router.push('/dashboard/workflows')
+      toast.success('Workflow created! Add steps in the builder.')
+      router.push(`/dashboard/workflows/${res.data.id}/builder`)
     } catch (error) {
       console.error('Failed to create workflow:', error)
       toast.error(getErrorMessage(error))
@@ -132,16 +131,14 @@ export default function NewWorkflowPage() {
 
         {/* Visual Builder Notice */}
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-6">
-          <h3 className="font-semibold mb-2">Visual Workflow Builder</h3>
+          <h3 className="font-semibold mb-2">Voice Call Flow Builder</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            After creating the workflow, you'll be able to add actions, conditions, and integrations using our visual builder.
+            After creating, you'll be taken directly to the visual builder to add voice call steps.
           </p>
-          <div className="flex gap-2 text-sm">
-            <span className="rounded bg-background px-2 py-1 font-mono">Triggers</span>
-            <span className="text-muted-foreground">→</span>
-            <span className="rounded bg-background px-2 py-1 font-mono">Conditions</span>
-            <span className="text-muted-foreground">→</span>
-            <span className="rounded bg-background px-2 py-1 font-mono">Actions</span>
+          <div className="flex flex-wrap gap-2 text-xs">
+            {['Speak', 'Ask Question', 'Branch', 'Transfer', 'Run Tool', 'Webhook', 'AI Response', 'End Call'].map((s) => (
+              <span key={s} className="rounded bg-background px-2 py-1 border font-medium">{s}</span>
+            ))}
           </div>
         </div>
 

@@ -157,8 +157,8 @@ export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange: _
             onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}
             className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
               selectedAgent === agent.id
-                ? 'border-indigo-500 bg-indigo-50'
-                : 'border-gray-200 bg-white hover:border-indigo-300'
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-blue-300'
             }`}
           >
             <div className="flex items-start justify-between mb-3">
@@ -195,7 +195,7 @@ export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange: _
 
       {/* Selected Agent Detail View */}
       {selectedAgent && (
-        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-6 border border-indigo-200">
+        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-6 border border-blue-200">
           {(() => {
             const agent = agents.find((a) => a.id === selectedAgent)!;
             return (
@@ -234,7 +234,7 @@ export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange: _
                     </div>
                     <div className="bg-white rounded-lg p-3 border">
                       <div className="flex items-center gap-2 mb-1">
-                        <Activity className="w-4 h-4 text-indigo-600" />
+                        <Activity className="w-4 h-4 text-blue-600" />
                         <span className="text-xs text-gray-600">Function Calls</span>
                       </div>
                       <p className="text-2xl font-bold text-gray-900">{agent.functionCalls}</p>

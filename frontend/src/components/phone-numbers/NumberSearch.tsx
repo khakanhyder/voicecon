@@ -118,11 +118,11 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
             onClick={() => setSearchType('area-code')}
             className={`flex-1 p-4 rounded-lg border-2 transition-all ${
               searchType === 'area-code'
-                ? 'border-indigo-600 bg-indigo-50'
+                ? 'border-blue-600 bg-blue-50'
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
-            <Phone className="w-6 h-6 mx-auto mb-2 text-indigo-600" />
+            <Phone className="w-6 h-6 mx-auto mb-2 text-blue-600" />
             <div className="text-sm font-medium">Area Code</div>
             <div className="text-xs text-gray-500 mt-1">Search by specific area code</div>
           </button>
@@ -131,11 +131,11 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
             onClick={() => setSearchType('local')}
             className={`flex-1 p-4 rounded-lg border-2 transition-all ${
               searchType === 'local'
-                ? 'border-indigo-600 bg-indigo-50'
+                ? 'border-blue-600 bg-blue-50'
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
-            <MapPin className="w-6 h-6 mx-auto mb-2 text-indigo-600" />
+            <MapPin className="w-6 h-6 mx-auto mb-2 text-blue-600" />
             <div className="text-sm font-medium">Local Number</div>
             <div className="text-xs text-gray-500 mt-1">Search by city/state</div>
           </button>
@@ -144,11 +144,11 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
             onClick={() => setSearchType('toll-free')}
             className={`flex-1 p-4 rounded-lg border-2 transition-all ${
               searchType === 'toll-free'
-                ? 'border-indigo-600 bg-indigo-50'
+                ? 'border-blue-600 bg-blue-50'
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
-            <Phone className="w-6 h-6 mx-auto mb-2 text-indigo-600" />
+            <Phone className="w-6 h-6 mx-auto mb-2 text-blue-600" />
             <div className="text-sm font-medium">Toll-Free</div>
             <div className="text-xs text-gray-500 mt-1">1-800, 1-888, etc.</div>
           </button>
@@ -171,7 +171,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
                 onChange={(e) => setAreaCode(e.target.value)}
                 placeholder="e.g., 415, 212, 310"
                 maxLength={3}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <p className="text-xs text-gray-500 mt-1">Enter a 3-digit area code</p>
             </div>
@@ -189,7 +189,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder="e.g., San Francisco"
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -199,7 +199,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
               <select
                 value={state}
                 onChange={(e) => setState(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">Select state</option>
                 <option value="CA">California</option>
@@ -217,7 +217,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Toll-Free Prefix
             </label>
-            <select className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            <select className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
               <option value="800">800</option>
               <option value="888">888</option>
               <option value="877">877</option>
@@ -233,7 +233,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
           <Button
             onClick={handleSearch}
             disabled={searching || (searchType === 'area-code' && areaCode.length !== 3)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700"
+            className="w-full bg-blue-600 hover:bg-blue-700"
           >
             <Search className="w-4 h-4 mr-2" />
             {searching ? 'Searching...' : 'Search Available Numbers'}
@@ -255,16 +255,16 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
               <div
                 key={index}
                 className={`p-6 hover:bg-gray-50 transition-colors ${
-                  selectedNumber === number.phoneNumber ? 'bg-indigo-50' : ''
+                  selectedNumber === number.phoneNumber ? 'bg-blue-50' : ''
                 }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-3">
-                      <Phone className="w-5 h-5 text-indigo-600" />
+                      <Phone className="w-5 h-5 text-blue-600" />
                       <h4 className="text-xl font-bold text-gray-900">{number.phoneNumber}</h4>
                       {selectedNumber === number.phoneNumber && (
-                        <span className="px-2 py-1 bg-indigo-600 text-white text-xs font-semibold rounded">
+                        <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
                           SELECTED
                         </span>
                       )}
@@ -360,7 +360,7 @@ export const NumberSearch: React.FC<NumberSearchProps> = ({ onPurchase }) => {
                     </div>
                     <div>
                       <div className="text-gray-500">First Month Total</div>
-                      <div className="font-bold text-indigo-600">
+                      <div className="font-bold text-blue-600">
                         ${(number.setupCost + number.monthlyCost).toFixed(2)}
                       </div>
                     </div>

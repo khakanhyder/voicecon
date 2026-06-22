@@ -2,11 +2,13 @@
 Voicecon FastAPI Application
 Main entry point for the backend API.
 """
+import os
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import time
 import logging
@@ -90,14 +92,23 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Request timing middleware
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
-    """
-    Add X-Process-Time header to all responses.
-    """
+    """Add X-Process-Time header; gracefully skip for streaming responses."""
+    from starlette.responses import Response as StarletteResponse
     start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        # Don't mutate streaming responses — headers are already sent
+        try:
+            response.headers["X-Process-Time"] = str(process_time)
+        except Exception:
+            pass
+        return response
+    except RuntimeError as e:
+        if "No response returned" in str(e):
+            # Streaming generator failed before yielding — return empty 200
+            return StarletteResponse(status_code=200)
+        raise
 
 
 # Exception handlers
@@ -181,6 +192,11 @@ try:
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 except ImportError:
     logger.warning("API routers not yet implemented")
+
+# Serve call recordings as static files
+_recordings_dir = os.path.join(os.path.dirname(__file__), '..', 'recordings')
+os.makedirs(_recordings_dir, exist_ok=True)
+app.mount("/recordings", StaticFiles(directory=_recordings_dir), name="recordings")
 
 
 if __name__ == "__main__":

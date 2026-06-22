@@ -4,8 +4,7 @@ User, Organization, and Authentication models.
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, ARRAY, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, JSON, Uuid
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.database import Base
@@ -17,7 +16,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -68,12 +67,12 @@ class Organization(Base):
     __tablename__ = "organizations"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
     )
 
     # Plan and billing
@@ -116,15 +115,15 @@ class OrganizationMember(Base):
     __tablename__ = "organization_members"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
     # Role: owner, admin, member, viewer
@@ -135,7 +134,7 @@ class OrganizationMember(Base):
 
     # Invitation tracking
     invited_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id")
+        Uuid(as_uuid=True), ForeignKey("users.id")
     )
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -157,13 +156,13 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -173,7 +172,7 @@ class ApiKey(Base):
     )  # For display (e.g., "vcon_abc...")
 
     # Permissions/scopes
-    scopes: Mapped[List[str]] = mapped_column(ARRAY(Text), default=list)
+    scopes: Mapped[List[str]] = mapped_column(JSON, default=list)
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -8,8 +8,7 @@ from datetime import datetime
 from typing import Optional, List
 import uuid
 
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean, JSON, Float, Index
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean, JSON, Float, Index, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -22,8 +21,8 @@ class KnowledgeBase(Base):
     """
     __tablename__ = "knowledge_bases"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
@@ -61,8 +60,8 @@ class Document(Base):
     """
     __tablename__ = "documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
 
     # Document info
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -111,8 +110,8 @@ class DocumentChunk(Base):
     """
     __tablename__ = "document_chunks"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("documents.id"), nullable=False)
 
     # Chunk content
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -156,9 +155,9 @@ class AgentKnowledgeBase(Base):
     """
     __tablename__ = "agent_knowledge_bases"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False)
-    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("agents.id"), nullable=False)
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
 
     # Configuration
     priority: Mapped[int] = mapped_column(Integer, default=0)  # Higher priority searched first
@@ -192,10 +191,10 @@ class SearchQuery(Base):
     """
     __tablename__ = "search_queries"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
-    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id"))
-    call_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("calls.id"))
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("knowledge_bases.id"), nullable=False)
+    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), ForeignKey("agents.id"))
+    call_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), ForeignKey("calls.id"))
 
     # Query details
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -207,7 +206,7 @@ class SearchQuery(Base):
     avg_similarity: Mapped[Optional[float]] = mapped_column(Float)  # Average match score
 
     # Result IDs (for analysis)
-    result_chunk_ids: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String))
+    result_chunk_ids: Mapped[Optional[List[str]]] = mapped_column(JSON)
 
     # Performance
     query_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)  # Query execution time

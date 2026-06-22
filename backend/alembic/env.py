@@ -23,8 +23,15 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set sqlalchemy.url from environment
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Build sync URL for Alembic (mysql+pymysql://)
+_raw = settings.DATABASE_URL
+if _raw.startswith("mysql://"):
+    _sync_url = _raw.replace("mysql://", "mysql+pymysql://", 1)
+elif _raw.startswith("mysql+aiomysql://"):
+    _sync_url = _raw.replace("mysql+aiomysql://", "mysql+pymysql://", 1)
+else:
+    _sync_url = _raw
+config.set_main_option("sqlalchemy.url", _sync_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

@@ -1,387 +1,456 @@
-'use client';
+'use client'
 
-import React, { useState } from 'react';
-import { Phone, Plus, Search, Settings, DollarSign, TrendingUp, Users } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { NumberSearch } from '@/components/phone-numbers/NumberSearch';
-import { NumberConfiguration } from '@/components/phone-numbers/NumberConfiguration';
-import { NumberAssignment } from '@/components/phone-numbers/NumberAssignment';
-import { NumberAnalytics } from '@/components/phone-numbers/NumberAnalytics';
+import { useState, useEffect } from 'react'
+import { apiClient, getErrorMessage } from '@/lib/api'
+import { API_ENDPOINTS } from '@/lib/constants'
+import { toast } from 'sonner'
+import {
+  Phone, Plus, Search, DollarSign, TrendingUp,
+  CheckCircle, Bot, Loader2, RefreshCw,
+  ChevronDown, X,
+} from 'lucide-react'
+import Link from 'next/link'
 
 interface PhoneNumber {
-  id: string;
-  number: string;
-  friendlyName: string;
-  country: string;
-  region: string;
-  capabilities: string[];
-  status: 'active' | 'inactive' | 'pending';
-  assignedAgent?: string;
-  monthlyCost: number;
-  totalCalls: number;
-  totalMinutes: number;
+  id: string
+  phone_number: string
+  country_code: string | null
+  area_code: string | null
+  provider: string
+  agent_id: string | null
+  capabilities: Record<string, boolean>
+  status: string
+  monthly_cost: number | null
+  created_at: string
+}
+
+interface AvailableNumber {
+  phone_number: string
+  friendly_name: string
+  locality: string | null
+  region: string | null
+  capabilities: Record<string, boolean>
+}
+
+const statusStyle: Record<string, string> = {
+  active:   'bg-emerald-50 text-emerald-700 border-emerald-200',
+  inactive: 'bg-slate-50 text-slate-600 border-slate-200',
+  pending:  'bg-amber-50 text-amber-700 border-amber-200',
+}
+
+function CapBadge({ label, active }: { label: string; active: boolean }) {
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+      active ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-400 line-through'
+    }`}>
+      {label}
+    </span>
+  )
 }
 
 export default function PhoneNumbersPage() {
-  const [activeTab, setActiveTab] = useState<'numbers' | 'search' | 'analytics'>('numbers');
-  const [selectedNumber, setSelectedNumber] = useState<PhoneNumber | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
-  const [showAssignment, setShowAssignment] = useState(false);
+  const [activeTab, setActiveTab] = useState<'numbers' | 'search'>('numbers')
+  const [numbers, setNumbers] = useState<PhoneNumber[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Sample data - In production, fetch from API
-  const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([
-    {
-      id: '1',
-      number: '+1 (555) 123-4567',
-      friendlyName: 'Main Support Line',
-      country: 'US',
-      region: 'California',
-      capabilities: ['voice', 'sms'],
-      status: 'active',
-      assignedAgent: 'Support Agent',
-      monthlyCost: 1.50,
-      totalCalls: 342,
-      totalMinutes: 1245,
-    },
-    {
-      id: '2',
-      number: '+1 (555) 234-5678',
-      friendlyName: 'Sales Hotline',
-      country: 'US',
-      region: 'New York',
-      capabilities: ['voice', 'sms', 'mms'],
-      status: 'active',
-      assignedAgent: 'Sales Agent',
-      monthlyCost: 2.00,
-      totalCalls: 567,
-      totalMinutes: 2134,
-    },
-    {
-      id: '3',
-      number: '+1 (555) 345-6789',
-      friendlyName: 'Customer Service',
-      country: 'US',
-      region: 'Texas',
-      capabilities: ['voice'],
-      status: 'active',
-      monthlyCost: 1.50,
-      totalCalls: 189,
-      totalMinutes: 678,
-    },
-    {
-      id: '4',
-      number: '+1 (555) 456-7890',
-      friendlyName: 'Emergency Line',
-      country: 'US',
-      region: 'Florida',
-      capabilities: ['voice', 'sms'],
-      status: 'inactive',
-      monthlyCost: 1.50,
-      totalCalls: 0,
-      totalMinutes: 0,
-    },
-  ]);
+  // Search state
+  const [countryCode, setCountryCode] = useState('US')
+  const [areaCode, setAreaCode] = useState('')
+  const [contains, setContains] = useState('')
+  const [searchResults, setSearchResults] = useState<AvailableNumber[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [isPurchasing, setIsPurchasing] = useState<string | null>(null)
 
-  // Calculate statistics
-  const stats = {
-    total: phoneNumbers.length,
-    active: phoneNumbers.filter(n => n.status === 'active').length,
-    totalCost: phoneNumbers.reduce((sum, n) => sum + n.monthlyCost, 0),
-    totalCalls: phoneNumbers.reduce((sum, n) => sum + n.totalCalls, 0),
-    assigned: phoneNumbers.filter(n => n.assignedAgent).length,
-  };
+  // Agent selector state for provisioning
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
+  const [selectedAgent, setSelectedAgent] = useState('')
+  const [purchaseTarget, setPurchaseTarget] = useState<AvailableNumber | null>(null)
 
-  const handlePurchaseNumber = (number: any) => {
-    // Add purchased number
-    const newNumber: PhoneNumber = {
-      id: Date.now().toString(),
-      number: number.phoneNumber,
-      friendlyName: `New Number ${phoneNumbers.length + 1}`,
-      country: number.country,
-      region: number.region,
-      capabilities: number.capabilities,
-      status: 'pending',
-      monthlyCost: number.monthlyCost,
-      totalCalls: 0,
-      totalMinutes: 0,
-    };
+  useEffect(() => {
+    fetchNumbers()
+    fetchAgents()
+  }, [])
 
-    setPhoneNumbers([...phoneNumbers, newNumber]);
-    setActiveTab('numbers');
-  };
-
-  const handleConfigSave = (config: any) => {
-    if (selectedNumber) {
-      setPhoneNumbers(phoneNumbers.map(n =>
-        n.id === selectedNumber.id
-          ? { ...n, friendlyName: config.friendlyName, status: config.status }
-          : n
-      ));
-      setShowConfig(false);
-      setSelectedNumber(null);
+  const fetchNumbers = async () => {
+    setIsLoading(true)
+    try {
+      const res = await apiClient.get<PhoneNumber[]>(API_ENDPOINTS.PHONE_NUMBERS)
+      setNumbers(Array.isArray(res.data) ? res.data : [])
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    } finally {
+      setIsLoading(false)
     }
-  };
+  }
 
-  const handleAssignmentSave = (_agentId: string, agentName: string) => {
-    if (selectedNumber) {
-      setPhoneNumbers(phoneNumbers.map(n =>
-        n.id === selectedNumber.id
-          ? { ...n, assignedAgent: agentName }
-          : n
-      ));
-      setShowAssignment(false);
-      setSelectedNumber(null);
-    }
-  };
+  const fetchAgents = async () => {
+    try {
+      const res = await apiClient.get<{ agents: { id: string; name: string }[] }>(API_ENDPOINTS.AGENTS)
+      setAgents(res.data.agents || [])
+    } catch {}
+  }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'text-green-600 bg-green-100';
-      case 'inactive':
-        return 'text-gray-600 bg-gray-100';
-      case 'pending':
-        return 'text-yellow-600 bg-yellow-100';
-      default:
-        return 'text-gray-600 bg-gray-100';
+  const searchNumbers = async () => {
+    setIsSearching(true)
+    setSearchResults([])
+    try {
+      const params = new URLSearchParams({ country_code: countryCode, limit: '10' })
+      if (areaCode) params.set('area_code', areaCode)
+      if (contains) params.set('contains', contains)
+      const res = await apiClient.get<AvailableNumber[]>(
+        `${API_ENDPOINTS.PHONE_NUMBERS_SEARCH}?${params}`
+      )
+      setSearchResults(Array.isArray(res.data) ? res.data : [])
+      if (!res.data?.length) toast.info('No numbers found for that search. Try different criteria.')
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    } finally {
+      setIsSearching(false)
     }
-  };
+  }
+
+  const purchaseNumber = async (num: AvailableNumber) => {
+    if (!selectedAgent) { toast.error('Please select an agent to assign this number to'); return }
+    setIsPurchasing(num.phone_number)
+    try {
+      await apiClient.post(API_ENDPOINTS.PHONE_NUMBERS_PROVISION, {
+        phone_number: num.phone_number,
+        agent_id: selectedAgent,
+      })
+      toast.success(`${num.phone_number} provisioned successfully`)
+      setPurchaseTarget(null)
+      setSelectedAgent('')
+      fetchNumbers()
+      setActiveTab('numbers')
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    } finally {
+      setIsPurchasing(null)
+    }
+  }
+
+  const releaseNumber = async (id: string) => {
+    if (!confirm('Release this phone number? This cannot be undone.')) return
+    try {
+      await apiClient.delete(API_ENDPOINTS.PHONE_NUMBER(id))
+      toast.success('Phone number released')
+      fetchNumbers()
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    }
+  }
+
+  const activeCount  = numbers.filter(n => n.status === 'active').length
+  const monthlyCost  = numbers.reduce((s, n) => s + (n.monthly_cost || 0), 0)
+  const assignedCount = numbers.filter(n => n.agent_id).length
+
+  const statCards = [
+    { label: 'Total Numbers', value: numbers.length, icon: Phone,       color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Active',        value: activeCount,    icon: TrendingUp,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Assigned',      value: assignedCount,  icon: Bot,         color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: 'Monthly Cost',  value: `$${monthlyCost.toFixed(2)}`, icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' },
+  ]
+
+  const tabs = [
+    { id: 'numbers' as const, label: 'My Numbers', icon: Phone },
+    { id: 'search'  as const, label: 'Search & Purchase', icon: Search },
+  ]
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Phone Numbers</h1>
-            <p className="text-gray-600 mt-1">Manage your voice-enabled phone numbers</p>
-          </div>
-
-          <Button
-            onClick={() => setActiveTab('search')}
-            className="bg-indigo-600 hover:bg-indigo-700"
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Phone Numbers</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Manage voice-enabled phone numbers for your agents</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchNumbers}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
-            <Plus className="w-4 h-4 mr-2" />
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setActiveTab('search')}
+            className="flex items-center gap-2 rounded-xl gradient-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-all shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
             Purchase Number
-          </Button>
-        </div>
-
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-          <div className="bg-white border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Phone className="w-5 h-5 text-blue-600" />
-              <span className="text-sm font-medium text-gray-600">Total Numbers</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
-          </div>
-
-          <div className="bg-white border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-5 h-5 text-green-600" />
-              <span className="text-sm font-medium text-gray-600">Active</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.active}</p>
-          </div>
-
-          <div className="bg-white border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-5 h-5 text-purple-600" />
-              <span className="text-sm font-medium text-gray-600">Assigned</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.assigned}</p>
-          </div>
-
-          <div className="bg-white border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="w-5 h-5 text-yellow-600" />
-              <span className="text-sm font-medium text-gray-600">Monthly Cost</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">${stats.totalCost.toFixed(2)}</p>
-          </div>
-
-          <div className="bg-white border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Phone className="w-5 h-5 text-indigo-600" />
-              <span className="text-sm font-medium text-gray-600">Total Calls</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.totalCalls}</p>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex gap-2 border-b">
-          <button
-            onClick={() => setActiveTab('numbers')}
-            className={`px-4 py-2 font-medium transition-colors relative ${
-              activeTab === 'numbers'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Phone className="w-4 h-4 inline mr-2" />
-            My Numbers
-          </button>
-          <button
-            onClick={() => setActiveTab('search')}
-            className={`px-4 py-2 font-medium transition-colors relative ${
-              activeTab === 'search'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Search className="w-4 h-4 inline mr-2" />
-            Search & Purchase
-          </button>
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`px-4 py-2 font-medium transition-colors relative ${
-              activeTab === 'analytics'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <TrendingUp className="w-4 h-4 inline mr-2" />
-            Analytics
           </button>
         </div>
-
-        {/* Tab Content */}
-        {activeTab === 'numbers' && (
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Phone Number
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Region
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Capabilities
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Assigned To
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Usage
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cost
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {phoneNumbers.map((number) => (
-                  <tr key={number.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{number.number}</div>
-                        <div className="text-xs text-gray-500">{number.friendlyName}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {number.region}, {number.country}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-1">
-                        {number.capabilities.map((cap) => (
-                          <span
-                            key={cap}
-                            className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded"
-                          >
-                            {cap.toUpperCase()}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(number.status)}`}>
-                        {number.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {number.assignedAgent || (
-                        <span className="text-gray-400 italic">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div>
-                        <div>{number.totalCalls} calls</div>
-                        <div className="text-xs text-gray-500">{number.totalMinutes} mins</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${number.monthlyCost.toFixed(2)}/mo
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedNumber(number);
-                            setShowConfig(true);
-                          }}
-                          className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedNumber(number);
-                            setShowAssignment(true);
-                          }}
-                          className="text-green-600 hover:text-green-900 text-sm font-medium"
-                        >
-                          <Users className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {activeTab === 'search' && (
-          <NumberSearch onPurchase={handlePurchaseNumber} />
-        )}
-
-        {activeTab === 'analytics' && (
-          <NumberAnalytics phoneNumbers={phoneNumbers} />
-        )}
-
-        {/* Configuration Modal */}
-        {showConfig && selectedNumber && (
-          <NumberConfiguration
-            number={selectedNumber}
-            onClose={() => {
-              setShowConfig(false);
-              setSelectedNumber(null);
-            }}
-            onSave={handleConfigSave}
-          />
-        )}
-
-        {/* Assignment Modal */}
-        {showAssignment && selectedNumber && (
-          <NumberAssignment
-            number={selectedNumber}
-            onClose={() => {
-              setShowAssignment(false);
-              setSelectedNumber(null);
-            }}
-            onSave={handleAssignmentSave}
-          />
-        )}
       </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {statCards.map(card => {
+          const Icon = card.icon
+          return (
+            <div key={card.label} className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.bg} mb-3`}>
+                <Icon className={`h-4 w-4 ${card.color}`} />
+              </div>
+              <div className="text-xl font-bold text-slate-900">{card.value}</div>
+              <div className="text-xs text-slate-500 mt-0.5">{card.label}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-0 border-b border-slate-200">
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === id
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* MY NUMBERS tab */}
+      {activeTab === 'numbers' && (
+        <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
+          {isLoading ? (
+            <div className="space-y-0 divide-y divide-slate-100">
+              {[1,2,3].map(i => (
+                <div key={i} className="flex items-center gap-4 px-6 py-4 animate-pulse">
+                  <div className="h-10 w-10 bg-slate-100 rounded-lg flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-36 bg-slate-100 rounded" />
+                    <div className="h-3 w-24 bg-slate-100 rounded" />
+                  </div>
+                  <div className="h-5 w-16 bg-slate-100 rounded-full" />
+                </div>
+              ))}
+            </div>
+          ) : numbers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 mb-5">
+                <Phone className="h-8 w-8 text-slate-300" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-800">No phone numbers yet</h3>
+              <p className="text-slate-500 text-sm mt-1.5 max-w-xs">
+                Purchase a phone number to start receiving inbound calls with your AI agents.
+              </p>
+              <button
+                onClick={() => setActiveTab('search')}
+                className="mt-6 flex items-center gap-2 rounded-xl gradient-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                Purchase your first number
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="hidden md:grid grid-cols-[2.5rem_1fr_8rem_9rem_6rem_7rem_5rem] gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                <div />
+                <div>Number</div>
+                <div>Capabilities</div>
+                <div>Agent</div>
+                <div>Status</div>
+                <div>Monthly Cost</div>
+                <div>Actions</div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {numbers.map(num => (
+                  <div key={num.id} className="flex flex-col md:grid md:grid-cols-[2.5rem_1fr_8rem_9rem_6rem_7rem_5rem] gap-2 md:gap-4 px-4 md:px-6 py-4 hover:bg-slate-50 transition-colors">
+                    <div className="hidden md:flex items-center">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
+                        <Phone className="h-4 w-4 text-blue-600" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 font-mono">{num.phone_number}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {num.country_code || 'US'}{num.area_code ? ` · ${num.area_code}` : ''} · {num.provider}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <CapBadge label="Voice" active={num.capabilities?.voice ?? true} />
+                      <CapBadge label="SMS" active={num.capabilities?.SMS ?? num.capabilities?.sms ?? false} />
+                    </div>
+                    <div className="flex items-center">
+                      {num.agent_id ? (
+                        <Link href={`/dashboard/agents/${num.agent_id}`} className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
+                          <Bot className="h-3.5 w-3.5" />
+                          <span className="truncate max-w-[6rem]">View agent</span>
+                        </Link>
+                      ) : (
+                        <span className="text-sm text-slate-400 italic">Unassigned</span>
+                      )}
+                    </div>
+                    <div className="flex items-center">
+                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusStyle[num.status] || statusStyle.inactive}`}>
+                        {num.status}
+                      </span>
+                    </div>
+                    <div className="hidden md:flex items-center text-sm text-slate-600">
+                      {num.monthly_cost ? `$${num.monthly_cost.toFixed(2)}/mo` : '—'}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => releaseNumber(num.id)}
+                        title="Release number"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* SEARCH & PURCHASE tab */}
+      {activeTab === 'search' && (
+        <div className="space-y-5">
+          {/* Search form */}
+          <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">Search Available Numbers</h3>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Country</label>
+                <div className="relative">
+                  <select
+                    value={countryCode}
+                    onChange={e => setCountryCode(e.target.value)}
+                    className="w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-8 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  >
+                    <option value="US">United States</option>
+                    <option value="GB">United Kingdom</option>
+                    <option value="CA">Canada</option>
+                    <option value="AU">Australia</option>
+                    <option value="DE">Germany</option>
+                    <option value="FR">France</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Area Code</label>
+                <input
+                  type="text"
+                  value={areaCode}
+                  onChange={e => setAreaCode(e.target.value)}
+                  placeholder="e.g. 415"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Contains</label>
+                <input
+                  type="text"
+                  value={contains}
+                  onChange={e => setContains(e.target.value)}
+                  placeholder="e.g. 555"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={searchNumbers}
+                  disabled={isSearching}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl gradient-primary py-2 text-sm font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60"
+                >
+                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  Search
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Results */}
+          {searchResults.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                <p className="text-sm font-semibold text-slate-700">{searchResults.length} numbers available</p>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {searchResults.map(num => (
+                  <div key={num.phone_number} className="flex items-center gap-4 px-5 py-4">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
+                      <Phone className="h-4 w-4 text-slate-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 font-mono">{num.phone_number}</p>
+                      <p className="text-xs text-slate-400">
+                        {[num.locality, num.region].filter(Boolean).join(', ') || 'Unknown region'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {num.capabilities?.voice && <CapBadge label="Voice" active />}
+                      {(num.capabilities?.SMS || num.capabilities?.sms) && <CapBadge label="SMS" active />}
+                    </div>
+                    {purchaseTarget?.phone_number === num.phone_number ? (
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <select
+                            value={selectedAgent}
+                            onChange={e => setSelectedAgent(e.target.value)}
+                            className="appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-8 py-1.5 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-indigo-500/20"
+                          >
+                            <option value="">Select agent…</option>
+                            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                        </div>
+                        <button
+                          onClick={() => purchaseNumber(num)}
+                          disabled={isPurchasing === num.phone_number}
+                          className="flex items-center gap-1.5 rounded-lg gradient-primary px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-all disabled:opacity-60"
+                        >
+                          {isPurchasing === num.phone_number ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => { setPurchaseTarget(null); setSelectedAgent('') }}
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setPurchaseTarget(num)}
+                        className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Purchase
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {searchResults.length === 0 && !isSearching && (
+            <div className="flex flex-col items-center justify-center py-16 text-center bg-white rounded-xl border border-slate-200">
+              <Search className="h-10 w-10 text-slate-200 mb-3" />
+              <p className="text-sm text-slate-400">Search to see available phone numbers</p>
+              <p className="text-xs text-slate-300 mt-1">Filter by country, area code, or pattern</p>
+            </div>
+          )}
+
+          {isSearching && (
+            <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-slate-200">
+              <Loader2 className="h-8 w-8 text-blue-500 animate-spin mb-3" />
+              <p className="text-sm text-slate-500">Searching available numbers…</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  );
+  )
 }

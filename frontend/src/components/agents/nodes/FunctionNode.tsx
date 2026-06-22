@@ -21,9 +21,9 @@ export const FunctionNode = memo(({ data, selected }: NodeProps<FunctionNodeData
   return (
     <div
       className={`
-        relative bg-white rounded-lg shadow-lg border-2 border-indigo-200
+        relative bg-white rounded-lg shadow-lg border-2 border-blue-200
         min-w-[260px] transition-all duration-200
-        ${selected ? 'ring-4 ring-indigo-300 ring-offset-2' : ''}
+        ${selected ? 'ring-4 ring-blue-300 ring-offset-2' : ''}
       `}
     >
       {/* Input Handle */}
@@ -47,9 +47,9 @@ export const FunctionNode = memo(({ data, selected }: NodeProps<FunctionNodeData
       {/* Content */}
       <div className="px-4 py-3">
         {/* Function Type */}
-        <div className="flex items-center justify-between py-2 px-3 bg-indigo-50 rounded-lg mb-3">
+        <div className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg mb-3">
           <span className="text-xs font-medium text-gray-600">Type:</span>
-          <span className="text-xs font-semibold text-indigo-700 capitalize">
+          <span className="text-xs font-semibold text-blue-700 capitalize">
             {data.functionType?.replace('_', ' ') || 'API Call'}
           </span>
         </div>
@@ -103,7 +103,7 @@ export const FunctionNode = memo(({ data, selected }: NodeProps<FunctionNodeData
         {data.responseVariable && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Save response as:</span>
-            <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-md font-mono">
+            <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-md font-mono">
               {`{{${data.responseVariable}}}`}
             </span>
           </div>
