@@ -186,17 +186,19 @@ async def root():
 
 
 # Import and include API routers
-# Note: These will be created in the next step
 try:
     from app.api.v1.api import api_router
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-except ImportError:
-    logger.warning("API routers not yet implemented")
+except Exception as e:
+    logger.error(f"Failed to load API routers: {e}", exc_info=True)
 
 # Serve call recordings as static files
-_recordings_dir = os.path.join(os.path.dirname(__file__), '..', 'recordings')
-os.makedirs(_recordings_dir, exist_ok=True)
-app.mount("/recordings", StaticFiles(directory=_recordings_dir), name="recordings")
+try:
+    _recordings_dir = os.path.join(os.path.dirname(__file__), '..', 'recordings')
+    os.makedirs(_recordings_dir, exist_ok=True)
+    app.mount("/recordings", StaticFiles(directory=_recordings_dir), name="recordings")
+except Exception as e:
+    logger.warning(f"Could not mount recordings directory: {e}")
 
 
 if __name__ == "__main__":

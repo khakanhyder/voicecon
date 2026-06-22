@@ -21,9 +21,9 @@ COPY . .
 
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app && \
-    mkdir -p /app/recordings && chown appuser:appuser /app/recordings
+    mkdir -p /app/recordings && chown appuser:appuser /app/recordings && \
+    chmod +x /app/start.sh
 
 USER appuser
 
-# Run migrations (non-fatal), then start — uses Railway's $PORT env var
-CMD sh -c "alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+CMD ["/app/start.sh"]
