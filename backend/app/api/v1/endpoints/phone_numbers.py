@@ -202,7 +202,7 @@ async def provision_phone_number(
         )
 
 
-@router.get("/", response_model=List[PhoneNumberResponse])
+@router.get("", response_model=List[PhoneNumberResponse])
 async def list_phone_numbers(
     agent_id: Optional[UUID] = Query(default=None, description="Filter by agent ID"),
     status: Optional[str] = Query(default=None, description="Filter by status"),

@@ -38,7 +38,7 @@ router = APIRouter()
 # ============================================================================
 
 
-@router.post("/", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     workflow_data: WorkflowCreate,
     current_user: User = Depends(get_current_active_user),
@@ -113,7 +113,7 @@ async def create_workflow(
         )
 
 
-@router.get("/", response_model=WorkflowListResponse)
+@router.get("", response_model=WorkflowListResponse)
 async def list_workflows(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     trigger_type: Optional[str] = Query(None, description="Filter by trigger type"),

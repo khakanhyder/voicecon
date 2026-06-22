@@ -51,6 +51,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("", response_model=IntegrationConnectionListResponse)
+async def list_integrations(
+    limit: int = Query(500, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List connected integrations for the current user (alias for /connections)."""
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.user_id == current_user.id
+        ).limit(limit)
+    )
+    connections = result.scalars().all()
+    return IntegrationConnectionListResponse(
+        connections=connections,
+        total=len(connections),
+        page=1,
+        page_size=limit,
+    )
+
+
 # ============================================================================
 # Connector Endpoints
 # ============================================================================

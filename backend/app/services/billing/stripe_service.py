@@ -828,8 +828,9 @@ async def get_stripe_service() -> StripeService:
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
     if not api_key:
-        raise ValueError("STRIPE_SECRET_KEY not configured")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Billing service not configured")
     if not webhook_secret:
-        raise ValueError("STRIPE_WEBHOOK_SECRET not configured")
+        webhook_secret = "not_configured"
 
     return StripeService(api_key=api_key, webhook_secret=webhook_secret)

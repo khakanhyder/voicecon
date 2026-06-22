@@ -74,6 +74,7 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json" if settings.DEBUG else None,
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS Middleware
@@ -93,22 +94,21 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     """Add X-Process-Time header; gracefully skip for streaming responses."""
-    from starlette.responses import Response as StarletteResponse
     start_time = time.time()
     try:
         response = await call_next(request)
         process_time = time.time() - start_time
-        # Don't mutate streaming responses — headers are already sent
         try:
             response.headers["X-Process-Time"] = str(process_time)
         except Exception:
             pass
         return response
-    except RuntimeError as e:
-        if "No response returned" in str(e):
-            # Streaming generator failed before yielding — return empty 200
-            return StarletteResponse(status_code=200)
-        raise
+    except Exception as e:
+        logger.exception(f"Unhandled exception during {request.method} {request.url.path}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "InternalServerError", "message": "An unexpected error occurred"},
+        )
 
 
 # Exception handlers

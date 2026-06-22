@@ -108,7 +108,7 @@ async def call_websocket(
             await call_manager.remove_call(call_session.call_id)
 
 
-@router.post("/", response_model=CallResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CallResponse, status_code=status.HTTP_201_CREATED)
 async def create_call(
     call_data: CallCreate,
     db: AsyncSession = Depends(get_db),
@@ -210,7 +210,7 @@ async def create_call(
     return call
 
 
-@router.get("/", response_model=CallListResponse)
+@router.get("", response_model=CallListResponse)
 async def list_calls(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
