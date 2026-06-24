@@ -42,6 +42,10 @@ TOOL_CATEGORIES = {
     "slack": "integration",
     "google_sheets": "integration",
     "google_calendar": "integration",
+    "gohighlevel": "integration",
+    "custom_tool": "integration",
+    "connected_integration": "integration",
+    "integration": "integration",
 }
 
 

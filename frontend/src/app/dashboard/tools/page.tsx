@@ -41,6 +41,25 @@ interface ActiveIntegration {
   status: string
 }
 
+interface AvailableAction {
+  action: string
+  label: string
+  description: string
+  parameters: {
+    type: string
+    properties: Record<string, { type: string; description: string }>
+    required?: string[]
+  }
+}
+
+interface AvailableConnection {
+  connection_id: string
+  connector_slug: string
+  connector_name: string
+  display_name: string
+  action_count: number
+}
+
 // ── Tool type metadata ─────────────────────────────────────────────────────────
 
 const TOOL_TYPES = {
@@ -77,6 +96,7 @@ const TOOL_TYPES = {
     bg: 'bg-blue-50',
     border: 'border-blue-200',
     tools: [
+      { type: 'connected_integration',  label: 'Connected Integration', icon: Link2,          description: 'Use a connected integration (HubSpot, Salesforce, Google Calendar, Slack, etc.) as an AI-callable tool' },
       { type: 'api_request',           label: 'API Request',          icon: Globe,           description: 'Make a custom HTTP API request to any server' },
       { type: 'mcp',                   label: 'MCP',                  icon: Settings2,       description: 'Call a Model Context Protocol server tool' },
       { type: 'slack',                 label: 'Slack',                icon: MessageSquare,   description: 'Send a message to a Slack channel via webhook' },
@@ -94,12 +114,16 @@ const ALL_TOOL_TYPES = Object.values(TOOL_TYPES).flatMap(c => c.tools)
 function getTypeMeta(toolType: string) { return ALL_TOOL_TYPES.find(t => t.type === toolType) }
 function getCategoryMeta(cat: string) { return TOOL_TYPES[cat as CatKey] }
 
-// ── Integration slugs whose connected state we surface in Tools ────────────────
+// Integration slugs that have AI-callable actions (surfaces quick-create button in banner)
 const INTEGRATION_TOOL_SLUGS: Record<string, { label: string; icon: string; toolType: string }> = {
-  slack:            { label: 'Slack',           icon: '💬', toolType: 'slack' },
-  'google-sheets':  { label: 'Google Sheets',   icon: '📊', toolType: 'google_sheets' },
-  'google-calendar':{ label: 'Google Calendar', icon: '📅', toolType: 'google_calendar' },
-  gohighlevel:      { label: 'GoHighLevel',     icon: '🏢', toolType: 'gohighlevel' },
+  slack:            { label: 'Slack',           icon: '💬', toolType: 'connected_integration' },
+  hubspot:          { label: 'HubSpot',         icon: '🟠', toolType: 'connected_integration' },
+  salesforce:       { label: 'Salesforce',      icon: '☁️',  toolType: 'connected_integration' },
+  google_calendar:  { label: 'Google Calendar', icon: '📅', toolType: 'connected_integration' },
+  sendgrid:         { label: 'SendGrid',        icon: '📧', toolType: 'connected_integration' },
+  'google-sheets':  { label: 'Google Sheets',   icon: '📊', toolType: 'connected_integration' },
+  'google-calendar':{ label: 'Google Calendar', icon: '📅', toolType: 'connected_integration' },
+  gohighlevel:      { label: 'GoHighLevel',     icon: '🏢', toolType: 'connected_integration' },
 }
 
 // ── Shared UI primitives ──────────────────────────────────────────────────────
@@ -182,6 +206,146 @@ function ParameterBuilder({ params, onChange }: { params: ToolParameter[]; onCha
   )
 }
 
+// ── Connected integration config ──────────────────────────────────────────────
+
+function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
+  config: Record<string, string>
+  onCfg: (k: string, v: string) => void
+  onParams: (p: ToolParameter[]) => void
+}) {
+  const [connections, setConnections] = useState<AvailableConnection[]>([])
+  const [actions, setActions] = useState<AvailableAction[]>([])
+  const [loadingConns, setLoadingConns] = useState(true)
+  const [loadingActions, setLoadingActions] = useState(false)
+
+  useEffect(() => {
+    apiClient.get<{ connections: AvailableConnection[] }>(API_ENDPOINTS.INTEGRATIONS_AVAILABLE_FOR_TOOLS)
+      .then(res => setConnections(res.data.connections || []))
+      .catch(() => {})
+      .finally(() => setLoadingConns(false))
+  }, [])
+
+  useEffect(() => {
+    if (!config.connection_id) { setActions([]); return }
+    setLoadingActions(true)
+    apiClient.get<{ actions: AvailableAction[] }>(API_ENDPOINTS.INTEGRATION_CONNECTION_ACTIONS(config.connection_id))
+      .then(res => setActions(res.data.actions || []))
+      .catch(() => setActions([]))
+      .finally(() => setLoadingActions(false))
+  }, [config.connection_id])
+
+  const selectedAction = actions.find(a => a.action === config.action)
+
+  const handleConnectionChange = (connectionId: string) => {
+    const conn = connections.find(c => c.connection_id === connectionId)
+    onCfg('connection_id', connectionId)
+    onCfg('connector_slug', conn?.connector_slug || '')
+    onCfg('action', '')
+    onParams([])
+  }
+
+  const handleActionChange = (action: string) => {
+    onCfg('action', action)
+    const actionDef = actions.find(a => a.action === action)
+    if (actionDef?.parameters?.properties) {
+      const { properties, required = [] } = actionDef.parameters
+      const newParams: ToolParameter[] = Object.entries(properties).map(([name, def]) => ({
+        name,
+        type: (def.type as ToolParameter['type']) || 'string',
+        description: def.description || '',
+        required: required.includes(name),
+      }))
+      onParams(newParams)
+    }
+  }
+
+  if (loadingConns) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-slate-400 py-4">
+        <Loader2 className="h-4 w-4 animate-spin"/>Loading connected integrations…
+      </div>
+    )
+  }
+
+  if (connections.length === 0) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <strong>No connected integrations found.</strong>
+        <p className="mt-1 text-xs">Go to <span className="font-medium">Integrations</span> in the sidebar to connect HubSpot, Salesforce, Google Calendar, Slack, or SendGrid first.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+        <strong>AI Integration Tool</strong> — The AI will call this action on your connected integration during a live voice call whenever it decides to use this tool.
+      </div>
+
+      <Field label="Connected Integration" required hint="Select which connected integration to use">
+        <SI value={config.connection_id || ''} onChange={handleConnectionChange}>
+          <option value="">— Select integration —</option>
+          {connections.map(c => (
+            <option key={c.connection_id} value={c.connection_id}>
+              {c.display_name || c.connector_name} ({c.action_count} action{c.action_count !== 1 ? 's' : ''})
+            </option>
+          ))}
+        </SI>
+      </Field>
+
+      {config.connection_id && (
+        loadingActions ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin"/>Loading actions…
+          </div>
+        ) : (
+          <Field label="Action" required hint="What should the AI do with this integration?">
+            <SI value={config.action || ''} onChange={handleActionChange}>
+              <option value="">— Select action —</option>
+              {actions.map(a => (
+                <option key={a.action} value={a.action}>{a.label}</option>
+              ))}
+            </SI>
+          </Field>
+        )
+      )}
+
+      {selectedAction && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          <p className="font-medium text-slate-700 mb-1">{selectedAction.label}</p>
+          <p>{selectedAction.description}</p>
+        </div>
+      )}
+
+      {selectedAction && Object.keys(selectedAction.parameters?.properties || {}).length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="text-sm font-medium text-slate-700">Parameters</label>
+            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">auto-populated from action schema</span>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(selectedAction.parameters.properties).map(([name, def]) => {
+              const isRequired = (selectedAction.parameters.required || []).includes(name)
+              return (
+                <div key={name} className="flex items-start rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-semibold text-slate-800">{name}</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{def.type}</span>
+                      {isRequired && <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600 font-medium">required</span>}
+                    </div>
+                    <p className="text-slate-500 mt-0.5">{def.description}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Type-specific config panels ────────────────────────────────────────────────
 
 function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
@@ -194,6 +358,9 @@ function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
   const s = (k:string) => (v:string) => onCfg(k,v)
 
   switch (toolType) {
+    case 'connected_integration':
+      return <ConnectedIntegrationConfig config={config} onCfg={onCfg} onParams={onParams}/>
+
     case 'transfer_call':
       return <div className="space-y-4">
         <Field label="Transfer Destination" required hint="Phone number or SIP URI"><TI value={config.destination||''} onChange={s('destination')} placeholder="+15551234567"/></Field>
@@ -364,10 +531,10 @@ function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
 
 // ── Tool form (create + edit) ─────────────────────────────────────────────────
 
-function ToolForm({ initial, onClose, onSaved }: { initial?: Tool; onClose:()=>void; onSaved:(t:Tool)=>void }) {
+function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; initialType?: string; onClose:()=>void; onSaved:(t:Tool)=>void }) {
   const isEdit = !!initial
-  const [step, setStep] = useState<'pick_type'|'configure'>(isEdit?'configure':'pick_type')
-  const [selectedType, setSelectedType] = useState(initial?.tool_type||'')
+  const [step, setStep] = useState<'pick_type'|'configure'>((isEdit||!!initialType)?'configure':'pick_type')
+  const [selectedType, setSelectedType] = useState(initial?.tool_type||initialType||'')
   const [name, setName] = useState(initial?.name||'')
   const [description, setDescription] = useState(initial?.description||'')
   const [config, setConfig] = useState<Record<string,string>>(
@@ -680,15 +847,13 @@ export default function ToolsPage() {
 
   // Custom form with prefilled type from integration banner
   const FormWithPrefill = () => {
-    if (formTool === 'new' && prefillType) {
-      const meta = getTypeMeta(prefillType)
-      const fakeTool: Tool = {
-        id:'', name: meta?.label||'', description:'', tool_type: prefillType, category:'integration',
-        config:{}, is_active:true, created_at:''
-      }
-      return <ToolForm initial={undefined} onClose={()=>{setFormTool(null);setPrefillType(null)}} onSaved={handleSaved}/>
-    }
-    return <ToolForm initial={formTool==='new'?undefined:formTool as Tool} onClose={()=>{setFormTool(null);setPrefillType(null)}} onSaved={handleSaved}/>
+    const isNew = formTool === 'new'
+    return <ToolForm
+      initial={isNew ? undefined : formTool as Tool}
+      initialType={isNew && prefillType ? prefillType : undefined}
+      onClose={()=>{setFormTool(null);setPrefillType(null)}}
+      onSaved={handleSaved}
+    />
   }
 
   if (isLoading) {

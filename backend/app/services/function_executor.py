@@ -464,12 +464,21 @@ class FunctionExecutor:
 
     def get_tool_function_definition(self, tool: Tool) -> Dict[str, Any]:
         """Return LLM function-calling definition for a global Tool."""
+        from app.services.integrations.action_registry import get_action_schema
+
         cfg = tool.config or {}
-        # Build a minimal JSON-schema parameter spec from the tool config
         parameters: Dict[str, Any] = {"type": "object", "properties": {}, "required": []}
 
         t = tool.tool_type
-        if t == "transfer_call":
+
+        # Integration tool: use action registry schema
+        if t in ("integration", "connected_integration"):
+            connector_slug = cfg.get("connector_slug", "")
+            action = cfg.get("action", "")
+            action_def = get_action_schema(connector_slug, action)
+            if action_def:
+                parameters = action_def.get("parameters", parameters)
+        elif t == "transfer_call":
             parameters["properties"]["destination"] = {"type": "string", "description": "Phone number or SIP URI to transfer to"}
             parameters["required"].append("destination")
         elif t == "hang_up":
@@ -488,14 +497,13 @@ class FunctionExecutor:
         elif t == "query_knowledge_base":
             parameters["properties"]["query"] = {"type": "string", "description": "Search query for the knowledge base"}
             parameters["required"].append("query")
-        elif t in ("api_request", "slack", "mcp", "google_sheets", "google_calendar",
-                   "gohighlevel", "custom_tool"):
+        elif t in ("api_request", "slack", "mcp", "custom_tool"):
             parameters["properties"]["message"] = {"type": "string", "description": "Message or payload to send"}
             parameters["properties"]["data"] = {"type": "object", "description": "Additional data"}
         else:
             parameters["properties"]["input"] = {"type": "string", "description": "Input for this tool"}
 
-        # If the tool has a custom parameters schema in config, use it
+        # Override with explicit parameters schema in config if present
         if "parameters" in cfg and isinstance(cfg["parameters"], dict):
             parameters = cfg["parameters"]
 
@@ -572,8 +580,8 @@ class FunctionExecutor:
             elif t == "query_knowledge_base":
                 result = {"action": "query_kb", "knowledge_base_id": cfg.get("knowledge_base_id"), "query": parameters.get("query")}
 
-            elif t in ("google_sheets", "google_calendar", "gohighlevel"):
-                result = {"note": f"{t} requires OAuth credentials — configure in Integrations", "config": cfg}
+            elif t in ("integration", "connected_integration"):
+                result = await self._execute_integration_tool(cfg, parameters, db)
 
             else:
                 result = {"executed": True, "tool_type": t, "parameters": parameters}
@@ -586,6 +594,75 @@ class FunctionExecutor:
             execution_time = int((time.time() - start_time) * 1000)
             logger.error(f"Global tool {tool.name} ({t}) failed: {e}")
             return {"success": False, "tool_name": tool.name, "error": str(e), "execution_time_ms": execution_time}
+
+
+    async def _execute_integration_tool(
+        self,
+        cfg: Dict[str, Any],
+        parameters: Dict[str, Any],
+        db: Optional[AsyncSession],
+    ) -> Dict[str, Any]:
+        """
+        Execute a connected integration tool by loading the user's
+        OAuth/API-key connection and calling the specified action.
+
+        cfg must contain:
+          - connection_id: UUID of the IntegrationConnection row
+          - connector_slug: e.g. "hubspot", "google_calendar"
+          - action: method name on the connector, e.g. "create_contact"
+        """
+        if db is None:
+            raise ValueError("Database session required for integration tools")
+
+        from app.models.integration import IntegrationConnection, IntegrationConnector
+        from app.services.integrations import connectors as connector_module
+        from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
+
+        connection_id = cfg.get("connection_id")
+        connector_slug = cfg.get("connector_slug")
+        action = cfg.get("action")
+
+        if not connection_id:
+            raise ValueError("integration tool missing connection_id in config")
+        if not action:
+            raise ValueError("integration tool missing action in config")
+
+        # Load the user's connection (has encrypted credentials)
+        conn_result = await db.execute(
+            select(IntegrationConnection).where(
+                IntegrationConnection.id == connection_id
+            )
+        )
+        connection = conn_result.scalar_one_or_none()
+        if not connection:
+            raise ValueError(f"IntegrationConnection {connection_id} not found")
+
+        # Load the connector definition
+        connector_result = await db.execute(
+            select(IntegrationConnector).where(
+                IntegrationConnector.id == connection.connector_id
+            )
+        )
+        connector = connector_result.scalar_one_or_none()
+        if not connector:
+            raise ValueError(f"IntegrationConnector not found for connection {connection_id}")
+
+        slug = connector_slug or connector.slug
+        class_name = CONNECTOR_CLASS_MAP.get(slug)
+        if not class_name:
+            raise ValueError(f"No connector class for slug '{slug}'")
+
+        # Instantiate the connector (handles auth, rate limiting, etc.)
+        connector_class = getattr(connector_module, class_name)
+        instance = connector_class(connection=connection, connector=connector, db=db)
+
+        # Call the action method dynamically
+        if not hasattr(instance, action):
+            raise ValueError(f"Action '{action}' not found on {class_name}")
+
+        method = getattr(instance, action)
+        result = await method(**parameters)
+        return result if isinstance(result, dict) else {"result": result}
 
 
 # Global function executor instance

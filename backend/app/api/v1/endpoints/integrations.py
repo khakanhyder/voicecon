@@ -1156,3 +1156,85 @@ async def get_integration_usage(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get integration usage: {str(e)}",
         )
+
+
+# ============================================================================
+# Integration Tool Actions (for AI Agent Tool Builder)
+# ============================================================================
+
+
+@router.get("/connections/{connection_id}/actions")
+async def list_connection_actions(
+    connection_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    List available AI-callable actions for a connected integration.
+    Used by the Tool Builder to populate action choices.
+    """
+    from app.services.integrations.action_registry import get_actions_for_connector
+
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.id == connection_id,
+            IntegrationConnection.user_id == current_user.id,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    conn_result = await db.execute(
+        select(IntegrationConnector).where(
+            IntegrationConnector.id == connection.connector_id
+        )
+    )
+    connector = conn_result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    actions = get_actions_for_connector(connector.slug)
+    return {
+        "connection_id": connection_id,
+        "connector_slug": connector.slug,
+        "connector_name": connector.name,
+        "actions": actions,
+    }
+
+
+@router.get("/available-for-tools")
+async def list_connections_for_tools(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    List all connected integrations that have available AI actions.
+    Used by the Tool Builder to show which integrations can be used.
+    """
+    from app.services.integrations.action_registry import INTEGRATION_ACTIONS
+
+    result = await db.execute(
+        select(IntegrationConnection, IntegrationConnector)
+        .join(IntegrationConnector, IntegrationConnector.id == IntegrationConnection.connector_id)
+        .where(
+            IntegrationConnection.user_id == current_user.id,
+            IntegrationConnection.is_active == True,
+            IntegrationConnector.slug.in_(list(INTEGRATION_ACTIONS.keys())),
+        )
+    )
+    rows = result.all()
+
+    connections = []
+    for connection, connector in rows:
+        from app.services.integrations.action_registry import get_actions_for_connector
+        actions = get_actions_for_connector(connector.slug)
+        connections.append({
+            "connection_id": str(connection.id),
+            "connector_slug": connector.slug,
+            "connector_name": connector.name,
+            "display_name": connection.display_name or connector.name,
+            "action_count": len(actions),
+        })
+
+    return {"connections": connections}

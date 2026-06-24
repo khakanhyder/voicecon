@@ -29,6 +29,8 @@ export const API_ENDPOINTS = {
   INTEGRATION_CONNECTIONS: `${API_BASE}/api/v1/integrations/connections`,
   INTEGRATION_CONNECTION: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}`,
   INTEGRATION_CONNECTION_TEST: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/test`,
+  INTEGRATION_CONNECTION_ACTIONS: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/actions`,
+  INTEGRATIONS_AVAILABLE_FOR_TOOLS: `${API_BASE}/api/v1/integrations/available-for-tools`,
 
   // Workflows
   WORKFLOWS: `${API_BASE}/api/v1/workflows`,
