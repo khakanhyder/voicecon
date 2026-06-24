@@ -222,7 +222,7 @@ CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "salesforce": "SalesforceConnector",
     "google_calendar": "GoogleCalendarConnector",
     "slack": "SlackConnector",
-    "sendgrid": "SendgridConnector",
+    "sendgrid": "SendGridConnector",
     "stripe": "StripeConnector",
 }
 
