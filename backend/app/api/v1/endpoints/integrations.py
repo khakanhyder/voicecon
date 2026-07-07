@@ -1173,11 +1173,17 @@ async def list_connection_actions(
     List available AI-callable actions for a connected integration.
     Used by the Tool Builder to populate action choices.
     """
+    import uuid as _uuid
     from app.services.integrations.action_registry import get_actions_for_connector
+
+    try:
+        conn_uuid = _uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Connection not found")
 
     result = await db.execute(
         select(IntegrationConnection).where(
-            IntegrationConnection.id == connection_id,
+            IntegrationConnection.id == conn_uuid,
             IntegrationConnection.user_id == current_user.id,
         )
     )
@@ -1233,7 +1239,7 @@ async def list_connections_for_tools(
             "connection_id": str(connection.id),
             "connector_slug": connector.slug,
             "connector_name": connector.name,
-            "display_name": connection.display_name or connector.name,
+            "display_name": connection.name or connector.name,
             "action_count": len(actions),
         })
 
