@@ -44,6 +44,13 @@ export const API_ENDPOINTS = {
   BILLING_SUBSCRIPTION: `${API_BASE}/api/v1/billing/subscription`,
   BILLING_USAGE: `${API_BASE}/api/v1/billing/usage`,
   BILLING_INVOICES: `${API_BASE}/api/v1/billing/invoices`,
+  BILLING_CONFIG: `${API_BASE}/api/v1/billing/config`,
+  BILLING_TRIAL: `${API_BASE}/api/v1/billing/trial`,
+  BILLING_CHECKOUT: `${API_BASE}/api/v1/billing/checkout`,
+
+  // Onboarding
+  ONBOARDING_STATUS: `${API_BASE}/api/v1/onboarding/status`,
+  ONBOARDING_COMPANY: `${API_BASE}/api/v1/onboarding/company`,
 
   // Tools
   TOOLS: `${API_BASE}/api/v1/tools`,
@@ -70,4 +77,6 @@ export const QUERY_KEYS = {
   ANALYTICS: ['analytics'] as const,
   USER: ['user'] as const,
   ME: ['me'] as const,
+  BILLING_PLANS: ['billing', 'plans'] as const,
+  ONBOARDING_STATUS: ['onboarding', 'status'] as const,
 } as const

@@ -5,6 +5,7 @@ from app.database import Base
 
 # Import all models here for Alembic auto-generation
 from app.models.user import User, Organization, OrganizationMember, ApiKey
+from app.models.company import CompanyProfile
 from app.models.agent import Agent, AgentFunction, Squad, SquadMember, KnowledgeBaseDocument, AgentFlow
 from app.models.call import PhoneNumber, Call, CallLog
 from app.models.integration import IntegrationConnector, IntegrationConnection, Workflow, WorkflowExecution
@@ -32,6 +33,7 @@ __all__ = [
     "Organization",
     "OrganizationMember",
     "ApiKey",
+    "CompanyProfile",
     # Agent models
     "Agent",
     "AgentFunction",

@@ -42,6 +42,18 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized")
 
+    # Seed default subscription plans (idempotent)
+    try:
+        from app.database import get_db_session
+        from app.services.billing.seed_plans import seed_default_plans
+
+        async with get_db_session() as db:
+            created = await seed_default_plans(db)
+            if created:
+                logger.info(f"Seeded {created} subscription plans")
+    except Exception as e:
+        logger.error(f"Failed to seed subscription plans: {e}")
+
     # Start analytics scheduler
     try:
         await start_scheduler()

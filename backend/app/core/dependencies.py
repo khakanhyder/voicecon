@@ -141,6 +141,37 @@ async def get_current_user_organization(
     return membership.organization
 
 
+async def get_current_org_id(
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> _uuid.UUID:
+    """
+    Resolve the current user's organization ID.
+
+    Returns the organization the user belongs to (owner or member). Mirrors the
+    membership-lookup pattern used across the agents/calls endpoints.
+
+    Raises:
+        HTTPException: If the user has no organization.
+    """
+    from app.models.user import OrganizationMember
+
+    result = await db.execute(
+        select(OrganizationMember)
+        .where(OrganizationMember.user_id == current_user.id)
+        .limit(1)
+    )
+    membership = result.scalar_one_or_none()
+
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User has no organization"
+        )
+
+    return membership.organization_id
+
+
 def require_role(required_role: str):
     """
     Dependency factory to require a specific organization role.

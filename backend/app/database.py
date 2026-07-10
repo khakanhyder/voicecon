@@ -9,12 +9,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 
-# Build async URL: mysql:// → mysql+aiomysql://
+# Build async URL: mysql:// → mysql+aiomysql://, postgresql:// → postgresql+asyncpg://
 _raw_url = settings.DATABASE_URL
 if _raw_url.startswith("mysql://"):
     DATABASE_URL = _raw_url.replace("mysql://", "mysql+aiomysql://", 1)
-elif _raw_url.startswith("mysql+aiomysql://"):
-    DATABASE_URL = _raw_url
+elif _raw_url.startswith("postgresql://"):
+    DATABASE_URL = _raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif _raw_url.startswith("postgres://"):
+    DATABASE_URL = _raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
 else:
     DATABASE_URL = _raw_url
 
@@ -36,8 +38,12 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
-# Build sync URL for Alembic: mysql+aiomysql:// → mysql+pymysql://
-SYNC_DATABASE_URL = DATABASE_URL.replace("mysql+aiomysql://", "mysql+pymysql://", 1)
+# Build sync URL for Alembic: mysql+aiomysql:// → mysql+pymysql://, asyncpg → psycopg2
+SYNC_DATABASE_URL = (
+    DATABASE_URL
+    .replace("mysql+aiomysql://", "mysql+pymysql://", 1)
+    .replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+)
 
 sync_engine = create_engine(
     SYNC_DATABASE_URL,

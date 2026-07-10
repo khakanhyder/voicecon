@@ -25,7 +25,38 @@
       "Bash(docker stop test_frontend2)",
       "Bash(docker run --rm -d --name test_frontend3 -v \"c:/Users/irtis/Downloads/voicecon/voicecon/frontend:/app\" -v /app/node_modules -p 3000:3000 docker-frontend sh -c \"npm run dev 2>&1; echo EXIT_CODE:$?\")",
       "Bash(docker compose logs frontend --tail=8)",
-      "Bash(docker compose ps frontend)"
+      "Bash(docker compose ps frontend)",
+      "Bash(docker --version)",
+      "Bash(docker-compose --version)",
+      "Bash(docker compose *)",
+      "Bash(sed -i 's/docker-compose/docker compose/g' \"/home/sajid-ali-110/MERN STACK \\(Apps\\)/voicecon/Makefile\")",
+      "Bash(curl -s -i -m 5 -X OPTIONS http://localhost:8000/api/v1/auth/register -H \"Origin: http://localhost:3002\" -H \"Access-Control-Request-Method: POST\" -H \"Access-Control-Request-Headers: content-type\")",
+      "Bash(cd \"/home/sajid-ali-110/MERN STACK \\(Apps\\)/voicecon\" && touch backend/app/main.py && sleep 3 && echo \"=== re-test CORS preflight from :3002 ===\" && curl -s -i -m 5 -X OPTIONS http://localhost:8000/api/v1/auth/register -H \"Origin: http://localhost:3002\" -H \"Access-Control-Request-Method: POST\" -H \"Access-Control-Request-Headers: content-type\" | head -12)",
+      "Bash(ls -la /proc/2586192/cwd)",
+      "Bash(find backend *)",
+      "Bash(curl -s -m 5 http://localhost:8000/openapi.json)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('title:', d.get\\('info',{}\\).get\\('title'\\)\\); print\\('paths sample:', list\\(d.get\\('paths',{}\\).keys\\(\\)\\)[:8]\\)\")",
+      "Bash(curl -s -m 5 http://localhost:8001/health)",
+      "Bash(curl -s -i -m 5 -X OPTIONS http://localhost:8001/api/v1/auth/register -H \"Origin: http://localhost:3002\" -H \"Access-Control-Request-Method: POST\" -H \"Access-Control-Request-Headers: content-type\")",
+      "Bash(venv/bin/pip show *)",
+      "Bash(mkdir -p public/brand)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(curl -s -m 20 -o /dev/null -w \"login HTTP %{http_code}\\\\n\" http://localhost:3002/login)",
+      "Bash(curl -s -m 20 -o /dev/null -w \"register HTTP %{http_code}\\\\n\" http://localhost:3002/register)",
+      "Bash(curl -s -m 40 -o /dev/null -w \"login HTTP %{http_code}\\\\n\" http://localhost:3002/login)",
+      "Bash(curl -s -m 40 -o /dev/null -w \"register HTTP %{http_code}\\\\n\" http://localhost:3002/register)",
+      "Read(//home/sajid-ali-110/.claude/projects/-home-sajid-ali-110-MERN-STACK--Apps--voicecon/memory/**)",
+      "Bash(ls MEMORY.md)",
+      "Bash(docker start *)",
+      "Bash(docker exec *)",
+      "Bash(curl -s -m 30 -o /dev/null http://localhost:3002/register)",
+      "Bash(timeout 70 google-chrome --headless=new --disable-gpu --no-sandbox --window-size=1440,1000 --virtual-time-budget=6000 --screenshot=panel2.png \"http://localhost:3002/register\")",
+      "Bash(python3 -c ' *)"
+    ],
+    "additionalDirectories": [
+      "/home/sajid-ali-110/MERN STACK (Apps)/voicecon",
+      "/home/sajid-ali-110/MERN STACK (Apps)/voicecon/backend/app"
     ]
   }
 }

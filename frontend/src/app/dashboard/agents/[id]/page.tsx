@@ -858,7 +858,13 @@ function CallTestPanel({
             addMessage('user', text.trim())
             streamRespRef.current(text.trim())
           }
-        } else if (ev.type === 'error') { ws.close() }
+        } else if (ev.type === 'error') {
+          // Deepgram unusable (bad/missing key). Don't retry it — onclose would loop forever.
+          dgAvailRef.current = false
+          setSttMode('webspeech')
+          toast.error(`Speech-to-text unavailable: ${ev.message || 'unknown error'}`)
+          ws.close()
+        }
       } catch {}
     }
     ws.onerror  = () => { dgWsRef.current = null; dgAvailRef.current = false; setSttMode('webspeech'); if (isActiveRef.current) startWebSpeechRef.current() }
@@ -875,7 +881,12 @@ function CallTestPanel({
   const startWebSpeech = useCallback(() => {
     if (!isActiveRef.current) return
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { toast.error('Speech recognition not supported. Use Chrome or Edge.'); return }
+    if (!SR) {
+      toast.error('Speech recognition unavailable — you can still type to test the agent.')
+      // Leave the call usable in text-only mode; otherwise callState sticks and sendText is blocked.
+      setSttMode('none'); setCallState('listening'); callStateRef.current = 'listening'
+      return
+    }
     const r = new SR()
     recognitionRef.current = r
     r.continuous = false; r.interimResults = true; r.lang = 'en-US'

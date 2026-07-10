@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_ORG_ID: Optional[str] = None
+    # Point the OpenAI client at an OpenAI-compatible gateway, e.g. OpenRouter
+    # (https://openrouter.ai/api/v1). Unset means api.openai.com.
+    OPENAI_BASE_URL: Optional[str] = None
 
     # Anthropic
     ANTHROPIC_API_KEY: Optional[str] = None
@@ -64,8 +67,21 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: Optional[str] = None
 
     # Stripe (Payments)
-    STRIPE_API_KEY: Optional[str] = None
+    STRIPE_API_KEY: Optional[str] = None  # legacy alias for STRIPE_SECRET_KEY
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
+
+    @property
+    def stripe_secret_key(self) -> Optional[str]:
+        """Resolve the Stripe secret key (prefers STRIPE_SECRET_KEY, falls back to legacy)."""
+        return self.STRIPE_SECRET_KEY or self.STRIPE_API_KEY
+
+    @property
+    def stripe_configured(self) -> bool:
+        """True when a real (non-placeholder) Stripe secret key is set."""
+        key = self.stripe_secret_key
+        return bool(key) and key.startswith("sk_") and "..." not in key
 
     # SendGrid (Email)
     SENDGRID_API_KEY: Optional[str] = None

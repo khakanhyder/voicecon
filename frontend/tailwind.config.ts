@@ -50,6 +50,23 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        // Onboarding / auth brand green (from Figma "AI Agent Dashboard ft. VAPI")
+        brand: {
+          50: '#e9f5f1',
+          100: '#cfe9e0',
+          200: '#9fd3c2',
+          300: '#63b9a0',
+          400: '#2f9b7e',
+          500: '#138066',
+          600: '#0e6e57',
+          DEFAULT: '#0f7a63',
+          700: '#0b5b48',
+          800: '#084637',
+          900: '#06342a',
+        },
+      },
+      fontFamily: {
+        sans: ['var(--font-dm-sans)', 'sans-serif'],
       },
       borderRadius: {
         lg: 'var(--radius)',

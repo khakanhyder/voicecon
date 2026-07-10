@@ -11,9 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, text
-from app.core.config import settings
-
-DATABASE_URL = settings.DATABASE_URL.replace("mysql://", "mysql+aiomysql://")
+from app.database import DATABASE_URL
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -78,13 +76,14 @@ async def seed():
             print(f"Seeding {len(new_connectors)} new integration connectors...")
             for c in new_connectors:
                 await db.execute(text("""
-                    INSERT IGNORE INTO integration_connectors
+                    INSERT INTO integration_connectors
                     (id, name, slug, category, description, base_url, auth_type, auth_config,
                      supports_triggers, supports_actions, supports_realtime, supports_webhooks,
                      rate_limit_per_minute, is_active, is_beta, is_premium, created_at, updated_at)
                     VALUES (:id, :name, :slug, :category, :description, :base_url, :auth_type, :auth_config,
-                            0, 1, 0, 0,
-                            :rate_limit, 1, 0, 0, :now, :now)
+                            false, true, false, false,
+                            :rate_limit, true, false, false, :now, :now)
+                    ON CONFLICT (slug) DO NOTHING
                 """), {
                     "id": uuid.uuid4().hex,
                     "name": c["name"],

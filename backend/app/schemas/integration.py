@@ -5,6 +5,7 @@ Pydantic schemas for integration API validation.
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, validator
 
 
@@ -53,7 +54,7 @@ class IntegrationConnectorUpdate(BaseModel):
 
 class IntegrationConnectorResponse(IntegrationConnectorBase):
     """Integration connector response schema."""
-    id: str
+    id: UUID
     is_active: bool
     is_beta: bool
     is_premium: bool
@@ -121,10 +122,10 @@ class IntegrationConnectionUpdate(BaseModel):
 
 class IntegrationConnectionResponse(BaseModel):
     """Integration connection response schema."""
-    id: str
-    user_id: str
-    organization_id: str
-    connector_id: str
+    id: UUID
+    user_id: UUID
+    organization_id: UUID
+    connector_id: UUID
     name: Optional[str]
     status: str
 

@@ -1,4 +1,5 @@
 # Voicecon Makefile
+SHELL := /bin/bash
 # Convenience commands for development
 
 .PHONY: help setup start stop restart logs clean migrate seed test lint format
@@ -20,7 +21,7 @@ setup: ## Initial project setup
 
 start: ## Start all services with Docker Compose
 	@echo "$(BLUE)🐳 Starting services...$(NC)"
-	@cd infrastructure/docker && docker-compose up -d
+	@cd infrastructure/docker && docker compose up -d
 	@echo "$(GREEN)✅ Services started!$(NC)"
 	@echo "Frontend: http://localhost:3000"
 	@echo "Backend:  http://localhost:8000"
@@ -28,22 +29,22 @@ start: ## Start all services with Docker Compose
 
 stop: ## Stop all services
 	@echo "$(BLUE)🛑 Stopping services...$(NC)"
-	@cd infrastructure/docker && docker-compose stop
+	@cd infrastructure/docker && docker compose stop
 	@echo "$(GREEN)✅ Services stopped$(NC)"
 
 restart: stop start ## Restart all services
 
 logs: ## View logs from all services
-	@cd infrastructure/docker && docker-compose logs -f
+	@cd infrastructure/docker && docker compose logs -f
 
 logs-backend: ## View backend logs
-	@cd infrastructure/docker && docker-compose logs -f backend
+	@cd infrastructure/docker && docker compose logs -f backend
 
 logs-frontend: ## View frontend logs
-	@cd infrastructure/docker && docker-compose logs -f frontend
+	@cd infrastructure/docker && docker compose logs -f frontend
 
 ps: ## Show running containers
-	@cd infrastructure/docker && docker-compose ps
+	@cd infrastructure/docker && docker compose ps
 
 migrate: ## Run database migrations
 	@echo "$(BLUE)🗄️  Running migrations...$(NC)"
@@ -63,18 +64,18 @@ seed: ## Seed database with sample data
 
 clean: ## Clean up Docker resources
 	@echo "$(BLUE)🧹 Cleaning up...$(NC)"
-	@cd infrastructure/docker && docker-compose down
+	@cd infrastructure/docker && docker compose down
 	@echo "$(GREEN)✅ Cleanup complete$(NC)"
 
 clean-all: ## Clean up everything including volumes
 	@echo "$(RED)⚠️  This will delete all data!$(NC)"
 	@read -p "Are you sure? (y/N): " confirm && [ $$confirm = y ] || exit 1
-	@cd infrastructure/docker && docker-compose down -v
+	@cd infrastructure/docker && docker compose down -v
 	@echo "$(GREEN)✅ Complete cleanup done$(NC)"
 
 rebuild: ## Rebuild all containers
 	@echo "$(BLUE)🔨 Rebuilding containers...$(NC)"
-	@cd infrastructure/docker && docker-compose build --no-cache
+	@cd infrastructure/docker && docker compose build --no-cache
 	@echo "$(GREEN)✅ Rebuild complete$(NC)"
 
 test-backend: ## Run backend tests
@@ -102,13 +103,13 @@ format-frontend: ## Format frontend code
 	@cd frontend && npm run format
 
 shell-backend: ## Open backend container shell
-	@cd infrastructure/docker && docker-compose exec backend /bin/bash
+	@cd infrastructure/docker && docker compose exec backend /bin/bash
 
 shell-db: ## Open PostgreSQL shell
-	@cd infrastructure/docker && docker-compose exec postgres psql -U voicecon_user -d voicecon
+	@cd infrastructure/docker && docker compose exec postgres psql -U voicecon_user -d voicecon
 
 shell-redis: ## Open Redis CLI
-	@cd infrastructure/docker && docker-compose exec redis redis-cli
+	@cd infrastructure/docker && docker compose exec redis redis-cli
 
 dev-backend: ## Run backend locally (without Docker)
 	@echo "$(BLUE)🚀 Starting backend...$(NC)"
@@ -132,13 +133,13 @@ status: ## Show project status
 	@echo "$(BLUE)📊 Voicecon Status$(NC)"
 	@echo ""
 	@echo "$(GREEN)Docker Services:$(NC)"
-	@cd infrastructure/docker && docker-compose ps
+	@cd infrastructure/docker && docker compose ps
 	@echo ""
 	@echo "$(GREEN)Disk Usage:$(NC)"
 	@docker system df
 	@echo ""
 	@echo "$(GREEN)Database Status:$(NC)"
-	@cd infrastructure/docker && docker-compose exec postgres pg_isready -U voicecon_user || echo "PostgreSQL not running"
+	@cd infrastructure/docker && docker compose exec postgres pg_isready -U voicecon_user || echo "PostgreSQL not running"
 
 health: ## Check health of all services
 	@echo "$(BLUE)🏥 Health Check$(NC)"
@@ -148,9 +149,9 @@ health: ## Check health of all services
 	@echo -n "Frontend: "
 	@curl -s http://localhost:3000 > /dev/null && echo "$(GREEN)✅ Healthy$(NC)" || echo "$(RED)❌ Down$(NC)"
 	@echo -n "Database: "
-	@cd infrastructure/docker && docker-compose exec postgres pg_isready -U voicecon_user > /dev/null 2>&1 && echo "$(GREEN)✅ Healthy$(NC)" || echo "$(RED)❌ Down$(NC)"
+	@cd infrastructure/docker && docker compose exec postgres pg_isready -U voicecon_user > /dev/null 2>&1 && echo "$(GREEN)✅ Healthy$(NC)" || echo "$(RED)❌ Down$(NC)"
 	@echo -n "Redis:    "
-	@cd infrastructure/docker && docker-compose exec redis redis-cli ping > /dev/null 2>&1 && echo "$(GREEN)✅ Healthy$(NC)" || echo "$(RED)❌ Down$(NC)"
+	@cd infrastructure/docker && docker compose exec redis redis-cli ping > /dev/null 2>&1 && echo "$(GREEN)✅ Healthy$(NC)" || echo "$(RED)❌ Down$(NC)"
 
 reset: clean migrate seed ## Reset database (clean, migrate, seed)
 	@echo "$(GREEN)✅ Database reset complete!$(NC)"
@@ -158,12 +159,12 @@ reset: clean migrate seed ## Reset database (clean, migrate, seed)
 backup-db: ## Backup database
 	@echo "$(BLUE)💾 Backing up database...$(NC)"
 	@mkdir -p backups
-	@cd infrastructure/docker && docker-compose exec -T postgres pg_dump -U voicecon_user voicecon > ../../backups/backup_$$(date +%Y%m%d_%H%M%S).sql
+	@cd infrastructure/docker && docker compose exec -T postgres pg_dump -U voicecon_user voicecon > ../../backups/backup_$$(date +%Y%m%d_%H%M%S).sql
 	@echo "$(GREEN)✅ Backup created in backups/$(NC)"
 
 restore-db: ## Restore database from backup (make restore-db file=backup.sql)
 	@echo "$(BLUE)📥 Restoring database...$(NC)"
-	@cd infrastructure/docker && docker-compose exec -T postgres psql -U voicecon_user voicecon < ../../backups/$(file)
+	@cd infrastructure/docker && docker compose exec -T postgres psql -U voicecon_user voicecon < ../../backups/$(file)
 	@echo "$(GREEN)✅ Database restored$(NC)"
 
 docs: ## Open API documentation

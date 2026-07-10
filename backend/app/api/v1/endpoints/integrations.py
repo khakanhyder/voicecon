@@ -13,7 +13,20 @@ from sqlalchemy import select, and_, func, desc
 
 from app.database import get_db
 from app.core.dependencies import get_current_active_user
-from app.models.user import User
+from app.models.user import User, OrganizationMember
+
+
+async def _resolve_org_id(user: User, db: AsyncSession) -> str:
+    """Resolve the user's organization id (hex).
+
+    User has no organization_id column; membership lives in
+    organization_members. Fall back to the user id so solo users still work.
+    """
+    result = await db.execute(
+        select(OrganizationMember).where(OrganizationMember.user_id == user.id).limit(1)
+    )
+    member = result.scalar_one_or_none()
+    return member.organization_id.hex if member else user.id.hex
 from app.models.integration import (
     IntegrationConnector,
     IntegrationConnection,
@@ -342,13 +355,14 @@ async def handle_oauth_callback(
 
         # Complete OAuth flow
         manager = get_integration_manager()
+        org_id = await _resolve_org_id(current_user, db)
         connection = await manager.complete_oauth_flow(
             connector=connector,
             code=callback_data.code,
             state=callback_data.state,
             redirect_uri=redirect_uri,
             user_id=str(current_user.id),
-            organization_id=str(current_user.organization_id),
+            organization_id=org_id,
             db=db,
             connection_name=connection_name,
         )
@@ -523,6 +537,7 @@ async def create_connection(
             )
 
         manager = get_integration_manager()
+        org_id = await _resolve_org_id(current_user, db)
 
         # Handle based on auth type
         if connector.auth_type == "oauth2":
@@ -539,7 +554,7 @@ async def create_connection(
                 state=connection_data.oauth2_auth.state or "",
                 redirect_uri=connection_data.oauth2_auth.redirect_uri,
                 user_id=str(current_user.id),
-                organization_id=str(current_user.organization_id),
+                organization_id=org_id,
                 db=db,
                 connection_name=connection_data.name,
             )
@@ -556,7 +571,7 @@ async def create_connection(
                 connector=connector,
                 api_key=connection_data.api_key_auth.api_key,
                 user_id=str(current_user.id),
-                organization_id=str(current_user.organization_id),
+                organization_id=org_id,
                 db=db,
                 additional_fields=connection_data.api_key_auth.additional_fields,
                 connection_name=connection_data.name,

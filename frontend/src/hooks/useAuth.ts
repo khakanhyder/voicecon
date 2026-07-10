@@ -38,12 +38,18 @@ export function useAuth() {
     },
   })
 
-  // Register mutation
+  // Register mutation — creates the account, auto-logs in, then continues
+  // straight into the onboarding flow (Company Information).
   const registerMutation = useMutation({
-    mutationFn: (data: RegisterData) => authService.register(data),
-    onSuccess: () => {
-      toast.success('Account created successfully! Please login.')
-      router.push('/login')
+    mutationFn: async (data: RegisterData) => {
+      await authService.register(data)
+      return authService.login({ email: data.email, password: data.password })
+    },
+    onSuccess: (data) => {
+      setUser(data.user)
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
+      toast.success('Account created! Let’s set up your workspace.')
+      router.push('/onboarding/company')
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Registration failed')

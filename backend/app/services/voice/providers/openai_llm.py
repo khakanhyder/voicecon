@@ -10,6 +10,7 @@ import json
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
+from app.core.config import settings
 from app.services.voice.providers.base import (
     BaseLLMProvider,
     ChatMessage,
@@ -97,8 +98,10 @@ class OpenAILLM(BaseLLMProvider):
         """
         super().__init__(api_key, model, temperature, max_tokens, **kwargs)
 
-        # OpenAI client
-        self.client = AsyncOpenAI(api_key=api_key)
+        # OpenAI client. base_url lets us target an OpenAI-compatible gateway
+        # such as OpenRouter; when unset the SDK defaults to api.openai.com.
+        base_url = kwargs.get("base_url") or settings.OPENAI_BASE_URL
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url or None)
 
         # Additional parameters
         self.top_p = kwargs.get("top_p", 1.0)

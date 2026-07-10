@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
-import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react'
+import { Eye, EyeOff, Mail } from 'lucide-react'
+import { GoogleIcon, AppleIcon } from '@/lib/icons'
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
@@ -16,21 +18,54 @@ export default function LoginPage() {
     login({ email, password })
   }
 
+  const handleSocial = (provider: string) => {
+    toast.info(`${provider} sign-in is coming soon.`)
+  }
+
   return (
-    <div className="w-full max-w-md">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Welcome back</h1>
-        <p className="mt-2 text-slate-500">Sign in to your Voicecon account</p>
+    <div className="w-full max-w-md px-1">
+      <div className="mb-7">
+        <h1 className="text-[28px] md:text-3xl font-medium md:font-bold text-slate-900">Login into your account</h1>
+        <p className="mt-2 text-base text-[#000000]">Welcome back select method to login</p>
+      </div>
+
+      {/* Social logins */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => handleSocial('Google')}
+          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          <GoogleIcon className="h-5 w-5" />
+          Login With Google
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSocial('Apple')}
+          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          <AppleIcon className="h-5 w-5 text-slate-900" />
+          Login With Apple
+        </button>
+      </div>
+
+      {/* OR divider */}
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-slate-200" />
+        </div>
+        <div className="relative flex justify-center">
+          <span className="bg-white px-3 text-xs font-medium text-slate-400">OR</span>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Email */}
         <div className="space-y-1.5">
-          <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-            Email address
+          <label htmlFor="email" className="block text-base font-semibold text-slate-800">
+            Email Id :
           </label>
           <div className="relative">
-            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-slate-400 pointer-events-none" />
             <input
               id="email"
               type="email"
@@ -39,40 +74,43 @@ export default function LoginPage() {
               placeholder="you@example.com"
               required
               disabled={isLoggingIn}
-              className="w-full rounded-lg border border-slate-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-50"
             />
+            <Mail className="pointer-events-none absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           </div>
         </div>
 
         {/* Password */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label htmlFor="password" className="block text-sm font-medium text-slate-700">
-              Password
-            </label>
-            <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-              Forgot password?
-            </Link>
-          </div>
+          <label htmlFor="password" className="block text-base font-semibold text-slate-800">
+            Password:
+          </label>
           <div className="relative">
-            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-slate-400 pointer-events-none" />
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="••••••••••"
               required
               disabled={isLoggingIn}
-              className="w-full rounded-lg border border-slate-300 bg-white pl-10 pr-11 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-50"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
             >
-              {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
+          </div>
+          <div className="flex justify-end pt-1">
+            <Link
+              href="/forgot-password"
+              className="text-base font-medium text-[#202020] underline hover:text-slate-800"
+            >
+              Forgot password?
+            </Link>
           </div>
         </div>
 
@@ -80,45 +118,24 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isLoggingIn}
-          className="w-full flex items-center justify-center gap-2 rounded-lg gradient-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 focus:outline-none focus:ring-3 focus:ring-blue-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+          className="shadow-base w-full rounded-lg bg-[#243275] px-4 py-3 text-base font-semibold text-white transition-all hover:bg-[#1c2960] focus:outline-none focus:ring-3 focus:ring-[#243275]/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isLoggingIn ? (
-            <>
-              <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              Signing in…
-            </>
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Logging in…
+            </span>
           ) : (
-            <>
-              Sign in
-              <ArrowRight className="h-4 w-4" />
-            </>
+            'Login Now'
           )}
         </button>
       </form>
 
-      {/* Divider */}
-      <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-slate-200" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-slate-50 px-3 text-slate-400">Don&apos;t have an account?</span>
-        </div>
-      </div>
-
-      <Link
-        href="/register"
-        className="flex items-center justify-center gap-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all"
-      >
-        Create a free account
-        <ArrowRight className="h-4 w-4 text-slate-400" />
-      </Link>
-
-      <p className="mt-8 text-center text-xs text-slate-400">
-        By signing in, you agree to our{' '}
-        <a href="#" className="underline hover:text-slate-600">Terms of Service</a>
-        {' '}and{' '}
-        <a href="#" className="underline hover:text-slate-600">Privacy Policy</a>.
+      <p className="mt-6 text-base text-[#000000]">
+        Don&apos;t have an account?{' '}
+        <Link href="/register" className="font-semibold text-brand-600 hover:text-brand-700">
+          Sign up here.
+        </Link>
       </p>
     </div>
   )
