@@ -4,13 +4,13 @@ version: '3.8'
 services:
   postgres:
     ports:
-      - "5432:5432"
+      - "5435:5432"
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
 
   redis:
     ports:
-      - "6379:6379"
+      - "6385:6379"
 
   backend:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    background: #000;
+    margin: 50px;
+  }
+  .panel {
+    position: relative;
+    width: 600px;
+    height: 560px;
+    border-radius: 24px;
+    overflow: hidden;
+    /* user req: bg gradient from top to botoom from top this bg color #213B50 and from middle to bottom at bottom this color #175455 */
+    background: linear-gradient(180deg, #213B50 0%, #175455 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .panel-2 {
+    position: relative;
+    width: 600px;
+    height: 560px;
+    border-radius: 24px;
+    overflow: hidden;
+    /* maybe this? */
+    background: linear-gradient(180deg, #213B50 0%, #213B50 50%, #175455 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+  }
+
+  .circle-current {
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #2B8A7C 0%, #2B8A7C 62%, rgba(43,138,124,0) 88%);
+  }
+
+  .circle-solid {
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: #2B8A7C;
+  }
+
+  .circle-gradient-hard {
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #32998a 0%, #247569 100%);
+  }
+
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="circle-current"></div>
+  </div>
+  <div class="panel-2">
+    <div class="circle-solid"></div>
+  </div>
+</body>
+</html>

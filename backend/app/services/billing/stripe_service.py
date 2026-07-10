@@ -819,18 +819,109 @@ class StripeService:
             return False
 
 
+    # ==================== Pricing helpers ====================
+
+    async def get_or_create_price(
+        self,
+        product_id: str,
+        unit_amount_cents: int,
+        interval: str,
+        currency: str = "usd",
+    ) -> str:
+        """
+        Find a recurring Stripe Price for a product matching amount + interval,
+        creating it if it does not exist. Lets us support monthly/yearly billing
+        without storing a separate price id per interval.
+        """
+        prices = await asyncio.to_thread(
+            stripe.Price.list, product=product_id, active=True, limit=100
+        )
+        for price in prices.data:
+            recurring = price.get("recurring") or {}
+            if (
+                price.get("unit_amount") == unit_amount_cents
+                and recurring.get("interval") == interval
+                and price.get("currency") == currency
+            ):
+                return price.id
+
+        price = await asyncio.to_thread(
+            stripe.Price.create,
+            product=product_id,
+            unit_amount=unit_amount_cents,
+            currency=currency,
+            recurring={"interval": interval},
+        )
+        return price.id
+
+    async def ensure_stripe_price(
+        self,
+        db: AsyncSession,
+        plan: SubscriptionPlan,
+        billing_period: str,
+    ) -> str:
+        """
+        Return a usable Stripe price id for ``plan`` on the requested interval,
+        creating the Stripe product/price on demand. Handles plans seeded with
+        placeholder ids (when Stripe was not configured at seed time) by creating
+        the real Stripe product and backfilling the DB row.
+        """
+        # Ensure a real Stripe product exists
+        product_id = plan.stripe_product_id
+        if not product_id or not product_id.startswith("prod_"):
+            product = await asyncio.to_thread(
+                stripe.Product.create,
+                name=plan.name,
+                description=plan.description or plan.name,
+                metadata={"plan_id": str(plan.id)},
+            )
+            product_id = product.id
+            plan.stripe_product_id = product_id
+
+        interval = "year" if billing_period == "yearly" else "month"
+        if interval == "year" and plan.price_yearly:
+            amount = int(Decimal(plan.price_yearly) * 100)
+        else:
+            amount = int(Decimal(plan.price_monthly) * 100)
+
+        price_id = await self.get_or_create_price(
+            product_id=product_id,
+            unit_amount_cents=amount,
+            interval=interval,
+            currency=plan.currency or "usd",
+        )
+
+        # Cache the monthly price id on the plan for reuse
+        if interval == "month" and (
+            not plan.stripe_price_id or not plan.stripe_price_id.startswith("price_")
+        ):
+            plan.stripe_price_id = price_id
+
+        await db.flush()
+        return price_id
+
+
 # Dependency for FastAPI
 async def get_stripe_service() -> StripeService:
-    """Get Stripe service instance."""
-    import os
+    """Get Stripe service instance.
 
-    api_key = os.getenv("STRIPE_SECRET_KEY")
-    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    Reads keys from application settings (STRIPE_SECRET_KEY, falling back to the
+    legacy STRIPE_API_KEY). Raises 503 only when no usable key is configured so
+    the free-trial path keeps working without Stripe.
+    """
+    from app.core.config import settings
 
-    if not api_key:
+    # Treat missing OR placeholder keys (e.g. "sk_test_...") as not configured so
+    # the paid path fails fast with a clear message instead of hitting Stripe with
+    # an invalid key. The free-trial path does not depend on this service.
+    if not settings.stripe_configured:
         from fastapi import HTTPException
-        raise HTTPException(status_code=503, detail="Billing service not configured")
-    if not webhook_secret:
-        webhook_secret = "not_configured"
+        raise HTTPException(
+            status_code=503,
+            detail="Card payments are not configured yet. Please try the 7-day free trial.",
+        )
+
+    api_key = settings.stripe_secret_key
+    webhook_secret = settings.STRIPE_WEBHOOK_SECRET or "not_configured"
 
     return StripeService(api_key=api_key, webhook_secret=webhook_secret)

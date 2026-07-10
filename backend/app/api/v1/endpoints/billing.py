@@ -11,8 +11,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user, get_db
+from app.core.dependencies import get_current_active_user, get_current_org_id, get_db
 from app.models.user import User
+from app.models.company import CompanyProfile
 from app.models.subscription import (
     SubscriptionPlan,
     Subscription,
@@ -23,6 +24,20 @@ from app.models.subscription import (
 from app.services.billing import StripeService, get_stripe_service
 
 router = APIRouter()
+
+
+async def _mark_onboarding_done(db: AsyncSession, organization_id: uuid.UUID) -> None:
+    """Flag the organization's onboarding as completed once a plan/trial is active."""
+    result = await db.execute(
+        select(CompanyProfile).where(
+            CompanyProfile.organization_id == organization_id
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if profile:
+        profile.onboarding_completed = True
+        profile.onboarding_step = "done"
+        await db.flush()
 
 
 # ==================== Schemas ====================
@@ -169,6 +184,7 @@ async def list_subscription_plans(
 @router.get("/subscription", response_model=Optional[SubscriptionResponse])
 async def get_current_subscription(
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -185,7 +201,7 @@ async def get_current_subscription(
         select(Subscription)
         .where(
             and_(
-                Subscription.organization_id == current_user.organization_id,
+                Subscription.organization_id == org_id,
                 Subscription.status.in_(["active", "trialing", "past_due"]),
             )
         )
@@ -223,6 +239,7 @@ async def get_current_subscription(
 async def create_subscription(
     request: CreateSubscriptionRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
@@ -242,7 +259,7 @@ async def create_subscription(
     result = await db.execute(
         select(Subscription).where(
             and_(
-                Subscription.organization_id == current_user.organization_id,
+                Subscription.organization_id == org_id,
                 Subscription.status.in_(["active", "trialing"]),
             )
         )
@@ -259,17 +276,20 @@ async def create_subscription(
     stripe_customer_id = await stripe_service.create_customer(
         email=current_user.email,
         name=current_user.full_name or current_user.email,
-        organization_id=current_user.organization_id,
+        organization_id=org_id,
     )
 
-    # Attach payment method
+    # Attach payment method (Stripe SDK calls are sync — run off the event loop)
+    import asyncio
     import stripe
 
-    await stripe_service.api_key  # Ensure API key is set
-    await stripe.PaymentMethod.attach(
-        request.payment_method_id, customer=stripe_customer_id
+    await asyncio.to_thread(
+        stripe.PaymentMethod.attach,
+        request.payment_method_id,
+        customer=stripe_customer_id,
     )
-    await stripe.Customer.modify(
+    await asyncio.to_thread(
+        stripe.Customer.modify,
         stripe_customer_id,
         invoice_settings={"default_payment_method": request.payment_method_id},
     )
@@ -277,11 +297,14 @@ async def create_subscription(
     # Create subscription
     subscription = await stripe_service.create_subscription(
         db=db,
-        organization_id=current_user.organization_id,
+        organization_id=org_id,
         plan_id=request.plan_id,
         stripe_customer_id=stripe_customer_id,
         trial_days=request.trial_days,
     )
+
+    await _mark_onboarding_done(db, org_id)
+    await db.commit()
 
     # Get plan details
     result = await db.execute(
@@ -308,6 +331,7 @@ async def create_subscription(
 async def update_subscription(
     request: UpdateSubscriptionRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
@@ -327,7 +351,7 @@ async def update_subscription(
     result = await db.execute(
         select(Subscription).where(
             and_(
-                Subscription.organization_id == current_user.organization_id,
+                Subscription.organization_id == org_id,
                 Subscription.status.in_(["active", "trialing"]),
             )
         )
@@ -374,6 +398,7 @@ async def update_subscription(
 async def cancel_subscription(
     immediate: bool = False,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
@@ -390,7 +415,7 @@ async def cancel_subscription(
     result = await db.execute(
         select(Subscription).where(
             and_(
-                Subscription.organization_id == current_user.organization_id,
+                Subscription.organization_id == org_id,
                 Subscription.status.in_(["active", "trialing"]),
             )
         )
@@ -411,6 +436,7 @@ async def cancel_subscription(
 @router.get("/usage", response_model=UsageResponse)
 async def get_current_usage(
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
@@ -429,7 +455,7 @@ async def get_current_usage(
     result = await db.execute(
         select(Subscription).where(
             and_(
-                Subscription.organization_id == current_user.organization_id,
+                Subscription.organization_id == org_id,
                 Subscription.status.in_(["active", "trialing"]),
             )
         )
@@ -471,6 +497,7 @@ async def get_current_usage(
 @router.get("/usage/limits", response_model=UsageLimitsResponse)
 async def check_usage_limits(
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
@@ -486,7 +513,7 @@ async def check_usage_limits(
         Usage limits status
     """
     limits = await stripe_service.check_usage_limits(
-        db=db, organization_id=current_user.organization_id
+        db=db, organization_id=org_id
     )
 
     return UsageLimitsResponse(
@@ -501,6 +528,7 @@ async def check_usage_limits(
 async def list_invoices(
     limit: int = 10,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -516,7 +544,7 @@ async def list_invoices(
     """
     result = await db.execute(
         select(Invoice)
-        .where(Invoice.organization_id == current_user.organization_id)
+        .where(Invoice.organization_id == org_id)
         .order_by(Invoice.created_at.desc())
         .limit(limit)
     )
@@ -587,3 +615,252 @@ async def stripe_webhook(
         )
 
     return {"status": "success"}
+
+
+# ==================== Onboarding: trial + checkout ====================
+
+
+class BillingConfigResponse(BaseModel):
+    """Public Stripe configuration for the frontend."""
+
+    publishable_key: Optional[str]
+    configured: bool
+
+
+class StartTrialRequest(BaseModel):
+    """Start a 7-day free trial (no card required)."""
+
+    plan_id: Optional[uuid.UUID] = Field(
+        None, description="Optional plan to trial; defaults to the first public plan"
+    )
+    billing_period: str = Field("monthly", description="monthly | yearly")
+    trial_days: int = Field(7, ge=1, le=30)
+
+
+class CheckoutRequest(BaseModel):
+    """Activate a paid subscription from the billing page."""
+
+    plan_id: uuid.UUID = Field(..., description="Selected subscription plan")
+    payment_method_id: str = Field(..., description="Stripe PaymentMethod id (pm_…)")
+    billing_period: str = Field("monthly", description="monthly | yearly")
+
+
+@router.get("/config", response_model=BillingConfigResponse)
+async def get_billing_config():
+    """Expose the Stripe publishable key so the frontend can init Stripe.js."""
+    from app.core.config import settings
+
+    return BillingConfigResponse(
+        publishable_key=settings.STRIPE_PUBLISHABLE_KEY,
+        configured=settings.stripe_configured,
+    )
+
+
+async def _get_trial_plan(
+    db: AsyncSession, plan_id: Optional[uuid.UUID]
+) -> SubscriptionPlan:
+    """Resolve the plan to attach a trial to (explicit, else first public plan)."""
+    if plan_id is not None:
+        result = await db.execute(
+            select(SubscriptionPlan).where(SubscriptionPlan.id == plan_id)
+        )
+        plan = result.scalar_one_or_none()
+        if plan:
+            return plan
+
+    result = await db.execute(
+        select(SubscriptionPlan)
+        .where(SubscriptionPlan.is_active == True)
+        .order_by(SubscriptionPlan.sort_order, SubscriptionPlan.price_monthly)
+        .limit(1)
+    )
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscription plans are available",
+        )
+    return plan
+
+
+@router.post(
+    "/trial", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
+)
+async def start_free_trial(
+    request: StartTrialRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Start a 7-day free trial without requiring payment details.
+
+    Records a local ``trialing`` subscription so the trial start/end dates and
+    status are persisted, marks onboarding complete, and lets the user reach the
+    dashboard. Works even when Stripe is not configured.
+    """
+    from datetime import timedelta
+
+    # Block duplicate active/trial subscriptions
+    result = await db.execute(
+        select(Subscription).where(
+            and_(
+                Subscription.organization_id == org_id,
+                Subscription.status.in_(["active", "trialing"]),
+            )
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization already has an active subscription or trial",
+        )
+
+    plan = await _get_trial_plan(db, request.plan_id)
+
+    now = datetime.utcnow()
+    trial_end = now + timedelta(days=request.trial_days)
+
+    subscription = Subscription(
+        organization_id=org_id,
+        plan_id=plan.id,
+        stripe_subscription_id=f"local_trial_{uuid.uuid4()}",
+        stripe_customer_id="",
+        status="trialing",
+        billing_period=request.billing_period,
+        current_period_start=now,
+        current_period_end=trial_end,
+        trial_start=now,
+        trial_end=trial_end,
+        stripe_metadata={"source": "free_trial", "local": True},
+    )
+    db.add(subscription)
+
+    await _mark_onboarding_done(db, org_id)
+    await db.commit()
+    await db.refresh(subscription)
+
+    return SubscriptionResponse(
+        id=subscription.id,
+        plan_id=subscription.plan_id,
+        plan_name=plan.name,
+        status=subscription.status,
+        billing_period=subscription.billing_period,
+        current_period_start=subscription.current_period_start,
+        current_period_end=subscription.current_period_end,
+        trial_end=subscription.trial_end,
+        canceled_at=subscription.canceled_at,
+        current_period_minutes=subscription.current_period_minutes,
+        current_period_calls=subscription.current_period_calls,
+    )
+
+
+@router.post(
+    "/checkout", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
+)
+async def checkout(
+    request: CheckoutRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+    stripe_service: StripeService = Depends(get_stripe_service),
+):
+    """
+    Activate a paid subscription using a Stripe PaymentMethod created on the
+    billing page. Persists the subscription (plan, Stripe customer/subscription
+    ids, status, billing cycle, period dates) and completes onboarding.
+    """
+    import asyncio
+    import stripe
+
+    # Block duplicate active/trial subscriptions
+    result = await db.execute(
+        select(Subscription).where(
+            and_(
+                Subscription.organization_id == org_id,
+                Subscription.status.in_(["active", "trialing"]),
+            )
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization already has an active subscription",
+        )
+
+    result = await db.execute(
+        select(SubscriptionPlan).where(SubscriptionPlan.id == request.plan_id)
+    )
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
+        )
+
+    # 1. Customer
+    stripe_customer_id = await stripe_service.create_customer(
+        email=current_user.email,
+        name=current_user.full_name or current_user.email,
+        organization_id=org_id,
+    )
+
+    # 2. Attach payment method + set as default
+    await asyncio.to_thread(
+        stripe.PaymentMethod.attach,
+        request.payment_method_id,
+        customer=stripe_customer_id,
+    )
+    await asyncio.to_thread(
+        stripe.Customer.modify,
+        stripe_customer_id,
+        invoice_settings={"default_payment_method": request.payment_method_id},
+    )
+
+    # 3. Resolve a price for the chosen interval
+    price_id = await stripe_service.ensure_stripe_price(
+        db=db, plan=plan, billing_period=request.billing_period
+    )
+
+    # 4. Create the Stripe subscription
+    stripe_subscription = await asyncio.to_thread(
+        stripe.Subscription.create,
+        customer=stripe_customer_id,
+        items=[{"price": price_id}],
+        expand=["latest_invoice.payment_intent"],
+        metadata={"organization_id": str(org_id), "plan_id": str(plan.id)},
+    )
+
+    # 5. Persist
+    subscription = Subscription(
+        organization_id=org_id,
+        plan_id=plan.id,
+        stripe_subscription_id=stripe_subscription.id,
+        stripe_customer_id=stripe_customer_id,
+        status=stripe_subscription.status,
+        billing_period=request.billing_period,
+        current_period_start=datetime.fromtimestamp(
+            stripe_subscription.current_period_start
+        ),
+        current_period_end=datetime.fromtimestamp(
+            stripe_subscription.current_period_end
+        ),
+    )
+    db.add(subscription)
+
+    await _mark_onboarding_done(db, org_id)
+    await db.commit()
+    await db.refresh(subscription)
+
+    return SubscriptionResponse(
+        id=subscription.id,
+        plan_id=subscription.plan_id,
+        plan_name=plan.name,
+        status=subscription.status,
+        billing_period=subscription.billing_period,
+        current_period_start=subscription.current_period_start,
+        current_period_end=subscription.current_period_end,
+        trial_end=subscription.trial_end,
+        canceled_at=subscription.canceled_at,
+        current_period_minutes=subscription.current_period_minutes,
+        current_period_calls=subscription.current_period_calls,
+    )

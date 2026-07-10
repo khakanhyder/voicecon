@@ -26,6 +26,7 @@ export interface RegisterData {
   email: string
   password: string
   full_name?: string
+  phone_number?: string
 }
 
 export const authService = {

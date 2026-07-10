@@ -1,6 +1,7 @@
 """Tool Pydantic schemas."""
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 
@@ -25,9 +26,9 @@ class ToolUpdate(BaseModel):
 
 
 class ToolResponse(BaseModel):
-    id: str
-    user_id: str
-    organization_id: str
+    id: UUID
+    user_id: UUID
+    organization_id: UUID
     name: str
     description: Optional[str]
     tool_type: str
@@ -47,9 +48,9 @@ class ToolListResponse(BaseModel):
 
 
 class AgentToolAssignmentResponse(BaseModel):
-    id: str
-    agent_id: str
-    tool_id: str
+    id: UUID
+    agent_id: UUID
+    tool_id: UUID
     tool: ToolResponse
     created_at: datetime
 

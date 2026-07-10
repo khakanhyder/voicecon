@@ -1,7 +1,7 @@
 """Tool models for the Voicecon platform."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint, Uuid
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -9,9 +9,9 @@ from app.database import Base
 class Tool(Base):
     __tablename__ = "tools"
 
-    id = Column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
-    user_id = Column(String(32), nullable=False, index=True)
-    organization_id = Column(String(32), nullable=False)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    organization_id = Column(Uuid(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     # Category: phone_call | assistant | integration
@@ -32,9 +32,9 @@ class AgentToolAssignment(Base):
     __tablename__ = "agent_tool_assignments"
     __table_args__ = (UniqueConstraint("agent_id", "tool_id", name="uq_agent_tool"),)
 
-    id = Column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
-    agent_id = Column(String(32), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
-    tool_id = Column(String(32), ForeignKey("tools.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    tool_id = Column(Uuid(as_uuid=True), ForeignKey("tools.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     tool = relationship("Tool", back_populates="agent_assignments")

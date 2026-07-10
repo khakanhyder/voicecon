@@ -52,6 +52,7 @@ async def register(
         hashed_password=get_password_hash(user_data.password),
         full_name=user_data.full_name,
         company_name=user_data.company_name,
+        phone_number=user_data.phone_number,
     )
 
     db.add(user)

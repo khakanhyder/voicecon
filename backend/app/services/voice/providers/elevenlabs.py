@@ -64,7 +64,9 @@ class ElevenLabsTTS(BaseTTSProvider):
         self,
         api_key: str,
         voice_id: str = "21m00Tcm4TlvDq8ikWAM",  # Rachel
-        model_id: str = "eleven_monolingual_v1",
+        # eleven_monolingual_v1 / eleven_multilingual_v1 are deprecated upstream
+        # and rejected for new synthesis.
+        model_id: str = "eleven_turbo_v2_5",
         tier: str = "starter",
         **kwargs
     ):
@@ -198,7 +200,9 @@ class ElevenLabsTTS(BaseTTSProvider):
 
             # Handle errors
             if response.status_code == 401:
-                raise AuthenticationError("Invalid ElevenLabs API key")
+                # 401 covers both a bad key and a valid key missing a permission
+                # scope; surface the body so the two are distinguishable.
+                raise AuthenticationError(f"ElevenLabs auth failed: {response.text[:300]}")
             elif response.status_code == 429:
                 raise RateLimitError("ElevenLabs rate limit exceeded")
             elif response.status_code != 200:
@@ -264,7 +268,10 @@ class ElevenLabsTTS(BaseTTSProvider):
             async with self.client.stream("POST", url, json=data) as response:
                 # Handle errors
                 if response.status_code == 401:
-                    raise AuthenticationError("Invalid ElevenLabs API key")
+                    # 401 covers both a bad key and a valid key missing a
+                    # permission scope; surface the body to distinguish them.
+                    body = (await response.aread()).decode()[:300]
+                    raise AuthenticationError(f"ElevenLabs auth failed: {body}")
                 elif response.status_code == 429:
                     raise RateLimitError("ElevenLabs rate limit exceeded")
                 elif response.status_code != 200:
@@ -302,7 +309,9 @@ class ElevenLabsTTS(BaseTTSProvider):
             response = await self.client.get("/voices")
 
             if response.status_code == 401:
-                raise AuthenticationError("Invalid ElevenLabs API key")
+                # 401 covers both a bad key and a valid key missing a permission
+                # scope; surface the body so the two are distinguishable.
+                raise AuthenticationError(f"ElevenLabs auth failed: {response.text[:300]}")
             elif response.status_code != 200:
                 raise ProviderError(f"Failed to get voices: {response.text}")
 
@@ -329,7 +338,9 @@ class ElevenLabsTTS(BaseTTSProvider):
             response = await self.client.get(f"/voices/{voice_id}/settings")
 
             if response.status_code == 401:
-                raise AuthenticationError("Invalid ElevenLabs API key")
+                # 401 covers both a bad key and a valid key missing a permission
+                # scope; surface the body so the two are distinguishable.
+                raise AuthenticationError(f"ElevenLabs auth failed: {response.text[:300]}")
             elif response.status_code != 200:
                 raise ProviderError(f"Failed to get voice settings: {response.text}")
 

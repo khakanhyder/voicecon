@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: voicecon_password_dev
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
     container_name: voicecon_redis
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "6385:6379"
     volumes:
       - redis_data:/data
     healthcheck:

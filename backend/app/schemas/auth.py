@@ -38,6 +38,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = None
     company_name: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):

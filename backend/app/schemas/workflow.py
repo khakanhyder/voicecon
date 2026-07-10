@@ -22,11 +22,20 @@ class TriggerType(str, Enum):
 
 class StepType(str, Enum):
     """Workflow step types."""
+    # Backend automation steps
     ACTION = "action"
     CONDITION = "condition"
     LOOP = "loop"
     TRANSFORM = "transform"
     DELAY = "delay"
+    # Voice call-flow builder steps (must match frontend builder STEP_TYPES)
+    SPEAK = "speak"
+    ASK = "ask"
+    TRANSFER = "transfer"
+    TOOL = "tool"
+    WEBHOOK = "webhook"
+    AI = "ai"
+    END = "end"
 
 
 class WorkflowStatus(str, Enum):
