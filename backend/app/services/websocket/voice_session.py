@@ -7,10 +7,14 @@ import logging
 import asyncio
 import json
 import base64
+import audioop
 from typing import Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+import aiohttp
+
+from app.core.config import settings
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.llm_service import get_llm_service, ConversationContext
@@ -112,6 +116,20 @@ class VoiceSession:
         self.current_utterance = ""
         self.transcription_complete = asyncio.Event()
 
+        # Deepgram streaming STT (persistent connection for the call)
+        self._dg_http: Optional[aiohttp.ClientSession] = None
+        self._dg_ws = None
+        self._dg_recv_task: Optional[asyncio.Task] = None
+        self._dg_ready = False
+        self._utterance_parts: list[str] = []
+        self._turn_lock = asyncio.Lock()
+        self._welcome_sent = False
+
+        # A telephony action (transfer/hang_up/dtmf/voicemail) that must run
+        # AFTER the agent has spoken its confirmation, since executing it ends
+        # or replaces the live media stream.
+        self._pending_telephony: Optional[Dict[str, Any]] = None
+
         # Metrics
         self.metrics = {
             "audio_chunks_received": 0,
@@ -150,9 +168,9 @@ class VoiceSession:
                 max_history=20,
             )
 
-            # Send welcome message
-            welcome_message = self.agent.first_message or f"Hello! This is {self.agent.name}. How can I help you today?"
-            await self._send_welcome_message(welcome_message)
+            # Note: the welcome message and Deepgram STT stream are started from
+            # _handle_start, once Twilio has sent the "start" event and we know
+            # the stream_sid — sending media before that has no valid target.
 
             self.state = SessionState.READY
             logger.info(f"Voice session started: call_id={self.call_id}")
@@ -217,11 +235,26 @@ class VoiceSession:
             self.call.provider_call_sid = self.call_sid
             await self.db.commit()
 
+        # Open the Deepgram STT stream now that the media stream is live, then
+        # greet the caller. Both are deferred here (not in start()) because they
+        # need a live stream_sid to be useful.
+        await self._start_deepgram()
+
+        if not self._welcome_sent:
+            self._welcome_sent = True
+            welcome_message = (
+                self.agent.first_message
+                or f"Hello! This is {self.agent.name}. How can I help you today?"
+            )
+            await self._send_welcome_message(welcome_message)
+
     async def _handle_media(self, message: dict) -> None:
         """
         Handle media event (audio data from caller).
 
-        Twilio sends audio as base64-encoded mulaw at 8kHz.
+        Twilio sends audio as base64-encoded mulaw at 8kHz. We decode it and
+        forward the raw mulaw bytes straight to Deepgram, which accepts mulaw
+        natively — no local transcription/format work needed on the way in.
 
         Args:
             message: Media event message
@@ -234,20 +267,116 @@ class VoiceSession:
 
         self.metrics["audio_chunks_received"] += 1
 
-        # Decode audio (base64 mulaw)
         try:
             audio_bytes = base64.b64decode(payload)
-
-            # Add to buffer
-            async with self.buffer_lock:
-                self.audio_buffer.extend(audio_bytes)
-
-            # Process if we have enough audio (20ms chunks = 160 bytes at 8kHz mulaw)
-            if len(self.audio_buffer) >= 160 and not self.is_processing:
-                await self._process_audio_chunk()
-
+            if self._dg_ws is not None and not self._dg_ws.closed:
+                await self._dg_ws.send_bytes(audio_bytes)
         except Exception as e:
-            logger.error(f"Error processing media: {e}")
+            logger.error(f"Error forwarding media to Deepgram: {e}")
+
+    async def _start_deepgram(self) -> None:
+        """
+        Open a persistent Deepgram streaming-STT connection for this call.
+
+        Twilio inbound media is mulaw at 8kHz, which Deepgram accepts natively,
+        so we point Deepgram at that encoding and forward bytes as they arrive.
+        A background task reads transcripts and drives the conversation turn.
+        """
+        if self._dg_ws is not None:
+            return  # already started
+
+        api_key = getattr(settings, "DEEPGRAM_API_KEY", None)
+        if not api_key:
+            logger.error("DEEPGRAM_API_KEY not configured — cannot transcribe call audio")
+            return
+
+        model = self.agent.stt_model or "nova-2"
+        language = self.agent.stt_language or "en"
+        dg_url = (
+            "wss://api.deepgram.com/v1/listen"
+            f"?model={model}"
+            f"&language={language}"
+            "&encoding=mulaw"
+            "&sample_rate=8000"
+            "&channels=1"
+            "&interim_results=true"
+            "&punctuate=true"
+            "&endpointing=300"
+            "&utterance_end_ms=1000"
+        )
+
+        try:
+            self._dg_http = aiohttp.ClientSession()
+            self._dg_ws = await self._dg_http.ws_connect(
+                dg_url,
+                headers={"Authorization": f"Token {api_key}"},
+            )
+            self._dg_ready = True
+            self._dg_recv_task = asyncio.create_task(self._deepgram_receiver())
+            logger.info(f"Deepgram STT stream opened: call_id={self.call_id}")
+        except Exception as e:
+            logger.error(f"Failed to open Deepgram stream: {e}", exc_info=True)
+            self._dg_ready = False
+            if self._dg_http is not None:
+                await self._dg_http.close()
+                self._dg_http = None
+            self._dg_ws = None
+
+    async def _deepgram_receiver(self) -> None:
+        """
+        Read transcripts from Deepgram and trigger a conversation turn when the
+        caller finishes an utterance. Interim results accumulate; a final result
+        with speech_final (or an UtteranceEnd) closes the turn.
+        """
+        try:
+            async for msg in self._dg_ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    msg_type = data.get("type")
+
+                    if msg_type == "Results":
+                        alts = data.get("channel", {}).get("alternatives", [{}])
+                        transcript = alts[0].get("transcript", "") if alts else ""
+                        is_final = data.get("is_final", False)
+                        speech_final = data.get("speech_final", False)
+
+                        if transcript and is_final:
+                            self._utterance_parts.append(transcript)
+                            self.metrics["transcriptions"] += 1
+
+                        if speech_final and self._utterance_parts:
+                            utterance = " ".join(self._utterance_parts).strip()
+                            self._utterance_parts = []
+                            if utterance:
+                                asyncio.create_task(self._handle_caller_utterance(utterance))
+
+                    elif msg_type == "UtteranceEnd":
+                        if self._utterance_parts:
+                            utterance = " ".join(self._utterance_parts).strip()
+                            self._utterance_parts = []
+                            if utterance:
+                                asyncio.create_task(self._handle_caller_utterance(utterance))
+
+                elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+                    break
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Deepgram receiver error: {e}", exc_info=True)
+
+    async def _handle_caller_utterance(self, utterance: str) -> None:
+        """
+        Process one complete caller utterance, serialised so overlapping final
+        transcripts can't start two LLM turns at once.
+        """
+        if self._turn_lock.locked():
+            # A turn is already in flight; fold this utterance into the next one
+            # rather than interleaving two responses.
+            self._utterance_parts.insert(0, utterance)
+            return
+        async with self._turn_lock:
+            await self._process_utterance(utterance)
 
     async def _handle_stop(self, message: dict) -> None:
         """
@@ -258,10 +387,30 @@ class VoiceSession:
         """
         logger.info(f"Stream stopped: call_id={self.call_id}")
         self.state = SessionState.ENDED
+        await self._close_deepgram()
 
-        # Process any remaining audio
-        if len(self.audio_buffer) > 0:
-            await self._process_audio_chunk()
+    async def _close_deepgram(self) -> None:
+        """Tear down the Deepgram stream and its receiver task."""
+        if self._dg_recv_task is not None:
+            self._dg_recv_task.cancel()
+            try:
+                await self._dg_recv_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._dg_recv_task = None
+        if self._dg_ws is not None:
+            try:
+                await self._dg_ws.close()
+            except Exception:
+                pass
+            self._dg_ws = None
+        if self._dg_http is not None:
+            try:
+                await self._dg_http.close()
+            except Exception:
+                pass
+            self._dg_http = None
+        self._dg_ready = False
 
     async def _handle_mark(self, message: dict) -> None:
         """
@@ -407,6 +556,10 @@ class VoiceSession:
                 # Synthesize and send audio
                 await self._speak_response(response)
 
+                # Now that the confirmation has been spoken, run any deferred
+                # call-control action (transfer/hang_up/dtmf/voicemail).
+                await self._run_pending_telephony()
+
         except Exception as e:
             logger.error(f"Error processing utterance: {e}", exc_info=True)
             error_msg = "I'm sorry, I didn't quite catch that. Could you repeat?"
@@ -551,8 +704,13 @@ class VoiceSession:
                     call_id=self.call_id,
                     db=self.db,
                 )
-                if result.get("success"):
-                    formatted_result = f"Tool {matched_tool.name} returned: {json.dumps(result.get('result', {}))}"
+                inner = result.get("result", {}) if result.get("success") else {}
+                if isinstance(inner, dict) and inner.get("requires_telephony"):
+                    # Telephony action — execute against the live call rather than
+                    # just handing the intent back to the LLM as text.
+                    formatted_result = await self._handle_telephony_tool(inner)
+                elif result.get("success"):
+                    formatted_result = f"Tool {matched_tool.name} returned: {json.dumps(inner)}"
                 else:
                     formatted_result = f"Tool {matched_tool.name} failed: {result.get('error', 'unknown error')}"
 
@@ -573,6 +731,118 @@ class VoiceSession:
         # Max function calls reached
         return "I apologize, but I'm having trouble completing that request."
 
+    # ── Telephony actions ────────────────────────────────────────────────────
+
+    def _caller_number(self) -> Optional[str]:
+        """The caller's number, accounting for call direction."""
+        if getattr(self.call, "direction", "inbound") == "outbound":
+            return self.call.to_number
+        return self.call.from_number
+
+    def _agent_number(self) -> Optional[str]:
+        """Our Twilio number for this call, accounting for direction."""
+        if getattr(self.call, "direction", "inbound") == "outbound":
+            return self.call.from_number
+        return self.call.to_number
+
+    def _resolve_number(self, value: Optional[str]) -> Optional[str]:
+        """Substitute number templates like {{caller_number}}."""
+        if not value:
+            return value
+        v = value.strip()
+        if "{{caller_number}}" in v:
+            v = v.replace("{{caller_number}}", self._caller_number() or "")
+        if v in ("caller", "caller_number"):
+            v = self._caller_number() or ""
+        return v.strip() or None
+
+    async def _handle_telephony_tool(self, inner: Dict[str, Any]) -> str:
+        """
+        Route a telephony tool result to a real action.
+
+        SMS is sent immediately (it does not affect the live call). Call-control
+        actions (transfer/hang_up/dtmf/voicemail) are deferred until after the
+        agent speaks its confirmation, because executing them ends or replaces
+        the media stream — see _run_pending_telephony.
+        """
+        action = inner.get("action")
+        cfg = inner.get("config", {}) or {}
+        params = inner.get("parameters", {}) or {}
+
+        if action == "send_sms":
+            to_number = self._resolve_number(params.get("to") or cfg.get("to")) or self._caller_number()
+            body = params.get("message") or cfg.get("message") or ""
+            if not to_number:
+                return "Could not send the text: no recipient number available."
+            if not body:
+                return "Could not send the text: no message content provided."
+            try:
+                svc = self._get_twilio()
+                res = await svc.send_sms(
+                    to_number=to_number, body=body, from_number=self._agent_number()
+                )
+            except Exception as e:
+                logger.error(f"send_sms failed: {e}")
+                return f"The text message could not be sent ({e})."
+            if res.get("success"):
+                return f"Text message sent to {to_number}. Confirm this to the caller."
+            return f"The text message failed to send: {res.get('error', 'unknown error')}."
+
+        if action in ("transfer_call", "hang_up", "dtmf", "leave_voicemail"):
+            # Defer until the confirmation has been spoken.
+            self._pending_telephony = {"action": action, "config": cfg, "parameters": params}
+            hints = {
+                "transfer_call": "You are about to transfer the caller. Tell them you're connecting them now, in one short sentence.",
+                "hang_up": "You are about to end the call. Say a brief, polite goodbye.",
+                "dtmf": "You are about to send the requested tones. Acknowledge briefly.",
+                "leave_voicemail": "You are about to leave the message. Acknowledge briefly.",
+            }
+            return hints.get(action, "Acknowledge the request briefly.")
+
+        return f"Telephony action '{action}' is not supported."
+
+    def _get_twilio(self):
+        """Lazily get the Twilio service (raises if creds are unconfigured)."""
+        from app.services.telephony.twilio_service import get_twilio_service
+        return get_twilio_service()
+
+    async def _run_pending_telephony(self) -> None:
+        """Execute a deferred call-control action after the agent has spoken."""
+        pending = self._pending_telephony
+        if not pending:
+            return
+        self._pending_telephony = None
+
+        action = pending["action"]
+        cfg = pending.get("config", {})
+        params = pending.get("parameters", {})
+
+        if not self.call_sid:
+            logger.error(f"Cannot run telephony action '{action}': no live call_sid")
+            return
+
+        try:
+            svc = self._get_twilio()
+            if action == "transfer_call":
+                dest = self._resolve_number(params.get("destination") or cfg.get("destination"))
+                if not dest:
+                    logger.error("transfer_call: no destination configured")
+                    return
+                await svc.transfer_call(self.call_sid, dest)
+            elif action == "hang_up":
+                await svc.hang_up(self.call_sid)
+            elif action == "dtmf":
+                digits = params.get("digits") or cfg.get("digits") or ""
+                if digits:
+                    await svc.send_dtmf(self.call_sid, digits)
+            elif action == "leave_voicemail":
+                message = params.get("message") or cfg.get("message") or ""
+                if message:
+                    await svc.leave_voicemail(self.call_sid, message)
+            logger.info(f"Executed telephony action '{action}' on call {self.call_sid}")
+        except Exception as e:
+            logger.error(f"Failed to execute telephony action '{action}': {e}", exc_info=True)
+
     async def _speak_response(self, text: str) -> None:
         """
         Synthesize speech and send to caller.
@@ -586,24 +856,37 @@ class VoiceSession:
             provider = self.agent.tts_provider or "elevenlabs"
             voice_id = self.agent.tts_voice_id or "rachel"
 
-            # Synthesize with streaming for low latency
-            audio_chunks = []
-            async for audio_chunk in self.tts_service.synthesize_stream(
-                text=text,
-                provider=provider,
-                voice_id=voice_id,
-            ):
-                audio_chunks.append(audio_chunk)
+            # Request Twilio-native audio (8kHz mulaw) straight from the provider
+            # so no local decoding/resampling is needed. ElevenLabs supports
+            # "ulaw_8000"; other providers fall back through _to_twilio_mulaw.
+            tts_kwargs = {"text": text, "provider": provider, "voice_id": voice_id}
+            if provider == "elevenlabs":
+                tts_kwargs["output_format"] = "ulaw_8000"
 
-                # Send to Twilio immediately (stream as we generate)
-                await self._send_audio_to_twilio(audio_chunk)
+            # Reframe the provider's byte stream into 20ms (160-byte) mulaw frames,
+            # which is what Twilio expects for smooth playback.
+            frame = bytearray()
+            chunk_count = 0
+            async for audio_chunk in self.tts_service.synthesize_stream(**tts_kwargs):
+                mulaw = self._to_twilio_mulaw(audio_chunk, provider)
+                if not mulaw:
+                    continue
+                frame.extend(mulaw)
+                while len(frame) >= 160:
+                    await self._send_audio_to_twilio(bytes(frame[:160]))
+                    del frame[:160]
+                    chunk_count += 1
+
+            if frame:
+                await self._send_audio_to_twilio(bytes(frame))
+                chunk_count += 1
 
             self.metrics["tts_generations"] += 1
 
             # Mark end of speech
             await self._send_mark("speech_end")
 
-            logger.info(f"Sent audio response: {len(audio_chunks)} chunks")
+            logger.info(f"Sent audio response: {chunk_count} frames")
 
         except Exception as e:
             logger.error(f"Error speaking response: {e}", exc_info=True)
@@ -611,20 +894,36 @@ class VoiceSession:
         finally:
             self.state = SessionState.LISTENING
 
+    def _to_twilio_mulaw(self, audio_data: bytes, provider: str) -> bytes:
+        """
+        Ensure audio is 8kHz mulaw for Twilio.
+
+        For ElevenLabs we request "ulaw_8000", so the bytes are already correct
+        and pass through untouched. For any provider that returns 16-bit PCM we
+        convert with audioop (used as a safety net). MP3 is not decodable here,
+        so a non-mulaw provider without PCM output should be configured to emit
+        ulaw/PCM upstream.
+        """
+        if not audio_data:
+            return b""
+        if provider == "elevenlabs":
+            return audio_data  # already ulaw_8000
+        # Best-effort PCM (linear16) -> mulaw fallback for other providers.
+        try:
+            pcm8k, _ = audioop.ratecv(audio_data, 2, 1, 16000, 8000, None)
+            return audioop.lin2ulaw(pcm8k, 2)
+        except Exception:
+            # Unknown/undecodable format (e.g. MP3): pass through rather than crash.
+            return audio_data
+
     async def _send_audio_to_twilio(self, audio_data: bytes) -> None:
         """
-        Send audio to Twilio WebSocket.
-
-        Twilio expects audio as base64-encoded mulaw at 8kHz.
+        Send one frame of 8kHz mulaw audio to Twilio as a base64 media event.
 
         Args:
-            audio_data: Audio bytes (will be converted if needed)
+            audio_data: mulaw 8kHz audio bytes (already Twilio-ready)
         """
         try:
-            # TODO: Convert audio format if needed
-            # ElevenLabs returns mp3, need to convert to mulaw
-
-            # For now, assume audio is already in correct format
             payload = base64.b64encode(audio_data).decode('utf-8')
 
             message = {
@@ -742,6 +1041,9 @@ class VoiceSession:
         """Clean up session resources."""
         try:
             logger.info(f"Cleaning up voice session: call_id={self.call_id}")
+
+            # Close the Deepgram STT stream first so no more turns are triggered.
+            await self._close_deepgram()
 
             # Save transcript
             if self.transcript_entries:

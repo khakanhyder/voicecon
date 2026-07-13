@@ -5,6 +5,7 @@ Endpoints for managing knowledge bases, documents, and semantic search.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
@@ -12,7 +13,19 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import get_db, get_current_active_user
-from app.models.user import User
+from app.models.user import User, OrganizationMember
+
+
+async def get_current_org_id(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> uuid.UUID:
+    """Resolve the user's organization id. User has no organization_id column;
+    membership lives in organization_members. Falls back to the user id."""
+    m = (await db.execute(
+        select(OrganizationMember).where(OrganizationMember.user_id == user.id).limit(1)
+    )).scalar_one_or_none()
+    return m.organization_id if m else user.id
 from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Document as DocumentModel
 from app.services.knowledge_base import RAGService
 from app.core.config import settings
@@ -119,6 +132,7 @@ def get_rag_service(db: AsyncSession = Depends(get_db)) -> RAGService:
 async def create_knowledge_base(
     kb_create: KnowledgeBaseCreate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service)
 ):
     """
@@ -129,7 +143,7 @@ async def create_knowledge_base(
     """
     try:
         kb = await rag_service.create_knowledge_base(
-            organization_id=current_user.organization_id,
+            organization_id=org_id,
             name=kb_create.name,
             description=kb_create.description,
             chunk_size=kb_create.chunk_size,
@@ -149,6 +163,7 @@ async def create_knowledge_base(
 @router.get("/knowledge-bases", response_model=List[KnowledgeBaseResponse])
 async def list_knowledge_bases(
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -159,7 +174,7 @@ async def list_knowledge_bases(
 
     result = await db.execute(
         select(KnowledgeBaseModel).where(
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         ).order_by(KnowledgeBaseModel.created_at.desc())
     )
     knowledge_bases = result.scalars().all()
@@ -186,6 +201,7 @@ async def list_knowledge_bases(
 async def get_knowledge_base(
     kb_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -197,7 +213,7 @@ async def get_knowledge_base(
     result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == kb_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = result.scalar_one_or_none()
@@ -221,6 +237,7 @@ async def get_knowledge_base(
 async def delete_knowledge_base(
     kb_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -231,7 +248,7 @@ async def delete_knowledge_base(
     result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == kb_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = result.scalar_one_or_none()
@@ -254,6 +271,7 @@ async def delete_knowledge_base(
 async def create_document(
     doc_create: DocumentCreate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_db)
 ):
@@ -268,7 +286,7 @@ async def create_document(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == doc_create.knowledge_base_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()
@@ -296,6 +314,7 @@ async def upload_document(
     knowledge_base_id: uuid.UUID = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_db)
 ):
@@ -310,7 +329,7 @@ async def upload_document(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == knowledge_base_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()
@@ -355,6 +374,7 @@ async def upload_document(
 async def list_documents(
     kb_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -366,7 +386,7 @@ async def list_documents(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == kb_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()
@@ -389,6 +409,7 @@ async def list_documents(
 async def delete_document(
     doc_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_db)
 ):
@@ -410,7 +431,7 @@ async def delete_document(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == doc.knowledge_base_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()
@@ -433,6 +454,7 @@ async def delete_document(
 async def search_knowledge_base(
     search_req: SearchRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_db)
 ):
@@ -447,7 +469,7 @@ async def search_knowledge_base(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == search_req.knowledge_base_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()
@@ -476,6 +498,7 @@ async def get_search_context(
     search_req: SearchRequest,
     max_tokens: int = 2000,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     rag_service: RAGService = Depends(get_rag_service),
     db: AsyncSession = Depends(get_db)
 ):
@@ -490,7 +513,7 @@ async def get_search_context(
     kb_result = await db.execute(
         select(KnowledgeBaseModel).where(
             KnowledgeBaseModel.id == search_req.knowledge_base_id,
-            KnowledgeBaseModel.organization_id == current_user.organization_id
+            KnowledgeBaseModel.organization_id == org_id
         )
     )
     kb = kb_result.scalar_one_or_none()

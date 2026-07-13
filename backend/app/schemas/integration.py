@@ -132,9 +132,11 @@ class IntegrationConnectionResponse(BaseModel):
     # Connector info (nested)
     connector: IntegrationConnectorResponse
 
-    # Metadata (no sensitive data)
+    # Metadata (no sensitive data). The ORM column is `integration_metadata`
+    # because `metadata` is reserved by SQLAlchemy; read from it via alias while
+    # keeping the API key named `metadata`.
     config: Dict[str, Any]
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(default_factory=dict, validation_alias="integration_metadata")
 
     # Status
     is_active: bool
@@ -148,6 +150,7 @@ class IntegrationConnectionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class IntegrationConnectionListResponse(BaseModel):

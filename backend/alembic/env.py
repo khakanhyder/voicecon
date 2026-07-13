@@ -23,12 +23,18 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Build sync URL for Alembic (mysql+pymysql://)
+# Build sync URL for Alembic (mysql+pymysql:// or postgresql+psycopg2://)
 _raw = settings.DATABASE_URL
 if _raw.startswith("mysql://"):
     _sync_url = _raw.replace("mysql://", "mysql+pymysql://", 1)
 elif _raw.startswith("mysql+aiomysql://"):
     _sync_url = _raw.replace("mysql+aiomysql://", "mysql+pymysql://", 1)
+elif _raw.startswith("postgresql+asyncpg://"):
+    _sync_url = _raw.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+elif _raw.startswith("postgresql://"):
+    _sync_url = _raw.replace("postgresql://", "postgresql+psycopg2://", 1)
+elif _raw.startswith("postgres://"):
+    _sync_url = _raw.replace("postgres://", "postgresql+psycopg2://", 1)
 else:
     _sync_url = _raw
 config.set_main_option("sqlalchemy.url", _sync_url)

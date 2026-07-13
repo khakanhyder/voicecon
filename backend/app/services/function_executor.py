@@ -578,7 +578,39 @@ class FunctionExecutor:
                 result = {"action": "handoff", "destination": cfg.get("destination"), "message": cfg.get("message")}
 
             elif t == "query_knowledge_base":
-                result = {"action": "query_kb", "knowledge_base_id": cfg.get("knowledge_base_id"), "query": parameters.get("query")}
+                from app.services.knowledge_base.rag_service import search_knowledge_base_db
+                from app.core.config import settings as _settings
+                kb_id = cfg.get("knowledge_base_id") or cfg.get("kb_id")
+                query = parameters.get("query") or parameters.get("q") or ""
+                if not kb_id:
+                    result = {"error": "No knowledge base is configured for this tool."}
+                elif db is None:
+                    result = {"error": "Knowledge base search is unavailable in this context."}
+                elif not query:
+                    result = {"error": "No search query was provided."}
+                else:
+                    try:
+                        hits = await search_knowledge_base_db(
+                            db=db,
+                            knowledge_base_id=kb_id,
+                            query=query,
+                            api_key=_settings.OPENAI_API_KEY,
+                            top_k=cfg.get("top_k", 4),
+                        )
+                        if hits:
+                            result = {
+                                "query": query,
+                                "results": [
+                                    {"content": h["content"], "source": h["document_title"], "score": h["score"]}
+                                    for h in hits
+                                ],
+                            }
+                        else:
+                            result = {"query": query, "results": [],
+                                      "note": "No relevant information found in the knowledge base."}
+                    except Exception as e:
+                        logger.error(f"Knowledge base search failed: {e}", exc_info=True)
+                        result = {"error": f"Knowledge base search failed: {e}"}
 
             elif t in ("integration", "connected_integration"):
                 result = await self._execute_integration_tool(cfg, parameters, db)

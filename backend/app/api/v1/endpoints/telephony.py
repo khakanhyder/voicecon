@@ -27,32 +27,58 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def validate_twilio_request(request: Request, url: str) -> bool:
+def _public_webhook_url(request: Request) -> str:
     """
-    Validate Twilio webhook request signature.
+    Reconstruct the exact public URL Twilio signed.
 
-    Args:
-        request: FastAPI request object
-        url: Full URL of the webhook
-
-    Returns:
-        True if signature is valid
+    Behind a TLS-terminating proxy the internal scheme/host differ from what
+    Twilio called, and the signature is computed over the public URL. Prefer an
+    explicitly configured public base URL; otherwise honour forwarded headers.
     """
-    twilio_service = get_twilio_service()
+    if settings.TWILIO_PUBLIC_BASE_URL:
+        base = settings.TWILIO_PUBLIC_BASE_URL.rstrip("/")
+        return f"{base}{request.url.path}"
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host:
+        return f"{proto}://{host}{request.url.path}"
+    return str(request.url)
 
-    # Get signature from headers
+
+def validate_twilio_request(request: Request, form_data) -> bool:
+    """
+    Validate the X-Twilio-Signature on a webhook request.
+
+    Returns True (allow) when validation is disabled or no auth token is
+    configured — there is nothing to validate against in that case, so local and
+    credential-less environments are unaffected. When a token is present and
+    validation is enabled, the real signature check is enforced.
+    """
+    if not settings.TWILIO_VALIDATE_WEBHOOKS:
+        return True
+    if not settings.TWILIO_AUTH_TOKEN:
+        logger.warning(
+            "Twilio webhook signature not validated: no TWILIO_AUTH_TOKEN configured"
+        )
+        return True
+
     signature = request.headers.get("X-Twilio-Signature", "")
-
     if not signature:
-        logger.warning("Missing Twilio signature")
+        logger.error("Rejecting webhook: missing X-Twilio-Signature header")
         return False
 
-    # Get POST parameters
-    # For form data, FastAPI doesn't have it in request at this point
-    # We'll need to parse it manually or trust for now
-    # In production, implement proper signature validation
+    try:
+        twilio_service = get_twilio_service()
+    except Exception as e:
+        logger.error(f"Cannot validate Twilio signature: {e}")
+        return False
 
-    return True  # Simplified for now
+    url = _public_webhook_url(request)
+    post_vars = {k: str(v) for k, v in form_data.items()}
+    valid = twilio_service.validate_request(url, post_vars, signature)
+    if not valid:
+        logger.error(f"Rejecting webhook: invalid Twilio signature for {url}")
+    return valid
 
 
 @router.post("/twilio/voice/{agent_id}")
@@ -89,12 +115,10 @@ async def handle_inbound_call(
             f"To={to_number}, Status={call_status}, Agent={agent_id}"
         )
 
-        # Validate Twilio signature (simplified)
-        # In production, implement proper validation
-        # url = str(request.url)
-        # if not validate_twilio_request(request, url):
-        #     logger.error("Invalid Twilio signature")
-        #     raise HTTPException(status_code=403, detail="Invalid signature")
+        # Validate the Twilio webhook signature (auto-skips when no auth token
+        # is configured, so credential-less dev is unaffected).
+        if not validate_twilio_request(request, form_data):
+            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
         # Get agent from database
         agent_result = await db.execute(
@@ -163,6 +187,10 @@ async def handle_inbound_call(
 
         return Response(content=twiml, media_type="application/xml")
 
+    except HTTPException:
+        # Signature-rejection (403) and similar must propagate, not be masked
+        # as a friendly TwiML error.
+        raise
     except Exception as e:
         logger.error(f"Error handling inbound call: {e}", exc_info=True)
 
@@ -198,6 +226,10 @@ async def handle_call_status(
     try:
         # Get form data from Twilio
         form_data = await request.form()
+
+        # Validate the webhook signature (auto-skips without an auth token).
+        if not validate_twilio_request(request, form_data):
+            raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
         call_sid = form_data.get("CallSid")
         call_status = form_data.get("CallStatus")
@@ -274,6 +306,8 @@ async def handle_call_status(
 
         return Response(status_code=200)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error handling call status: {e}", exc_info=True)
         return Response(status_code=200)  # Return 200 to avoid Twilio retries

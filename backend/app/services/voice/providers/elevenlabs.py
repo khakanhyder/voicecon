@@ -251,8 +251,13 @@ class ElevenLabsTTS(BaseTTSProvider):
         """
         voice_id = kwargs.get("voice_id", self.voice_id)
 
-        # Prepare request
+        # Prepare request. output_format lets callers request Twilio-ready audio
+        # (e.g. "ulaw_8000") directly; when unset ElevenLabs returns its default
+        # (MP3), which preserves existing browser/TTS behaviour.
         url = f"/text-to-speech/{voice_id}/stream"
+        output_format = kwargs.get("output_format")
+        if output_format:
+            url = f"{url}?output_format={output_format}"
         data = {
             "text": text,
             "model_id": kwargs.get("model_id", self.model_id),

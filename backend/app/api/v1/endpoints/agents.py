@@ -613,54 +613,145 @@ async def agent_respond(
 
                 return asyncio.create_task(_synth())
 
-            async for chunk in llm_service.chat_stream(
-                messages=messages,
-                provider=agent.llm_provider,
-                model=llm_model,
-                temperature=float(agent.llm_temperature),
-                max_tokens=max_tokens_cap,
-            ):
-                full_response += chunk
-                sentence_buffer += chunk
+            # ── Load the agent's tools/functions for function calling ──────────
+            from app.services.function_executor import get_function_executor
+            fe = get_function_executor()
+            agent_functions = await fe.get_agent_functions(str(agent_id), db)
+            agent_tools = await fe.get_agent_assigned_tools(str(agent_id), db)
+            func_defs = (
+                [fe.get_function_definition(f) for f in agent_functions]
+                + [fe.get_tool_function_definition(t) for t in agent_tools]
+            )
 
-                flush_chunks = []
-                while True:
-                    m = re.search(r'(?<=[.!?])\s+', sentence_buffer)
-                    if m:
-                        flush_chunks.append(sentence_buffer[:m.start() + 1])
-                        sentence_buffer = sentence_buffer[m.end():]
+            async def _execute_tool_call(name: str, args: dict) -> str:
+                """Run one tool the model asked for, returning a result string for
+                the LLM. Telephony tools have no live call here (browser test), so
+                they report that rather than acting."""
+                agent_function = next(
+                    (f for f in agent_functions if f.name == name), None
+                )
+                matched_tool = next(
+                    (t for t in agent_tools
+                     if t.name.replace(" ", "_").lower()[:64] == name), None
+                )
+                try:
+                    if agent_function:
+                        res = await fe.execute_function(
+                            function=agent_function, parameters=args, call_id=None, db=db
+                        )
+                        return fe.format_for_llm(agent_function, res)
+                    if matched_tool:
+                        res = await fe.execute_global_tool(
+                            tool=matched_tool, parameters=args, call_id=None, db=db
+                        )
+                        inner = res.get("result", {}) if res.get("success") else {}
+                        if isinstance(inner, dict) and inner.get("requires_telephony"):
+                            return ("This action needs an active phone call. In this "
+                                    "text/browser test it can't be performed, so tell "
+                                    "the user it would run during a real call.")
+                        if res.get("success"):
+                            return f"Tool {matched_tool.name} returned: {json.dumps(inner)}"
+                        return f"Tool {matched_tool.name} failed: {res.get('error', 'unknown error')}"
+                    return f"The capability '{name}' is not configured."
+                except Exception as e:
+                    logger.error(f"Tool '{name}' execution error: {e}", exc_info=True)
+                    return f"The tool '{name}' encountered an error."
+
+            if func_defs:
+                # ── Function-calling path ──────────────────────────────────────
+                # Resolve tool calls with a non-streaming loop, then emit the final
+                # answer through the same sentence/TTS pipeline. Use the agent's
+                # configured model (function-calling capable) rather than the voice
+                # nano override.
+                tool_model = agent.llm_model or "gpt-4o-mini"
+                resolved_text = ""
+                for _ in range(5):
+                    completion = await llm_service.chat(
+                        messages=messages,
+                        provider=agent.llm_provider,
+                        model=tool_model,
+                        temperature=float(agent.llm_temperature),
+                        max_tokens=max_tokens_cap,
+                        functions=func_defs,
+                    )
+                    fcall = getattr(completion, "function_call", None)
+                    if fcall:
+                        try:
+                            args = json.loads(fcall.arguments or "{}")
+                        except Exception:
+                            args = {}
+                        yield f"data: {json.dumps({'type': 'tool_call', 'name': fcall.name})}\n\n"
+                        messages.append(ChatMessage(
+                            role="assistant", content=completion.content or "",
+                            function_call={"name": fcall.name, "arguments": fcall.arguments},
+                        ))
+                        tool_result = await _execute_tool_call(fcall.name, args)
+                        messages.append(ChatMessage(
+                            role="function", name=fcall.name, content=tool_result,
+                        ))
                         continue
-                    if len(sentence_buffer) >= 25:
-                        m2 = re.search(r'(?<=[,;])\s+', sentence_buffer)
-                        if m2:
-                            flush_chunks.append(sentence_buffer[:m2.start() + 1])
-                            sentence_buffer = sentence_buffer[m2.end():]
-                            continue
+                    resolved_text = completion.content or ""
                     break
 
-                # Launch TTS for each new sentence — non-blocking
-                for fc in flush_chunks:
-                    task = _start_tts(fc)
+                full_response = resolved_text
+                for sent in re.split(r'(?<=[.!?])\s+', resolved_text.strip()):
+                    task = _start_tts(sent)
+                    if task:
+                        pending_tts.append(task)
+                for task in pending_tts:
+                    payload = await task
+                    if payload:
+                        yield f"data: {payload}\n\n"
+            else:
+                # ── No tools: original low-latency streaming path (unchanged) ──
+                async for chunk in llm_service.chat_stream(
+                    messages=messages,
+                    provider=agent.llm_provider,
+                    model=llm_model,
+                    temperature=float(agent.llm_temperature),
+                    max_tokens=max_tokens_cap,
+                ):
+                    full_response += chunk
+                    sentence_buffer += chunk
+
+                    flush_chunks = []
+                    while True:
+                        m = re.search(r'(?<=[.!?])\s+', sentence_buffer)
+                        if m:
+                            flush_chunks.append(sentence_buffer[:m.start() + 1])
+                            sentence_buffer = sentence_buffer[m.end():]
+                            continue
+                        if len(sentence_buffer) >= 25:
+                            m2 = re.search(r'(?<=[,;])\s+', sentence_buffer)
+                            if m2:
+                                flush_chunks.append(sentence_buffer[:m2.start() + 1])
+                                sentence_buffer = sentence_buffer[m2.end():]
+                                continue
+                        break
+
+                    # Launch TTS for each new sentence — non-blocking
+                    for fc in flush_chunks:
+                        task = _start_tts(fc)
+                        if task:
+                            pending_tts.append(task)
+
+                    # Immediately drain any tasks that already finished (preserving order)
+                    while pending_tts and pending_tts[0].done():
+                        payload = await pending_tts.pop(0)
+                        if payload:
+                            yield f"data: {payload}\n\n"
+
+                # Flush remaining sentence buffer
+                if sentence_buffer.strip():
+                    task = _start_tts(sentence_buffer.strip())
                     if task:
                         pending_tts.append(task)
 
-                # Immediately drain any tasks that already finished (preserving order)
-                while pending_tts and pending_tts[0].done():
-                    payload = await pending_tts.pop(0)
+                # Drain remaining TTS tasks in order
+                for task in pending_tts:
+                    payload = await task
                     if payload:
                         yield f"data: {payload}\n\n"
-
-            # Flush remaining sentence buffer
-            if sentence_buffer.strip():
-                task = _start_tts(sentence_buffer.strip())
-                if task:
-                    pending_tts.append(task)
-
-            # Drain remaining TTS tasks in order
-            for task in pending_tts:
-                payload = await task
-                if payload:
-                    yield f"data: {payload}\n\n"
 
             # Fallback when LLM returned nothing
             if not full_response.strip():

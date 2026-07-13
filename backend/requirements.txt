@@ -7,6 +7,8 @@ python-multipart==0.0.9
 sqlalchemy==2.0.27
 aiomysql==0.2.0  # Async MySQL driver
 pymysql==1.1.0  # Sync MySQL driver for Alembic
+asyncpg==0.29.0  # Async PostgreSQL driver
+psycopg2-binary==2.9.9  # Sync PostgreSQL driver for Alembic
 greenlet==3.2.5  # Required by SQLAlchemy async
 alembic==1.13.1
 

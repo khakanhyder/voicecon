@@ -126,8 +126,9 @@ class DocumentChunk(Base):
     embedding_model: Mapped[str] = mapped_column(String(100), nullable=False)
     embedding_dimension: Mapped[int] = mapped_column(Integer, default=1536)
 
-    # Optional: Store embedding locally (for local vector store)
-    # embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float))  # Uncomment for local storage
+    # Vector stored in-row as a JSON array so semantic search is DB-backed and
+    # survives restarts (no external vector store required for the default path).
+    embedding: Mapped[Optional[list]] = mapped_column(JSON)
 
     # Metadata
     chunk_metadata: Mapped[Optional[dict]] = mapped_column(JSON)  # Chunk-specific metadata

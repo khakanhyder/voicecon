@@ -89,6 +89,7 @@ class IntegrationConnection(Base):
 
     # Authentication (encrypted)
     auth_data_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    api_key_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     access_token_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     refresh_token_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

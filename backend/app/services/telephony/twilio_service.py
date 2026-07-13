@@ -320,6 +320,132 @@ class TwilioService:
             logger.error(f"Error making outbound call: {e}")
             raise
 
+    async def transfer_call(self, call_sid: str, destination: str) -> Dict[str, Any]:
+        """
+        Transfer a live call to another number or SIP endpoint.
+
+        Redirects the in-progress call by replacing its TwiML with a <Dial>.
+        This ends the current media stream (the AI agent) and connects the
+        caller to the destination — a standard cold transfer.
+
+        Args:
+            call_sid: The live Twilio call SID
+            destination: Phone number (E.164) or SIP URI to transfer to
+
+        Returns:
+            Result dict with the updated call status
+        """
+        try:
+            dest = destination.strip()
+            if dest.lower().startswith("sip:"):
+                dial = f"<Dial><Sip>{dest}</Sip></Dial>"
+            else:
+                dial = f"<Dial>{dest}</Dial>"
+            twiml = f"<Response>{dial}</Response>"
+            call = self.client.calls(call_sid).update(twiml=twiml)
+            logger.info(f"Transferred call {call_sid} -> {dest}")
+            return {"success": True, "call_sid": call_sid, "destination": dest, "status": call.status}
+        except TwilioRestException as e:
+            logger.error(f"Error transferring call {call_sid}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def hang_up(self, call_sid: str) -> Dict[str, Any]:
+        """
+        End a live call.
+
+        Args:
+            call_sid: The live Twilio call SID
+
+        Returns:
+            Result dict
+        """
+        try:
+            call = self.client.calls(call_sid).update(status="completed")
+            logger.info(f"Hung up call {call_sid}")
+            return {"success": True, "call_sid": call_sid, "status": call.status}
+        except TwilioRestException as e:
+            logger.error(f"Error hanging up call {call_sid}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def send_sms(
+        self,
+        to_number: str,
+        body: str,
+        from_number: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Send an SMS. Independent of any live call, so it does not affect an
+        in-progress conversation.
+
+        Args:
+            to_number: Recipient phone number (E.164)
+            body: Message text
+            from_number: Sender Twilio number (defaults to the configured number)
+
+        Returns:
+            Result dict with the message SID
+        """
+        try:
+            sender = from_number or self.phone_number
+            if not sender:
+                return {"success": False, "error": "No sender phone number configured"}
+            message = self.client.messages.create(
+                to=to_number,
+                from_=sender,
+                body=body,
+            )
+            logger.info(f"Sent SMS {message.sid} to {to_number}")
+            return {"success": True, "message_sid": message.sid, "to": to_number, "status": message.status}
+        except TwilioRestException as e:
+            logger.error(f"Error sending SMS to {to_number}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def send_dtmf(self, call_sid: str, digits: str) -> Dict[str, Any]:
+        """
+        Play DTMF (touch-tone) digits into a live call.
+
+        Note: replacing the call TwiML ends the current media stream, so this is
+        used as a terminal action (e.g. navigating an external IVR). Continuing
+        the AI conversation afterwards would require re-establishing the stream.
+
+        Args:
+            call_sid: The live Twilio call SID
+            digits: DTMF digits to play (0-9, *, #, w for 0.5s pause)
+
+        Returns:
+            Result dict
+        """
+        try:
+            safe = "".join(c for c in digits if c in "0123456789*#w")
+            twiml = f'<Response><Play digits="{safe}"></Play></Response>'
+            self.client.calls(call_sid).update(twiml=twiml)
+            logger.info(f"Sent DTMF '{safe}' to call {call_sid}")
+            return {"success": True, "call_sid": call_sid, "digits": safe}
+        except TwilioRestException as e:
+            logger.error(f"Error sending DTMF to {call_sid}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def leave_voicemail(self, call_sid: str, message: str) -> Dict[str, Any]:
+        """
+        Speak a message into the call and hang up (leave a voicemail).
+
+        Args:
+            call_sid: The live Twilio call SID
+            message: The message to speak
+
+        Returns:
+            Result dict
+        """
+        try:
+            safe = message.replace("&", "and").replace("<", "").replace(">", "")
+            twiml = f"<Response><Say>{safe}</Say><Hangup></Hangup></Response>"
+            self.client.calls(call_sid).update(twiml=twiml)
+            logger.info(f"Left voicemail on call {call_sid}")
+            return {"success": True, "call_sid": call_sid}
+        except TwilioRestException as e:
+            logger.error(f"Error leaving voicemail on {call_sid}: {e}")
+            return {"success": False, "error": str(e)}
+
     async def get_call_details(self, call_sid: str) -> Dict[str, Any]:
         """
         Get details for a specific call.

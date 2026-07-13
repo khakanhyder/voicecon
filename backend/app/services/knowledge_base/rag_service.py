@@ -138,7 +138,7 @@ class EmbeddingService:
     Can be extended to support other providers.
     """
 
-    def __init__(self, api_key: str, model: str = "text-embedding-ada-002"):
+    def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
         """
         Initialize embedding service.
 
@@ -153,6 +153,11 @@ class EmbeddingService:
         """
         Generate embeddings for a list of texts.
 
+        Uses the modern OpenAI SDK (v1) and honours OPENAI_BASE_URL, so the same
+        code path works against api.openai.com and OpenAI-compatible gateways
+        (e.g. OpenRouter). The legacy `openai.Embedding.create` API was removed
+        in openai>=1.0 and is rejected by gateways.
+
         Args:
             texts: List of text strings
 
@@ -160,22 +165,18 @@ class EmbeddingService:
             List of embedding vectors
         """
         try:
-            import openai
-            openai.api_key = self.api_key
+            from openai import AsyncOpenAI
+            from app.core.config import settings
 
-            # OpenAI embeddings API
-            response = await asyncio.to_thread(
-                openai.Embedding.create,
-                input=texts,
-                model=self.model
+            client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=settings.OPENAI_BASE_URL or None,
             )
-
-            embeddings = [item['embedding'] for item in response['data']]
-            logger.info(f"Generated {len(embeddings)} embeddings")
+            response = await client.embeddings.create(input=texts, model=self.model)
+            embeddings = [item.embedding for item in response.data]
+            logger.info(f"Generated {len(embeddings)} embeddings ({self.model})")
             return embeddings
 
-        except ImportError:
-            raise ImportError("OpenAI SDK not installed. Run: pip install openai")
         except Exception as e:
             logger.error(f"Failed to generate embeddings: {e}")
             raise
@@ -322,7 +323,7 @@ class RAGService:
             source_url=kwargs.get('source_url'),
             file_type=kwargs.get('file_type'),
             file_size=kwargs.get('file_size'),
-            metadata=metadata or {},
+            document_metadata=metadata or {},
             language=kwargs.get('language', 'en'),
             processing_status="pending"
         )
@@ -331,11 +332,32 @@ class RAGService:
         await self.db.commit()
         await self.db.refresh(doc)
 
-        # Process document in background
-        asyncio.create_task(self._process_document(doc.id, kb))
+        # Process document in a background task with its OWN DB session — the
+        # request-scoped session (self.db) closes when the request returns.
+        doc_id = doc.id
+        kb_id = kb.id
+        asyncio.create_task(self._process_document_bg(doc_id, kb_id))
 
         logger.info(f"Added document: {title} ({doc.id})")
         return doc
+
+    async def _process_document_bg(self, document_id: uuid.UUID, kb_id: uuid.UUID):
+        """
+        Background entrypoint for document processing. Opens a fresh DB session
+        (the request session is gone) and reloads the KB before processing.
+        """
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            original_db = self.db
+            self.db = db
+            try:
+                kb = (await db.execute(
+                    select(KnowledgeBase).where(KnowledgeBase.id == kb_id)
+                )).scalar_one_or_none()
+                if kb:
+                    await self._process_document(document_id, kb)
+            finally:
+                self.db = original_db
 
     async def _process_document(self, document_id: uuid.UUID, kb: KnowledgeBase):
         """
@@ -378,10 +400,14 @@ class RAGService:
             vectors = []
 
             # Create DocumentChunk records
+            total_tokens = 0
             for idx, ((chunk_text, start_char, end_char), embedding) in enumerate(zip(chunks_data, embeddings)):
                 chunk_id = str(uuid.uuid4())
+                total_tokens += len(chunk_text.split())
 
-                # Create database record
+                # Create database record. The vector is stored in-row (embedding)
+                # so search is DB-backed. Note: the column is chunk_metadata —
+                # `metadata` is reserved by SQLAlchemy.
                 chunk = DocumentChunk(
                     id=uuid.UUID(chunk_id),
                     document_id=document_id,
@@ -390,9 +416,10 @@ class RAGService:
                     start_char=start_char,
                     end_char=end_char,
                     vector_id=chunk_id,
-                    embedding_model=kb.embedding_model,
-                    embedding_dimension=kb.vector_dimension,
-                    metadata={
+                    embedding_model=self.embedding_service.model,
+                    embedding_dimension=len(embedding),
+                    embedding=list(embedding),
+                    chunk_metadata={
                         'document_id': str(document_id),
                         'document_title': doc.title,
                         'chunk_index': idx,
@@ -421,9 +448,10 @@ class RAGService:
                 vectors=vectors
             )
 
-            # Update document
+            # Update document (sum from the chunks we just built — doc.chunks is a
+            # lazy relationship that can't be loaded here in async context).
             doc.total_chunks = len(chunks_data)
-            doc.total_tokens = sum(c.token_count or 0 for c in doc.chunks)
+            doc.total_tokens = total_tokens
             doc.processing_status = "completed"
             doc.processed_at = datetime.utcnow()
 
@@ -664,3 +692,77 @@ class RAGService:
         context = "\n\n---\n\n".join(context_parts)
 
         return f"Relevant information from knowledge base:\n\n{context}"
+
+
+# ── DB-backed semantic search ────────────────────────────────────────────────
+# Self-contained search over chunk embeddings stored in the DB. Independent of
+# any external/in-memory vector store, so it works across requests and restarts.
+
+async def search_knowledge_base_db(
+    db: AsyncSession,
+    knowledge_base_id: str,
+    query: str,
+    api_key: str,
+    top_k: int = 4,
+    min_similarity: float = 0.2,
+) -> List[Dict[str, Any]]:
+    """
+    Semantic search over a knowledge base using DB-stored chunk embeddings.
+
+    Args:
+        db: async DB session
+        knowledge_base_id: KB to search
+        query: user query
+        api_key: embedding API key (OpenAI/compatible)
+        top_k: number of chunks to return
+        min_similarity: cosine similarity floor
+
+    Returns:
+        List of {content, score, document_title, chunk_id} ranked by similarity.
+    """
+    import numpy as np
+
+    try:
+        kb_uuid = uuid.UUID(str(knowledge_base_id))
+    except (ValueError, TypeError):
+        return []
+
+    # Load all chunks (with embeddings) belonging to this KB.
+    result = await db.execute(
+        select(DocumentChunk, Document.title)
+        .join(Document, DocumentChunk.document_id == Document.id)
+        .where(Document.knowledge_base_id == kb_uuid)
+    )
+    rows = result.all()
+    rows = [(c, title) for (c, title) in rows if c.embedding]
+    if not rows:
+        return []
+
+    embedder = EmbeddingService(api_key=api_key)
+    query_vec = await embedder.generate_embedding(query)
+    if not query_vec:
+        return []
+
+    q = np.array(query_vec, dtype=float)
+    q_norm = np.linalg.norm(q) or 1.0
+
+    scored = []
+    for chunk, title in rows:
+        v = np.array(chunk.embedding, dtype=float)
+        denom = (np.linalg.norm(v) or 1.0) * q_norm
+        score = float(np.dot(v, q) / denom)
+        scored.append((score, chunk, title))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    results = []
+    for score, chunk, title in scored[:top_k]:
+        if score < min_similarity:
+            continue
+        results.append({
+            "chunk_id": str(chunk.id),
+            "content": chunk.content,
+            "document_title": title,
+            "score": round(score, 4),
+        })
+    return results

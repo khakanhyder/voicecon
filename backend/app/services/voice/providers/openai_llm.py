@@ -122,19 +122,40 @@ class OpenAILLM(BaseLLMProvider):
             List of message dicts for OpenAI API
         """
         formatted = []
+        last_tool_call_id = None
+        tool_seq = 0
         for msg in messages:
-            message_dict = {
-                "role": msg.role,
-                "content": msg.content,
-            }
-
-            if msg.name:
-                message_dict["name"] = msg.name
-
             if msg.function_call:
-                message_dict["function_call"] = msg.function_call
-
-            formatted.append(message_dict)
+                # Assistant requesting a tool call (legacy shape) -> modern
+                # tool_calls. A stable id is generated and reused for the tool
+                # result that follows, satisfying the tools/tool_choice API.
+                fc = msg.function_call
+                tool_seq += 1
+                last_tool_call_id = f"call_{tool_seq}_{fc.get('name', 'fn')}"[:40]
+                formatted.append({
+                    "role": "assistant",
+                    "content": msg.content or None,
+                    "tool_calls": [{
+                        "id": last_tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": fc.get("name", ""),
+                            "arguments": fc.get("arguments", "{}"),
+                        },
+                    }],
+                })
+            elif msg.role == "function":
+                # Tool result (legacy shape) -> modern tool-role message.
+                formatted.append({
+                    "role": "tool",
+                    "tool_call_id": last_tool_call_id or f"call_{tool_seq or 1}",
+                    "content": msg.content or "",
+                })
+            else:
+                message_dict = {"role": msg.role, "content": msg.content}
+                if msg.name:
+                    message_dict["name"] = msg.name
+                formatted.append(message_dict)
 
         return formatted
 
@@ -186,8 +207,12 @@ class OpenAILLM(BaseLLMProvider):
                 request_params["stop"] = self.stop
 
             if functions:
-                request_params["functions"] = functions
-                request_params["function_call"] = kwargs.get("function_call", "auto")
+                # Modern tools/tool_choice API (the legacy functions/function_call
+                # params are rejected by OpenAI-compatible gateways like OpenRouter).
+                request_params["tools"] = [
+                    {"type": "function", "function": f} for f in functions
+                ]
+                request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
 
             # Call OpenAI API
             response: ChatCompletion = await self.client.chat.completions.create(**request_params)
@@ -196,12 +221,14 @@ class OpenAILLM(BaseLLMProvider):
             choice = response.choices[0]
             message = choice.message
 
-            # Handle function call
+            # Handle tool call (first one — one action per turn)
             function_call = None
-            if message.function_call:
+            tool_calls = getattr(message, "tool_calls", None)
+            if tool_calls:
+                tc = tool_calls[0]
                 function_call = FunctionCall(
-                    name=message.function_call.name,
-                    arguments=message.function_call.arguments,
+                    name=tc.function.name,
+                    arguments=tc.function.arguments,
                 )
 
             # Calculate cost
@@ -295,8 +322,12 @@ class OpenAILLM(BaseLLMProvider):
                 request_params["stop"] = self.stop
 
             if functions:
-                request_params["functions"] = functions
-                request_params["function_call"] = kwargs.get("function_call", "auto")
+                # Modern tools API (legacy functions param is rejected by
+                # OpenAI-compatible gateways).
+                request_params["tools"] = [
+                    {"type": "function", "function": f} for f in functions
+                ]
+                request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
 
             # Stream response
             stream = await self.client.chat.completions.create(**request_params)

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = Field(default="change-me-in-production-use-a-long-random-string", description="Secret key for JWT tokens")
+    # Salt for deriving the credential-encryption key. MUST be stable across
+    # restarts, or previously-encrypted stored credentials become undecryptable.
+    ENCRYPTION_SALT: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
@@ -43,6 +46,17 @@ class Settings(BaseSettings):
         default="http://localhost:3000",
         description="Allowed CORS origins (comma-separated or JSON array)"
     )
+
+    # Public URLs Twilio's servers use to reach this backend. Twilio calls these
+    # from the internet, so they must be a PUBLIC https/wss address (a deployed
+    # domain or an ngrok tunnel) — never localhost.
+    #   API_BASE_URL   e.g. https://your-app.onrender.com   (used to build voice/status webhook URLs)
+    #   WEBSOCKET_URL  e.g. wss://your-app.onrender.com     (Twilio Media Streams socket)
+    #   SERVER_HOST    host only, e.g. your-app.onrender.com (fallback if API_BASE_URL is unset)
+    # If left unset, the code falls back to the inbound request's Host header.
+    API_BASE_URL: Optional[str] = None
+    WEBSOCKET_URL: Optional[str] = None
+    SERVER_HOST: Optional[str] = None
 
     # API Keys - External Services
     # OpenAI
@@ -65,6 +79,13 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
+    # Verify the X-Twilio-Signature on inbound webhooks. Auto-skips when no auth
+    # token is configured (nothing to validate against), so local/dev without
+    # Twilio creds is unaffected.
+    TWILIO_VALIDATE_WEBHOOKS: bool = True
+    # Public base URL Twilio calls (e.g. https://api.example.com). Used to
+    # reconstruct the exact signed URL behind a TLS-terminating proxy.
+    TWILIO_PUBLIC_BASE_URL: Optional[str] = None
 
     # Stripe (Payments)
     STRIPE_API_KEY: Optional[str] = None  # legacy alias for STRIPE_SECRET_KEY
