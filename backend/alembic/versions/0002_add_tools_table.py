@@ -17,9 +17,9 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         'tools',
-        sa.Column('id', sa.String(32), nullable=False),
-        sa.Column('user_id', sa.String(32), nullable=False),
-        sa.Column('organization_id', sa.String(32), nullable=False),
+        sa.Column('id', sa.Uuid(), nullable=False),
+        sa.Column('user_id', sa.Uuid(), nullable=False),
+        sa.Column('organization_id', sa.Uuid(), nullable=False),
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('tool_type', sa.String(50), nullable=False),
@@ -35,9 +35,9 @@ def upgrade() -> None:
 
     op.create_table(
         'agent_tool_assignments',
-        sa.Column('id', sa.String(32), nullable=False),
-        sa.Column('agent_id', sa.String(32), nullable=False),
-        sa.Column('tool_id', sa.String(32), nullable=False),
+        sa.Column('id', sa.Uuid(), nullable=False),
+        sa.Column('agent_id', sa.Uuid(), nullable=False),
+        sa.Column('tool_id', sa.Uuid(), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('agent_id', 'tool_id', name='uq_agent_tool'),
