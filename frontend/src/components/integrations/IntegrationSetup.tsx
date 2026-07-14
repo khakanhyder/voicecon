@@ -70,17 +70,22 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
     }
 
     try {
-      const redirectUri = `${window.location.origin}/api/integrations/oauth/callback`
+      // Must match the registered redirect URI in each provider's OAuth app and
+      // the callback route below.
+      const redirectUri = `${window.location.origin}/dashboard/integrations/oauth/callback`
       const res = await apiClient.post<{ authorization_url: string; state: string }>(
-        API_ENDPOINTS.INTEGRATION_CONNECTORS + '/oauth/authorize',
+        API_ENDPOINTS.INTEGRATIONS + '/oauth/authorize',
         {
           connector_id: connectorId,
           redirect_uri: redirectUri,
           scopes: integration.scopes || [],
         }
       )
-      // Store context for the callback page
+      // Store context for the callback page (same redirect_uri is required when
+      // exchanging the code).
       sessionStorage.setItem('oauth_state', res.data.state)
+      sessionStorage.setItem('oauth_connector_id', connectorId)
+      sessionStorage.setItem('oauth_redirect_uri', redirectUri)
       sessionStorage.setItem('oauth_slug', integration.slug)
       sessionStorage.setItem('oauth_return', window.location.pathname)
       // Redirect to provider

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { apiClient, getErrorMessage } from '@/lib/api';
+import { API_ENDPOINTS } from '@/lib/constants';
 
 export const OAuthCallback: React.FC = () => {
   const router = useRouter();
@@ -14,104 +16,65 @@ export const OAuthCallback: React.FC = () => {
   const [integrationName, setIntegrationName] = useState<string>('');
 
   useEffect(() => {
+    const cleanup = () => {
+      sessionStorage.removeItem('oauth_state');
+      sessionStorage.removeItem('oauth_connector_id');
+      sessionStorage.removeItem('oauth_redirect_uri');
+      sessionStorage.removeItem('oauth_slug');
+      sessionStorage.removeItem('oauth_return');
+    };
+
     const handleOAuthCallback = async () => {
-      // Get OAuth parameters from URL
+      // Params from the provider redirect
       const code = searchParams?.get('code');
       const state = searchParams?.get('state');
       const errorParam = searchParams?.get('error');
       const errorDescription = searchParams?.get('error_description');
 
-      // Check for OAuth errors
       if (errorParam) {
         setError(errorDescription || `OAuth error: ${errorParam}`);
         setStatus('error');
         return;
       }
 
-      // Validate state parameter (CSRF protection)
-      const savedState = localStorage.getItem('oauth_state');
-      const integrationSlug = localStorage.getItem('oauth_integration');
+      // Context stored when the flow was started (IntegrationSetup)
+      const savedState = sessionStorage.getItem('oauth_state');
+      const connectorId = sessionStorage.getItem('oauth_connector_id');
+      const redirectUri = sessionStorage.getItem('oauth_redirect_uri');
+      const slug = sessionStorage.getItem('oauth_slug') || '';
+      const returnPath = sessionStorage.getItem('oauth_return') || '/dashboard/integrations';
+      setIntegrationName(slug);
 
       if (!state || !savedState || state !== savedState) {
-        setError('Invalid state parameter. This may be a security issue.');
+        setError('Invalid state parameter. Please start the connection again.');
         setStatus('error');
         return;
       }
-
       if (!code) {
-        setError('Authorization code not received from OAuth provider.');
+        setError('Authorization code not received from the provider.');
         setStatus('error');
         return;
       }
-
-      if (!integrationSlug) {
-        setError('Integration information not found.');
+      if (!connectorId || !redirectUri) {
+        setError('Connection context was lost. Please start the connection again.');
         setStatus('error');
         return;
       }
-
-      setIntegrationName(integrationSlug);
 
       try {
-        // Exchange code for access token (call backend API)
-        const response = await fetch('/api/integrations/oauth/exchange', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            code,
-            state,
-            integration: integrationSlug,
-            redirectUri: `${window.location.origin}/integrations/oauth/callback`,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to exchange authorization code');
-        }
-
-        const data = await response.json();
-
-        // Save connection information
-        const connected = localStorage.getItem('connected_integrations');
-        const connectedSet = connected ? new Set(JSON.parse(connected)) : new Set();
-        connectedSet.add(integrationSlug);
-        localStorage.setItem('connected_integrations', JSON.stringify([...connectedSet]));
-
-        // Save status
-        const statuses = JSON.parse(localStorage.getItem('integration_statuses') || '{}');
-        statuses[integrationSlug] = 'connected';
-        localStorage.setItem('integration_statuses', JSON.stringify(statuses));
-
-        // Save connection data
-        const connectionData = {
-          integrationSlug,
-          connectedAt: new Date().toISOString(),
-          authType: 'oauth2',
-          ...data,
-        };
-        localStorage.setItem(`integration_${integrationSlug}`, JSON.stringify(connectionData));
-
-        // Clean up OAuth state
-        localStorage.removeItem('oauth_state');
-        localStorage.removeItem('oauth_integration');
-
+        // Exchange the code via the backend (same redirect_uri as authorize).
+        await apiClient.post(
+          API_ENDPOINTS.INTEGRATIONS +
+            `/oauth/callback?redirect_uri=${encodeURIComponent(redirectUri)}`,
+          { connector_id: connectorId, code, state }
+        );
+        cleanup();
         setStatus('success');
-
-        // Redirect after 2 seconds
-        setTimeout(() => {
-          router.push('/dashboard/integrations/connected');
-        }, 2000);
+        setTimeout(() => router.push(returnPath), 1500);
       } catch (err: any) {
-        console.error('OAuth exchange error:', err);
-        setError(err.message || 'Failed to complete OAuth flow');
+        setError(getErrorMessage(err));
         setStatus('error');
-
-        // Clean up OAuth state
-        localStorage.removeItem('oauth_state');
-        localStorage.removeItem('oauth_integration');
+        cleanup();
       }
     };
 
