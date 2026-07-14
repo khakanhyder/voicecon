@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, or_, func, desc
 
 from app.database import get_db
 from app.core.dependencies import get_current_active_user
@@ -134,6 +134,7 @@ async def list_connectors(
             filters.append(
                 or_(
                     IntegrationConnector.name.ilike(search_term),
+                    IntegrationConnector.slug.ilike(search_term),
                     IntegrationConnector.description.ilike(search_term),
                 )
             )
