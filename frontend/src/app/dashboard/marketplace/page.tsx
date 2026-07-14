@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { redirect } from 'next/navigation';
 import {
   Store,
   Search,
@@ -39,7 +40,15 @@ interface Template {
   review_count: number;
 }
 
-export default function MarketplacePage() {
+// Marketplace feature temporarily disabled — route redirects to the dashboard.
+// The original page component below is preserved (no longer the default export)
+// so the feature can be restored by removing MarketplaceDisabled and re-adding
+// `export default` to MarketplacePage.
+export default function MarketplaceDisabled() {
+  redirect('/dashboard');
+}
+
+function MarketplacePage() {
   const [activeTab, setActiveTab] = useState<'agents' | 'workflows'>('agents');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');

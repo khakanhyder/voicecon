@@ -12,7 +12,7 @@ import {
   Plug,
   GitBranch,
   BarChart3,
-  Store,
+  // Store, // Marketplace feature temporarily disabled
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -33,7 +33,8 @@ const navigation = [
   { name: 'Workflows', href: '/dashboard/workflows', icon: GitBranch },
   { name: 'Integrations', href: '/dashboard/integrations', icon: Plug },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-  { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
+  // Marketplace feature temporarily disabled
+  // { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
 ]
 
 const bottomNav = [
@@ -130,7 +131,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       <div className="border-t border-white/10 p-3">
         {collapsed ? (
           <button
-            onClick={logout}
+            onClick={() => logout()}
             title="Logout"
             className="flex w-full items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors"
           >
@@ -146,7 +147,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               <p className="truncate text-xs text-slate-400">{user?.email}</p>
             </div>
             <button
-              onClick={logout}
+              onClick={() => logout()}
               title="Logout"
               className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-slate-200 transition-colors"
             >

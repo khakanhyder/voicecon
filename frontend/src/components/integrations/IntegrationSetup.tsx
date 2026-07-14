@@ -61,8 +61,9 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
     if (!connectorId) {
       // No backend connector ID — show helpful message
       setError(
-        `OAuth for ${integration.name} requires provider credentials to be configured on the server. ` +
-        `Contact your admin to set ${integration.slug.toUpperCase().replace('-', '_')}_CLIENT_ID and CLIENT_SECRET.`
+        `${integration.name} isn't available to connect yet. Your administrator needs to ` +
+        `register an OAuth app with ${integration.name} and add its client credentials to the ` +
+        `server environment. See the integration setup guide.`
       )
       setStatus('error')
       return

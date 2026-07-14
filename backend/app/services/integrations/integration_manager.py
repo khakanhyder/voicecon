@@ -94,13 +94,21 @@ class IntegrationManager:
             if connector.auth_type != "oauth2":
                 raise IntegrationError(f"Connector {connector.name} does not use OAuth2")
 
-            # Get OAuth config
-            auth_config = connector.auth_config or {}
-            authorize_url = auth_config.get("authorize_url") or connector.base_url
-            client_id = auth_config.get("client_id")
+            # Resolve OAuth config from the provider registry (public endpoints)
+            # + environment (client credentials).
+            from app.services.integrations.oauth_providers import resolve_client_credentials
+            oauth = resolve_client_credentials(connector.slug, connector.auth_config)
+            authorize_url = oauth["authorize_url"] or connector.base_url
+            client_id = oauth["client_id"]
 
-            if not authorize_url or not client_id:
-                raise IntegrationError("Missing OAuth2 configuration")
+            if not client_id:
+                raise IntegrationError(
+                    f"{connector.name} is not configured for OAuth on this server. "
+                    f"The administrator must register an OAuth app and set the client "
+                    f"credentials (see the integration setup docs)."
+                )
+            if not authorize_url:
+                raise IntegrationError(f"No authorize URL configured for {connector.name}")
 
             # Generate state
             state = self.oauth_handler.generate_state(
@@ -108,17 +116,19 @@ class IntegrationManager:
                 user_id=user_id
             )
 
-            # Use connector's default scopes if not provided
+            # Use the requested scopes, else the provider's defaults.
             if not scopes:
-                scopes = auth_config.get("scopes", [])
+                scopes = oauth["scopes"]
 
-            # Build authorization URL
+            # Build authorization URL (provider-specific extra params, e.g. Google
+            # access_type=offline for refresh tokens).
             authorization_url = self.oauth_handler.build_authorization_url(
                 authorize_url=authorize_url,
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state=state,
                 scopes=scopes,
+                additional_params=oauth.get("authorize_params") or None,
             )
 
             logger.info(f"OAuth flow initiated for connector: {connector.name}")
@@ -176,14 +186,18 @@ class IntegrationManager:
             if state_data["user_id"] != user_id:
                 raise IntegrationError("User ID mismatch")
 
-            # Get OAuth config
-            auth_config = connector.auth_config or {}
-            token_url = auth_config.get("token_url")
-            client_id = auth_config.get("client_id")
-            client_secret = auth_config.get("client_secret")
+            # Resolve OAuth config (registry endpoints + env credentials).
+            from app.services.integrations.oauth_providers import resolve_client_credentials
+            oauth = resolve_client_credentials(connector.slug, connector.auth_config)
+            token_url = oauth["token_url"]
+            client_id = oauth["client_id"]
+            client_secret = oauth["client_secret"]
 
             if not token_url or not client_id or not client_secret:
-                raise IntegrationError("Missing OAuth2 configuration")
+                raise IntegrationError(
+                    f"{connector.name} OAuth is not fully configured on this server "
+                    f"(missing client credentials or token URL)."
+                )
 
             # Exchange code for tokens
             token_data = await self.oauth_handler.exchange_code_for_token(
@@ -221,7 +235,7 @@ class IntegrationManager:
                 access_token_encrypted=encrypted_tokens["access_token_encrypted"],
                 refresh_token_encrypted=encrypted_tokens.get("refresh_token_encrypted"),
                 token_expires_at=token_expires_at,
-                metadata={"token_type": token_data.get("token_type", "Bearer")},
+                integration_metadata={"token_type": token_data.get("token_type", "Bearer")},
             )
 
             db.add(connection)
@@ -432,14 +446,18 @@ class IntegrationManager:
             if not connection.refresh_token_encrypted:
                 raise IntegrationError("No refresh token available")
 
-            # Get OAuth config
-            auth_config = connector.auth_config or {}
-            token_url = auth_config.get("token_url")
-            client_id = auth_config.get("client_id")
-            client_secret = auth_config.get("client_secret")
+            # Resolve OAuth config (registry endpoints + env credentials).
+            from app.services.integrations.oauth_providers import resolve_client_credentials
+            oauth = resolve_client_credentials(connector.slug, connector.auth_config)
+            token_url = oauth["token_url"]
+            client_id = oauth["client_id"]
+            client_secret = oauth["client_secret"]
 
             if not token_url or not client_id or not client_secret:
-                raise IntegrationError("Missing OAuth2 configuration")
+                raise IntegrationError(
+                    f"{connector.name} OAuth is not fully configured on this server "
+                    f"(missing client credentials or token URL)."
+                )
 
             # Decrypt refresh token
             refresh_token = self.credential_manager.decrypt(connection.refresh_token_encrypted)
