@@ -399,46 +399,115 @@ class LoopStepHandler(BaseStepHandler):
         """
         try:
             config = step.get("config", {})
-            items_ref = config.get("items")
 
-            if not items_ref:
-                raise StepExecutionError("Missing items in loop config")
-
-            # Get items from context
-            items = context.get_variable(items_ref.strip("{}"))
-
-            if not isinstance(items, list):
-                raise StepExecutionError(f"Items must be a list, got {type(items)}")
+            # ── Resolve the items to iterate over ──────────────────────────
+            # Accepts: a literal list; a "{{path}}"/"path" reference into the
+            # context; or a numeric `count` for an N-times loop.
+            items = self._resolve_items(config, context)
 
             max_iterations = config.get("max_iterations", 100)
             if len(items) > max_iterations:
-                logger.warning(f"Loop truncated to {max_iterations} iterations")
+                logger.warning(
+                    f"Loop truncated to {max_iterations} of {len(items)} items"
+                )
                 items = items[:max_iterations]
 
-            results = []
+            # ── The loop body: a list of sub-steps (same shape as top-level) ─
+            sub_steps = config.get("steps") or config.get("body") or []
+            if not isinstance(sub_steps, list):
+                raise StepExecutionError("Loop 'steps' must be a list of steps")
 
+            continue_on_error = bool(config.get("continue_on_error", False))
+            # Preserve any outer loop scope so nested loops restore it after.
+            outer_loop = context.variables.get("loop")
+
+            iterations = []
             for index, item in enumerate(items):
-                # Set loop variables
-                context.set_variable("loop.item", item)
-                context.set_variable("loop.index", index)
+                # Expose loop.item / loop.index / loop.length to sub-steps.
+                # Stored as a nested dict so {{loop.item}} resolves via dot-path.
+                context.variables["loop"] = {
+                    "item": item,
+                    "index": index,
+                    "length": len(items),
+                }
 
                 logger.info(f"Loop iteration {index + 1}/{len(items)}")
 
-                # Note: Sub-steps execution would be handled by the main engine
-                # This handler just manages the loop state
-                results.append(item)
+                iter_results = []
+                for sub_step in sub_steps:
+                    sub_type = sub_step.get("type")
+                    sub_id = sub_step.get("id", f"{step.get('id', 'loop')}[{index}]")
+                    try:
+                        handler = StepHandlerFactory.get_handler(sub_type, db=self.db)
+                        sub_result = await handler.execute(sub_step, context)
+                        # Make the sub-step's result referenceable by later steps.
+                        if sub_step.get("id"):
+                            context.set_step_result(sub_step["id"], sub_result.get("result"))
+                        iter_results.append({
+                            "step_id": sub_id,
+                            "status": "success",
+                            "result": sub_result.get("result"),
+                        })
+                    except Exception as sub_err:
+                        logger.error(
+                            f"Loop sub-step '{sub_id}' failed on iteration {index}: {sub_err}"
+                        )
+                        iter_results.append({
+                            "step_id": sub_id,
+                            "status": "failed",
+                            "error": str(sub_err),
+                        })
+                        if not continue_on_error:
+                            raise StepExecutionError(
+                                f"Loop failed at iteration {index}, step '{sub_id}': {sub_err}"
+                            )
 
-            logger.info(f"Loop completed: {len(results)} iterations")
+                iterations.append({"index": index, "item": item, "steps": iter_results})
+
+            # Restore the outer loop scope (or clear it) so nesting is clean.
+            if outer_loop is not None:
+                context.variables["loop"] = outer_loop
+            else:
+                context.variables.pop("loop", None)
+
+            logger.info(f"Loop completed: {len(iterations)} iterations, {len(sub_steps)} step(s) each")
 
             return {
                 "success": True,
-                "result": results,
-                "iterations": len(results),
+                "result": {"iterations": iterations, "count": len(iterations)},
+                "iterations": len(iterations),
             }
 
+        except StepExecutionError:
+            raise
         except Exception as e:
             logger.error(f"Loop step failed: {e}", exc_info=True)
             raise StepExecutionError(f"Loop step failed: {str(e)}")
+
+    def _resolve_items(self, config: Dict[str, Any], context: "WorkflowContext") -> list:
+        """Resolve the loop's iterable from config (list / reference / count)."""
+        raw = config.get("items")
+
+        if isinstance(raw, list):
+            return raw
+
+        if isinstance(raw, str) and raw.strip():
+            ref = raw.strip()
+            if ref.startswith("{{") and ref.endswith("}}"):
+                ref = ref[2:-2]
+            ref = ref.strip()
+            resolved = context.get_variable(ref)
+            if isinstance(resolved, list):
+                return resolved
+            if resolved is None:
+                raise StepExecutionError(f"Loop items reference '{raw}' resolved to nothing")
+            raise StepExecutionError(f"Loop items '{raw}' is not a list (got {type(resolved).__name__})")
+
+        count = config.get("count")
+        if isinstance(count, int) and count >= 0:
+            return list(range(count))
+
+        raise StepExecutionError("Loop requires 'items' (list or reference) or 'count'")
 
 
 class TransformStepHandler(BaseStepHandler):
