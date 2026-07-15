@@ -9,6 +9,10 @@ from app.services.integrations.connectors.hubspot_connector import HubSpotConnec
 from app.services.integrations.connectors.google_calendar_connector import GoogleCalendarConnector
 from app.services.integrations.connectors.slack_connector import SlackConnector
 from app.services.integrations.connectors.stripe_connector import StripeConnector
+from app.services.integrations.connectors.notion_connector import NotionConnector
+from app.services.integrations.connectors.clickup_connector import ClickUpConnector
+from app.services.integrations.connectors.trello_connector import TrelloConnector
+from app.services.integrations.connectors.whatsapp_connector import WhatsAppConnector
 
 __all__ = [
     "SalesforceConnector",
@@ -17,4 +21,8 @@ __all__ = [
     "GoogleCalendarConnector",
     "SlackConnector",
     "StripeConnector",
+    "NotionConnector",
+    "ClickUpConnector",
+    "TrelloConnector",
+    "WhatsAppConnector",
 ]

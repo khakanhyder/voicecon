@@ -9,6 +9,149 @@ from typing import Dict, Any, List
 # Schema: connector_slug -> list of actions the AI can invoke
 INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
 
+    "notion": [
+        {
+            "action": "search",
+            "label": "Search Notion",
+            "description": "Search the user's Notion pages and databases",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search text"},
+                    "object_type": {"type": "string", "description": "Filter: 'page' or 'database'"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "create_page",
+            "label": "Create Notion Page",
+            "description": "Create a page under a parent page with a title and text",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parent_page_id": {"type": "string", "description": "Parent page ID"},
+                    "title": {"type": "string", "description": "Page title"},
+                    "content": {"type": "string", "description": "Body text"},
+                },
+                "required": ["parent_page_id", "title"],
+            },
+        },
+        {
+            "action": "append_text",
+            "label": "Append Text to Notion Page",
+            "description": "Append a paragraph of text to an existing page",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string", "description": "Page or block ID"},
+                    "text": {"type": "string", "description": "Text to append"},
+                },
+                "required": ["block_id", "text"],
+            },
+        },
+    ],
+
+    "clickup": [
+        {
+            "action": "create_task",
+            "label": "Create ClickUp Task",
+            "description": "Create a task in a ClickUp list",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "list_id": {"type": "string", "description": "Target list ID"},
+                    "name": {"type": "string", "description": "Task name"},
+                    "description": {"type": "string", "description": "Task description"},
+                },
+                "required": ["list_id", "name"],
+            },
+        },
+        {
+            "action": "list_tasks",
+            "label": "List ClickUp Tasks",
+            "description": "List tasks in a ClickUp list",
+            "parameters": {
+                "type": "object",
+                "properties": {"list_id": {"type": "string", "description": "List ID"}},
+                "required": ["list_id"],
+            },
+        },
+        {
+            "action": "add_comment",
+            "label": "Comment on ClickUp Task",
+            "description": "Add a comment to a ClickUp task",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Task ID"},
+                    "comment_text": {"type": "string", "description": "Comment text"},
+                },
+                "required": ["task_id", "comment_text"],
+            },
+        },
+    ],
+
+    "trello": [
+        {
+            "action": "create_card",
+            "label": "Create Trello Card",
+            "description": "Create a card in a Trello list",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "list_id": {"type": "string", "description": "Target list ID"},
+                    "name": {"type": "string", "description": "Card title"},
+                    "description": {"type": "string", "description": "Card description"},
+                },
+                "required": ["list_id", "name"],
+            },
+        },
+        {
+            "action": "add_comment",
+            "label": "Comment on Trello Card",
+            "description": "Add a comment to a Trello card",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "card_id": {"type": "string", "description": "Card ID"},
+                    "text": {"type": "string", "description": "Comment text"},
+                },
+                "required": ["card_id", "text"],
+            },
+        },
+    ],
+
+    "whatsapp": [
+        {
+            "action": "send_message",
+            "label": "Send WhatsApp Message",
+            "description": "Send a WhatsApp text message (within the 24h window)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient phone (E.164, no '+')"},
+                    "message": {"type": "string", "description": "Message text"},
+                },
+                "required": ["to", "message"],
+            },
+        },
+        {
+            "action": "send_template",
+            "label": "Send WhatsApp Template",
+            "description": "Send an approved WhatsApp template (for first contact)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient phone (E.164, no '+')"},
+                    "template_name": {"type": "string", "description": "Approved template name"},
+                    "language_code": {"type": "string", "description": "e.g. en_US"},
+                },
+                "required": ["to", "template_name"],
+            },
+        },
+    ],
+
     "hubspot": [
         {
             "action": "create_contact",
@@ -221,9 +364,14 @@ CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "hubspot": "HubSpotConnector",
     "salesforce": "SalesforceConnector",
     "google_calendar": "GoogleCalendarConnector",
+    "google-calendar": "GoogleCalendarConnector",
     "slack": "SlackConnector",
     "sendgrid": "SendGridConnector",
     "stripe": "StripeConnector",
+    "notion": "NotionConnector",
+    "clickup": "ClickUpConnector",
+    "trello": "TrelloConnector",
+    "whatsapp": "WhatsAppConnector",
 }
 
 

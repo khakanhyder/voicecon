@@ -82,10 +82,36 @@ const config: Config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
+        // ── Coming-soon / launch page motion ──────────────────────────────
+        'float-slow': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-16px)' },
+        },
+        'glow-pulse': {
+          '0%, 100%': { opacity: '0.5', transform: 'scale(1)' },
+          '50%': { opacity: '0.85', transform: 'scale(1.08)' },
+        },
+        'gradient-pan': {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+        },
+        'rise-in': {
+          '0%': { opacity: '0', transform: 'translateY(18px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'marquee': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        'float-slow': 'float-slow 7s ease-in-out infinite',
+        'glow-pulse': 'glow-pulse 6s ease-in-out infinite',
+        'gradient-pan': 'gradient-pan 6s ease infinite',
+        'rise-in': 'rise-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'marquee': 'marquee 28s linear infinite',
       },
       ringWidth: {
         '3': '3px',

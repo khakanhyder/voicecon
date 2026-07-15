@@ -1260,3 +1260,156 @@ async def list_connections_for_tools(
         })
 
     return {"connections": connections}
+
+
+# ============================================================================
+# Trello + WhatsApp — custom connect flows (non-OAuth2 auth models)
+# ============================================================================
+
+from pydantic import BaseModel as _BaseModel
+
+
+async def _store_validated_connection(
+    db: AsyncSession,
+    user: User,
+    connector: IntegrationConnector,
+    api_key: str,
+    additional_fields: Optional[Dict[str, str]],
+    name: Optional[str],
+) -> IntegrationConnection:
+    """
+    Build a connection from a directly-supplied credential, validate it by
+    running the connector's own test_connection(), and persist it if valid.
+    Used by connectors whose auth doesn't fit the generic OAuth2/api-key test
+    (Trello: key+token query params; WhatsApp: token + phone_number_id).
+    """
+    from app.services.integrations.credential_manager import get_credential_manager
+    from app.services.integrations import connectors as connector_module
+    from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
+
+    cm = get_credential_manager()
+    org_id = await _resolve_org_id(user, db)
+
+    connection = IntegrationConnection(
+        user_id=user.id,
+        organization_id=org_id,
+        connector_id=connector.id,
+        name=name or f"{connector.name} Connection",
+        status="pending",
+        api_key_encrypted=cm.encrypt(api_key),
+        auth_data_encrypted=cm.encrypt_dict(additional_fields) if additional_fields else None,
+    )
+
+    class_name = CONNECTOR_CLASS_MAP.get(connector.slug)
+    if not class_name:
+        raise HTTPException(status_code=400, detail=f"No connector class for '{connector.slug}'")
+    connector_cls = getattr(connector_module, class_name)
+    instance = connector_cls(connection=connection, connector=connector, db=db)
+    try:
+        test = await instance.test_connection()
+    finally:
+        try:
+            await instance.close()
+        except Exception:
+            pass
+    if not test.get("success"):
+        raise HTTPException(status_code=400, detail=f"Connection test failed: {test.get('message')}")
+
+    connection.status = "active"
+    connection.last_sync_at = datetime.utcnow()
+    db.add(connection)
+    await db.commit()
+    await db.refresh(connection, ["connector"])
+    return connection
+
+
+def _get_connector_by_slug_sync():  # placeholder to keep import ordering clear
+    pass
+
+
+async def _load_connector(db: AsyncSession, connector_id: str) -> IntegrationConnector:
+    try:
+        cid = uuid.UUID(connector_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connector ID format")
+    res = await db.execute(select(IntegrationConnector).where(IntegrationConnector.id == cid))
+    connector = res.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    return connector
+
+
+@router.get("/trello/authorize-url")
+async def trello_authorize_url(
+    redirect_uri: str = Query(..., description="Frontend callback URL"),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Return the Trello authorization URL. Trello returns the user token in the
+    callback URL *fragment* (#token=...), which the frontend reads and sends to
+    /trello/connect.
+    """
+    import os
+    from urllib.parse import urlencode
+
+    app_key = os.getenv("TRELLO_API_KEY")
+    if not app_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Trello is not configured on this server (missing TRELLO_API_KEY).",
+        )
+    params = {
+        "expiration": "never",
+        "scope": "read,write",
+        "response_type": "token",
+        "name": "Voicecon",
+        "key": app_key,
+        "return_url": redirect_uri,
+    }
+    return {"authorization_url": f"https://trello.com/1/authorize?{urlencode(params)}"}
+
+
+class _TrelloConnectRequest(_BaseModel):
+    connector_id: str
+    token: str
+    name: Optional[str] = None
+
+
+@router.post("/trello/connect", response_model=IntegrationConnectionResponse, status_code=201)
+async def trello_connect(
+    body: _TrelloConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Store a Trello per-user token (obtained via the authorize flow) as a connection."""
+    connector = await _load_connector(db, body.connector_id)
+    return await _store_validated_connection(
+        db=db, user=current_user, connector=connector,
+        api_key=body.token, additional_fields=None, name=body.name,
+    )
+
+
+class _WhatsAppConnectRequest(_BaseModel):
+    connector_id: str
+    access_token: str
+    phone_number_id: str
+    name: Optional[str] = None
+
+
+@router.post("/whatsapp/connect", response_model=IntegrationConnectionResponse, status_code=201)
+async def whatsapp_connect(
+    body: _WhatsAppConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Store a customer's WhatsApp Business Cloud API credentials (their own access
+    token + phone_number_id) as a connection.
+    """
+    connector = await _load_connector(db, body.connector_id)
+    return await _store_validated_connection(
+        db=db, user=current_user, connector=connector,
+        api_key=body.access_token,
+        additional_fields={"phone_number_id": body.phone_number_id},
+        name=body.name,
+    )

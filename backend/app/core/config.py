@@ -104,6 +104,37 @@ class Settings(BaseSettings):
         key = self.stripe_secret_key
         return bool(key) and key.startswith("sk_") and "..." not in key
 
+    # Mailchimp (Waitlist / marketing audience)
+    #   MAILCHIMP_API_KEY        e.g. abc123def456...-us21  (the -us21 suffix is the data center)
+    #   MAILCHIMP_AUDIENCE_ID    the target Audience (List) ID
+    #   MAILCHIMP_SERVER_PREFIX  optional override for the data center (e.g. us21); derived
+    #                            from the API key suffix when left unset.
+    MAILCHIMP_API_KEY: Optional[str] = None
+    MAILCHIMP_AUDIENCE_ID: Optional[str] = None
+    MAILCHIMP_SERVER_PREFIX: Optional[str] = None
+
+    @property
+    def mailchimp_server_prefix(self) -> Optional[str]:
+        """Data center prefix for Mailchimp API calls (e.g. 'us21').
+
+        Prefers the explicit override, otherwise reads the '-us21' suffix that
+        Mailchimp appends to every API key.
+        """
+        if self.MAILCHIMP_SERVER_PREFIX:
+            return self.MAILCHIMP_SERVER_PREFIX
+        if self.MAILCHIMP_API_KEY and "-" in self.MAILCHIMP_API_KEY:
+            return self.MAILCHIMP_API_KEY.rsplit("-", 1)[-1]
+        return None
+
+    @property
+    def mailchimp_configured(self) -> bool:
+        """True when Mailchimp is fully configured for waitlist sign-ups."""
+        return bool(
+            self.MAILCHIMP_API_KEY
+            and self.MAILCHIMP_AUDIENCE_ID
+            and self.mailchimp_server_prefix
+        )
+
     # SendGrid (Email)
     SENDGRID_API_KEY: Optional[str] = None
     SENDGRID_FROM_EMAIL: Optional[str] = None

@@ -53,8 +53,65 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
 
   const isConnected = !!existingConnectionId && existingConnectionId !== 'simulated'
 
+  // ── Trello: app-key + per-user-token flow (token returns in URL fragment) ──
+  const handleTrelloConnect = async () => {
+    setStatus('connecting')
+    setError(null)
+    if (!connectorId) {
+      setError('Integration connector not found. Please refresh and try again.')
+      setStatus('error')
+      return
+    }
+    try {
+      const redirectUri = `${window.location.origin}/dashboard/integrations/oauth/callback`
+      const res = await apiClient.get<{ authorization_url: string }>(
+        API_ENDPOINTS.INTEGRATIONS + `/trello/authorize-url?redirect_uri=${encodeURIComponent(redirectUri)}`
+      )
+      sessionStorage.setItem('oauth_flow', 'trello')
+      sessionStorage.setItem('oauth_connector_id', connectorId)
+      sessionStorage.setItem('oauth_slug', integration.slug)
+      sessionStorage.setItem('oauth_return', window.location.pathname)
+      window.location.href = res.data.authorization_url
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setStatus('error')
+    }
+  }
+
+  // ── WhatsApp: bring-your-own Cloud API token + phone_number_id ─────────────
+  const handleWhatsAppConnect = async () => {
+    setStatus('connecting')
+    setError(null)
+    const token = apiKeyValues['access_token']
+    const phoneId = apiKeyValues['phone_number_id']
+    if (!token || !phoneId) {
+      setError('Please provide both the Access Token and the Phone Number ID.')
+      setStatus('error')
+      return
+    }
+    if (!connectorId) {
+      setError('Integration connector not found. Please refresh and try again.')
+      setStatus('error')
+      return
+    }
+    try {
+      await apiClient.post(API_ENDPOINTS.INTEGRATIONS + '/whatsapp/connect', {
+        connector_id: connectorId,
+        access_token: token,
+        phone_number_id: phoneId,
+        name: `${integration.name} Connection`,
+      })
+      setStatus('success')
+      if (onConnected) onConnected('')
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setStatus('error')
+    }
+  }
+
   // ── OAuth flow ───────────────────────────────────────────────────────────
   const handleOAuthConnect = async () => {
+    if (integration.slug === 'trello') return handleTrelloConnect()
     setStatus('connecting')
     setError(null)
 
@@ -98,6 +155,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
 
   // ── API key flow ─────────────────────────────────────────────────────────
   const handleApiKeyConnect = async () => {
+    if (integration.slug === 'whatsapp') return handleWhatsAppConnect()
     setStatus('connecting')
     setError(null)
 

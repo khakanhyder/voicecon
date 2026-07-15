@@ -22,9 +22,37 @@ export const OAuthCallback: React.FC = () => {
       sessionStorage.removeItem('oauth_redirect_uri');
       sessionStorage.removeItem('oauth_slug');
       sessionStorage.removeItem('oauth_return');
+      sessionStorage.removeItem('oauth_flow');
+    };
+
+    const handleTrelloCallback = async () => {
+      // Trello returns the token in the URL fragment: #token=XXXX
+      const raw = window.location.hash.startsWith('#')
+        ? window.location.hash.slice(1) : window.location.hash;
+      const token = new URLSearchParams(raw).get('token');
+      const connectorId = sessionStorage.getItem('oauth_connector_id');
+      const returnPath = sessionStorage.getItem('oauth_return') || '/dashboard/integrations';
+      setIntegrationName(sessionStorage.getItem('oauth_slug') || 'Trello');
+      if (!token || !connectorId) {
+        setError('Trello authorization was cancelled or did not return a token.');
+        setStatus('error'); cleanup(); return;
+      }
+      try {
+        await apiClient.post(API_ENDPOINTS.INTEGRATIONS + '/trello/connect',
+          { connector_id: connectorId, token });
+        cleanup(); setStatus('success');
+        setTimeout(() => router.push(returnPath), 1500);
+      } catch (err: any) {
+        setError(getErrorMessage(err)); setStatus('error'); cleanup();
+      }
     };
 
     const handleOAuthCallback = async () => {
+      // Trello uses a fragment-token flow, not OAuth2 code exchange.
+      if (sessionStorage.getItem('oauth_flow') === 'trello') {
+        return handleTrelloCallback();
+      }
+
       // Params from the provider redirect
       const code = searchParams?.get('code');
       const state = searchParams?.get('state');

@@ -374,6 +374,42 @@ const integrationData: Record<string, any> = {
       { name: 'service_role_key', label: 'Service Role Key', type: 'password', required: true },
     ],
   },
+  clickup: {
+    slug: 'clickup', name: 'ClickUp', icon: '✅',
+    description: 'Create and manage ClickUp tasks from voice calls and workflows',
+    category: 'productivity', authType: 'oauth2',
+    features: ['Create Tasks', 'List Tasks', 'Comments', 'Workspaces & Lists'],
+    popular: true,
+    permissions: ['Access selected workspace', 'Read and write tasks'],
+    setupSteps: ['Click "Connect with ClickUp"', 'Choose your workspace', 'Authorize', 'Done'],
+  },
+  trello: {
+    slug: 'trello', name: 'Trello', icon: '📋',
+    description: 'Create and manage Trello cards, lists, and boards from voice calls',
+    category: 'productivity', authType: 'oauth2',
+    features: ['Create Cards', 'List Boards & Lists', 'Comments', 'Update Cards'],
+    popular: false,
+    permissions: ['Read your boards', 'Create and update cards'],
+    setupSteps: ['Click "Connect with Trello"', 'Approve access on Trello', 'Done'],
+  },
+  whatsapp: {
+    slug: 'whatsapp', name: 'WhatsApp', icon: '💬',
+    description: 'Send WhatsApp messages via the WhatsApp Business Cloud API (your own number)',
+    category: 'communication', authType: 'api_key',
+    features: ['Send Messages', 'Message Templates', 'Business Cloud API'],
+    popular: true,
+    permissions: ['Send messages from your WhatsApp Business number'],
+    setupSteps: [
+      'In Meta Business → WhatsApp, get your Phone Number ID',
+      'Generate a permanent access token (System User)',
+      'Paste the Access Token and Phone Number ID below',
+      'Test by sending a message',
+    ],
+    apiKeyFields: [
+      { name: 'access_token', label: 'Access Token', type: 'password', required: true },
+      { name: 'phone_number_id', label: 'Phone Number ID', type: 'text', required: true },
+    ],
+  },
 }
 
 export default function IntegrationDetailPage() {

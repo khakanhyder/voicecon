@@ -70,6 +70,15 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "client_secret_env": "NOTION_CLIENT_SECRET",
         "authorize_params": {"owner": "user"},
     },
+    "clickup": {
+        "authorize_url": "https://app.clickup.com/api",
+        "token_url": "https://api.clickup.com/api/v2/oauth/token",
+        # ClickUp has no scope parameter; access is granted per workspace the
+        # user selects during authorization.
+        "scopes": [],
+        "client_id_env": "CLICKUP_CLIENT_ID",
+        "client_secret_env": "CLICKUP_CLIENT_SECRET",
+    },
 }
 
 

@@ -228,6 +228,10 @@ class ActionStepHandler(BaseStepHandler):
                 "google-calendar": "GoogleCalendarConnector",
                 "slack": "SlackConnector",
                 "stripe": "StripeConnector",
+                "notion": "NotionConnector",
+                "clickup": "ClickUpConnector",
+                "trello": "TrelloConnector",
+                "whatsapp": "WhatsAppConnector",
             }
 
             connector_class_name = connector_map.get(connector.slug)

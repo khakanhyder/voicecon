@@ -140,6 +140,22 @@ class BaseConnector(ABC):
             logger.error(f"Failed to get access token: {e}", exc_info=True)
             raise ConnectorError(f"Failed to get access token: {str(e)}")
 
+    def get_auth_data(self) -> Dict[str, Any]:
+        """
+        Return the connection's decrypted additional auth fields (the
+        `additional_fields` supplied at connect time), or {} if none.
+
+        Used by connectors that need more than a single credential — e.g.
+        WhatsApp stores its phone_number_id alongside the access token.
+        """
+        if not getattr(self.connection, "auth_data_encrypted", None):
+            return {}
+        try:
+            return self.credential_manager.decrypt_dict(self.connection.auth_data_encrypted)
+        except Exception as e:
+            logger.error(f"Failed to decrypt auth data: {e}")
+            return {}
+
     async def refresh_token(self) -> None:
         """
         Refresh OAuth2 access token.
@@ -264,10 +280,12 @@ class BaseConnector(ABC):
                 success=True,
             )
 
-            # Update connection usage
-            self.connection.usage_count += 1
-            self.connection.last_used_at = datetime.utcnow()
-            await self.db.commit()
+            # Update connection usage (only for persisted connections — the
+            # connect flow validates a transient, not-yet-saved connection).
+            if getattr(self.connection, "id", None) is not None:
+                self.connection.usage_count = (self.connection.usage_count or 0) + 1
+                self.connection.last_used_at = datetime.utcnow()
+                await self.db.commit()
 
             return response_data
 
@@ -285,11 +303,12 @@ class BaseConnector(ABC):
                 error_message=str(e),
             )
 
-            # Update connection error count
-            self.connection.error_count += 1
-            self.connection.last_error = str(e)
-            self.connection.last_error_at = datetime.utcnow()
-            await self.db.commit()
+            # Update connection error count (persisted connections only)
+            if getattr(self.connection, "id", None) is not None:
+                self.connection.error_count = (self.connection.error_count or 0) + 1
+                self.connection.last_error = str(e)
+                self.connection.last_error_at = datetime.utcnow()
+                await self.db.commit()
 
             logger.error(f"Request failed: {e}", exc_info=True)
             raise ConnectorError(f"Request failed: {str(e)}")
@@ -324,6 +343,10 @@ class BaseConnector(ABC):
             success: Whether request succeeded
             error_message: Error message if failed
         """
+        # Skip logging for transient (unsaved) connections — the connect flow
+        # validates a connection before it has an id.
+        if getattr(self.connection, "id", None) is None:
+            return
         try:
             # Remove sensitive headers
             safe_headers = {
