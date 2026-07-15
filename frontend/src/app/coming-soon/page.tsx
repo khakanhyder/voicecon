@@ -58,7 +58,7 @@ export default function ComingSoonPage() {
 
   return (
     <main
-      className="relative flex min-h-screen flex-col overflow-hidden text-white"
+      className="relative flex min-h-screen flex-col overflow-hidden font-sans text-white"
       style={{
         background:
           'radial-gradient(120% 90% at 50% -10%, #1c5453 0%, #16403f 45%, #10302f 100%)',
@@ -119,13 +119,12 @@ export default function ComingSoonPage() {
       <section className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-12 text-center sm:px-8">
         {/* Badge */}
         <div className="animate-rise-in inline-flex items-center gap-2 rounded-full border border-brand-300/30 bg-brand-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-brand-200 backdrop-blur">
-          <Sparkles className="h-3.5 w-3.5" />
           Launching Soon
         </div>
 
         {/* Headline */}
         <h1
-          className="animate-rise-in mt-7 text-4xl font-bold leading-[1.08] tracking-tight sm:text-6xl"
+          className="animate-rise-in mt-7 font-sans text-4xl font-bold leading-[1.08] tracking-tight sm:text-6xl"
           style={{ animationDelay: '0.05s' }}
         >
           The future of{' '}
@@ -147,8 +146,7 @@ export default function ComingSoonPage() {
           className="animate-rise-in mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/70 sm:text-lg"
           style={{ animationDelay: '0.12s' }}
         >
-          Build, deploy, and manage AI voice agents with unlimited integrations — no code
-          required. Join the waitlist and be first through the door on launch day.
+          Build, deploy, and manage AI voice agents with unlimited integrations. No code required. Join the waitlist and be first through the door on launch day.
         </p>
 
         {/* Waitlist form / success */}
@@ -200,7 +198,7 @@ export default function ComingSoonPage() {
                 </button>
               </form>
               <p className="mt-3.5 text-sm text-white/50">
-                No spam, ever — just one email the day we go live.
+                No spam, ever. Just one email the day we go live
               </p>
             </>
           )}
