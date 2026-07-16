@@ -434,6 +434,107 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
+    "google-sheets": [
+        {
+            "action": "append_row",
+            "label": "Append Row",
+            "description": "Append a row of data to a Google Sheet",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet ID"},
+                    "range_name": {"type": "string", "description": "Range (e.g. Sheet1!A:B)"},
+                    "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                },
+                "required": ["spreadsheet_id", "range_name", "values"],
+            },
+        },
+    ],
+    "google-drive": [
+        {
+            "action": "list_files",
+            "label": "List Files",
+            "description": "List files in Google Drive",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                },
+                "required": [],
+            },
+        },
+    ],
+    "cal-com": [
+        {
+            "action": "list_event_types",
+            "label": "List Event Types",
+            "description": "List all Cal.com event types",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    ],
+    "monday": [
+        {
+            "action": "list_boards",
+            "label": "List Boards",
+            "description": "List all Monday.com boards",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    ],
+    "vonage": [
+        {
+            "action": "send_sms",
+            "label": "Send SMS via Vonage",
+            "description": "Send an SMS using Vonage",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_number": {"type": "string", "description": "Destination number"},
+                    "from_name": {"type": "string", "description": "Sender name or number"},
+                    "text": {"type": "string", "description": "Message content"},
+                },
+                "required": ["to_number", "from_name", "text"],
+            },
+        },
+    ],
+    "telnyx": [
+        {
+            "action": "send_message",
+            "label": "Send Message via Telnyx",
+            "description": "Send a message using Telnyx",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_number": {"type": "string", "description": "Destination number"},
+                    "from_number": {"type": "string", "description": "Sender number"},
+                    "text": {"type": "string", "description": "Message content"},
+                },
+                "required": ["to_number", "from_number", "text"],
+            },
+        },
+    ],
+    "supabase": [
+        {
+            "action": "fetch_table",
+            "label": "Fetch Table Data",
+            "description": "Fetch rows from a Supabase table",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table name"},
+                    "limit": {"type": "integer", "description": "Max rows to fetch"},
+                },
+                "required": ["table_name"],
+            },
+        },
+    ],
 }
 
 # Connector slug → Python class name mapping (mirrors step_handlers.py)
@@ -454,6 +555,13 @@ CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "twilio": "TwilioConnector",
     "langfuse": "LangfuseConnector",
     "calendly": "CalendlyConnector",
+    "google-sheets": "GoogleSheetsConnector",
+    "google-drive": "GoogleDriveConnector",
+    "cal-com": "CalComConnector",
+    "monday": "MondayConnector",
+    "vonage": "VonageConnector",
+    "telnyx": "TelnyxConnector",
+    "supabase": "SupabaseConnector",
 }
 
 

@@ -237,6 +237,13 @@ class ActionStepHandler(BaseStepHandler):
                 "twilio": "TwilioConnector",
                 "langfuse": "LangfuseConnector",
                 "calendly": "CalendlyConnector",
+                "google-sheets": "GoogleSheetsConnector",
+                "google-drive": "GoogleDriveConnector",
+                "cal-com": "CalComConnector",
+                "monday": "MondayConnector",
+                "vonage": "VonageConnector",
+                "telnyx": "TelnyxConnector",
+                "supabase": "SupabaseConnector",
             }
 
             connector_class_name = connector_map.get(connector.slug)

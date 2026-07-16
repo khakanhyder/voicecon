@@ -18,6 +18,13 @@ from app.services.integrations.connectors.gohighlevel_connector import GoHighLev
 from app.services.integrations.connectors.twilio_connector import TwilioConnector
 from app.services.integrations.connectors.langfuse_connector import LangfuseConnector
 from app.services.integrations.connectors.calendly_connector import CalendlyConnector
+from app.services.integrations.connectors.google_sheets_connector import GoogleSheetsConnector
+from app.services.integrations.connectors.google_drive_connector import GoogleDriveConnector
+from app.services.integrations.connectors.cal_com_connector import CalComConnector
+from app.services.integrations.connectors.monday_connector import MondayConnector
+from app.services.integrations.connectors.vonage_connector import VonageConnector
+from app.services.integrations.connectors.telnyx_connector import TelnyxConnector
+from app.services.integrations.connectors.supabase_connector import SupabaseConnector
 
 __all__ = [
     "SalesforceConnector",
@@ -35,4 +42,11 @@ __all__ = [
     "TwilioConnector",
     "LangfuseConnector",
     "CalendlyConnector",
+    "GoogleSheetsConnector",
+    "GoogleDriveConnector",
+    "CalComConnector",
+    "MondayConnector",
+    "VonageConnector",
+    "TelnyxConnector",
+    "SupabaseConnector",
 ]

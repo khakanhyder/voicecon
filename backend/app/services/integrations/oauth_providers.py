@@ -86,6 +86,13 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "client_id_env": "CALENDLY_CLIENT_ID",
         "client_secret_env": "CALENDLY_CLIENT_SECRET",
     },
+    "monday": {
+        "authorize_url": "https://auth.monday.com/oauth2/authorize",
+        "token_url": "https://auth.monday.com/oauth2/token",
+        "scopes": ["boards:read", "boards:write"],
+        "client_id_env": "MONDAY_CLIENT_ID",
+        "client_secret_env": "MONDAY_CLIENT_SECRET",
+    },
 }
 
 
