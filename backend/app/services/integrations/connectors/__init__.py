@@ -13,6 +13,11 @@ from app.services.integrations.connectors.notion_connector import NotionConnecto
 from app.services.integrations.connectors.clickup_connector import ClickUpConnector
 from app.services.integrations.connectors.trello_connector import TrelloConnector
 from app.services.integrations.connectors.whatsapp_connector import WhatsAppConnector
+from app.services.integrations.connectors.airtable_connector import AirtableConnector
+from app.services.integrations.connectors.gohighlevel_connector import GoHighLevelConnector
+from app.services.integrations.connectors.twilio_connector import TwilioConnector
+from app.services.integrations.connectors.langfuse_connector import LangfuseConnector
+from app.services.integrations.connectors.calendly_connector import CalendlyConnector
 
 __all__ = [
     "SalesforceConnector",
@@ -25,4 +30,9 @@ __all__ = [
     "ClickUpConnector",
     "TrelloConnector",
     "WhatsAppConnector",
+    "AirtableConnector",
+    "GoHighLevelConnector",
+    "TwilioConnector",
+    "LangfuseConnector",
+    "CalendlyConnector",
 ]

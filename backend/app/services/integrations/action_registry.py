@@ -357,6 +357,83 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
+    "airtable": [
+        {
+            "action": "create_record",
+            "label": "Create Record",
+            "description": "Create a new record in an Airtable table",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Name of the table"},
+                    "fields": {"type": "object", "description": "Record fields"},
+                },
+                "required": ["table_name", "fields"],
+            },
+        },
+    ],
+    "gohighlevel": [
+        {
+            "action": "create_contact",
+            "label": "Create Contact",
+            "description": "Create a new contact in GoHighLevel",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                    "email": {"type": "string"},
+                    "phone": {"type": "string"},
+                },
+                "required": [],
+            },
+        },
+    ],
+    "twilio": [
+        {
+            "action": "send_sms",
+            "label": "Send SMS",
+            "description": "Send an SMS via Twilio",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Destination phone number"},
+                    "message": {"type": "string", "description": "SMS content"},
+                },
+                "required": ["to", "message"],
+            },
+        },
+    ],
+    "langfuse": [
+        {
+            "action": "create_trace",
+            "label": "Create Trace",
+            "description": "Create a new LLM trace in Langfuse",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Trace name"},
+                    "input_data": {"type": "string", "description": "Input payload"},
+                },
+                "required": ["name"],
+            },
+        },
+    ],
+    "calendly": [
+        {
+            "action": "list_scheduled_events",
+            "label": "List Scheduled Events",
+            "description": "List the user's scheduled Calendly events",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Event status, e.g., 'active'"},
+                    "count": {"type": "integer", "description": "Number of events to list"},
+                },
+                "required": [],
+            },
+        },
+    ],
 }
 
 # Connector slug → Python class name mapping (mirrors step_handlers.py)
@@ -372,6 +449,11 @@ CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "clickup": "ClickUpConnector",
     "trello": "TrelloConnector",
     "whatsapp": "WhatsAppConnector",
+    "airtable": "AirtableConnector",
+    "gohighlevel": "GoHighLevelConnector",
+    "twilio": "TwilioConnector",
+    "langfuse": "LangfuseConnector",
+    "calendly": "CalendlyConnector",
 }
 
 

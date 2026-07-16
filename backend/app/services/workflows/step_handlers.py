@@ -232,6 +232,11 @@ class ActionStepHandler(BaseStepHandler):
                 "clickup": "ClickUpConnector",
                 "trello": "TrelloConnector",
                 "whatsapp": "WhatsAppConnector",
+                "airtable": "AirtableConnector",
+                "gohighlevel": "GoHighLevelConnector",
+                "twilio": "TwilioConnector",
+                "langfuse": "LangfuseConnector",
+                "calendly": "CalendlyConnector",
             }
 
             connector_class_name = connector_map.get(connector.slug)

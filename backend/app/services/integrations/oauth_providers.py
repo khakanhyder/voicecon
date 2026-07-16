@@ -79,6 +79,13 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "client_id_env": "CLICKUP_CLIENT_ID",
         "client_secret_env": "CLICKUP_CLIENT_SECRET",
     },
+    "calendly": {
+        "authorize_url": "https://auth.calendly.com/oauth/authorize",
+        "token_url": "https://auth.calendly.com/oauth/token",
+        "scopes": ["default"],
+        "client_id_env": "CALENDLY_CLIENT_ID",
+        "client_secret_env": "CALENDLY_CLIENT_SECRET",
+    },
 }
 
 
