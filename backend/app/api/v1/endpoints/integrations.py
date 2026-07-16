@@ -77,6 +77,8 @@ async def list_integrations(
         ).limit(limit)
     )
     connections = result.scalars().all()
+    for connection in connections:
+        await db.refresh(connection, ["connector"])
     return IntegrationConnectionListResponse(
         connections=connections,
         total=len(connections),

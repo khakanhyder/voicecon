@@ -97,7 +97,7 @@ export default function DashboardPage() {
       const [agentsRes, callsRes, intRes, wfRes, phoneRes] = await Promise.allSettled([
         apiClient.get<{ agents: any[]; total: number }>(API_ENDPOINTS.AGENTS + '?limit=500'),
         apiClient.get<any>(API_ENDPOINTS.CALL_STATS),
-        apiClient.get<{ integrations: any[]; total: number }>(API_ENDPOINTS.INTEGRATIONS + '?limit=500'),
+        apiClient.get<{ connections: any[]; total: number }>(API_ENDPOINTS.INTEGRATION_CONNECTIONS + '?limit=500'),
         apiClient.get<{ workflows: any[]; total: number }>(API_ENDPOINTS.WORKFLOWS + '?limit=500'),
         apiClient.get<any[]>(API_ENDPOINTS.PHONE_NUMBERS),
       ])
@@ -109,21 +109,21 @@ export default function DashboardPage() {
       const phoneData   = phoneRes.status   === 'fulfilled' ? phoneRes.value.data   : null
 
       const agentList = agentData?.agents || []
-      const intList   = intData?.integrations || []
+      const intList   = intData?.connections || []
       const wfList    = wfData?.workflows || []
       const phoneList = Array.isArray(phoneData) ? phoneData : []
 
       setStats({
         activeAgents: agentList.filter((a: any) => a.is_active).length,
         callsToday:   callData?.total_calls ?? 0,
-        integrations: intList.filter((i: any) => i.status === 'connected').length,
+        integrations: intList.filter((i: any) => i.status === 'active' || i.status === 'connected').length,
         workflows:    wfList.length,
       })
 
       setChecklist({
         hasAgents:       agentList.length > 0,
         hasPhoneNumbers: phoneList.length > 0,
-        hasIntegrations: intList.filter((i: any) => i.status === 'connected').length > 0,
+        hasIntegrations: intList.filter((i: any) => i.status === 'active' || i.status === 'connected').length > 0,
         hasWorkflows:    wfList.length > 0,
       })
     } catch (e) {
