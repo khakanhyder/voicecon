@@ -303,7 +303,7 @@ async def update_workflow(
         # Convert workflow_steps if provided
         if "workflow_steps" in update_dict:
             workflow_steps_dict = {
-                "steps": [step.dict() for step in update_dict["workflow_steps"]]
+                "steps": update_dict["workflow_steps"]
             }
             update_dict["workflow_steps"] = workflow_steps_dict
             # Increment version
