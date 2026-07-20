@@ -130,6 +130,11 @@ class VoiceSession:
         # or replaces the live media stream.
         self._pending_telephony: Optional[Dict[str, Any]] = None
 
+        # Set while a workflow `ask` step is waiting on the caller's next
+        # utterance; the transcript handler resolves it instead of running a
+        # normal LLM turn. None means normal conversation.
+        self._awaiting_reply: Optional[asyncio.Future] = None
+
         # Metrics
         self.metrics = {
             "audio_chunks_received": 0,
@@ -370,6 +375,15 @@ class VoiceSession:
         Process one complete caller utterance, serialised so overlapping final
         transcripts can't start two LLM turns at once.
         """
+        # If a workflow `ask` step is waiting on the caller, this utterance is
+        # its answer — hand it over instead of starting a normal LLM turn.
+        fut = getattr(self, "_awaiting_reply", None)
+        if fut is not None and not fut.done():
+            self._awaiting_reply = None
+            fut.set_result(utterance)
+            await self._log_transcript_entry("user", utterance)
+            return
+
         if self._turn_lock.locked():
             # A turn is already in flight; fold this utterance into the next one
             # rather than interleaving two responses.
@@ -1086,5 +1100,87 @@ class VoiceSession:
 
             self.state = SessionState.ENDED
 
+            # Fire any workflows the user hooked to "call completed". Never let a
+            # workflow problem surface as a call teardown failure.
+            await self._fire_call_completed_workflows(duration)
+
         except Exception as e:
             logger.error(f"Error cleaning up session: {e}", exc_info=True)
+
+    # ── Workflow-driven conversation API ─────────────────────────────────────
+    # These back the VoiceChannel in services/workflows/channels.py, letting a
+    # workflow drive a live call. They're thin wrappers over the session's own
+    # machinery so a flow speaks/listens exactly like a normal turn does.
+
+    async def speak(self, text: str) -> None:
+        """Speak a line to the caller (used by workflow `speak` steps)."""
+        await self._speak_response(text)
+
+    async def wait_for_user_reply(self, timeout: int = 10) -> Optional[str]:
+        """
+        Wait for the caller's next complete utterance.
+
+        Returns None on timeout so a workflow `ask` step can move on rather than
+        hanging the call forever.
+        """
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        self._awaiting_reply = fut
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.info(f"No caller reply within {timeout}s")
+            return None
+        finally:
+            if getattr(self, "_awaiting_reply", None) is fut:
+                self._awaiting_reply = None
+
+    async def transfer_call(self, destination: str, transfer_type: str = "blind") -> None:
+        """Transfer the live call (used by workflow `transfer` steps)."""
+        svc = self._get_twilio()
+        await svc.transfer_call(self.call_sid, destination)
+
+    async def end_call(self) -> None:
+        """Hang up the live call (used by workflow `end` steps)."""
+        svc = self._get_twilio()
+        await svc.hang_up(self.call_sid)
+
+    async def _fire_call_completed_workflows(self, duration: float) -> None:
+        """
+        Dispatch the `call_completed` event to the workflow engine.
+
+        Post-call workflows (push the transcript to a CRM, send a follow-up SMS,
+        …) hang off this. Runs on its own DB session and swallows its own errors:
+        the call is already over, and a broken workflow must not break teardown.
+        """
+        try:
+            from app.database import AsyncSessionLocal
+            from app.services.workflows.trigger_handlers import get_trigger_manager
+
+            event_data = {
+                "call_id": str(self.call.id),
+                "agent_id": str(self.call.agent_id) if self.call.agent_id else None,
+                "status": self.call.status,
+                "duration": int(duration),
+                "phone_number": getattr(self.call, "from_number", None) or "",
+                "to_number": getattr(self.call, "to_number", None) or "",
+                "direction": getattr(self.call, "direction", None),
+                "transcript": self.transcript_entries,
+                "ended_at": self.call.ended_at.isoformat() if self.call.ended_at else None,
+            }
+
+            async with AsyncSessionLocal() as db:
+                manager = get_trigger_manager(db)
+                executions = await manager.process_event("call_completed", event_data)
+
+            if executions:
+                logger.info(
+                    f"call_completed triggered {len(executions)} workflow(s) "
+                    f"for call {self.call_id}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to dispatch call_completed workflows for call "
+                f"{self.call_id}: {e}",
+                exc_info=True,
+            )

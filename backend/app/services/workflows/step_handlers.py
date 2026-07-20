@@ -5,7 +5,9 @@ Handlers for different types of workflow steps.
 """
 import logging
 import asyncio
+import json
 import re
+import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
 from decimal import Decimal
@@ -20,6 +22,19 @@ class StepExecutionError(Exception):
     pass
 
 
+def _normalize_var_name(raw: Any) -> str:
+    """
+    Turn a user-entered variable reference into a plain context key.
+
+    Accepts "name", "{{name}}", or "{{ name }}" — the builder's help text shows
+    the braced form, so both spellings turn up in real configs.
+    """
+    name = str(raw or "").strip()
+    if name.startswith("{{") and name.endswith("}}"):
+        name = name[2:-2].strip()
+    return name
+
+
 class WorkflowContext:
     """
     Workflow execution context.
@@ -27,17 +42,37 @@ class WorkflowContext:
     Stores variables and data that can be referenced across steps.
     """
 
-    def __init__(self, trigger_data: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        trigger_data: Optional[Dict[str, Any]] = None,
+        channel: Optional[Any] = None,
+    ):
         """
         Initialize workflow context.
 
         Args:
             trigger_data: Initial trigger data
+            channel: Execution channel for voice steps (speak/ask/transfer/end).
+                Defaults to a SimulatedChannel so a flow is always runnable —
+                e.g. a "Run" from the dashboard, where there is no live call.
         """
         self.variables = {
             "trigger": trigger_data or {},
             "steps": {},
         }
+
+        if channel is None:
+            # No live call: dry-run the flow. A test run can script the caller's
+            # side by passing trigger_data={"answers": {"<variable>": "<reply>"}},
+            # which is what the dashboard's "Run" uses to exercise branches.
+            from app.services.workflows.channels import SimulatedChannel
+
+            answers = (trigger_data or {}).get("answers")
+            channel = SimulatedChannel(answers=answers if isinstance(answers, dict) else None)
+        self.channel = channel
+
+        # Set by an `end` step to tell the engine to stop walking the flow.
+        self.ended: bool = False
 
     def set_variable(self, key: str, value: Any) -> None:
         """
@@ -306,28 +341,86 @@ class ConditionStepHandler(BaseStepHandler):
         """
         try:
             config = step.get("config", {})
-            condition = config.get("condition")
 
-            if not condition:
-                raise StepExecutionError("Missing condition in condition config")
-
-            # Interpolate condition
-            condition_str = context.interpolate(condition)
-
-            # Evaluate condition safely
-            result = self._evaluate_condition(condition_str, context)
+            # Two accepted shapes:
+            #  1. Builder UI:  {variable, operator, value}  — the structured form
+            #     the visual editor writes.
+            #  2. Expression:  {condition: "{{x}} == 5"}    — free-form string.
+            if config.get("variable") is not None and config.get("operator"):
+                result = self._evaluate_structured(config, context)
+            elif config.get("condition"):
+                condition_str = context.interpolate(config["condition"])
+                result = self._evaluate_condition(condition_str, context)
+            else:
+                raise StepExecutionError(
+                    "Condition step needs either 'variable' + 'operator' or a 'condition' expression"
+                )
 
             logger.info(f"Condition evaluated to: {result}")
 
+            # Branch target: a step id to jump to. The engine falls through to the
+            # next step in order when the taken branch has no target set.
             return {
                 "success": True,
                 "result": result,
-                "next_steps": config.get("on_true" if result else "on_false", []),
+                "branch": "true" if result else "false",
+                "next_step_id": config.get("on_true" if result else "on_false") or None,
             }
 
         except Exception as e:
             logger.error(f"Condition step failed: {e}", exc_info=True)
             raise StepExecutionError(f"Condition step failed: {str(e)}")
+
+    def _evaluate_structured(self, config: Dict[str, Any], context: WorkflowContext) -> bool:
+        """
+        Evaluate the builder's {variable, operator, value} condition.
+
+        `variable` may be a bare name ("intent"), a dotted path
+        ("trigger.intent"), or wrapped ("{{intent}}"). Comparison is
+        case-insensitive on strings, which is what callers' transcribed speech
+        realistically needs.
+        """
+        ref = _normalize_var_name(config.get("variable", ""))
+        actual = context.get_variable(ref)
+        operator = str(config.get("operator", "equals")).strip()
+        expected = context.interpolate(config.get("value", ""))
+
+        # Presence checks first — they don't need a comparison value.
+        if operator == "is_empty":
+            return actual is None or str(actual).strip() == ""
+        if operator == "is_not_empty":
+            return actual is not None and str(actual).strip() != ""
+
+        a = "" if actual is None else str(actual).strip().lower()
+        b = "" if expected is None else str(expected).strip().lower()
+
+        # Compare numerically when both sides are numbers, so "10" > "9" is right.
+        def _as_num(x):
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return None
+
+        na, nb = _as_num(a), _as_num(b)
+
+        if operator == "equals":
+            return (na == nb) if (na is not None and nb is not None) else (a == b)
+        if operator == "not_equals":
+            return (na != nb) if (na is not None and nb is not None) else (a != b)
+        if operator == "contains":
+            return b in a
+        if operator == "not_contains":
+            return b not in a
+        if operator == "starts_with":
+            return a.startswith(b)
+        if operator == "ends_with":
+            return a.endswith(b)
+        if operator in ("greater_than", "gt", ">"):
+            return na is not None and nb is not None and na > nb
+        if operator in ("less_than", "lt", "<"):
+            return na is not None and nb is not None and na < nb
+
+        raise StepExecutionError(f"Unsupported condition operator: {operator}")
 
     def _evaluate_condition(self, condition: str, context: WorkflowContext) -> bool:
         """
@@ -670,6 +763,342 @@ class DelayStepHandler(BaseStepHandler):
             raise StepExecutionError(f"Delay step failed: {str(e)}")
 
 
+class SpeakStepHandler(BaseStepHandler):
+    """Handler for speak steps — the agent says something to the caller."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            message = context.interpolate(config.get("message", ""))
+
+            if not str(message).strip():
+                raise StepExecutionError("Speak step has an empty message")
+
+            await context.channel.speak(str(message), voice=config.get("voice"))
+
+            return {"success": True, "result": {"spoken": message}}
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Speak step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Speak step failed: {str(e)}")
+
+
+class AskStepHandler(BaseStepHandler):
+    """Handler for ask steps — ask the caller something and capture the answer."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            question = context.interpolate(config.get("question", ""))
+
+            # The field wants a bare name ("customer_name"), but the hint next to
+            # it shows {{customer_name}}, so people naturally paste the braces in.
+            # Accept either rather than silently storing under a braced key.
+            variable = _normalize_var_name(config.get("variable", ""))
+
+            if not str(question).strip():
+                raise StepExecutionError("Ask step has an empty question")
+            if not variable:
+                raise StepExecutionError("Ask step needs a 'variable' to store the answer in")
+
+            answer = await context.channel.ask(
+                str(question),
+                timeout=int(config.get("timeout", 10) or 10),
+                input_type=config.get("input_type", "speech"),
+                variable=variable,
+            )
+
+            # Publish at the top level so later steps can use {{variable}} directly.
+            context.set_variable(variable, answer)
+
+            return {
+                "success": True,
+                "result": {"question": question, "variable": variable, "answer": answer},
+            }
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Ask step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Ask step failed: {str(e)}")
+
+
+class TransferStepHandler(BaseStepHandler):
+    """Handler for transfer steps — hand the call to a human/another number."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            destination = str(context.interpolate(config.get("destination", ""))).strip()
+
+            if not destination:
+                raise StepExecutionError("Transfer step needs a destination")
+
+            # Optional hand-off line ("Connecting you now...") before the transfer.
+            message = context.interpolate(config.get("message", ""))
+            if str(message).strip():
+                await context.channel.speak(str(message))
+
+            transfer_type = config.get("transfer_type", "blind")
+            await context.channel.transfer(destination, transfer_type=transfer_type)
+
+            # The call has left us — nothing after this can run.
+            context.ended = True
+
+            return {
+                "success": True,
+                "result": {"transferred_to": destination, "transfer_type": transfer_type},
+            }
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Transfer step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Transfer step failed: {str(e)}")
+
+
+class EndStepHandler(BaseStepHandler):
+    """Handler for end steps — say goodbye and hang up."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            farewell = context.interpolate(config.get("farewell", ""))
+            farewell = str(farewell).strip() or None
+
+            await context.channel.end(farewell=farewell)
+            context.ended = True
+
+            return {"success": True, "result": {"ended": True, "farewell": farewell}}
+
+        except Exception as e:
+            logger.error(f"End step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"End step failed: {str(e)}")
+
+
+class ToolStepHandler(BaseStepHandler):
+    """Handler for tool steps — run one of the user's configured Tools."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            tool_id = str(config.get("tool_id", "")).strip()
+
+            if not tool_id:
+                raise StepExecutionError("Tool step needs a tool_id")
+            if self.db is None:
+                raise StepExecutionError("Tool step requires a database session")
+
+            # The builder stores parameters as a JSON *string*; API callers may
+            # send a real object. Accept both.
+            parameters = config.get("parameters", {})
+            if isinstance(parameters, str):
+                raw = parameters.strip() or "{}"
+                try:
+                    parameters = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    raise StepExecutionError(f"Tool parameters is not valid JSON: {e}")
+            if not isinstance(parameters, dict):
+                raise StepExecutionError("Tool parameters must be a JSON object")
+
+            parameters = context.interpolate(parameters)
+
+            from sqlalchemy import select
+            from app.models.tool import Tool
+
+            result = await self.db.execute(select(Tool).where(Tool.id == uuid.UUID(tool_id)))
+            tool = result.scalar_one_or_none()
+            if not tool:
+                raise StepExecutionError(f"Tool {tool_id} not found")
+
+            from app.services.function_executor import get_function_executor
+
+            executor = get_function_executor()
+            res = await executor.execute_global_tool(
+                tool=tool, parameters=parameters, call_id=None, db=self.db
+            )
+
+            if not res.get("success"):
+                raise StepExecutionError(
+                    f"Tool '{tool.name}' failed: {res.get('error', 'unknown error')}"
+                )
+
+            return {"success": True, "result": res.get("result")}
+
+        except StepExecutionError:
+            raise
+        except ValueError as e:
+            raise StepExecutionError(f"Invalid tool_id: {e}")
+        except Exception as e:
+            logger.error(f"Tool step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Tool step failed: {str(e)}")
+
+
+class WebhookStepHandler(BaseStepHandler):
+    """Handler for webhook steps — call an external HTTP endpoint."""
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            url = str(context.interpolate(config.get("url", ""))).strip()
+
+            if not url:
+                raise StepExecutionError("Webhook step needs a url")
+            if not url.startswith(("http://", "https://")):
+                raise StepExecutionError(f"Webhook url must be http(s): {url}")
+
+            method = str(config.get("method", "POST")).upper()
+            headers = self._as_dict(config.get("headers"), "headers", context)
+            body = self._as_dict(config.get("body"), "body", context)
+            timeout = float(config.get("timeout", 30) or 30)
+
+            import aiohttp
+
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as session:
+                async with session.request(
+                    method,
+                    url,
+                    headers=headers or None,
+                    json=body if method in ("POST", "PUT", "PATCH") and body else None,
+                    params=body if method == "GET" and body else None,
+                ) as resp:
+                    text = await resp.text()
+                    try:
+                        payload = json.loads(text) if text else None
+                    except json.JSONDecodeError:
+                        payload = text
+
+                    if resp.status >= 400:
+                        raise StepExecutionError(
+                            f"Webhook returned {resp.status}: {str(payload)[:200]}"
+                        )
+
+                    return {
+                        "success": True,
+                        "result": {"status": resp.status, "body": payload},
+                    }
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Webhook step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Webhook step failed: {str(e)}")
+
+    @staticmethod
+    def _as_dict(value: Any, field: str, context: WorkflowContext) -> Dict[str, Any]:
+        """Coerce a builder JSON-string field into an interpolated dict."""
+        if value is None or value == "":
+            return {}
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as e:
+                raise StepExecutionError(f"Webhook {field} is not valid JSON: {e}")
+        if not isinstance(value, dict):
+            raise StepExecutionError(f"Webhook {field} must be a JSON object")
+        return context.interpolate(value)
+
+
+class AIStepHandler(BaseStepHandler):
+    """
+    Handler for AI steps — let the LLM produce a contextual line, then say it.
+
+    The builder gives this step a `context` (what the AI should do) and optional
+    `constraints`. Captured variables are supplied to the model so it can use
+    what the caller already told us.
+    """
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            instruction = str(context.interpolate(config.get("context", ""))).strip()
+
+            if not instruction:
+                raise StepExecutionError("AI step needs a 'context' instruction")
+
+            constraints = str(context.interpolate(config.get("constraints", ""))).strip()
+
+            system = (
+                "You are a voice assistant on a live phone call. "
+                "Reply with one short, natural spoken response — no markdown, no lists."
+            )
+            if constraints:
+                system += f"\nConstraints: {constraints}"
+
+            # Give the model whatever the flow has captured so far.
+            known = {
+                k: v for k, v in context.variables.items()
+                if k not in ("steps", "loop") and not isinstance(v, (dict, list))
+            }
+            user = instruction
+            if known:
+                user += f"\n\nKnown information: {json.dumps(known, default=str)}"
+
+            from app.services.voice.llm_service import get_llm_service, ChatMessage
+
+            llm = get_llm_service()
+            completion = await llm.chat(
+                messages=[
+                    ChatMessage(role="system", content=system),
+                    ChatMessage(role="user", content=user),
+                ],
+                model=config.get("model") or "gpt-4o-mini",
+                temperature=float(config.get("temperature", 0.7)),
+                max_tokens=int(config.get("max_tokens", 150)),
+            )
+
+            text = (getattr(completion, "content", None) or "").strip()
+            if not text:
+                raise StepExecutionError("AI step produced an empty response")
+
+            await context.channel.speak(text)
+
+            # Optionally capture the reply for later steps.
+            variable = str(config.get("variable", "")).strip()
+            if variable:
+                context.set_variable(variable, text)
+
+            return {"success": True, "result": {"response": text}}
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"AI step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"AI step failed: {str(e)}")
+
+
 class StepHandlerFactory:
     """Factory for creating step handlers."""
 
@@ -689,16 +1118,28 @@ class StepHandlerFactory:
             ValueError: If step type is unknown
         """
         handlers = {
+            # Data / automation steps
             StepType.ACTION: ActionStepHandler,
             StepType.CONDITION: ConditionStepHandler,
             StepType.LOOP: LoopStepHandler,
             StepType.TRANSFORM: TransformStepHandler,
             StepType.DELAY: DelayStepHandler,
+            StepType.TOOL: ToolStepHandler,
+            StepType.WEBHOOK: WebhookStepHandler,
+            # Conversation steps (the builder's palette)
+            StepType.SPEAK: SpeakStepHandler,
+            StepType.ASK: AskStepHandler,
+            StepType.TRANSFER: TransferStepHandler,
+            StepType.AI: AIStepHandler,
+            StepType.END: EndStepHandler,
         }
 
         handler_class = handlers.get(step_type)
 
         if not handler_class:
-            raise ValueError(f"Unknown step type: {step_type}")
+            raise ValueError(
+                f"Unknown step type: {step_type}. "
+                f"Supported: {', '.join(sorted(h.value for h in handlers))}"
+            )
 
         return handler_class(db=db)

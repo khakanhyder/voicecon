@@ -5,6 +5,7 @@ Pydantic schemas for workflow API validation.
 """
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 
@@ -260,8 +261,8 @@ class WorkflowExecutionStepResult(BaseModel):
 
 class WorkflowExecutionResponse(BaseModel):
     """Workflow execution response."""
-    id: str
-    workflow_id: str
+    id: UUID
+    workflow_id: UUID
     trigger_data: Optional[Dict[str, Any]]
 
     status: str

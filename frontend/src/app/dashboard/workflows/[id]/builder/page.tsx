@@ -111,7 +111,7 @@ function getDefaultConfig(type: string): Record<string, any> {
     case 'ask':
       return { question: '', variable: '', input_type: 'speech', timeout: 10 }
     case 'condition':
-      return { variable: '', operator: 'equals', value: '', true_label: 'Yes', false_label: 'No' }
+      return { variable: '', operator: 'equals', value: '', on_true: '', on_false: '' }
     case 'transfer':
       return { destination: '', transfer_type: 'blind', message: '' }
     case 'tool':
@@ -207,7 +207,20 @@ function AskConfig({ config, onChange }: { config: any; onChange: (c: any) => vo
   )
 }
 
-function ConditionConfig({ config, onChange }: { config: any; onChange: (c: any) => void }) {
+function ConditionConfig({
+  config,
+  onChange,
+  steps = [],
+  currentId,
+}: {
+  config: any
+  onChange: (c: any) => void
+  steps?: WorkflowStep[]
+  currentId?: string
+}) {
+  // Any step other than this one is a valid jump target.
+  const targets = steps.filter((s) => s.id !== currentId)
+
   return (
     <div className="space-y-4">
       <div className="bg-muted/50 rounded-lg p-4 space-y-3">
@@ -247,22 +260,39 @@ function ConditionConfig({ config, onChange }: { config: any; onChange: (c: any)
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <Label className="text-green-700">True branch label</Label>
-          <Input
-            value={config.true_label || 'Yes'}
-            onChange={(e) => onChange({ ...config, true_label: e.target.value })}
-            placeholder="Yes"
-          />
+          <Label className="text-green-700">If true, go to</Label>
+          <Select
+            value={config.on_true || '__next__'}
+            onValueChange={(v) => onChange({ ...config, on_true: v === '__next__' ? '' : v })}
+          >
+            <SelectTrigger><SelectValue placeholder="Next step" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__next__">Continue to next step</SelectItem>
+              {targets.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name || s.id}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-red-700">False branch label</Label>
-          <Input
-            value={config.false_label || 'No'}
-            onChange={(e) => onChange({ ...config, false_label: e.target.value })}
-            placeholder="No"
-          />
+          <Label className="text-red-700">If false, go to</Label>
+          <Select
+            value={config.on_false || '__next__'}
+            onValueChange={(v) => onChange({ ...config, on_false: v === '__next__' ? '' : v })}
+          >
+            <SelectTrigger><SelectValue placeholder="Next step" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__next__">Continue to next step</SelectItem>
+              {targets.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name || s.id}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Pick where each outcome jumps to. Leave as &quot;next step&quot; for a straight-through flow.
+      </p>
     </div>
   )
 }
@@ -430,14 +460,16 @@ function EndConfig({ config, onChange }: { config: any; onChange: (c: any) => vo
 function StepConfigPanel({
   step,
   onUpdateConfig,
+  allSteps = [],
 }: {
   step: WorkflowStep
   onUpdateConfig: (config: any) => void
+  allSteps?: WorkflowStep[]
 }) {
   switch (step.type) {
     case 'speak':     return <SpeakConfig config={step.config} onChange={onUpdateConfig} />
     case 'ask':       return <AskConfig config={step.config} onChange={onUpdateConfig} />
-    case 'condition': return <ConditionConfig config={step.config} onChange={onUpdateConfig} />
+    case 'condition': return <ConditionConfig config={step.config} onChange={onUpdateConfig} steps={allSteps} currentId={step.id} />
     case 'transfer':  return <TransferConfig config={step.config} onChange={onUpdateConfig} />
     case 'tool':      return <ToolConfig config={step.config} onChange={onUpdateConfig} />
     case 'webhook':   return <WebhookConfig config={step.config} onChange={onUpdateConfig} />
@@ -825,6 +857,7 @@ export default function WorkflowBuilderPage() {
               <StepConfigPanel
                 step={selectedStep}
                 onUpdateConfig={(config) => updateStep(selectedStepIndex!, { config })}
+                allSteps={steps}
               />
 
               {/* change type */}

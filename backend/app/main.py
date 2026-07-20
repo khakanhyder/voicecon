@@ -61,10 +61,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start analytics scheduler: {e}")
 
+    # Start workflow scheduler (fires schedule/cron-triggered workflows)
+    try:
+        from app.services.workflows.scheduler import get_scheduler
+
+        await get_scheduler().start()
+        logger.info("Workflow scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start workflow scheduler: {e}")
+
     yield
 
     # Shutdown
     logger.info("Shutting down Voicecon API...")
+
+    # Stop workflow scheduler
+    try:
+        from app.services.workflows.scheduler import get_scheduler
+
+        await get_scheduler().stop()
+        logger.info("Workflow scheduler stopped")
+    except Exception as e:
+        logger.error(f"Failed to stop workflow scheduler: {e}")
 
     # Stop analytics scheduler
     try:

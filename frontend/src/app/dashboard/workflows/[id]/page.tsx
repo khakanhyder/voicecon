@@ -27,6 +27,29 @@ interface Workflow {
   updated_at: string
 }
 
+interface WorkflowExecution {
+  id: string
+  status: string
+  started_at: string
+  duration_ms: number | null
+  steps_executed: number
+  steps_successful: number
+  steps_failed: number
+  error_message: string | null
+  result_data: {
+    steps?: Array<{
+      step_id: string
+      step_name: string
+      status: string
+      duration_ms: number
+      result: any
+      error: string | null
+    }>
+    transcript?: Array<{ role: string; type: string; text?: string }>
+    simulated?: boolean
+  } | null
+}
+
 export default function WorkflowDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -37,11 +60,66 @@ export default function WorkflowDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
 
+  // Test-run state
+  const [isRunning, setIsRunning] = useState(false)
+  const [testAnswers, setTestAnswers] = useState('')
+  const [executions, setExecutions] = useState<WorkflowExecution[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   useEffect(() => {
     if (workflowId) {
       fetchWorkflow()
+      fetchExecutions()
     }
   }, [workflowId])
+
+  const fetchExecutions = async () => {
+    try {
+      const res = await apiClient.get<{ executions: WorkflowExecution[] }>(
+        API_ENDPOINTS.WORKFLOW_EXECUTIONS(workflowId)
+      )
+      setExecutions(res.data.executions || [])
+    } catch (error) {
+      // A missing execution history shouldn't break the page.
+      console.error('Failed to fetch executions:', error)
+    }
+  }
+
+  const handleTestRun = async () => {
+    if (!workflow) return
+
+    // The Ask steps' answers are scripted here so branches can be exercised.
+    let answers: Record<string, string> = {}
+    if (testAnswers.trim()) {
+      try {
+        answers = JSON.parse(testAnswers)
+      } catch {
+        toast.error('Test answers must be valid JSON, e.g. {"intent": "schedule"}')
+        return
+      }
+    }
+
+    setIsRunning(true)
+    try {
+      const res = await apiClient.post<WorkflowExecution>(
+        API_ENDPOINTS.WORKFLOW_EXECUTE(workflowId),
+        { trigger_data: { answers }, wait_for_completion: true }
+      )
+      const ex = res.data
+      if (ex.status === 'completed') {
+        toast.success(`Run completed — ${ex.steps_successful}/${ex.steps_executed} steps succeeded`)
+      } else {
+        toast.error(`Run ${ex.status} — ${ex.steps_failed} step(s) failed`)
+      }
+      setExpandedId(ex.id)
+      await Promise.all([fetchWorkflow(), fetchExecutions()])
+    } catch (error) {
+      console.error('Test run failed:', error)
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsRunning(false)
+    }
+  }
 
   const fetchWorkflow = async () => {
     try {
@@ -162,6 +240,136 @@ export default function WorkflowDetailPage() {
           <div className="text-sm text-muted-foreground mb-1">Failed</div>
           <div className="text-3xl font-bold text-red-600">{workflow.failed_executions}</div>
         </div>
+      </div>
+
+      {/* Test run */}
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-xl font-semibold">Test this workflow</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Runs the flow without a real phone call. Nothing is dialled — you get a
+              transcript of what the agent would say.
+            </p>
+          </div>
+          <Button onClick={handleTestRun} disabled={isRunning}>
+            {isRunning ? 'Running...' : 'Run test'}
+          </Button>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">
+            Caller answers <span className="text-muted-foreground font-normal">(optional JSON)</span>
+          </label>
+          <textarea
+            className="w-full rounded-md border bg-background p-3 font-mono text-sm"
+            rows={3}
+            value={testAnswers}
+            onChange={(e) => setTestAnswers(e.target.value)}
+            placeholder='{"intent": "schedule", "customer_name": "Sajid"}'
+          />
+          <p className="text-xs text-muted-foreground">
+            Scripts what the caller says. Each key is an Ask step&apos;s variable name — change
+            these to drive different branches.
+          </p>
+        </div>
+      </div>
+
+      {/* Execution history */}
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Execution history</h2>
+          <Button variant="outline" size="sm" onClick={fetchExecutions}>Refresh</Button>
+        </div>
+
+        {executions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No runs yet. Hit &quot;Run test&quot; above to execute this workflow.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {executions.slice(0, 10).map((ex) => (
+              <div key={ex.id} className="rounded-md border">
+                <button
+                  className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/50"
+                  onClick={() => setExpandedId(expandedId === ex.id ? null : ex.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        ex.status === 'completed'
+                          ? 'bg-green-100 text-green-700'
+                          : ex.status === 'running'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {ex.status}
+                    </span>
+                    <span className="text-sm">
+                      {ex.steps_successful}/{ex.steps_executed} steps
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(ex.started_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {ex.duration_ms != null ? `${ex.duration_ms}ms` : ''}
+                  </span>
+                </button>
+
+                {expandedId === ex.id && (
+                  <div className="border-t p-3 space-y-4 text-sm">
+                    {ex.error_message && (
+                      <p className="text-red-600">{ex.error_message}</p>
+                    )}
+
+                    {/* Path taken — proves which branch ran */}
+                    {ex.result_data?.steps && ex.result_data.steps.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="font-medium">Steps executed</p>
+                        {ex.result_data.steps.map((s, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <span className={s.status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                              {s.status === 'success' ? '✓' : '✗'}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="font-medium">{s.step_name || s.step_id}</span>
+                              <span className="text-muted-foreground"> ({s.duration_ms}ms)</span>
+                              {s.error && <p className="text-red-600 break-words">{s.error}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Transcript — what the agent would have said */}
+                    {ex.result_data?.transcript && ex.result_data.transcript.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="font-medium">
+                          Transcript{' '}
+                          {ex.result_data.simulated && (
+                            <span className="text-xs font-normal text-muted-foreground">(simulated)</span>
+                          )}
+                        </p>
+                        <div className="rounded-md bg-muted/50 p-3 space-y-1">
+                          {ex.result_data.transcript.map((t, i) => (
+                            <div key={i} className="flex gap-2">
+                              <span className="text-xs font-medium w-14 shrink-0 text-muted-foreground">
+                                {t.role}
+                              </span>
+                              <span className="break-words">{t.text || `— ${t.type} —`}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Configuration */}
