@@ -6,9 +6,9 @@ Handles scheduled workflow triggers (cron, interval, one-time).
 import logging
 import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from croniter import croniter
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.workflow import TriggerType
@@ -31,6 +31,11 @@ class WorkflowScheduler:
         """Initialize workflow scheduler."""
         self._running = False
         self._tasks = {}
+        self._loop_task: Optional[asyncio.Task] = None
+        # Strong references to in-flight trigger tasks. asyncio only holds weak
+        # references to tasks, so without this a dispatch can be garbage
+        # collected mid-execution.
+        self._trigger_tasks: set = set()
 
     async def start(self) -> None:
         """Start the scheduler."""
@@ -41,13 +46,29 @@ class WorkflowScheduler:
         self._running = True
         logger.info("Starting workflow scheduler")
 
-        # Start scheduler loop
-        asyncio.create_task(self._scheduler_loop())
+        # Start scheduler loop, keeping a reference so it is not GC'd
+        self._loop_task = asyncio.create_task(self._scheduler_loop())
 
     async def stop(self) -> None:
         """Stop the scheduler."""
         logger.info("Stopping workflow scheduler")
         self._running = False
+
+        if self._loop_task is not None and not self._loop_task.done():
+            self._loop_task.cancel()
+            try:
+                await self._loop_task
+            except asyncio.CancelledError:
+                pass
+        self._loop_task = None
+
+        # Cancel all in-flight trigger tasks
+        for task in list(self._trigger_tasks):
+            if not task.done():
+                task.cancel()
+        if self._trigger_tasks:
+            await asyncio.gather(*self._trigger_tasks, return_exceptions=True)
+        self._trigger_tasks.clear()
 
         # Cancel all running tasks
         for task_id, task in self._tasks.items():
@@ -55,6 +76,18 @@ class WorkflowScheduler:
                 task.cancel()
 
         self._tasks.clear()
+
+    def _spawn_trigger(self, workflow_id: str, schedule_type: Optional[str]) -> None:
+        """
+        Dispatch a workflow trigger on its own task and session.
+
+        Args:
+            workflow_id: Workflow to trigger
+            schedule_type: Schedule type, recorded in the trigger data
+        """
+        task = asyncio.create_task(self._trigger_workflow(workflow_id, schedule_type))
+        self._trigger_tasks.add(task)
+        task.add_done_callback(self._trigger_tasks.discard)
 
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop."""
@@ -106,11 +139,81 @@ class WorkflowScheduler:
                     should_trigger = await self._check_one_time_schedule(workflow, now)
 
                 if should_trigger:
-                    # Trigger workflow
-                    asyncio.create_task(self._trigger_workflow(workflow, db))
+                    # Claim the slot before dispatching. Writing
+                    # last_executed_at after the run started meant a slow start
+                    # let the next poll (30s) see the workflow as still due and
+                    # fire it a second time.
+                    # A one-time schedule fires exactly once, so it is
+                    # deactivated in the same UPDATE that claims it.
+                    claimed = await self._claim(
+                        db,
+                        workflow,
+                        now,
+                        deactivate=(schedule_type == "one_time"),
+                    )
+                    if claimed:
+                        self._spawn_trigger(str(workflow.id), schedule_type)
+                    else:
+                        logger.debug(
+                            f"Workflow {workflow.id} already claimed by another poll"
+                        )
 
             except Exception as e:
                 logger.error(f"Error checking workflow {workflow.id}: {e}", exc_info=True)
+
+    async def _claim(
+        self,
+        db: AsyncSession,
+        workflow,
+        now: datetime,
+        deactivate: bool = False,
+    ) -> bool:
+        """
+        Atomically claim a scheduled workflow for this tick.
+
+        Uses a conditional UPDATE guarded on the last_executed_at value we read,
+        so concurrent polls (or multiple scheduler instances) cannot both win.
+
+        Args:
+            db: Database session
+            workflow: Workflow instance
+            now: Timestamp to record as the execution time
+            deactivate: Also clear is_active, for one-time schedules
+
+        Returns:
+            True if this caller won the claim
+        """
+        from app.models.integration import Workflow
+
+        previous = workflow.last_executed_at
+
+        if previous is None:
+            guard = Workflow.last_executed_at.is_(None)
+        else:
+            guard = Workflow.last_executed_at == previous
+
+        values: Dict[str, Any] = {"last_executed_at": now}
+        if deactivate:
+            values["is_active"] = False
+
+        result = await db.execute(
+            update(Workflow)
+            .where(
+                and_(
+                    Workflow.id == workflow.id,
+                    Workflow.is_active == True,
+                    guard,
+                )
+            )
+            .values(**values)
+            # Do not write the new value back onto the in-memory instance.
+            # ORM synchronization would make a second poll holding the same
+            # object read the post-claim value and wrongly win the guard.
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+
+        return result.rowcount == 1
 
     async def _check_cron_schedule(self, workflow, now: datetime) -> bool:
         """
@@ -199,53 +302,69 @@ class WorkflowScheduler:
         if not scheduled_at:
             return False
 
-        # Parse scheduled time
+        # Parse scheduled time. Normalize to naive UTC: last_executed_at and
+        # `now` are naive (datetime.utcnow), and an ISO string ending in Z
+        # parses to an aware datetime — comparing the two raises TypeError.
         if isinstance(scheduled_at, str):
             scheduled_time = datetime.fromisoformat(scheduled_at.replace('Z', '+00:00'))
         else:
             scheduled_time = scheduled_at
 
+        if scheduled_time.tzinfo is not None:
+            scheduled_time = scheduled_time.astimezone(timezone.utc).replace(tzinfo=None)
+
         # Check if already executed
         if workflow.last_executed_at and workflow.last_executed_at >= scheduled_time:
-            # Already executed, disable workflow
-            workflow.is_active = False
             return False
 
         # Check if time has come
         return now >= scheduled_time
 
-    async def _trigger_workflow(self, workflow, db: AsyncSession) -> None:
+    async def _trigger_workflow(
+        self,
+        workflow_id: str,
+        schedule_type: Optional[str] = None,
+    ) -> None:
         """
-        Trigger a scheduled workflow.
+        Trigger a scheduled workflow on its own database session.
+
+        Takes a workflow ID rather than an ORM instance: this runs as a detached
+        task, and the polling loop's session is closed as soon as that loop
+        iteration exits. Reusing it raised "session is closed" errors under load.
 
         Args:
-            workflow: Workflow instance
-            db: Database session
+            workflow_id: Workflow to trigger
+            schedule_type: Schedule type, recorded in the trigger data
         """
         from app.services.workflows.workflow_engine import get_workflow_engine
 
         try:
             trigger_data = {
                 "event_type": "scheduled",
-                "schedule_type": workflow.trigger_config.get("schedule_type"),
+                "schedule_type": schedule_type,
                 "triggered_at": datetime.utcnow().isoformat(),
             }
 
-            engine = get_workflow_engine(db)
-            execution = await engine.execute_workflow(
-                workflow_id=str(workflow.id),
-                trigger_data=trigger_data,
-                wait_for_completion=False,
-            )
+            async with AsyncSessionLocal() as db:
+                engine = get_workflow_engine(db)
+                execution = await engine.execute_workflow(
+                    workflow_id=workflow_id,
+                    trigger_data=trigger_data,
+                    wait_for_completion=True,
+                )
 
-            logger.info(f"Triggered scheduled workflow {workflow.id}, execution {execution.id}")
+                logger.info(
+                    f"Triggered scheduled workflow {workflow_id}, "
+                    f"execution {execution.id}"
+                )
 
-            # Update last executed time
-            workflow.last_executed_at = datetime.utcnow()
-            await db.commit()
-
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            logger.error(f"Failed to trigger scheduled workflow {workflow.id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to trigger scheduled workflow {workflow_id}: {e}",
+                exc_info=True,
+            )
 
     async def schedule_workflow(
         self,

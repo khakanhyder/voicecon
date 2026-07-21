@@ -3,7 +3,11 @@ Workflow Services.
 
 Services for workflow execution and management.
 """
-from app.services.workflows.workflow_engine import WorkflowEngine, get_workflow_engine
+from app.services.workflows.workflow_engine import (
+    WorkflowEngine,
+    get_workflow_engine,
+    reap_stranded_executions,
+)
 from app.services.workflows.step_handlers import (
     WorkflowContext,
     StepHandlerFactory,
@@ -22,6 +26,7 @@ from app.services.workflows.scheduler import WorkflowScheduler, get_scheduler
 __all__ = [
     "WorkflowEngine",
     "get_workflow_engine",
+    "reap_stranded_executions",
     "WorkflowContext",
     "StepHandlerFactory",
     "StepExecutionError",

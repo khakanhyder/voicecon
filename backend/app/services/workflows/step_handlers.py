@@ -16,6 +16,9 @@ from app.schemas.workflow import StepType
 
 logger = logging.getLogger(__name__)
 
+# Matches an array access segment in a variable path, e.g. "results[0]".
+_ARRAY_ACCESS = re.compile(r"^(\w+)\[(-?\d+)\]$")
+
 
 class StepExecutionError(Exception):
     """Raised when step execution fails."""
@@ -95,13 +98,33 @@ class WorkflowContext:
         Returns:
             Variable value
         """
-        # Support dot notation (e.g., "trigger.call_id")
+        # Dot notation with array indexing, e.g.
+        # "steps.geocode.body.results[0].latitude". Real APIs return arrays
+        # constantly, so without indexing most responses were unreachable.
         keys = key.split(".")
         value = self.variables
 
         for k in keys:
-            if isinstance(value, dict):
+            match = _ARRAY_ACCESS.match(k)
+
+            if match:
+                name, index = match.group(1), int(match.group(2))
+                if not isinstance(value, dict):
+                    return default
+                value = value.get(name)
+                if not isinstance(value, (list, tuple)) or not (
+                    -len(value) <= index < len(value)
+                ):
+                    return default
+                value = value[index]
+            elif isinstance(value, dict):
                 value = value.get(k)
+            elif isinstance(value, (list, tuple)) and k.lstrip("-").isdigit():
+                # Also allow plain "results.0.latitude"
+                index = int(k)
+                if not (-len(value) <= index < len(value)):
+                    return default
+                value = value[index]
             else:
                 return default
 
@@ -713,6 +736,13 @@ class TransformStepHandler(BaseStepHandler):
 
                     results[key] = value
 
+                # Publish each field at the top level so later steps can use
+                # {{field_name}} directly. Without this the builder's "Set
+                # Fields" node and the data picker both promised names that
+                # never resolved.
+                for key, value in results.items():
+                    context.set_variable(key, value)
+
                 logger.info(f"Transform completed: {len(results)} variables")
 
                 return {
@@ -831,6 +861,111 @@ class AskStepHandler(BaseStepHandler):
         except Exception as e:
             logger.error(f"Ask step failed: {e}", exc_info=True)
             raise StepExecutionError(f"Ask step failed: {str(e)}")
+
+
+class SwitchStepHandler(BaseStepHandler):
+    """
+    Routes to the first matching branch, n-way.
+
+    Each rule is a {variable, operator, value} triple identical to a condition,
+    evaluated in order. The first match wins and its handle fires; when nothing
+    matches the `fallback` output fires instead.
+    """
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            rules = config.get("rules") or []
+
+            if not rules:
+                raise StepExecutionError("Switch step has no rules")
+
+            evaluator = ConditionStepHandler(db=self.db)
+
+            for index, rule in enumerate(rules):
+                if evaluator._evaluate_structured(rule, context):
+                    handle = f"branch-{index}"
+                    logger.info(f"Switch matched rule {index} -> {handle}")
+                    return {
+                        "success": True,
+                        "result": {
+                            "matched": True,
+                            "rule_index": index,
+                            "label": rule.get("label") or f"Branch {index + 1}",
+                        },
+                        "handle": handle,
+                    }
+
+            logger.info("Switch matched no rule, taking fallback")
+            return {
+                "success": True,
+                "result": {"matched": False},
+                "handle": "fallback",
+            }
+
+        except StepExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Switch step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Switch step failed: {str(e)}")
+
+
+class FilterStepHandler(BaseStepHandler):
+    """
+    Continues only when its condition holds.
+
+    Unlike a branch, a filter has a single output: if the condition fails the
+    path simply stops, which the scheduler treats as a skip.
+    """
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        try:
+            config = step.get("config", {})
+            passed = ConditionStepHandler(db=self.db)._evaluate_structured(
+                config, context
+            )
+
+            logger.info(f"Filter {'passed' if passed else 'blocked'} the path")
+
+            return {
+                "success": True,
+                "result": {"passed": passed},
+                "passed": passed,
+            }
+
+        except Exception as e:
+            logger.error(f"Filter step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Filter step failed: {str(e)}")
+
+
+class MergeStepHandler(BaseStepHandler):
+    """
+    Join point for parallel branches.
+
+    Scheduling does the real work — the executor decides when a merge is
+    runnable based on its ``merge_mode`` setting. This handler just records
+    which upstream branches actually arrived.
+    """
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        arrived = step.get("_arrived_from") or []
+
+        return {
+            "success": True,
+            "result": {"arrived_from": arrived, "count": len(arrived)},
+        }
 
 
 class TransferStepHandler(BaseStepHandler):
@@ -1121,6 +1256,9 @@ class StepHandlerFactory:
             # Data / automation steps
             StepType.ACTION: ActionStepHandler,
             StepType.CONDITION: ConditionStepHandler,
+            StepType.SWITCH: SwitchStepHandler,
+            StepType.FILTER: FilterStepHandler,
+            StepType.MERGE: MergeStepHandler,
             StepType.LOOP: LoopStepHandler,
             StepType.TRANSFORM: TransformStepHandler,
             StepType.DELAY: DelayStepHandler,

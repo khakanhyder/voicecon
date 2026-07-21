@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAgentOptions } from '@/hooks/useAgentOptions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,6 +21,9 @@ export default function NewWorkflowPage() {
     triggerType: 'webhook',
     agentId: '',
   })
+  const { agents, isLoading: agentsLoading } = useAgentOptions(
+    formData.triggerType === 'call_completed'
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -118,13 +122,25 @@ export default function NewWorkflowPage() {
                 onValueChange={(value) => setFormData({ ...formData, agentId: value })}
               >
                 <SelectTrigger id="agentId">
-                  <SelectValue placeholder="Select an agent" />
+                  <SelectValue
+                    placeholder={
+                      agentsLoading ? 'Loading agents…' : 'Select an agent'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="agent1">Customer Support Agent</SelectItem>
-                  <SelectItem value="agent2">Sales Agent</SelectItem>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {!agentsLoading && agents.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No agents yet — create one first to trigger on its calls.
+                </p>
+              )}
             </div>
           )}
         </div>

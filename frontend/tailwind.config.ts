@@ -6,6 +6,11 @@ const config: Config = {
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    // Class names also live outside components — the workflow node registry in
+    // src/lib/workflow/nodeTypes.ts carries each node's accent colour. Without
+    // this, those classes are silently dropped from the build and only render
+    // when the same class happens to appear in a scanned file.
+    './src/lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     container: {

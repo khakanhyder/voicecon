@@ -5,8 +5,10 @@ Handles agent function execution via webhooks with proper
 timeout, retry, and error handling.
 """
 import logging
+import re
 import json
 import time
+import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from decimal import Decimal
@@ -20,6 +22,28 @@ from app.models.call import CallLog
 from app.models.tool import Tool, AgentToolAssignment
 
 logger = logging.getLogger(__name__)
+
+# OpenAI requires tool function names to match ^[a-zA-Z0-9_-]+$. Anything else
+# (spaces, brackets, punctuation) gets a 400 that fails the whole turn.
+_INVALID_FN_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+def sanitize_function_name(name: str) -> str:
+    """
+    Turn a human tool name into a valid OpenAI function name.
+
+    Lowercases, replaces every run of disallowed characters with a single
+    underscore, trims stray underscores, and caps the length. A name like
+    "[demo] Get weather" becomes "demo_get_weather".
+
+    Args:
+        name: The tool's display name
+
+    Returns:
+        A name matching ^[a-zA-Z0-9_-]+$, never empty
+    """
+    cleaned = _INVALID_FN_CHARS.sub("_", (name or "").lower()).strip("_")
+    return (cleaned or "tool")[:64]
 
 
 class FunctionExecutionError(Exception):
@@ -462,8 +486,165 @@ class FunctionExecutor:
                 tools.append(a.tool)
         return tools
 
-    def get_tool_function_definition(self, tool: Tool) -> Dict[str, Any]:
-        """Return LLM function-calling definition for a global Tool."""
+    async def _execute_workflow_tool(
+        self,
+        cfg: Dict[str, Any],
+        parameters: Dict[str, Any],
+        db: Optional[AsyncSession],
+        channel: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run a workflow as a tool and return its outcome to the conversation.
+
+        The parameters the LLM extracted become the workflow's trigger data, so
+        a caller saying "book me in for Tuesday at 3" ends up as
+        ``{"date": "Tuesday", "time": "15:00"}`` in ``{{trigger.*}}``.
+
+        Runs synchronously: the agent needs the result before it can reply.
+
+        Args:
+            cfg: Tool config, carrying ``workflow_id``
+            parameters: Parameters extracted by the LLM
+            db: Database session
+            channel: Live voice channel, passed through so speak/ask steps
+                inside the workflow talk to the caller directly
+
+        Returns:
+            A summary of the run, including its output
+        """
+        from app.services.workflows.workflow_engine import get_workflow_engine
+
+        workflow_id = cfg.get("workflow_id")
+        if not workflow_id:
+            return {"error": "This tool is not linked to a workflow."}
+        if db is None:
+            return {"error": "No database session available to run the workflow."}
+
+        engine = get_workflow_engine(db)
+
+        try:
+            execution = await engine.execute_workflow(
+                workflow_id=str(workflow_id),
+                trigger_data=parameters or {},
+                wait_for_completion=True,
+                channel=channel,
+            )
+        except Exception as e:
+            # An inactive or deleted workflow raises. Report it as a tool
+            # failure so the agent can apologise rather than dropping the turn.
+            logger.error(f"Workflow tool failed to start: {e}", exc_info=True)
+            return {"error": f"The workflow could not be started: {e}"}
+
+        await db.refresh(execution)
+
+        result_data = execution.result_data or {}
+        steps = result_data.get("steps") or []
+
+        # Surface the last successful step's output as "the answer", which is
+        # what the agent will paraphrase back to the caller.
+        output = None
+        for step in reversed(steps):
+            if step.get("status") == "success" and step.get("result") is not None:
+                output = step["result"]
+                break
+
+        # Variables published by ask/ai/transform steps, minus the internal
+        # namespaces, so the agent sees plain names it can talk about.
+        context = result_data.get("final_context") or {}
+        variables = {
+            key: value
+            for key, value in context.items()
+            if key not in ("steps", "trigger")
+        }
+
+        succeeded = execution.status == "completed"
+
+        return {
+            "success": succeeded,
+            "status": execution.status,
+            "output": output,
+            "variables": variables,
+            "error": execution.error_message if not succeeded else None,
+        }
+
+    async def build_tool_definitions(
+        self,
+        tools: List[Tool],
+        db: Optional[AsyncSession] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Build LLM function definitions for a set of tools.
+
+        Workflow-backed tools need a database read to derive their parameter
+        schema from the workflow's declared inputs, which the synchronous
+        builder cannot do — so they are resolved here first.
+
+        Args:
+            tools: Tools assigned to the agent
+            db: Database session
+
+        Returns:
+            One function-calling definition per tool
+        """
+        definitions = []
+
+        for tool in tools:
+            schema = None
+            if tool.tool_type == "workflow" and db is not None:
+                schema = await self._workflow_input_schema(tool, db)
+            definitions.append(self.get_tool_function_definition(tool, schema))
+
+        return definitions
+
+    async def _workflow_input_schema(
+        self,
+        tool: Tool,
+        db: AsyncSession,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Derive a tool parameter schema from the workflow's declared inputs.
+
+        Args:
+            tool: A tool whose config names a workflow
+            db: Database session
+
+        Returns:
+            JSON Schema, or None when the workflow cannot be loaded
+        """
+        from app.models.integration import Workflow
+        from app.services.workflows.graph import input_schema, load_graph
+
+        workflow_id = (tool.config or {}).get("workflow_id")
+        if not workflow_id:
+            return None
+
+        try:
+            workflow = await db.get(Workflow, uuid.UUID(str(workflow_id)))
+        except (ValueError, AttributeError, TypeError):
+            return None
+
+        if not workflow:
+            logger.warning(f"Tool {tool.name} references missing workflow {workflow_id}")
+            return None
+
+        return input_schema(load_graph(workflow.workflow_steps))
+
+    def get_tool_function_definition(
+        self,
+        tool: Tool,
+        workflow_schema: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Return LLM function-calling definition for a global Tool.
+
+        Args:
+            tool: The tool
+            workflow_schema: Pre-resolved schema for workflow-backed tools,
+                since deriving it requires an async database read
+
+        Returns:
+            A function-calling definition
+        """
         from app.services.integrations.action_registry import get_action_schema
 
         cfg = tool.config or {}
@@ -471,8 +652,13 @@ class FunctionExecutor:
 
         t = tool.tool_type
 
+        if t == "workflow":
+            # Inputs declared on the workflow's trigger node become the tool's
+            # parameters, so the LLM knows what to extract from the caller.
+            parameters = workflow_schema or parameters
+
         # Integration tool: use action registry schema
-        if t in ("integration", "connected_integration"):
+        elif t in ("integration", "connected_integration"):
             connector_slug = cfg.get("connector_slug", "")
             action = cfg.get("action", "")
             action_def = get_action_schema(connector_slug, action)
@@ -508,7 +694,7 @@ class FunctionExecutor:
             parameters = cfg["parameters"]
 
         return {
-            "name": tool.name.replace(" ", "_").lower()[:64],
+            "name": sanitize_function_name(tool.name),
             "description": tool.description or f"{tool.tool_type} tool",
             "parameters": parameters,
         }
@@ -519,8 +705,19 @@ class FunctionExecutor:
         parameters: Dict[str, Any],
         call_id: Optional[str] = None,
         db: Optional[AsyncSession] = None,
+        channel: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """Execute a global Tool by its type and config."""
+        """
+        Execute a global Tool by its type and config.
+
+        Args:
+            tool: Tool to execute
+            parameters: Parameters the LLM extracted
+            call_id: Live call id, when invoked mid-conversation
+            db: Database session
+            channel: Live voice channel, so a workflow-backed tool's speak/ask
+                steps can reach the caller instead of being simulated
+        """
         start_time = time.time()
         cfg = tool.config or {}
         t = tool.tool_type
@@ -614,6 +811,11 @@ class FunctionExecutor:
 
             elif t in ("integration", "connected_integration"):
                 result = await self._execute_integration_tool(cfg, parameters, db)
+
+            elif t == "workflow":
+                result = await self._execute_workflow_tool(
+                    cfg, parameters, db, channel=channel
+                )
 
             else:
                 result = {"executed": True, "tool_type": t, "parameters": parameters}

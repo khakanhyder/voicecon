@@ -19,7 +19,7 @@ from app.models.user import User, Organization
 from app.models.agent import Agent
 from app.models.call import PhoneNumber
 from app.services.billing import StripeService
-from app.api.deps import get_current_user
+from app.core.dependencies import get_current_user
 
 
 # Test database URL

@@ -8,12 +8,19 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any, Optional, List, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update, and_
 
 from app.models.integration import Workflow, WorkflowExecution
+from app.services.workflows import graph as graph_utils
+from app.services.workflows.executor import (
+    DEFAULT_MAX_CONCURRENCY,
+    GraphExecutor,
+    NodeOutcome,
+    default_handles,
+)
 from app.services.workflows.step_handlers import (
     StepHandlerFactory,
     WorkflowContext,
@@ -26,6 +33,26 @@ logger = logging.getLogger(__name__)
 class WorkflowEngineError(Exception):
     """Raised when workflow engine encounters an error."""
     pass
+
+
+def _as_uuid(value: Any) -> Any:
+    """
+    Coerce an id to UUID, leaving anything unparseable alone.
+
+    Ids arrive as strings from the API layer while the columns are UUID typed.
+
+    Args:
+        value: Id as a string or UUID
+
+    Returns:
+        A UUID when parseable, otherwise the original value
+    """
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return value
 
 
 # Strong references to in-flight background runs. asyncio only holds a weak
@@ -79,7 +106,9 @@ class WorkflowEngine:
         """
         try:
             # Get workflow
-            query = select(Workflow).where(Workflow.id == workflow_id)
+            # Callers pass the id as a string; the column is a real UUID type,
+            # which some drivers will not coerce for us.
+            query = select(Workflow).where(Workflow.id == _as_uuid(workflow_id))
             result = await self.db.execute(query)
             workflow = result.scalar_one_or_none()
 
@@ -162,6 +191,269 @@ class WorkflowEngine:
         except Exception as e:
             logger.error(f"Detached workflow run failed: {e}", exc_info=True)
 
+    async def _run_loop(
+        self,
+        node: Dict[str, Any],
+        graph: Dict[str, Any],
+        workflow: Workflow,
+        context: WorkflowContext,
+        sync: bool,
+    ) -> NodeOutcome:
+        """
+        Run a loop node's body once per item.
+
+        The body is the sub-graph hanging off the ``loop`` output. Running it as
+        a nested execution rather than as a cycle in the main graph keeps the
+        main graph acyclic, which is what lets the scheduler reason about
+        readiness at all.
+
+        Args:
+            node: The loop node
+            graph: Full workflow graph, used to extract the body
+            workflow: Owning workflow
+            context: Shared execution context
+            sync: True when an HTTP caller is blocked on this run
+
+        Returns:
+            Outcome firing the ``done`` output
+        """
+        config = node.get("config") or {}
+        max_iterations = int(config.get("max_iterations", 100) or 100)
+
+        items = self._resolve_loop_items(config, context)
+
+        if len(items) > max_iterations:
+            logger.warning(
+                f"Loop {node.get('name')} capped at {max_iterations} of "
+                f"{len(items)} items"
+            )
+            items = items[:max_iterations]
+
+        body = graph_utils.subgraph_from(graph, node["id"], graph_utils.HANDLE_LOOP)
+
+        if not body["nodes"]:
+            logger.info(f"Loop {node.get('name')} has an empty body")
+            return NodeOutcome(
+                status="success",
+                handles=[graph_utils.HANDLE_DONE],
+                result={"iterations": 0, "items": len(items)},
+            )
+
+        iterations: List[Dict[str, Any]] = []
+        failed = 0
+
+        for index, item in enumerate(items):
+            # Body steps reference the current item through these.
+            context.set_variable(
+                "loop", {"item": item, "index": index, "length": len(items)}
+            )
+
+            executor = GraphExecutor(
+                body,
+                run_node=lambda n: self._run_node(n, graph, workflow, context, sync),
+                max_concurrency=DEFAULT_MAX_CONCURRENCY,
+            )
+            results, counts = await executor.run()
+
+            failed += counts["failed"]
+            iterations.append({"index": index, "steps": results, "counts": counts})
+
+            if counts["failed"] and (
+                (node.get("settings") or {}).get("on_error", workflow.error_handling)
+                == "stop"
+            ):
+                logger.info(f"Loop {node.get('name')} stopping after a failed item")
+                break
+
+        return NodeOutcome(
+            status="failed" if failed else "success",
+            handles=[graph_utils.HANDLE_DONE],
+            result={"iterations": len(iterations), "items": len(items),
+                    "runs": iterations},
+            error=f"{failed} step(s) failed inside the loop" if failed else None,
+        )
+
+    def _resolve_loop_items(
+        self,
+        config: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> List[Any]:
+        """
+        Work out what a loop iterates over.
+
+        Accepts a literal list, a ``{{reference}}`` to one, or a plain count.
+
+        Args:
+            config: Loop node configuration
+            context: Execution context, for resolving references
+
+        Returns:
+            The list of items
+        """
+        raw = config.get("items")
+
+        if isinstance(raw, list):
+            return raw
+
+        if isinstance(raw, str) and raw.strip():
+            resolved = context.get_variable(
+                raw.strip().strip("{}").strip()
+            )
+            if isinstance(resolved, list):
+                return resolved
+            if resolved is None:
+                logger.warning(f"Loop items reference '{raw}' resolved to nothing")
+                return []
+            return [resolved]
+
+        count = config.get("count")
+        if count:
+            return list(range(int(count)))
+
+        return []
+
+    async def _run_node(
+        self,
+        node: Dict[str, Any],
+        graph: Dict[str, Any],
+        workflow: Workflow,
+        context: WorkflowContext,
+        sync: bool,
+    ) -> NodeOutcome:
+        """
+        Execute a single node, applying its retry, timeout and error policy.
+
+        Scheduling lives in GraphExecutor; this is the per-node half. It never
+        raises: a failure is reported as an outcome so the scheduler can keep
+        other branches running.
+
+        Args:
+            node: Node definition
+            workflow: Owning workflow, for default retry/error settings
+            context: Shared execution context
+            sync: True when an HTTP caller is blocked on this run
+
+        Returns:
+            The node's outcome, including which outputs fired
+        """
+        node_id = node.get("id")
+        node_name = node.get("name", node_id)
+        node_type = node.get("type")
+        started = time.time()
+
+        settings = node.get("settings") or {}
+        retry_settings = settings.get("retry") or {}
+
+        # Only steps that reach out to something fallible are retried by
+        # default — replaying a spoken line would repeat it at the caller.
+        retryable = node_type in ("action", "tool", "webhook")
+        if "enabled" in retry_settings:
+            retryable = bool(retry_settings["enabled"])
+
+        max_retries = (
+            int(retry_settings.get("max_tries", workflow.max_retries)) if retryable else 0
+        )
+        retry_delay = int(retry_settings.get("delay_seconds", workflow.retry_delay))
+        backoff = retry_settings.get("backoff", "fixed")
+        timeout_seconds = settings.get("timeout_seconds")
+
+        # A synchronous caller is holding an HTTP connection open, so the
+        # workflow's real backoff would hang the request for minutes.
+        if sync and retryable:
+            max_retries = min(max_retries, SYNC_MAX_RETRIES)
+            retry_delay = min(retry_delay, SYNC_MAX_RETRY_DELAY)
+
+        logger.info(f"Executing node: {node_name} ({node_type})")
+
+        # A loop runs its body sub-graph once per item rather than delegating
+        # to a handler, so it is dispatched before the retry loop.
+        if node_type == "loop":
+            try:
+                return await self._run_loop(node, graph, workflow, context, sync)
+            except Exception as exc:
+                logger.error(f"Loop {node_name} failed: {exc}", exc_info=True)
+                return self._failure_outcome(node, workflow, str(exc))
+
+        attempt = 0
+        while True:
+            try:
+                handler = StepHandlerFactory.get_handler(node_type, db=self.db)
+
+                if timeout_seconds:
+                    result = await asyncio.wait_for(
+                        handler.execute(node, context), timeout=float(timeout_seconds)
+                    )
+                else:
+                    result = await handler.execute(node, context)
+
+                context.set_step_result(node_id, result.get("result"))
+
+                logger.info(
+                    f"Node {node_name} completed in "
+                    f"{int((time.time() - started) * 1000)}ms"
+                )
+
+                return NodeOutcome(
+                    status="success",
+                    handles=default_handles(node, result),
+                    result=result.get("result"),
+                    ended=context.ended,
+                )
+
+            except asyncio.TimeoutError:
+                error = f"Step timed out after {timeout_seconds}s"
+                logger.error(f"Node {node_name}: {error}")
+                return self._failure_outcome(node, workflow, error)
+
+            except Exception as exc:
+                if attempt < max_retries:
+                    # Exponential backoff doubles each attempt; a fixed delay
+                    # hammers a struggling API at a constant rate.
+                    wait = (
+                        retry_delay * (2 ** attempt)
+                        if backoff == "exponential"
+                        else retry_delay
+                    )
+                    if sync:
+                        wait = min(wait, SYNC_MAX_RETRY_DELAY)
+
+                    logger.warning(
+                        f"Node {node_name} failed (attempt {attempt + 1}/"
+                        f"{max_retries + 1}), retrying in {wait}s: {exc}"
+                    )
+                    attempt += 1
+                    await asyncio.sleep(wait)
+                    continue
+
+                logger.error(f"Node {node_name} failed: {exc}", exc_info=True)
+                return self._failure_outcome(node, workflow, str(exc))
+
+    def _failure_outcome(
+        self,
+        node: Dict[str, Any],
+        workflow: Workflow,
+        error: str,
+    ) -> NodeOutcome:
+        """
+        Build the outcome for a failed node according to its error policy.
+
+        A node's own on_error setting wins over the workflow default, so one
+        tolerant step does not force the whole workflow to continue-on-error.
+        """
+        settings = node.get("settings") or {}
+        on_error = settings.get("on_error") or workflow.error_handling
+
+        if on_error == "stop":
+            # Ending the run is the scheduler's job; signal it here.
+            return NodeOutcome(status="failed", handles=[], error=error, ended=True)
+
+        # Continue: let downstream nodes run so the rest of the flow completes.
+        return NodeOutcome(
+            status="failed",
+            handles=default_handles(node, None),
+            error=error,
+        )
+
     def _order_steps(self, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Index steps by id and remember their declared order."""
         by_id: Dict[str, Dict[str, Any]] = {}
@@ -175,30 +467,47 @@ class WorkflowEngine:
 
     def _next_step_id(
         self,
+        graph: Dict[str, Any],
         step: Dict[str, Any],
         step_result: Optional[Dict[str, Any]],
-        order: List[str],
         current_id: str,
     ) -> Optional[str]:
         """
-        Decide which step runs next.
+        Decide which node runs next by following the graph's edges.
 
         Precedence:
-          1. A branch target chosen by the step itself (condition on_true/on_false).
-          2. An explicit `next_step_id` on the step.
-          3. The next step in declared order (the builder's linear flow).
+          1. The edge leaving the branch handle the node chose (true/false).
+          2. The edge leaving the node's default output.
+          3. A legacy `next_step_id` from the step or its result, for graphs
+             migrated from v1 whose edges could not be reconstructed.
+
+        Args:
+            graph: Workflow graph
+            step: Node that just executed
+            step_result: Result returned by its handler
+            current_id: Node id that just executed
+
+        Returns:
+            Next node id, or None when this branch ends here
         """
+        branch: Optional[bool] = None
+        if step_result and step_result.get("branch") is not None:
+            branch = step_result["branch"] == "true"
+
+        target = graph_utils.next_node_id(graph, current_id, branch=branch)
+        if target:
+            return target
+
+        # A branching node whose taken handle has no edge ends that path;
+        # falling through to the legacy pointer would silently run the wrong
+        # node, so only consult it for non-branching nodes.
+        if branch is not None:
+            return None
+
         if step_result and step_result.get("next_step_id"):
             return step_result["next_step_id"]
 
-        if step.get("next_step_id"):
-            return step["next_step_id"]
-
-        try:
-            idx = order.index(current_id)
-        except ValueError:
-            return None
-        return order[idx + 1] if idx + 1 < len(order) else None
+        return step.get("next_step_id")
 
     async def _execute_workflow_steps(
         self,
@@ -229,139 +538,32 @@ class WorkflowEngine:
             # Initialize context
             context = WorkflowContext(trigger_data, channel=channel)
 
-            # Get workflow steps
-            steps = workflow.workflow_steps.get("steps", [])
+            # Load the flow as a graph. v1 workflows (a flat ordered list) are
+            # migrated on read, so both formats execute through one code path.
+            graph = graph_utils.load_graph(workflow.workflow_steps)
 
-            if not steps:
+            # The trigger is a canvas anchor, not an executable node.
+            runnable = [n for n in graph.get("nodes", []) if n.get("type") != "trigger"]
+
+            if not runnable:
                 raise WorkflowEngineError("Workflow has no steps")
 
-            indexed = self._order_steps(steps)
-            by_id, order = indexed["by_id"], indexed["order"]
+            # Schedule the graph. Independent branches run concurrently; the
+            # executor decides readiness from edge state rather than following
+            # a single cursor, which is what makes parallel paths and joins
+            # possible at all.
+            executor = GraphExecutor(
+                graph,
+                run_node=lambda node: self._run_node(node, graph, workflow, context, sync),
+                max_concurrency=DEFAULT_MAX_CONCURRENCY,
+            )
 
-            # Execute by walking the flow
-            step_results = []
-            executed_steps = 0
-            successful_steps = 0
-            failed_steps = 0
+            step_results, counts = await executor.run()
 
-            current_id: Optional[str] = order[0]
-            visited: Dict[str, int] = {}
-            # Backstop against a flow that loops back on itself forever.
-            max_steps = max(len(order) * 10, 100)
+            executed_steps = counts["executed"]
+            successful_steps = counts["successful"]
+            failed_steps = counts["failed"]
 
-            while current_id and executed_steps < max_steps:
-                step = by_id.get(current_id)
-                if step is None:
-                    logger.error(f"Flow points at unknown step '{current_id}', stopping")
-                    break
-
-                visited[current_id] = visited.get(current_id, 0) + 1
-
-                step_id = step.get("id")
-                step_name = step.get("name", step_id)
-                step_type = step.get("type")
-
-                logger.info(f"Executing step: {step_name} ({step_type})")
-
-                step_start_time = time.time()
-                step_result: Optional[Dict[str, Any]] = None
-
-                try:
-                    # Get step handler
-                    handler = StepHandlerFactory.get_handler(step_type, db=self.db)
-
-                    # Execute step with retry logic. Only steps that reach out to
-                    # something fallible are worth retrying — replaying a spoken
-                    # line or a branch decision would just repeat it at the caller.
-                    retryable = step_type in ("action", "tool", "webhook")
-                    max_retries = workflow.max_retries if retryable else 0
-                    retry_delay = workflow.retry_delay
-
-                    # A synchronous caller is holding an HTTP connection open, so
-                    # the workflow's real backoff (60s x 3 by default) would hang
-                    # the request for minutes. Background runs keep full backoff.
-                    if sync and retryable:
-                        max_retries = min(max_retries, SYNC_MAX_RETRIES)
-                        retry_delay = min(retry_delay, SYNC_MAX_RETRY_DELAY)
-
-                    attempt = 0
-
-                    while attempt <= max_retries:
-                        try:
-                            step_result = await handler.execute(step, context)
-
-                            # Store step result in context
-                            context.set_step_result(step_id, step_result.get("result"))
-
-                            # Record step success
-                            step_duration = int((time.time() - step_start_time) * 1000)
-
-                            step_results.append({
-                                "step_id": step_id,
-                                "step_name": step_name,
-                                "status": "success",
-                                "started_at": datetime.fromtimestamp(step_start_time).isoformat(),
-                                "completed_at": datetime.utcnow().isoformat(),
-                                "duration_ms": step_duration,
-                                "result": step_result.get("result"),
-                                "error": None,
-                            })
-
-                            executed_steps += 1
-                            successful_steps += 1
-
-                            logger.info(f"Step {step_name} completed successfully")
-                            break  # Success, exit retry loop
-
-                        except Exception as retry_error:
-                            if attempt < max_retries:
-                                logger.warning(
-                                    f"Step {step_name} failed (attempt {attempt + 1}/{max_retries + 1}), "
-                                    f"retrying in {retry_delay}s: {retry_error}"
-                                )
-                                attempt += 1
-                                await asyncio.sleep(retry_delay)
-                            else:
-                                raise  # Max retries reached
-
-                except Exception as step_error:
-                    logger.error(f"Step {step_name} failed: {step_error}", exc_info=True)
-
-                    step_duration = int((time.time() - step_start_time) * 1000)
-
-                    step_results.append({
-                        "step_id": step_id,
-                        "step_name": step_name,
-                        "status": "failed",
-                        "started_at": datetime.fromtimestamp(step_start_time).isoformat(),
-                        "completed_at": datetime.utcnow().isoformat(),
-                        "duration_ms": step_duration,
-                        "result": None,
-                        "error": str(step_error),
-                    })
-
-                    executed_steps += 1
-                    failed_steps += 1
-
-                    # Handle error based on workflow configuration
-                    if workflow.error_handling == "stop":
-                        logger.info("Error handling set to 'stop', halting workflow")
-                        break
-                    else:
-                        logger.info("Error handling set to 'continue', proceeding to next step")
-
-                # An `end`/`transfer` step means the conversation is over.
-                if context.ended:
-                    logger.info("Flow reached a terminal step, stopping")
-                    break
-
-                current_id = self._next_step_id(step, step_result, order, current_id)
-
-            if executed_steps >= max_steps:
-                logger.warning(
-                    f"Workflow {workflow.id} hit the {max_steps}-step ceiling; "
-                    "stopping to avoid an infinite loop"
-                )
 
             # Calculate final execution time
             duration_ms = int((time.time() - start_time) * 1000)
@@ -436,7 +638,9 @@ class WorkflowEngine:
             WorkflowEngineError: If cancellation fails
         """
         try:
-            query = select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+            query = select(WorkflowExecution).where(
+                WorkflowExecution.id == _as_uuid(execution_id)
+            )
             result = await self.db.execute(query)
             execution = result.scalar_one_or_none()
 
@@ -462,6 +666,58 @@ class WorkflowEngine:
 
 # Global workflow engine instance
 _workflow_engine: Optional[WorkflowEngine] = None
+
+
+async def reap_stranded_executions(
+    db: AsyncSession,
+    older_than_seconds: Optional[int] = None,
+) -> int:
+    """
+    Mark executions stuck in ``running`` as failed.
+
+    Executions run in-process, so a restart kills them while leaving the row at
+    ``running`` forever — nothing previously cleaned these up, and the stats
+    endpoints counted them as in-flight indefinitely.
+
+    Called at startup with ``older_than_seconds=None``, which reaps every
+    running row: if the process just started, none of them can still be alive.
+    The periodic sweep passes an age threshold so it does not kill live runs.
+
+    Args:
+        db: Database session
+        older_than_seconds: Only reap runs started at least this long ago.
+            None reaps all running rows.
+
+    Returns:
+        Number of executions reaped
+    """
+    conditions = [WorkflowExecution.status == "running"]
+
+    if older_than_seconds is not None:
+        cutoff = datetime.utcnow() - timedelta(seconds=older_than_seconds)
+        conditions.append(WorkflowExecution.started_at <= cutoff)
+
+    now = datetime.utcnow()
+
+    result = await db.execute(
+        update(WorkflowExecution)
+        .where(and_(*conditions))
+        .values(
+            status="failed",
+            completed_at=now,
+            error_message=(
+                "Execution was interrupted before it could complete "
+                "(the worker process stopped while it was running)."
+            ),
+        )
+    )
+    await db.commit()
+
+    count = result.rowcount or 0
+    if count:
+        logger.warning(f"Reaped {count} stranded workflow execution(s)")
+
+    return count
 
 
 def get_workflow_engine(db: AsyncSession) -> WorkflowEngine:

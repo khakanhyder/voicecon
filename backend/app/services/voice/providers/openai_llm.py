@@ -4,7 +4,7 @@ OpenAI Large Language Model Provider.
 Implements LLM using OpenAI API with streaming and function calling support.
 """
 import logging
-from typing import AsyncIterator, Optional, Dict, Any, List
+from typing import AsyncIterator, Optional, Dict, Any, List, Union
 import json
 
 from openai import AsyncOpenAI
@@ -279,7 +279,7 @@ class OpenAILLM(BaseLLMProvider):
         messages: List[ChatMessage],
         functions: Optional[List[Dict[str, Any]]] = None,
         **kwargs
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
         """
         Generate chat completion with streaming.
 
@@ -289,7 +289,8 @@ class OpenAILLM(BaseLLMProvider):
             **kwargs: Additional parameters
 
         Yields:
-            Text chunks as they're generated
+            Text chunks as they're generated, then a final
+            ``{"function_call": {...}}`` dict if the model requested a tool.
 
         Raises:
             AuthenticationError: Invalid API key
@@ -335,16 +336,52 @@ class OpenAILLM(BaseLLMProvider):
             # Track tokens for cost calculation (approximate)
             completion_tokens = 0
 
+            # Tool calls stream in fragments: the first delta carries the id and
+            # name, later ones append slices of the argument JSON. They must be
+            # accumulated by index and emitted once the stream finishes —
+            # previously this loop only ever looked at delta.content, so a tool
+            # call was silently dropped and no tool could run on a live call.
+            tool_calls: Dict[int, Dict[str, Any]] = {}
+
             async for chunk in stream:
                 chunk: ChatCompletionChunk
 
-                if chunk.choices:
-                    choice = chunk.choices[0]
+                if not chunk.choices:
+                    continue
 
-                    if choice.delta.content:
-                        content = choice.delta.content
-                        completion_tokens += len(content.split())  # Approximate
-                        yield content
+                choice = chunk.choices[0]
+
+                if choice.delta.content:
+                    content = choice.delta.content
+                    completion_tokens += len(content.split())  # Approximate
+                    yield content
+
+                for delta_call in choice.delta.tool_calls or []:
+                    entry = tool_calls.setdefault(
+                        delta_call.index,
+                        {"id": None, "name": "", "arguments": ""},
+                    )
+
+                    if delta_call.id:
+                        entry["id"] = delta_call.id
+                    if delta_call.function and delta_call.function.name:
+                        entry["name"] += delta_call.function.name
+                    if delta_call.function and delta_call.function.arguments:
+                        entry["arguments"] += delta_call.function.arguments
+
+            if tool_calls:
+                # Emitted as a dict so the consumer can tell it apart from a
+                # text chunk. Only the first call is acted on today; the voice
+                # loop handles one tool per turn.
+                first = tool_calls[min(tool_calls)]
+                logger.info(f"OpenAI streaming produced tool call: {first['name']}")
+                yield {
+                    "function_call": {
+                        "id": first["id"],
+                        "name": first["name"],
+                        "arguments": first["arguments"] or "{}",
+                    }
+                }
 
             # Note: We can't get exact token counts in streaming mode
             # This is an approximation

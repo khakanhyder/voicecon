@@ -4,15 +4,16 @@ Workflow API endpoints.
 Handles workflow CRUD, execution, and monitoring.
 """
 import logging
+import secrets
 import uuid
 from typing import Optional, List
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, or_, func, desc
 
 from app.database import get_db
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
 from app.models.integration import Workflow, WorkflowExecution
 from app.schemas.workflow import (
@@ -27,10 +28,48 @@ from app.schemas.workflow import (
     WorkflowUsageResponse,
 )
 from app.services.workflows import get_workflow_engine, WorkflowEngine
+from app.services.workflows.graph import load_graph, normalize_graph, validate_graph
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _prepare_trigger_config(trigger_type, trigger_config: Optional[dict]) -> dict:
+    """
+    Validate a trigger configuration and fill in generated defaults.
+
+    Webhook triggers get an auto-generated key when none is supplied: matching
+    now fails closed on a missing key, so a keyless webhook workflow could never
+    be triggered at all.
+
+    Args:
+        trigger_type: Type of trigger
+        trigger_config: Raw trigger configuration from the request
+
+    Returns:
+        The validated configuration
+
+    Raises:
+        HTTPException: 400 if the configuration is invalid
+    """
+    from app.services.workflows.trigger_handlers import TriggerError, TriggerValidator
+    from app.schemas.workflow import TriggerType
+
+    config = dict(trigger_config or {})
+
+    if trigger_type == TriggerType.WEBHOOK and not config.get("webhook_key"):
+        config["webhook_key"] = secrets.token_urlsafe(32)
+
+    try:
+        TriggerValidator.validate_trigger_config(trigger_type, config)
+    except TriggerError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid trigger configuration: {e}",
+        )
+
+    return config
 
 
 # ============================================================================
@@ -73,10 +112,21 @@ async def create_workflow(
                 detail="User is not associated with any organization"
             )
 
-        # Convert steps to dict format for storage
-        workflow_steps_dict = {
-            "steps": [step.dict() for step in workflow_data.workflow_steps]
-        }
+        # Validate the trigger configuration. TriggerValidator existed but was
+        # never called, so invalid cron expressions and short webhook keys were
+        # stored and only failed silently later, inside the scheduler loop.
+        trigger_config = _prepare_trigger_config(
+            workflow_data.trigger_type,
+            workflow_data.trigger_config,
+        )
+
+        # Store the v2 graph when supplied, otherwise wrap legacy steps.
+        if workflow_data.graph is not None:
+            workflow_steps_dict = normalize_graph(workflow_data.graph)
+        else:
+            workflow_steps_dict = {
+                "steps": [step.dict() for step in workflow_data.workflow_steps]
+            }
 
         # Create workflow
         workflow = Workflow(
@@ -85,7 +135,7 @@ async def create_workflow(
             name=workflow_data.name,
             description=workflow_data.description,
             trigger_type=workflow_data.trigger_type,
-            trigger_config=workflow_data.trigger_config,
+            trigger_config=trigger_config,
             workflow_steps=workflow_steps_dict,
             is_active=workflow_data.is_active,
             execution_mode=workflow_data.execution_mode,
@@ -300,14 +350,25 @@ async def update_workflow(
         # Update fields
         update_dict = update_data.dict(exclude_unset=True)
 
-        # Convert workflow_steps if provided
-        if "workflow_steps" in update_dict:
-            workflow_steps_dict = {
-                "steps": update_dict["workflow_steps"]
-            }
-            update_dict["workflow_steps"] = workflow_steps_dict
+        # Validate the trigger config against the resulting trigger type, which
+        # may itself be changing in this same request.
+        if "trigger_config" in update_dict:
+            update_dict["trigger_config"] = _prepare_trigger_config(
+                update_dict.get("trigger_type", workflow.trigger_type),
+                update_dict["trigger_config"],
+            )
+
+        # The graph and the legacy step list share one column, so a graph
+        # update replaces workflow_steps outright.
+        if update_dict.get("graph") is not None:
+            update_dict["workflow_steps"] = normalize_graph(update_dict["graph"])
+            workflow.version += 1
+        elif "workflow_steps" in update_dict:
+            update_dict["workflow_steps"] = {"steps": update_dict["workflow_steps"]}
             # Increment version
             workflow.version += 1
+
+        update_dict.pop("graph", None)
 
         for field, value in update_dict.items():
             setattr(workflow, field, value)
@@ -834,6 +895,66 @@ async def test_workflow_trigger(
         )
 
 
+@router.post("/{workflow_id}/validate")
+async def validate_workflow_graph(
+    workflow_id: str,
+    payload: Optional[dict] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Validate a workflow graph without saving it.
+
+    The builder calls this with its in-progress graph so structural problems
+    surface while editing rather than at execution time.
+
+    Args:
+        workflow_id: Workflow ID
+        payload: Optionally ``{"graph": {...}}`` to validate instead of the
+            stored definition
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ``{"valid": bool, "errors": [...], "warnings": [...]}``
+    """
+    try:
+        workflow_uuid = uuid.UUID(workflow_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workflow ID format",
+        )
+
+    result = await db.execute(
+        select(Workflow).where(
+            and_(
+                Workflow.id == workflow_uuid,
+                Workflow.user_id == current_user.id,
+                Workflow.deleted_at.is_(None),
+            )
+        )
+    )
+    workflow = result.scalar_one_or_none()
+
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow {workflow_id} not found",
+        )
+
+    graph = (payload or {}).get("graph")
+    graph = normalize_graph(graph) if graph else load_graph(workflow.workflow_steps)
+
+    report = validate_graph(graph)
+
+    return {
+        "valid": not report["errors"],
+        "errors": report["errors"],
+        "warnings": report["warnings"],
+    }
+
+
 @router.post("/webhook/{webhook_key}")
 async def trigger_webhook(
     webhook_key: str,
@@ -868,10 +989,11 @@ async def trigger_webhook(
             "source_ip": "unknown",  # TODO: Get from request
         }
 
-        # Process webhook trigger
+        # Process webhook trigger. Matching is by webhook key only; workflows
+        # without a configured key never match (fail closed).
         trigger_manager = get_trigger_manager(db)
-        execution_ids = await trigger_manager.process_event(
-            event_type=TriggerType.WEBHOOK,
+        execution_ids = await trigger_manager.process_webhook(
+            webhook_key=webhook_key,
             event_data=event_data,
         )
 
@@ -901,6 +1023,7 @@ async def trigger_webhook(
 async def trigger_voice_event(
     event_data: dict,
     current_user: User = Depends(get_current_active_user),
+    organization_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -934,11 +1057,12 @@ async def trigger_voice_event(
                 detail=f"Invalid event_type: {event_type}",
             )
 
-        # Process voice event trigger
+        # Process voice event trigger, scoped to the caller's organization
         trigger_manager = get_trigger_manager(db)
         execution_ids = await trigger_manager.process_event(
             event_type=trigger_type,
             event_data=event_data,
+            organization_id=organization_id,
         )
 
         return {
@@ -962,6 +1086,7 @@ async def trigger_voice_event(
 async def trigger_integration_event(
     event_data: dict,
     current_user: User = Depends(get_current_active_user),
+    organization_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -982,11 +1107,12 @@ async def trigger_integration_event(
     from app.schemas.workflow import TriggerType
 
     try:
-        # Process integration event trigger
+        # Process integration event trigger, scoped to the caller's organization
         trigger_manager = get_trigger_manager(db)
         execution_ids = await trigger_manager.process_event(
             event_type=TriggerType.INTEGRATION_EVENT,
             event_data=event_data,
+            organization_id=organization_id,
         )
 
         return {

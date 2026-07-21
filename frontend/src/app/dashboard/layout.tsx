@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -12,8 +12,13 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const { isAuthenticated, isLoading } = useAuthStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // The workflow canvas manages its own scrolling and needs the full width;
+  // the centered, padded container would letterbox it.
+  const isFullBleed = pathname?.endsWith('/builder') ?? false
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -41,10 +46,18 @@ export default function DashboardLayout({
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header onMenuClick={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 md:p-6 lg:p-8 max-w-screen-2xl mx-auto">
-            {children}
-          </div>
+        <main
+          className={
+            isFullBleed ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'
+          }
+        >
+          {isFullBleed ? (
+            children
+          ) : (
+            <div className="p-4 md:p-6 lg:p-8 max-w-screen-2xl mx-auto">
+              {children}
+            </div>
+          )}
         </main>
       </div>
     </div>

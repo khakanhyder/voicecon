@@ -481,13 +481,17 @@ export default function WorkflowDetailPage() {
       <div className="rounded-lg border bg-card p-6 space-y-4">
         <h2 className="text-xl font-semibold">Quick Actions</h2>
 
+        {/* Execution history and test-run both live on this page already, so
+            these link to the editors rather than duplicating them. The former
+            "View Execution History" link pointed at a route that does not
+            exist, and "Test Workflow" was permanently disabled. */}
         <div className="flex gap-2">
-          <Link href={`/dashboard/workflows/${workflowId}/history`}>
-            <Button variant="outline">View Execution History</Button>
+          <Link href={`/dashboard/workflows/${workflowId}/builder`}>
+            <Button variant="outline">Open Builder</Button>
           </Link>
-          <Button variant="outline" disabled>
-            Test Workflow
-          </Button>
+          <Link href={`/dashboard/workflows/${workflowId}/edit`}>
+            <Button variant="outline">Edit Settings</Button>
+          </Link>
         </div>
       </div>
 

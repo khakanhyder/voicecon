@@ -614,14 +614,17 @@ async def agent_respond(
                 return asyncio.create_task(_synth())
 
             # ── Load the agent's tools/functions for function calling ──────────
-            from app.services.function_executor import get_function_executor
+            from app.services.function_executor import get_function_executor, sanitize_function_name
             fe = get_function_executor()
             agent_functions = await fe.get_agent_functions(str(agent_id), db)
             agent_tools = await fe.get_agent_assigned_tools(str(agent_id), db)
-            func_defs = (
-                [fe.get_function_definition(f) for f in agent_functions]
-                + [fe.get_tool_function_definition(t) for t in agent_tools]
-            )
+            # build_tool_definitions is async because workflow-backed tools
+            # derive their parameter schema from the workflow's declared
+            # inputs. Using the sync builder here left those tools with an
+            # empty schema, so the model had no idea what to pass.
+            func_defs = [
+                fe.get_function_definition(f) for f in agent_functions
+            ] + await fe.build_tool_definitions(agent_tools, db=db)
 
             async def _execute_tool_call(name: str, args: dict) -> str:
                 """Run one tool the model asked for, returning a result string for
@@ -632,7 +635,7 @@ async def agent_respond(
                 )
                 matched_tool = next(
                     (t for t in agent_tools
-                     if t.name.replace(" ", "_").lower()[:64] == name), None
+                     if sanitize_function_name(t.name) == name), None
                 )
                 try:
                     if agent_function:
@@ -1405,7 +1408,7 @@ async def test_function(
             raise HTTPException(status_code=404, detail="Function not found")
 
         # Execute function
-        from app.services.function_executor import get_function_executor
+        from app.services.function_executor import get_function_executor, sanitize_function_name
 
         executor = get_function_executor()
 

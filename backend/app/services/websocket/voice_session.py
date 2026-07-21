@@ -18,10 +18,12 @@ from app.core.config import settings
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.llm_service import get_llm_service, ConversationContext
+from app.services.voice.providers.base import ChatMessage
+from app.services.workflows.channels import VoiceChannel
 from app.services.websocket.connection_manager import ConnectionManager
 from app.services.call.transcript_service import get_transcript_service, TranscriptEntry
 from app.services.call.analytics_service import get_analytics_service
-from app.services.function_executor import get_function_executor
+from app.services.function_executor import get_function_executor, sanitize_function_name
 from app.models.agent import Agent, AgentFunction
 from app.models.tool import Tool
 from app.models.call import Call, CallLog
@@ -603,10 +605,11 @@ class VoiceSession:
                 self.function_executor.get_function_definition(f)
                 for f in self.agent_functions
             ]
-            tool_defs = [
-                self.function_executor.get_tool_function_definition(t)
-                for t in self.agent_tools
-            ]
+            # Async: workflow-backed tools derive their parameter schema from
+            # the workflow's declared inputs, which needs a database read.
+            tool_defs = await self.function_executor.build_tool_definitions(
+                self.agent_tools, db=self.db
+            )
             all_defs = func_defs + tool_defs
             if all_defs:
                 functions = all_defs
@@ -698,7 +701,7 @@ class VoiceSession:
             # Also check global tools (name is normalised: spaces→_, lowercased)
             matched_tool = next(
                 (t for t in self.agent_tools
-                 if t.name.replace(" ", "_").lower()[:64] == function_name),
+                 if sanitize_function_name(t.name) == function_name),
                 None
             )
 
@@ -712,11 +715,19 @@ class VoiceSession:
                 formatted_result = self.function_executor.format_for_llm(agent_function, result)
 
             elif matched_tool:
+                # A workflow can take seconds. Say something first so the
+                # caller isn't sitting in silence while it runs.
+                if matched_tool.tool_type == "workflow":
+                    await self._speak_filler(matched_tool)
+
                 result = await self.function_executor.execute_global_tool(
                     tool=matched_tool,
                     parameters=function_args,
                     call_id=self.call_id,
                     db=self.db,
+                    # Live channel, so speak/ask steps inside the workflow
+                    # reach the caller instead of being simulated.
+                    channel=VoiceChannel(self),
                 )
                 inner = result.get("result", {}) if result.get("success") else {}
                 if isinstance(inner, dict) and inner.get("requires_telephony"):
@@ -731,12 +742,29 @@ class VoiceSession:
             else:
                 return f"I tried to use a capability called {function_name}, but it's not configured."
 
-            # Add function result to conversation
-            messages.append({
-                "role": "function",
-                "name": function_name,
-                "content": formatted_result,
-            })
+            # Record the exchange as ChatMessage objects. `messages` is a
+            # List[ChatMessage] — appending raw dicts here raised AttributeError
+            # on the next turn, when _format_messages read msg.function_call.
+            #
+            # The assistant's request must be appended before its result, or
+            # OpenAI receives an orphan tool message with no matching call.
+            messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=None,
+                    function_call={
+                        "name": function_name,
+                        "arguments": function_call.get("arguments", "{}"),
+                    },
+                )
+            )
+            messages.append(
+                ChatMessage(
+                    role="function",
+                    name=function_name,
+                    content=formatted_result,
+                )
+            )
 
             function_call_count += 1
 
@@ -744,6 +772,25 @@ class VoiceSession:
 
         # Max function calls reached
         return "I apologize, but I'm having trouble completing that request."
+
+    async def _speak_filler(self, tool) -> None:
+        """
+        Say a short holding line before a slow tool runs.
+
+        A workflow that books an appointment can take several seconds. Without
+        this the caller hears dead air and usually starts talking again, which
+        derails the turn.
+
+        Args:
+            tool: The tool about to run; its config may override the wording
+        """
+        filler = (tool.config or {}).get("filler_message") or "One moment while I check that."
+
+        try:
+            await self.speak(filler)
+        except Exception as e:
+            # A failed filler must never block the tool it precedes.
+            logger.warning(f"Could not speak filler line: {e}")
 
     # ── Telephony actions ────────────────────────────────────────────────────
 
@@ -1169,9 +1216,21 @@ class VoiceSession:
                 "ended_at": self.call.ended_at.isoformat() if self.call.ended_at else None,
             }
 
+            organization_id = getattr(self.call, "organization_id", None)
+            if organization_id is None:
+                logger.warning(
+                    f"Call {self.call_id} has no organization_id; "
+                    f"skipping call_completed workflow dispatch"
+                )
+                return
+
             async with AsyncSessionLocal() as db:
                 manager = get_trigger_manager(db)
-                executions = await manager.process_event("call_completed", event_data)
+                executions = await manager.process_event(
+                    "call_completed",
+                    event_data,
+                    organization_id=organization_id,
+                )
 
             if executions:
                 logger.info(

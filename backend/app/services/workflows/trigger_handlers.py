@@ -6,6 +6,7 @@ Handlers for different types of workflow triggers.
 import logging
 import asyncio
 import re
+import secrets
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from croniter import croniter
@@ -336,12 +337,22 @@ class WebhookTriggerHandler(BaseTriggerHandler):
         Returns:
             True if webhook is valid
         """
-        # Check webhook key if configured
-        if "webhook_key" in config:
-            provided_key = event_data.get("webhook_key")
-            if provided_key != config["webhook_key"]:
-                logger.warning("Invalid webhook key provided")
-                return False
+        # Fail closed: a webhook workflow without a configured key must never
+        # match. Treating a missing key as "no check" made every keyless
+        # webhook workflow fire on any request to the public endpoint.
+        expected_key = config.get("webhook_key")
+        if not expected_key:
+            logger.warning(
+                "Webhook workflow has no webhook_key configured; refusing to trigger"
+            )
+            return False
+
+        provided_key = event_data.get("webhook_key")
+        if not isinstance(provided_key, str) or not secrets.compare_digest(
+            provided_key, expected_key
+        ):
+            logger.warning("Invalid webhook key provided")
+            return False
 
         # Check IP whitelist if configured
         if "allowed_ips" in config:
@@ -488,29 +499,104 @@ class TriggerManager:
         self,
         event_type: TriggerType,
         event_data: Dict[str, Any],
+        *,
+        organization_id: Any,
     ) -> List[str]:
         """
-        Process an event and trigger matching workflows.
+        Process an event and trigger matching workflows within one organization.
+
+        ``organization_id`` is keyword-only and required. It previously did not
+        exist, so this method selected every active workflow of the given
+        trigger type across all tenants — any caller could fire another
+        organization's workflows with attacker-chosen data.
 
         Args:
             event_type: Type of event
             event_data: Event data
+            organization_id: Organization whose workflows may be triggered
+
+        Returns:
+            List of triggered workflow execution IDs
+
+        Raises:
+            TriggerError: If organization_id is missing
+        """
+        from app.models.integration import Workflow
+        from app.services.workflows.workflow_engine import get_workflow_engine
+
+        if organization_id is None:
+            raise TriggerError("organization_id is required to process a trigger event")
+
+        # Find workflows with matching trigger type, scoped to the organization
+        query = select(Workflow).where(
+            Workflow.trigger_type == event_type,
+            Workflow.is_active == True,
+            Workflow.organization_id == organization_id,
+            Workflow.deleted_at.is_(None),
+        )
+        result = await self.db.execute(query)
+        workflows = result.scalars().all()
+
+        logger.info(
+            f"Found {len(workflows)} workflows for {event_type} "
+            f"in organization {organization_id}"
+        )
+
+        return await self._trigger_all(event_type, event_data, workflows)
+
+    async def process_webhook(
+        self,
+        webhook_key: str,
+        event_data: Dict[str, Any],
+    ) -> List[str]:
+        """
+        Process a public webhook request.
+
+        Webhooks are unauthenticated, so the webhook key is the only credential.
+        Matching therefore happens across organizations by necessity — but a
+        workflow only matches when it has a key configured and that key compares
+        equal (see ``WebhookTriggerHandler.should_trigger``, which fails closed).
+
+        Args:
+            webhook_key: Key from the request path
+            event_data: Webhook event data
 
         Returns:
             List of triggered workflow execution IDs
         """
         from app.models.integration import Workflow
-        from app.services.workflows.workflow_engine import get_workflow_engine
 
-        # Find workflows with matching trigger type
+        if not webhook_key:
+            return []
+
         query = select(Workflow).where(
-            Workflow.trigger_type == event_type,
+            Workflow.trigger_type == TriggerType.WEBHOOK,
             Workflow.is_active == True,
+            Workflow.deleted_at.is_(None),
         )
         result = await self.db.execute(query)
         workflows = result.scalars().all()
 
-        logger.info(f"Found {len(workflows)} workflows for {event_type}")
+        return await self._trigger_all(TriggerType.WEBHOOK, event_data, workflows)
+
+    async def _trigger_all(
+        self,
+        event_type: TriggerType,
+        event_data: Dict[str, Any],
+        workflows: List[Any],
+    ) -> List[str]:
+        """
+        Evaluate each candidate workflow's filters and execute the matches.
+
+        Args:
+            event_type: Type of event
+            event_data: Event data
+            workflows: Candidate workflows already scoped by the caller
+
+        Returns:
+            List of triggered workflow execution IDs
+        """
+        from app.services.workflows.workflow_engine import get_workflow_engine
 
         # Get trigger handler
         handler = TriggerHandlerFactory.get_handler(event_type, self.db)

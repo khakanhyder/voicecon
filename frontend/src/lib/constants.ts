@@ -37,6 +37,7 @@ export const API_ENDPOINTS = {
   WORKFLOW: (id: string) => `${API_BASE}/api/v1/workflows/${id}`,
   WORKFLOW_EXECUTE: (id: string) => `${API_BASE}/api/v1/workflows/${id}/execute`,
   WORKFLOW_EXECUTIONS: (id: string) => `${API_BASE}/api/v1/workflows/${id}/executions`,
+  WORKFLOW_VALIDATE: (id: string) => `${API_BASE}/api/v1/workflows/${id}/validate`,
 
   // Analytics
   ANALYTICS: `${API_BASE}/api/v1/analytics`,

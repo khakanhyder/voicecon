@@ -61,6 +61,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start analytics scheduler: {e}")
 
+    # Reap workflow executions left in `running` by a previous process. Runs
+    # execute in-process, so any such row is stranded by definition.
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.workflows import reap_stranded_executions
+
+        async with AsyncSessionLocal() as db:
+            reaped = await reap_stranded_executions(db)
+        if reaped:
+            logger.info(f"Reaped {reaped} stranded workflow execution(s) at startup")
+    except Exception as e:
+        logger.error(f"Failed to reap stranded workflow executions: {e}")
+
     # Start workflow scheduler (fires schedule/cron-triggered workflows)
     try:
         from app.services.workflows.scheduler import get_scheduler

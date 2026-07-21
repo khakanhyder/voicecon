@@ -26,6 +26,9 @@ class StepType(str, Enum):
     # Backend automation steps
     ACTION = "action"
     CONDITION = "condition"
+    SWITCH = "switch"
+    FILTER = "filter"
+    MERGE = "merge"
     LOOP = "loop"
     TRANSFORM = "transform"
     DELAY = "delay"
@@ -154,7 +157,14 @@ class WorkflowCreate(BaseModel):
     trigger_type: TriggerType = Field(..., description="Trigger type")
     trigger_config: Dict[str, Any] = Field(..., description="Trigger configuration")
 
-    workflow_steps: List[WorkflowStep] = Field(..., description="Workflow steps")
+    workflow_steps: List[WorkflowStep] = Field(
+        default_factory=list, description="Legacy v1 ordered steps"
+    )
+    graph: Optional[Dict[str, Any]] = Field(
+        None,
+        description="v2 graph {schema_version, nodes, edges, viewport}. Takes "
+        "precedence over workflow_steps when supplied.",
+    )
 
     is_active: bool = Field(True, description="Whether workflow is active")
     execution_mode: str = Field("async", description="Execution mode (async, sync)")
@@ -180,8 +190,12 @@ class WorkflowUpdate(BaseModel):
     """Update workflow schema."""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
+    trigger_type: Optional[TriggerType] = None
     trigger_config: Optional[Dict[str, Any]] = None
     workflow_steps: Optional[List[WorkflowStep]] = None
+    graph: Optional[Dict[str, Any]] = Field(
+        None, description="v2 graph; takes precedence over workflow_steps"
+    )
     is_active: Optional[bool] = None
     error_handling: Optional[str] = None
     max_retries: Optional[int] = Field(None, ge=0, le=10)
@@ -200,6 +214,15 @@ class WorkflowResponse(BaseModel):
     trigger_config: Dict[str, Any]
 
     workflow_steps: List[Dict[str, Any]]
+    # Reads the same column as workflow_steps, but exposed as the v2 graph the
+    # visual builder consumes. v1 rows are migrated on read.
+    #
+    # validation_alias, not alias: FastAPI serializes responses with
+    # by_alias=True, so a plain alias would emit this field as "workflow_steps"
+    # and clobber the real step list with the graph object.
+    graph: Optional[Dict[str, Any]] = Field(
+        None, validation_alias="workflow_steps"
+    )
 
     is_active: bool
     execution_mode: str
@@ -224,12 +247,24 @@ class WorkflowResponse(BaseModel):
 
     @validator('workflow_steps', pre=True)
     def convert_workflow_steps(cls, v):
-        if isinstance(v, dict) and 'steps' in v:
-            return v['steps']
+        if isinstance(v, dict):
+            if 'steps' in v:
+                return v['steps']
+            # A v2 graph: expose its executable nodes so any legacy consumer
+            # still sees a flat step list.
+            if 'nodes' in v:
+                return [n for n in v['nodes'] if n.get('type') != 'trigger']
         return v if v else []
+
+    @validator('graph', pre=True)
+    def convert_graph(cls, v):
+        from app.services.workflows.graph import load_graph
+
+        return load_graph(v if isinstance(v, dict) else None)
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class WorkflowListResponse(BaseModel):

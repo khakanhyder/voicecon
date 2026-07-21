@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { useAgentOptions } from '@/hooks/useAgentOptions'
 import { toast } from 'sonner'
 
 interface Workflow {
@@ -41,6 +42,9 @@ export default function EditWorkflowPage() {
     maxRetries: 3,
     retryDelay: 60,
   })
+  const { agents, isLoading: agentsLoading } = useAgentOptions(
+    formData.triggerType === 'call_completed'
+  )
 
   useEffect(() => {
     if (workflowId) {
@@ -178,13 +182,25 @@ export default function EditWorkflowPage() {
                   onValueChange={(value) => setFormData({ ...formData, agentId: value })}
                 >
                   <SelectTrigger id="agentId">
-                    <SelectValue placeholder="Select an agent" />
+                    <SelectValue
+                      placeholder={
+                        agentsLoading ? 'Loading agents…' : 'Select an agent'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="agent1">Customer Support Agent</SelectItem>
-                    <SelectItem value="agent2">Sales Agent</SelectItem>
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {!agentsLoading && agents.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No agents yet — create one first to trigger on its calls.
+                  </p>
+                )}
               </div>
             )}
           </div>

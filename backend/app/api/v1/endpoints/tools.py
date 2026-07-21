@@ -37,6 +37,8 @@ TOOL_CATEGORIES = {
     "sip_request": "phone_call",
     "handoff": "assistant",
     "query_knowledge_base": "assistant",
+    # Runs a workflow. config: {"workflow_id": "...", "filler_message": "..."}
+    "workflow": "assistant",
     "api_request": "integration",
     "mcp": "integration",
     "slack": "integration",
