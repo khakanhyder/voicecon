@@ -388,6 +388,7 @@ export const AGENT_TABS = [
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'advanced',     label: 'Advanced',     icon: Settings },
   { id: 'tools',        label: 'Tools',        icon: Wrench },
+  { id: 'widget',       label: 'Chat Widget',  icon: MessageSquare },
 ] as const
 
 export type AgentTabId = typeof AGENT_TABS[number]['id']

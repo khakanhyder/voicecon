@@ -10,6 +10,7 @@ import {
   ExecutionPanel,
   type ExecutionResult,
 } from '@/components/workflow/ExecutionPanel'
+import { useWorkflowRun } from '@/hooks/useWorkflowRun'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { apiToFlow, flowToApi, type ApiGraph, type FlowNode } from '@/lib/workflow/graph'
@@ -29,6 +30,7 @@ export default function WorkflowBuilderPage() {
   const router = useRouter()
   const params = useParams()
   const workflowId = params.id as string
+  const liveRun = useWorkflowRun(workflowId)
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [initial, setInitial] = useState<{ nodes: FlowNode[]; edges: Edge[] } | null>(
@@ -36,7 +38,6 @@ export default function WorkflowBuilderPage() {
   )
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [isRunning, setIsRunning] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const [execution, setExecution] = useState<ExecutionResult | null>(null)
@@ -124,30 +125,24 @@ export default function WorkflowBuilderPage() {
   }, [isDirty])
 
   const runTest = useCallback(async () => {
+    // Save first so the run uses the current graph, then stream node-by-node.
     await save({ silent: true })
-    setIsRunning(true)
-    try {
-      const res = await apiClient.post<ExecutionResult>(
-        API_ENDPOINTS.WORKFLOW_EXECUTE(workflowId),
-        { trigger_data: {}, wait_for_completion: true }
-      )
-      setExecution(res.data)
-      if (res.data.status === 'completed') {
-        toast.success('Test run completed')
-      } else {
-        toast.error(res.data.error_message || `Test run ${res.data.status}`)
-      }
-    } catch (err) {
-      toast.error(getErrorMessage(err))
-    } finally {
-      setIsRunning(false)
-    }
-  }, [save, workflowId])
+    setExecution(null)
+    liveRun.run({})
+  }, [save])
 
-  // Map step outcomes onto node ids so the canvas can show them.
+  // A completed streamed run becomes the execution shown in the results panel.
+  useEffect(() => {
+    if (liveRun.execution) setExecution(liveRun.execution)
+  }, [liveRun.execution])
+
+  // While running, node status comes live from the socket. Once done, fall back
+  // to the final per-step results (which also cover a page that reconnected).
   const runStatus = useMemo(() => {
+    if (liveRun.running || Object.keys(liveRun.status).length > 0) {
+      return liveRun.status
+    }
     if (!execution?.result_data?.steps) return undefined
-
     const map: Record<
       string,
       { status: 'success' | 'failed'; error?: string | null }
@@ -159,7 +154,7 @@ export default function WorkflowBuilderPage() {
       }
     }
     return map
-  }, [execution])
+  }, [liveRun.running, liveRun.status, execution])
 
   if (isLoading || !initial) {
     return (
@@ -196,8 +191,8 @@ export default function WorkflowBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={runTest} disabled={isRunning}>
-            {isRunning ? (
+          <Button variant="outline" size="sm" onClick={runTest} disabled={liveRun.running}>
+            {liveRun.running ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
               <Play className="mr-1.5 h-4 w-4" />

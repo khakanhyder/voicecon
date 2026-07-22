@@ -968,6 +968,68 @@ class MergeStepHandler(BaseStepHandler):
         }
 
 
+class CodeStepHandler(BaseStepHandler):
+    """
+    Runs user Python in the sandbox (see services/workflows/sandbox.py).
+
+    The script receives the workflow context as ``input`` (and ``items``), and
+    returns data by assigning ``result`` or defining ``main(input)``. Its return
+    value becomes the node's output, referenceable as ``{{steps.<id>...}}``.
+    """
+
+    async def execute(
+        self,
+        step: Dict[str, Any],
+        context: WorkflowContext,
+    ) -> Dict[str, Any]:
+        config = step.get("config", {})
+        code = config.get("code", "")
+        language = (config.get("language") or "python").lower()
+
+        # Expose upstream data so a script can read {{trigger.*}} / earlier
+        # steps without string interpolation. We pass the resolved values, not
+        # raw templates.
+        data = {
+            "trigger": context.variables.get("trigger", {}),
+            "steps": context.variables.get("steps", {}),
+            "vars": {
+                k: v
+                for k, v in context.variables.items()
+                if k not in ("trigger", "steps")
+            },
+        }
+
+        timeout = int(config.get("timeout_seconds", 5) or 5)
+        memory = int(config.get("memory_mb", 128) or 128)
+
+        try:
+            if language in ("javascript", "js", "node"):
+                from app.services.workflows.js_sandbox import run_js, JSSandboxError
+
+                try:
+                    output = await run_js(code, data, timeout, memory)
+                except JSSandboxError as e:
+                    raise StepExecutionError(str(e))
+            else:
+                from app.services.workflows.sandbox import run_code, SandboxError
+
+                try:
+                    output = await run_code(code, data, timeout, memory)
+                except SandboxError as e:
+                    raise StepExecutionError(str(e))
+        except StepExecutionError as e:
+            logger.error(f"Code step failed ({language}): {e}")
+            raise
+
+        # If the script returned a dict, publish each key as a variable so later
+        # steps can use {{name}} directly, matching Set Fields behaviour.
+        if isinstance(output, dict):
+            for key, value in output.items():
+                context.set_variable(key, value)
+
+        return {"success": True, "result": output}
+
+
 class TransferStepHandler(BaseStepHandler):
     """Handler for transfer steps — hand the call to a human/another number."""
 
@@ -1261,6 +1323,7 @@ class StepHandlerFactory:
             StepType.MERGE: MergeStepHandler,
             StepType.LOOP: LoopStepHandler,
             StepType.TRANSFORM: TransformStepHandler,
+            StepType.CODE: CodeStepHandler,
             StepType.DELAY: DelayStepHandler,
             StepType.TOOL: ToolStepHandler,
             StepType.WEBHOOK: WebhookStepHandler,

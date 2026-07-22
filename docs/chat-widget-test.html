@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat Widget Test Page — pretend customer website</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #f1f5f9; color: #0f172a; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+    h1 { font-size: 22px; }
+    p { line-height: 1.6; color: #475569; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px; }
+    code { background: #e2e8f0; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Pretend customer website</h1>
+    <p>This page stands in for a real website that has embedded the Voicecon chat
+       widget. The floating chat button should appear in the corner. Open it and chat.</p>
+    <div class="card">
+      <strong>Try these:</strong>
+      <ul>
+        <li>"What's the weather in Tokyo?" — should call the weather workflow.</li>
+        <li>"and bitcoin price?" — should keep the same session and call the crypto tool.</li>
+        <li>Type a long message and press <code>Shift+Enter</code> for a new line, then <code>Enter</code> to send.</li>
+        <li>Resize the browser to phone width — the widget should stay inside the screen.</li>
+      </ul>
+    </div>
+    <p style="margin-top:24px;font-size:13px;color:#94a3b8;">
+      Backend: http://localhost:8001 &nbsp;·&nbsp; widget key: nr8WHDWl…
+    </p>
+  </div>
+
+  <!-- The one line a customer pastes into their site's <head> -->
+  <script src="http://localhost:8001/api/v1/chat/widget.js" data-voicecon-key="nr8WHDWltXN0_laT1-WqQg34oStW-pCV" async></script>
+</body>
+</html>

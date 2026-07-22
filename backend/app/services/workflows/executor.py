@@ -88,6 +88,7 @@ class GraphExecutor:
         run_node: RunNode,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
         max_nodes: int = 1000,
+        on_event: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     ):
         """
         Args:
@@ -95,10 +96,14 @@ class GraphExecutor:
             run_node: Coroutine that executes one node and returns a NodeOutcome
             max_concurrency: Ceiling on nodes running at once
             max_nodes: Backstop on total node executions
+            on_event: Optional async callback fired as nodes start, finish, and
+                are skipped. Used to stream live status to the builder canvas.
+                Failures in the callback never affect execution.
         """
         self.graph = graph
         self.run_node = run_node
         self.max_nodes = max_nodes
+        self._on_event = on_event
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
         self.nodes = graph_utils.index_nodes(graph)
@@ -227,6 +232,7 @@ class GraphExecutor:
                         self._skip_node(node_id)
                         counts["skipped"] += 1
                         progressed = True
+                        await self._emit("node_skipped", node_id)
 
             wave = [nid for nid in self.nodes if self._is_runnable(nid)]
             wave.extend(nid for nid in pending_roots if nid not in self.node_state)
@@ -239,6 +245,7 @@ class GraphExecutor:
             # scheduled twice by a concurrent branch.
             for node_id in wave:
                 self.node_state[node_id] = "running"
+                await self._emit("node_started", node_id)
 
             outcomes = await asyncio.gather(
                 *(self._run_guarded(node_id) for node_id in wave)
@@ -264,6 +271,13 @@ class GraphExecutor:
                 else:
                     counts["failed"] += 1
 
+                await self._emit(
+                    "node_finished",
+                    node_id,
+                    status="success" if outcome.status == "success" else "failed",
+                    error=outcome.error,
+                )
+
                 self._resolve_outbound(node_id, outcome.handles)
 
                 if outcome.ended:
@@ -271,6 +285,28 @@ class GraphExecutor:
                     stop_requested = True
 
         return results, counts
+
+    async def _emit(self, event: str, node_id: str, **extra: Any) -> None:
+        """
+        Fire the progress callback for one node, swallowing any error.
+
+        A broken subscriber must never take down an execution, so failures here
+        are logged and ignored.
+        """
+        if not self._on_event:
+            return
+        try:
+            node = self.nodes.get(node_id, {})
+            await self._on_event(
+                {
+                    "event": event,
+                    "node_id": node_id,
+                    "node_name": node.get("name", node_id),
+                    **extra,
+                }
+            )
+        except Exception as e:
+            logger.debug(f"Execution event callback failed: {e}")
 
     async def _run_guarded(self, node_id: str) -> NodeOutcome:
         """Run one node under the concurrency limit."""

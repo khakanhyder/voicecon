@@ -10,7 +10,7 @@ import {
   Database, Zap, Globe, Sheet, Calendar, Trash2,
   X, ChevronRight, ToggleLeft, ToggleRight, FlaskConical,
   Loader2, CheckCircle2, XCircle, Settings2, Pencil,
-  Link2, Puzzle, Users,
+  Link2, Puzzle, Users, Workflow,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -63,6 +63,16 @@ interface AvailableConnection {
 // ── Tool type metadata ─────────────────────────────────────────────────────────
 
 const TOOL_TYPES = {
+  workflow: {
+    label: 'Workflow Tools',
+    icon: Workflow,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50',
+    border: 'border-indigo-200',
+    tools: [
+      { type: 'workflow',              label: 'Run Workflow',         icon: Workflow,        description: 'The agent calls this tool, which runs a workflow. The workflow is what talks to your connected apps.' },
+    ],
+  },
   phone_call: {
     label: 'Phone Call Tools',
     icon: Phone,
@@ -348,6 +358,42 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
 
 // ── Type-specific config panels ────────────────────────────────────────────────
 
+/**
+ * Config for a workflow-backed tool: pick the workflow it runs.
+ * This is the agent → tool → workflow → apps chain.
+ */
+function WorkflowToolConfig({ config, onCfg }: {
+  config: Record<string,string>
+  onCfg: (k:string,v:string)=>void
+}) {
+  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    apiClient.get<{ workflows: { id: string; name: string }[] }>(API_ENDPOINTS.WORKFLOWS)
+      .then(res => setWorkflows(res.data.workflows || []))
+      .catch(() => setWorkflows([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  return <div className="space-y-4">
+    <Field label="Workflow" required hint="The workflow this tool runs. Its inputs become the tool's parameters.">
+      <select
+        value={config.workflow_id||''}
+        onChange={e=>onCfg('workflow_id', e.target.value)}
+        disabled={loading}
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+      >
+        <option value="">{loading ? 'Loading workflows…' : 'Select a workflow…'}</option>
+        {workflows.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+      </select>
+    </Field>
+    <Field label="Holding line" hint="Spoken while the workflow runs, to avoid dead air">
+      <TI value={config.filler_message||''} onChange={s=>onCfg('filler_message', s)} placeholder="One moment while I take care of that."/>
+    </Field>
+  </div>
+}
+
 function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
   toolType: string
   config: Record<string,string>
@@ -358,6 +404,9 @@ function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
   const s = (k:string) => (v:string) => onCfg(k,v)
 
   switch (toolType) {
+    case 'workflow':
+      return <WorkflowToolConfig config={config} onCfg={onCfg}/>
+
     case 'connected_integration':
       return <ConnectedIntegrationConfig config={config} onCfg={onCfg} onParams={onParams}/>
 

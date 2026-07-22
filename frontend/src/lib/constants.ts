@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export const API_ENDPOINTS = {
   // Auth
@@ -61,6 +61,11 @@ export const API_ENDPOINTS = {
   TOOL_TEST: (id: string) => `${API_BASE}/api/v1/tools/${id}/test`,
   AGENT_TOOLS: (agentId: string) => `${API_BASE}/api/v1/tools/agents/${agentId}/tools`,
   AGENT_TOOL: (agentId: string, toolId: string) => `${API_BASE}/api/v1/tools/agents/${agentId}/tools/${toolId}`,
+
+  // Chat widget
+  AGENT_WIDGET: (agentId: string) => `${API_BASE}/api/v1/chat/agents/${agentId}/widget`,
+  AGENT_CHAT_SESSIONS: (agentId: string) => `${API_BASE}/api/v1/chat/agents/${agentId}/sessions`,
+  CHAT_SESSION_MESSAGES: (sessionId: string) => `${API_BASE}/api/v1/chat/sessions/${sessionId}/messages`,
 
   // Health
   HEALTH: `${API_BASE}/health`,

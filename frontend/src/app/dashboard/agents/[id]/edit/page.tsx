@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bot, Wrench, Plus, Loader2, Trash2, Phone, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail } from 'lucide-react'
+import { ArrowLeft, Bot, Wrench, Plus, Loader2, Trash2, Phone, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
@@ -14,10 +14,12 @@ import {
   LLM_MODELS, LLM_PROVIDERS,
   TTS_VOICES, TTS_PROVIDERS,
 } from '@/components/agents/AgentForm'
+import { AgentWidgetTab } from '@/components/agents/AgentWidgetTab'
 
 // ── Tool types (mirrors tools page) ─────────────────────────────────────────
 
 const TOOL_TYPE_META: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; category: string; color: string; bg: string }> = {
+  workflow:             { label: 'Workflow',             icon: Workflow,       category: 'assistant',    color: 'text-indigo-600',  bg: 'bg-indigo-50' },
   transfer_call:        { label: 'Transfer Call',        icon: PhoneForwarded, category: 'phone_call',   color: 'text-emerald-600', bg: 'bg-emerald-50' },
   hang_up:              { label: 'Hang Up',              icon: PhoneOff,       category: 'phone_call',   color: 'text-emerald-600', bg: 'bg-emerald-50' },
   leave_voicemail:      { label: 'Leave Voicemail',      icon: Voicemail,      category: 'phone_call',   color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -36,6 +38,156 @@ const TOOL_TYPE_META: Record<string, { label: string; icon: React.ComponentType<
 interface Tool { id: string; name: string; description: string | null; tool_type: string; category: string; is_active: boolean }
 interface Assignment { id: string; agent_id: string; tool_id: string; tool: Tool; created_at: string }
 
+// ── Create-tool form (workflow-backed is the primary path) ───────────────────
+
+interface WorkflowOption { id: string; name: string }
+
+/**
+ * Create a tool from inside the agent, satisfying the requirement that users
+ * build tools without leaving the agent. The workflow-backed tool is the
+ * default and recommended path: agent → tool → workflow → apps.
+ */
+function CreateToolForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (tool: Tool) => Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [workflowId, setWorkflowId] = useState('')
+  const [filler, setFiller] = useState('One moment while I take care of that.')
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([])
+  const [loadingWorkflows, setLoadingWorkflows] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    apiClient
+      .get<{ workflows: WorkflowOption[] }>(API_ENDPOINTS.WORKFLOWS)
+      .then((res) => setWorkflows(res.data.workflows || []))
+      .catch(() => setWorkflows([]))
+      .finally(() => setLoadingWorkflows(false))
+  }, [])
+
+  const canSave = name.trim() && description.trim() && workflowId && !saving
+
+  const submit = async () => {
+    if (!canSave) return
+    setSaving(true)
+    try {
+      const res = await apiClient.post<Tool>(API_ENDPOINTS.TOOLS, {
+        name: name.trim(),
+        description: description.trim(),
+        tool_type: 'workflow',
+        config: { workflow_id: workflowId, filler_message: filler.trim() || undefined },
+        is_active: true,
+      })
+      await onCreated(res.data)
+      toast.success('Tool created and added to this agent')
+    } catch (err) {
+      toast.error(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Workflow className="h-4 w-4 text-indigo-600" />
+          <h4 className="text-sm font-semibold text-slate-800">New workflow tool</h4>
+        </div>
+        <button onClick={onCancel} className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-600">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <p className="text-xs text-slate-500">
+        The agent calls this tool, which runs the workflow you pick. The workflow
+        is what talks to your connected apps.
+      </p>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-600">Tool name</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="book_appointment"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-600">
+          When should the agent use it?
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="Books an appointment for the caller. Use whenever they want to schedule, book, or reserve a time."
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+        <p className="text-[11px] text-slate-400">
+          The agent decides when to call the tool from this description — write it
+          as the situations it covers.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-600">Runs this workflow</label>
+        <select
+          value={workflowId}
+          onChange={(e) => setWorkflowId(e.target.value)}
+          disabled={loadingWorkflows}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          <option value="">
+            {loadingWorkflows ? 'Loading workflows…' : 'Select a workflow…'}
+          </option>
+          {workflows.map((w) => (
+            <option key={w.id} value={w.id}>{w.name}</option>
+          ))}
+        </select>
+        {!loadingWorkflows && workflows.length === 0 && (
+          <p className="text-[11px] text-slate-400">
+            No workflows yet.{' '}
+            <Link href="/dashboard/workflows" className="underline">Create one</Link>{' '}
+            first, then link it here.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-600">
+          Holding line while it runs
+        </label>
+        <input
+          value={filler}
+          onChange={(e) => setFiller(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-white">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={!canSave}
+          className="flex items-center gap-1.5 rounded-lg gradient-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          Create &amp; add
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Agent Tools Tab ──────────────────────────────────────────────────────────
 
 function AgentToolsTab({ agentId }: { agentId: string }) {
@@ -43,6 +195,7 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
   const [allTools, setAllTools] = useState<Tool[]>([])
   const [loading, setLoading] = useState(true)
   const [assigning, setAssigning] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     Promise.allSettled([
@@ -57,6 +210,17 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
       }
     }).finally(() => setLoading(false))
   }, [agentId])
+
+  // Create a tool from within the agent, then attach it in one step.
+  const handleCreated = async (tool: Tool) => {
+    setAllTools((prev) => [tool, ...prev])
+    const res = await apiClient.post<Assignment>(
+      API_ENDPOINTS.AGENT_TOOL(agentId, tool.id),
+      {}
+    )
+    setAssignments((prev) => [...prev, res.data])
+    setCreating(false)
+  }
 
   const assignedIds = new Set(assignments.map(a => a.tool_id))
   const unassigned = allTools.filter(t => !assignedIds.has(t.id) && t.is_active)
@@ -95,6 +259,29 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
 
   return (
     <div className="space-y-5">
+      {/* Create a tool without leaving the agent */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700">Tools</h3>
+          <p className="text-xs text-slate-400">
+            Tools let this agent trigger workflows and actions during a conversation.
+          </p>
+        </div>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1.5 rounded-lg gradient-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New tool
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <CreateToolForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
+      )}
+
       {/* Assigned tools */}
       <div>
         <h3 className="text-sm font-semibold text-slate-700 mb-3">
@@ -168,11 +355,13 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
         </div>
       )}
 
-      {allTools.length === 0 && (
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-          You have no tools yet.{' '}
-          <Link href="/dashboard/tools" className="font-semibold underline hover:text-blue-800">Create tools</Link>
-          {' '}first, then assign them here.
+      {allTools.length === 0 && !creating && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
+          No tools yet. Click{' '}
+          <button onClick={() => setCreating(true)} className="font-semibold underline hover:text-indigo-800">
+            New tool
+          </button>{' '}
+          to create one and connect it to a workflow.
         </div>
       )}
     </div>
@@ -286,6 +475,8 @@ export default function EditAgentPage() {
   )
 
   const isToolsTab = tab === 'tools'
+  const isWidgetTab = tab === 'widget'
+  const isCustomTab = isToolsTab || isWidgetTab
   const formTabIndex = FORM_TABS.indexOf(tab as any)
 
   return (
@@ -314,6 +505,10 @@ export default function EditAgentPage() {
           <div className="p-5">
             <AgentToolsTab agentId={agentId} />
           </div>
+        ) : isWidgetTab ? (
+          <div className="p-5">
+            <AgentWidgetTab agentId={agentId} />
+          </div>
         ) : (
           <form onSubmit={handleSubmit}>
             <div className="p-5">
@@ -329,7 +524,7 @@ export default function EditAgentPage() {
                     Previous
                   </button>
                 )}
-                {tab !== 'advanced' && !isToolsTab && (
+                {tab !== 'advanced' && !isCustomTab && (
                   <button type="button" onClick={() => setTab(FORM_TABS[formTabIndex + 1])}
                     className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">
                     Next

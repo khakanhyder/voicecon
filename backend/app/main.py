@@ -6,7 +6,7 @@ import os
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -120,6 +120,16 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
+# The chat widget embeds on arbitrary customer websites, so its public
+# endpoints must accept any origin. That is incompatible with the credentialed,
+# origin-restricted policy the rest of the app uses, so open CORS is applied
+# only to these paths (no credentials — the public_key in the URL is the only
+# auth). The middleware itself is registered LAST (see below) so it is the
+# outermost layer and handles the CORS preflight before the global,
+# origin-restricted CORSMiddleware can reject a customer origin.
+_PUBLIC_CHAT_PREFIXES = ("/api/v1/chat/public/", "/api/v1/chat/widget.js")
+
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -152,6 +162,32 @@ async def add_process_time_header(request: Request, call_next):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"error": "InternalServerError", "message": "An unexpected error occurred"},
         )
+
+
+# Public-chat CORS — registered LAST so it is the OUTERMOST middleware and runs
+# before the global CORSMiddleware. Otherwise CORSMiddleware intercepts the
+# preflight from a customer origin (or file:// which sends Origin: null) and
+# rejects it with 400 before this handler can allow it.
+@app.middleware("http")
+async def public_chat_cors(request: Request, call_next):
+    path = request.url.path
+    is_public_chat = any(path.startswith(p) for p in _PUBLIC_CHAT_PREFIXES)
+
+    if is_public_chat and request.method == "OPTIONS":
+        return Response(
+            status_code=204,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Max-Age": "600",
+            },
+        )
+
+    response = await call_next(request)
+    if is_public_chat:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
 
 
 # Exception handlers

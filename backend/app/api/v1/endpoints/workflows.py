@@ -8,7 +8,15 @@ import secrets
 import uuid
 from typing import Optional, List
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, desc
 
@@ -893,6 +901,127 @@ async def test_workflow_trigger(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to test trigger: {str(e)}",
         )
+
+
+@router.websocket("/{workflow_id}/executions/stream")
+async def stream_workflow_execution(
+    websocket: WebSocket,
+    workflow_id: str,
+    token: str = Query(default=""),
+):
+    """
+    Run a workflow and stream its node-level progress live.
+
+    Handshake:
+      1. Client connects with a ``token`` query param (browser WS can't set
+         auth headers).
+      2. Server sends ``{"event": "ready"}``.
+      3. Client sends ``{"trigger_data": {...}}`` to start the run.
+      4. Server streams ``node_started`` / ``node_finished`` / ``node_skipped``
+         events, then a final ``execution_complete`` carrying the full record.
+
+    The run executes in this same process, so the executor's event callback can
+    push straight down the socket — no message broker needed for a single
+    worker.
+    """
+    await websocket.accept()
+
+    from app.core.security import decode_token
+    from app.database import AsyncSessionLocal
+    from app.models.user import User
+    from app.services.workflows.channels import SimulatedChannel
+
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        await websocket.close(code=4001)
+        return
+
+    try:
+        workflow_uuid = uuid.UUID(workflow_id)
+        user_uuid = uuid.UUID(payload.get("sub"))
+    except (ValueError, TypeError):
+        await websocket.close(code=4003)
+        return
+
+    async with AsyncSessionLocal() as db:
+        workflow = (
+            await db.execute(
+                select(Workflow).where(
+                    and_(
+                        Workflow.id == workflow_uuid,
+                        Workflow.user_id == user_uuid,
+                        Workflow.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not workflow:
+            await websocket.close(code=4004)
+            return
+
+        await websocket.send_json({"event": "ready"})
+
+        # Wait for the client to kick off the run.
+        try:
+            start = await websocket.receive_json()
+        except (WebSocketDisconnect, ValueError):
+            return
+
+        trigger_data = start.get("trigger_data") or {}
+
+        # Push each executor event straight to the browser. A dead socket must
+        # not break the run, so send failures are swallowed here.
+        async def on_event(event: dict) -> None:
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                pass
+
+        engine = get_workflow_engine(db)
+
+        try:
+            execution = await engine.execute_workflow(
+                workflow_id=str(workflow.id),
+                trigger_data=trigger_data,
+                wait_for_completion=True,
+                channel=SimulatedChannel(
+                    answers=trigger_data.get("answers")
+                    if isinstance(trigger_data.get("answers"), dict)
+                    else None
+                ),
+                on_event=on_event,
+            )
+            await db.refresh(execution)
+
+            await websocket.send_json(
+                {
+                    "event": "execution_complete",
+                    "execution": {
+                        "id": str(execution.id),
+                        "status": execution.status,
+                        "duration_ms": execution.duration_ms,
+                        "steps_executed": execution.steps_executed,
+                        "steps_successful": execution.steps_successful,
+                        "steps_failed": execution.steps_failed,
+                        "error_message": execution.error_message,
+                        "result_data": execution.result_data,
+                    },
+                }
+            )
+        except WebSocketDisconnect:
+            return
+        except Exception as e:
+            logger.error(f"Streaming execution failed: {e}", exc_info=True)
+            try:
+                await websocket.send_json({"event": "error", "message": str(e)})
+            except Exception:
+                pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
 
 @router.post("/{workflow_id}/validate")

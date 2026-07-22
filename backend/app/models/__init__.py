@@ -25,9 +25,14 @@ from app.models.template import (
     AgentTemplate, WorkflowTemplate, TemplateInstallation,
     TemplateReview, TemplateVersion
 )
+from app.models.chat import ChatWidget, ChatSession, ChatMessage
 
 __all__ = [
     "Base",
+    # Chat widget models
+    "ChatWidget",
+    "ChatSession",
+    "ChatMessage",
     # User models
     "User",
     "Organization",

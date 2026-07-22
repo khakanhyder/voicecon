@@ -23,6 +23,8 @@ export type FieldType =
   | 'rules'
   /** Declares the workflow's input parameters, on the trigger node. */
   | 'inputs'
+  /** A monospace code editor. */
+  | 'code'
 
 export interface FieldDescriptor {
   name: string
@@ -546,6 +548,56 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     summary: (c) => {
       const count = Object.keys(c.transformations || {}).length
       return count ? `${count} field${count > 1 ? 's' : ''}` : 'No fields set'
+    },
+  },
+
+  code: {
+    type: 'code',
+    label: 'Code',
+    description: 'Run a Python or JavaScript snippet on the data',
+    category: 'Logic',
+    accent: 'bg-zinc-600',
+    icon: 'Code',
+    outputs: OUT,
+    hasInput: true,
+    fields: [
+      {
+        name: 'language',
+        label: 'Language',
+        type: 'select',
+        default: 'python',
+        options: [
+          { value: 'python', label: 'Python' },
+          { value: 'javascript', label: 'JavaScript' },
+        ],
+      },
+      {
+        name: 'code',
+        label: 'Code',
+        type: 'code',
+        required: true,
+        // The editor highlights based on this sibling field.
+        dependsOn: 'language',
+        default:
+          '# `input` holds trigger, steps and vars.\n'
+          + '# Return data by assigning `result`.\n'
+          + 'result = {\n'
+          + '    "example": input["trigger"],\n'
+          + '}\n',
+        help: 'Runs in a sandbox. Assign `result`, or define `main(input)`. '
+          + 'A returned object is published as named variables.',
+      },
+      {
+        name: 'timeout_seconds',
+        label: 'Timeout (seconds)',
+        type: 'number',
+        default: 5,
+      },
+    ],
+    summary: (c) => {
+      const lines = String(c.code || '').trim().split('\n').filter(Boolean).length
+      const lang = c.language === 'javascript' ? 'JavaScript' : 'Python'
+      return lines ? `${lines} line${lines > 1 ? 's' : ''} of ${lang}` : 'No code yet'
     },
   },
 

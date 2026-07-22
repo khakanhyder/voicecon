@@ -16,12 +16,32 @@ import { ConnectionActionField, ConnectionField } from './fields/ConnectionField
 import { KeyValueField } from './fields/KeyValueField'
 import { RulesField } from './fields/RulesField'
 import { InputsField } from './fields/InputsField'
+import dynamic from 'next/dynamic'
+const CodeEditor = dynamic(
+  () => import('./fields/CodeEditor').then((m) => m.CodeEditor),
+  { ssr: false, loading: () => <div className="h-[240px] rounded-md border bg-muted/40" /> }
+)
 import {
   DataPicker,
   ExpressionInput,
   type DataPath,
 } from './fields/ExpressionInput'
 import { cn } from '@/lib/utils'
+
+// Starter snippets, kept in sync with the Python default in the descriptor.
+const PY_STARTER =
+  '# `input` holds trigger, steps and vars.\n'
+  + '# Return data by assigning `result`.\n'
+  + 'result = {\n'
+  + '    "example": input["trigger"],\n'
+  + '}\n'
+
+const JS_STARTER =
+  '// `input` holds trigger, steps and vars.\n'
+  + '// Return data by assigning `result`.\n'
+  + 'result = {\n'
+  + '  example: input.trigger,\n'
+  + '}\n'
 
 interface NodeInspectorProps {
   node: FlowNode
@@ -58,7 +78,19 @@ export function NodeInspector({
   const isTrigger = node.data.nodeType === 'trigger'
 
   const setField = (name: string, value: unknown) => {
-    onChangeConfig({ ...config, [name]: value })
+    const next = { ...config, [name]: value }
+
+    // When the Code node's language changes and the editor still holds the
+    // untouched starter snippet, swap it for the other language's starter so a
+    // JavaScript user doesn't stare at Python (and vice versa).
+    if (name === 'language' && node.data.nodeType === 'code') {
+      const current = String(config.code ?? '').trim()
+      if (!current || current === PY_STARTER.trim() || current === JS_STARTER.trim()) {
+        next.code = value === 'javascript' ? JS_STARTER : PY_STARTER
+      }
+    }
+
+    onChangeConfig(next)
   }
 
   return (
@@ -339,6 +371,12 @@ function FieldControl({
         <RulesField value={value as any} onChange={onChange} />
       ) : field.type === 'inputs' ? (
         <InputsField value={value as any} onChange={onChange} />
+      ) : field.type === 'code' ? (
+        <CodeEditor
+          value={(value as string) ?? ''}
+          language={(dependsOnValue as string) || 'python'}
+          onChange={onChange}
+        />
       ) : field.type === 'textarea' ? (
         <ExpressionInput
           id={id}

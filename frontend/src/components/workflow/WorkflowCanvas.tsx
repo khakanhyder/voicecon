@@ -60,6 +60,8 @@ interface WorkflowCanvasProps {
   runStatus?: Record<string, { status: FlowNode['data']['status']; error?: string | null }>
   /** Lets the page focus a node from the execution results panel. */
   registerSelect?: (fn: (nodeId: string) => void) => void
+  /** View-only: no palette, no editing, no inspector. Used by history replay. */
+  readOnly?: boolean
 }
 
 export function WorkflowCanvas(props: WorkflowCanvasProps) {
@@ -78,6 +80,7 @@ function CanvasInner({
   registerSave,
   runStatus,
   registerSelect,
+  readOnly = false,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges)
@@ -462,19 +465,22 @@ function CanvasInner({
 
   return (
     <div className="flex h-full min-h-0 w-full">
-      <NodePalette onAdd={(type) => addNode(type)} />
+      {!readOnly && <NodePalette onAdd={(type) => addNode(type)} />}
 
       <div ref={wrapperRef} className="relative min-w-0 flex-1">
         <ReactFlow
           nodes={nodes}
           edges={edgesWithHandlers}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onSelectionChange={onSelectionChange}
-          onNodeDragStart={pushHistory}
+          onNodesChange={readOnly ? undefined : onNodesChange}
+          onEdgesChange={readOnly ? undefined : onEdgesChange}
+          onConnect={readOnly ? undefined : onConnect}
+          onDrop={readOnly ? undefined : onDrop}
+          onDragOver={readOnly ? undefined : onDragOver}
+          onSelectionChange={readOnly ? undefined : onSelectionChange}
+          onNodeDragStart={readOnly ? undefined : pushHistory}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          elementsSelectable={!readOnly}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={{ type: 'workflowEdge' }}
@@ -491,6 +497,7 @@ function CanvasInner({
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls showInteractive={false} />
 
+          {!readOnly && (
           <Panel position="top-left" className="flex items-center gap-1.5">
             <div className="flex items-center gap-1 rounded-lg border bg-card p-1 shadow-sm">
               <Button
@@ -550,8 +557,9 @@ function CanvasInner({
                   : 'No issues'}
             </button>
           </Panel>
+          )}
 
-          {showIssues && issues.length > 0 && (
+          {!readOnly && showIssues && issues.length > 0 && (
             <Panel position="bottom-left" className="max-w-md">
               <div className="max-h-56 overflow-y-auto rounded-lg border bg-card p-2 shadow-lg">
                 {issues.map((issue, index) => (
@@ -589,7 +597,7 @@ function CanvasInner({
         </ReactFlow>
       </div>
 
-      {selectedNode && (
+      {selectedNode && !readOnly && (
         <NodeInspector
           node={selectedNode}
           onChangeName={(label) => updateNode(selectedNode.id, { label })}

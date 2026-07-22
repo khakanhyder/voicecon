@@ -28,6 +28,20 @@ logger = logging.getLogger(__name__)
 _INVALID_FN_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
+def _as_uuid_arg(value):
+    """Coerce an id to UUID, leaving unparseable input as-is.
+
+    Ids arrive as strings while the columns are UUID typed. asyncpg coerces
+    them; SQLite (used in tests) does not, so do it here for robustness.
+    """
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return value
+
+
 def sanitize_function_name(name: str) -> str:
     """
     Turn a human tool name into a valid OpenAI function name.
@@ -457,7 +471,7 @@ class FunctionExecutor:
         """
         result = await db.execute(
             select(AgentFunction)
-            .where(AgentFunction.agent_id == agent_id)
+            .where(AgentFunction.agent_id == _as_uuid_arg(agent_id))
             .where(AgentFunction.is_active == True)
             .order_by(AgentFunction.execution_order)
         )
@@ -476,7 +490,7 @@ class FunctionExecutor:
         """Fetch all active globally-assigned tools for an agent."""
         result = await db.execute(
             select(AgentToolAssignment)
-            .where(AgentToolAssignment.agent_id == agent_id)
+            .where(AgentToolAssignment.agent_id == _as_uuid_arg(agent_id))
         )
         assignments = result.scalars().all()
         tools: List[Tool] = []
@@ -512,6 +526,8 @@ class FunctionExecutor:
         Returns:
             A summary of the run, including its output
         """
+        from app.models.integration import Workflow
+        from app.services.workflows.graph import input_schema, load_graph
         from app.services.workflows.workflow_engine import get_workflow_engine
 
         workflow_id = cfg.get("workflow_id")
@@ -519,6 +535,34 @@ class FunctionExecutor:
             return {"error": "This tool is not linked to a workflow."}
         if db is None:
             return {"error": "No database session available to run the workflow."}
+
+        # Validate the LLM's parameters against the workflow's declared inputs
+        # BEFORE running. A model can omit or mistype a required field; without
+        # this the workflow would run with missing trigger data. A validation
+        # failure is returned as a tool error so the agent asks the caller for
+        # the missing detail rather than producing a wrong result.
+        try:
+            workflow = await db.get(Workflow, uuid.UUID(str(workflow_id)))
+        except (ValueError, AttributeError, TypeError):
+            workflow = None
+
+        if not workflow:
+            return {"error": "The linked workflow no longer exists."}
+
+        schema = input_schema(load_graph(workflow.workflow_steps))
+        missing = [
+            field
+            for field in schema.get("required", [])
+            if not str((parameters or {}).get(field, "")).strip()
+        ]
+        if missing:
+            return {
+                "error": "missing_parameters",
+                "missing": missing,
+                "message": (
+                    "Ask the caller for: " + ", ".join(missing) + ", then try again."
+                ),
+            }
 
         engine = get_workflow_engine(db)
 

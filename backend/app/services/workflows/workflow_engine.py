@@ -87,6 +87,7 @@ class WorkflowEngine:
         trigger_data: Optional[Dict[str, Any]] = None,
         wait_for_completion: bool = False,
         channel: Optional[Any] = None,
+        on_event: Optional[Any] = None,
     ) -> WorkflowExecution:
         """
         Execute a workflow.
@@ -135,7 +136,8 @@ class WorkflowEngine:
             # Execute in background if not waiting
             if wait_for_completion:
                 await self._execute_workflow_steps(
-                    workflow, execution, trigger_data or {}, channel, sync=True
+                    workflow, execution, trigger_data or {}, channel,
+                    sync=True, on_event=on_event,
                 )
             else:
                 # Fire-and-forget. This MUST NOT reuse self.db: that session is
@@ -516,6 +518,7 @@ class WorkflowEngine:
         trigger_data: Dict[str, Any],
         channel: Optional[Any] = None,
         sync: bool = False,
+        on_event: Optional[Any] = None,
     ) -> None:
         """
         Execute workflow steps.
@@ -556,6 +559,7 @@ class WorkflowEngine:
                 graph,
                 run_node=lambda node: self._run_node(node, graph, workflow, context, sync),
                 max_concurrency=DEFAULT_MAX_CONCURRENCY,
+                on_event=on_event,
             )
 
             step_results, counts = await executor.run()

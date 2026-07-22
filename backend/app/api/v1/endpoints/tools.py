@@ -66,6 +66,14 @@ async def create_tool(
     org_member = org_result.scalar_one_or_none()
     org_id = org_member.organization_id.hex if org_member else current_user.id.hex
 
+    # A workflow tool is only useful once it names a workflow — reject early
+    # rather than let the agent call a tool that can never do anything.
+    if data.tool_type == "workflow" and not (data.config or {}).get("workflow_id"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A workflow tool needs a workflow_id in its config.",
+        )
+
     category = TOOL_CATEGORIES.get(data.tool_type, data.category)
     tool = Tool(
         id=uuid.uuid4().hex,
