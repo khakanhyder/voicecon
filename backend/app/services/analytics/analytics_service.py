@@ -291,10 +291,16 @@ class AnalyticsService:
         result = await self.db.execute(calls_query)
         row = result.first()
 
-        # Calculate function call metrics from call logs
+        # Calculate function call metrics from call logs.
+        # CallLog uses `log_type` ('stt' | 'llm' | 'tts' | 'function' | ...) and a
+        # `severity` field; a function call is successful when it did not error.
         function_query = select(
-            func.sum(case((CallLog.event_type == 'function_call', 1), else_=0)).label('total_functions'),
-            func.sum(case((CallLog.event_type == 'function_call', 1), else_=0)).label('successful_functions'),
+            func.coalesce(
+                func.sum(case((CallLog.log_type == 'function', 1), else_=0)), 0
+            ).label('total_functions'),
+            func.coalesce(
+                func.sum(case((and_(CallLog.log_type == 'function', CallLog.severity != 'error'), 1), else_=0)), 0
+            ).label('successful_functions'),
         ).join(Call).where(
             and_(
                 Call.agent_id == agent_id,
@@ -788,7 +794,7 @@ class AnalyticsService:
             {
                 'id': str(row.id),
                 'status': row.status,
-                'duration': row.duration,
+                'duration': row.duration_seconds,
                 'started_at': row.started_at.isoformat() if row.started_at else None,
                 'agent_name': row.agent_name
             }

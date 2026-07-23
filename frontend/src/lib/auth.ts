@@ -49,6 +49,25 @@ export const authService = {
     return res
   },
 
+  // Persist the session returned by any auth endpoint (login / google / apple).
+  persistSession(data: any) {
+    if (typeof window === 'undefined' || !data?.access_token) return data
+    localStorage.setItem('access_token', data.access_token)
+    if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token)
+    if (data.user) localStorage.setItem('user', JSON.stringify(data.user))
+    return data
+  },
+
+  async googleAuth(code: string, redirectUri = 'postmessage') {
+    const { data } = await apiClient.post('/api/v1/auth/google', { code, redirect_uri: redirectUri })
+    return authService.persistSession(data)
+  },
+
+  async appleAuth(params: { id_token: string; full_name?: string; nonce?: string }) {
+    const { data } = await apiClient.post('/api/v1/auth/apple', params)
+    return authService.persistSession(data)
+  },
+
   async fetchMe() {
     return authService.getCurrentUser()
   },

@@ -24,6 +24,11 @@ from app.services.knowledge_base.vector_store import get_vector_store, VectorSto
 logger = logging.getLogger(__name__)
 
 
+# Strong references to in-flight document-processing tasks (asyncio keeps only
+# a weak one, so an unreferenced task can be collected mid-run).
+_processing_tasks: set = set()
+
+
 class TextChunker:
     """
     Intelligent text chunking with overlap.
@@ -214,6 +219,11 @@ class RAGService:
         if vector_store_config is None:
             vector_store_config = {'type': 'local', 'config': {}}
 
+        # Retained so background processing can build its own service instance
+        # bound to a fresh DB session.
+        self.openai_api_key = openai_api_key
+        self.vector_store_config = vector_store_config
+
         self.vector_store = get_vector_store(
             store_type=vector_store_config['type'],
             config=vector_store_config.get('config', {})
@@ -334,9 +344,14 @@ class RAGService:
 
         # Process document in a background task with its OWN DB session — the
         # request-scoped session (self.db) closes when the request returns.
+        # Keep a strong reference: asyncio only holds a weak one, so an
+        # unreferenced task can be garbage-collected before it finishes,
+        # leaving the document stuck in "pending" with no chunks.
         doc_id = doc.id
         kb_id = kb.id
-        asyncio.create_task(self._process_document_bg(doc_id, kb_id))
+        task = asyncio.create_task(self._process_document_bg(doc_id, kb_id))
+        _processing_tasks.add(task)
+        task.add_done_callback(_processing_tasks.discard)
 
         logger.info(f"Added document: {title} ({doc.id})")
         return doc
@@ -347,17 +362,27 @@ class RAGService:
         (the request session is gone) and reloads the KB before processing.
         """
         from app.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as db:
-            original_db = self.db
-            self.db = db
+            # Run on a *separate* service bound to this session rather than
+            # mutating self.db: two documents added from one request would
+            # otherwise stomp on each other's session mid-processing.
+            worker = RAGService(
+                db=db,
+                openai_api_key=self.openai_api_key,
+                vector_store_config=self.vector_store_config,
+            )
             try:
                 kb = (await db.execute(
                     select(KnowledgeBase).where(KnowledgeBase.id == kb_id)
                 )).scalar_one_or_none()
                 if kb:
-                    await self._process_document(document_id, kb)
-            finally:
-                self.db = original_db
+                    await worker._process_document(document_id, kb)
+            except Exception as e:
+                logger.error(
+                    f"Background processing failed for document {document_id}: {e}",
+                    exc_info=True,
+                )
 
     async def _process_document(self, document_id: uuid.UUID, kb: KnowledgeBase):
         """
@@ -762,7 +787,9 @@ async def search_knowledge_base_db(
         results.append({
             "chunk_id": str(chunk.id),
             "content": chunk.content,
+            "document_id": str(chunk.document_id),
             "document_title": title,
+            "chunk_index": chunk.chunk_index,
             "score": round(score, 4),
         })
     return results

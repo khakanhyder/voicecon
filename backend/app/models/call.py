@@ -109,6 +109,9 @@ class Call(Base):
     transcript: Mapped[Optional[str]] = mapped_column(Text)
     transcript_json: Mapped[Optional[dict]] = mapped_column(JSON)
 
+    # Conversation summary (AI-generated recap of the call)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+
     # Analysis
     sentiment_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2))
     sentiment_label: Mapped[Optional[str]] = mapped_column(String(50))

@@ -10,7 +10,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, case, desc
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -369,6 +369,106 @@ async def list_phone_numbers(
     phone_numbers = result.scalars().all()
 
     return phone_numbers
+
+
+# Caller / Contact History
+#
+# A "contact" is the external party on a call — the person who dialled the
+# agent (inbound) or was dialled by it (outbound). Calls are grouped by that
+# number so the analytics dashboard can show per-caller history.
+
+def _contact_expr():
+    """SQL expression for the external party's phone number on a call."""
+    return case(
+        (Call.direction == "inbound", Call.from_number),
+        else_=Call.to_number,
+    )
+
+
+@router.get("/contacts")
+async def list_call_contacts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List distinct callers (contacts) with aggregated call history.
+
+    Each contact is the external phone number that interacted with an agent,
+    along with call counts, duration, cost, sentiment and last-activity time.
+    """
+    contact = _contact_expr().label("contact")
+
+    query = (
+        select(
+            contact,
+            func.count(Call.id).label("total_calls"),
+            func.sum(case((Call.status == "completed", 1), else_=0)).label("completed_calls"),
+            func.sum(func.coalesce(Call.duration_seconds, 0)).label("total_duration"),
+            func.sum(func.coalesce(Call.cost_total, 0)).label("total_cost"),
+            func.avg(Call.sentiment_score).label("avg_sentiment"),
+            func.max(Call.started_at).label("last_call_at"),
+        )
+        .where(Call.user_id == current_user.id)
+        .group_by(contact)
+        .order_by(desc(func.max(Call.started_at)))
+    )
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    contacts = [
+        {
+            "contact_number": row.contact,
+            "total_calls": row.total_calls or 0,
+            "completed_calls": row.completed_calls or 0,
+            "total_duration_seconds": int(row.total_duration or 0),
+            "total_cost": float(row.total_cost or 0),
+            "avg_sentiment_score": float(row.avg_sentiment) if row.avg_sentiment is not None else None,
+            "last_call_at": row.last_call_at.isoformat() if row.last_call_at else None,
+        }
+        for row in rows
+        if row.contact  # skip blank / system numbers
+    ]
+
+    return {"contacts": contacts, "total": len(contacts)}
+
+
+@router.get("/contacts/{contact_number}/calls", response_model=CallListResponse)
+async def get_contact_calls(
+    contact_number: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List all calls for a specific caller (contact), most recent first.
+    """
+    contact = _contact_expr()
+
+    base_filter = and_(
+        Call.user_id == current_user.id,
+        contact == contact_number,
+    )
+
+    total_result = await db.execute(select(func.count()).select_from(Call).where(base_filter))
+    total = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(Call)
+        .where(base_filter)
+        .order_by(Call.started_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    calls = result.scalars().all()
+
+    return {
+        "calls": calls,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/{call_id}", response_model=CallResponse)

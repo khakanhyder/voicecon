@@ -17,11 +17,21 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    insp = sa.inspect(op.get_bind())
+    return table in insp.get_table_names() and column in {
+        c['name'] for c in insp.get_columns(table)
+    }
+
+
 def upgrade() -> None:
-    op.add_column(
-        'integration_connections',
-        sa.Column('api_key_encrypted', sa.Text(), nullable=True),
-    )
+    # Idempotent: dev builds this via Base.metadata.create_all, so it may
+    # already exist when the migration runs.
+    if not _has_column('integration_connections', 'api_key_encrypted'):
+        op.add_column(
+            'integration_connections',
+            sa.Column('api_key_encrypted', sa.Text(), nullable=True),
+        )
 
 
 def downgrade() -> None:

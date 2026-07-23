@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import {
   ArrowLeft, Phone, PhoneIncoming, PhoneOutgoing, DollarSign,
   Bot, User, Play, Pause, Volume2, Activity, FileText, ChevronRight,
-  Mic, Cpu, Tag,
+  Mic, Cpu, Tag, Sparkles,
 } from 'lucide-react'
 
 interface CallDetail {
@@ -26,7 +26,8 @@ interface CallDetail {
   recording_url: string | null
   recording_duration: number | null
   transcript: string | null
-  transcript_json: TranscriptEntry[] | null
+  transcript_json: TranscriptEntry[] | { entries?: RawTranscriptEntry[] } | null
+  summary: string | null
   sentiment_score: number | null
   sentiment_label: string | null
   cost_stt: number | null
@@ -44,6 +45,52 @@ interface TranscriptEntry {
   text: string
   timestamp?: string
   confidence?: number
+}
+
+// Shape persisted by the backend transcript service: { entries: [{ speaker, text, timestamp }] }
+interface RawTranscriptEntry {
+  speaker?: string
+  role?: string
+  text: string
+  timestamp?: string
+  confidence?: number
+}
+
+// Normalize whatever transcript_json shape the API returns into TranscriptEntry[]
+function normalizeTranscript(
+  transcriptJson: CallDetail['transcript_json'],
+  transcriptText: string | null,
+): TranscriptEntry[] {
+  const raw: RawTranscriptEntry[] | null = Array.isArray(transcriptJson)
+    ? (transcriptJson as RawTranscriptEntry[])
+    : transcriptJson && Array.isArray((transcriptJson as any).entries)
+    ? (transcriptJson as any).entries
+    : null
+
+  if (raw && raw.length > 0) {
+    return raw.map(e => {
+      const speaker = (e.speaker || e.role || 'user').toLowerCase()
+      const isAgent = speaker === 'agent' || speaker === 'assistant' || speaker === 'ai'
+      return {
+        role: isAgent ? 'agent' : 'user',
+        text: e.text,
+        timestamp: e.timestamp,
+        confidence: e.confidence,
+      }
+    })
+  }
+
+  if (transcriptText) {
+    return transcriptText.split('\n').filter(Boolean).map(line => {
+      // Handles "[HH:MM:SS] USER: text" and "Agent: text" style lines.
+      const stripped = line.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '')
+      const isAgent = /^(agent|ai|assistant)\s*:/i.test(stripped)
+      const text = stripped.replace(/^(agent|ai|assistant|user|human|caller)\s*:\s*/i, '')
+      return { role: isAgent ? 'agent' : 'user', text } as TranscriptEntry
+    })
+  }
+
+  return []
 }
 
 const statusConfig: Record<string, { color: string; bg: string }> = {
@@ -180,15 +227,7 @@ export default function CallDetailPage() {
   )
 
   const status = statusConfig[call.status] || statusConfig.initiated
-  const transcript: TranscriptEntry[] = call.transcript_json
-    ? call.transcript_json
-    : call.transcript
-    ? call.transcript.split('\n').filter(Boolean).map(line => {
-        const isAgent = line.startsWith('Agent:') || line.startsWith('AI:') || line.startsWith('Assistant:')
-        const text = line.replace(/^(Agent:|AI:|Assistant:|User:|Human:)\s*/i, '')
-        return { role: isAgent ? 'agent' : 'user', text }
-      })
-    : []
+  const transcript: TranscriptEntry[] = normalizeTranscript(call.transcript_json, call.transcript)
 
   const totalCost = call.cost_total
     ?? ((call.cost_stt || 0) + (call.cost_llm || 0) + (call.cost_tts || 0) + (call.cost_telephony || 0))
@@ -246,6 +285,23 @@ export default function CallDetailPage() {
 
         {/* Transcript — 2 cols */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Conversation summary */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
+              <Sparkles className="h-4 w-4 text-blue-500" />
+              Conversation Summary
+            </h3>
+            {call.summary ? (
+              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{call.summary}</p>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-6 text-center">
+                <Sparkles className="h-7 w-7 text-slate-200 mb-2" />
+                <p className="text-sm text-slate-400">No summary available</p>
+                <p className="text-xs text-slate-300 mt-1">A summary is generated automatically when a call completes</p>
+              </div>
+            )}
+          </div>
+
           {/* Recording player */}
           {call.recording_url && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">

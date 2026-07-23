@@ -98,6 +98,33 @@ class Settings(BaseSettings):
         """Resolve the Stripe secret key (prefers STRIPE_SECRET_KEY, falls back to legacy)."""
         return self.STRIPE_SECRET_KEY or self.STRIPE_API_KEY
 
+    # ---- Social login (Google / Apple "Sign in with") ----
+    # Public URL of the frontend — used as the OAuth origin/redirect base.
+    FRONTEND_URL: str = Field(default="http://localhost:3000")
+
+    # Google OAuth 2.0 — from Google Cloud Console → APIs & Services → Credentials
+    # (OAuth 2.0 Client ID of type "Web application").
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+
+    # Apple "Sign in with Apple" — from the Apple Developer portal.
+    #   APPLE_CLIENT_ID: the Services ID (e.g. com.voicecon.web), used as the token audience
+    #   APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_PRIVATE_KEY: only needed for the
+    #     authorization-code exchange (refresh tokens); pure sign-in verifies the
+    #     id_token and needs just APPLE_CLIENT_ID.
+    APPLE_CLIENT_ID: Optional[str] = None
+    APPLE_TEAM_ID: Optional[str] = None
+    APPLE_KEY_ID: Optional[str] = None
+    APPLE_PRIVATE_KEY: Optional[str] = None
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
+
+    @property
+    def apple_oauth_enabled(self) -> bool:
+        return bool(self.APPLE_CLIENT_ID)
+
     @property
     def stripe_configured(self) -> bool:
         """True when a real (non-placeholder) Stripe secret key is set."""

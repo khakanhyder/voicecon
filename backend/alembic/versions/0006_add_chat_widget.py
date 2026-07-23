@@ -19,7 +19,21 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(table: str) -> bool:
+    return table in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
+    # Idempotent: dev builds these tables via Base.metadata.create_all.
+    if not _has_table('chat_widgets'):
+        _create_chat_widgets()
+    if not _has_table('chat_sessions'):
+        _create_chat_sessions()
+    if not _has_table('chat_messages'):
+        _create_chat_messages()
+
+
+def _create_chat_widgets() -> None:
     op.create_table(
         'chat_widgets',
         sa.Column('id', sa.Uuid(), nullable=False),
@@ -39,6 +53,8 @@ def upgrade() -> None:
     op.create_index('ix_chat_widgets_public_key', 'chat_widgets', ['public_key'])
     op.create_index('ix_chat_widgets_organization_id', 'chat_widgets', ['organization_id'])
 
+
+def _create_chat_sessions() -> None:
     op.create_table(
         'chat_sessions',
         sa.Column('id', sa.Uuid(), nullable=False),
@@ -61,6 +77,8 @@ def upgrade() -> None:
     op.create_index('ix_chat_sessions_visitor_id', 'chat_sessions', ['visitor_id'])
     op.create_index('ix_chat_sessions_started_at', 'chat_sessions', ['started_at'])
 
+
+def _create_chat_messages() -> None:
     op.create_table(
         'chat_messages',
         sa.Column('id', sa.Uuid(), nullable=False),

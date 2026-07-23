@@ -18,7 +18,14 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(table: str) -> bool:
+    return table in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
+    # Idempotent: dev builds this table via Base.metadata.create_all.
+    if _has_table('company_profiles'):
+        return
     op.create_table(
         'company_profiles',
         sa.Column('id', sa.Uuid(), nullable=False),

@@ -22,6 +22,7 @@ import {
   LogOut,
   User,
   Wrench,
+  BookOpen,
 } from 'lucide-react'
 
 const navigation = [
@@ -30,6 +31,7 @@ const navigation = [
   { name: 'Calls', href: '/dashboard/calls', icon: Phone },
   { name: 'Phone Numbers', href: '/dashboard/phone-numbers', icon: Hash },
   { name: 'Tools', href: '/dashboard/tools', icon: Wrench },
+  { name: 'Knowledge Base', href: '/dashboard/knowledge', icon: BookOpen },
   { name: 'Workflows', href: '/dashboard/workflows', icon: GitBranch },
   { name: 'Integrations', href: '/dashboard/integrations', icon: Plug },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },

@@ -8,6 +8,7 @@ import {
   CheckCircle, XCircle, AlertCircle, BarChart3,
 } from 'lucide-react'
 import { exportDashboardSummary } from '@/lib/analytics-export'
+import CallerHistory from '@/components/analytics/CallerHistory'
 
 // ---- API types matching the backend ----
 interface DashboardData {
@@ -503,6 +504,9 @@ export default function AnalyticsPage() {
           )}
         </div>
       </div>
+
+      {/* Caller history — per-caller call log + AI summaries */}
+      <CallerHistory />
     </div>
   )
 }

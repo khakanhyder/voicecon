@@ -1,7 +1,7 @@
 'use client'
 
 import {
-  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench,
+  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen,
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -388,6 +388,7 @@ export const AGENT_TABS = [
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'advanced',     label: 'Advanced',     icon: Settings },
   { id: 'tools',        label: 'Tools',        icon: Wrench },
+  { id: 'knowledge',    label: 'Knowledge',    icon: BookOpen },
   { id: 'widget',       label: 'Chat Widget',  icon: MessageSquare },
 ] as const
 

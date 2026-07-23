@@ -11,6 +11,7 @@ const pageTitles: Record<string, { title: string; description: string; action?: 
   '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new' } },
   '/dashboard/calls': { title: 'Call History', description: 'View and manage all calls' },
   '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers' },
+  '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new' } },
   '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new' } },
   '/dashboard/integrations': { title: 'Integrations', description: 'Connect your apps and services' },
   '/dashboard/analytics': { title: 'Analytics', description: 'Insights and performance metrics' },

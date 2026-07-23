@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+from app.core.config import settings
 from app.core.security import (
     verify_password,
     get_password_hash,
@@ -23,10 +24,31 @@ from app.schemas.auth import (
     RegisterRequest,
     RegisterResponse,
     RefreshTokenRequest,
+    GoogleAuthRequest,
+    AppleAuthRequest,
 )
 from app.schemas.user import UserResponse
+from app.services.auth import get_oauth_service, OAuthError
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _login_response_for(user: User, is_new: bool = False) -> LoginResponse:
+    """Issue access + refresh tokens for an authenticated user."""
+    return LoginResponse(
+        access_token=create_access_token(subject=str(user.id)),
+        refresh_token=create_refresh_token(subject=str(user.id)),
+        token_type="bearer",
+        user={
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "avatar_url": user.avatar_url,
+            "is_verified": user.is_verified,
+            "auth_provider": user.auth_provider,
+            "is_new": is_new,
+        },
+    )
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
@@ -107,6 +129,14 @@ async def login(
     if not user:
         raise credentials_exception()
 
+    # Social-only accounts (Google/Apple) have no local password.
+    if not user.hashed_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This account uses {user.auth_provider.title()} sign-in. "
+                   f"Please continue with {user.auth_provider.title()}.",
+        )
+
     # Verify password
     if not verify_password(credentials.password, user.hashed_password):
         raise credentials_exception()
@@ -180,6 +210,59 @@ async def refresh_token(
             "is_verified": user.is_verified,
         }
     )
+
+
+@router.post("/google", response_model=LoginResponse)
+async def google_auth(
+    payload: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sign in / sign up with Google.
+
+    Accepts an authorization code (popup auth-code flow), verifies it with
+    Google, then finds-or-creates the matching user and returns our own tokens.
+    """
+    oauth = get_oauth_service()
+    try:
+        profile = await oauth.verify_google_code(payload.code, redirect_uri=payload.redirect_uri)
+        user, is_new = await oauth.resolve_user(db, profile)
+    except OAuthError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+    return _login_response_for(user, is_new=is_new)
+
+
+@router.post("/apple", response_model=LoginResponse)
+async def apple_auth(
+    payload: AppleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sign in / sign up with Apple.
+
+    Verifies the identity token from Sign in with Apple, then finds-or-creates
+    the matching user and returns our own tokens.
+    """
+    oauth = get_oauth_service()
+    try:
+        profile = await oauth.verify_apple(
+            payload.id_token, full_name=payload.full_name, nonce=payload.nonce
+        )
+        user, is_new = await oauth.resolve_user(db, profile)
+    except OAuthError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+    return _login_response_for(user, is_new=is_new)
+
+
+@router.get("/providers")
+async def oauth_providers():
+    """Report which social login providers are configured (for the frontend UI)."""
+    return {
+        "google": settings.google_oauth_enabled,
+        "apple": settings.apple_oauth_enabled,
+    }
 
 
 @router.post("/logout")

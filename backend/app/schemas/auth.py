@@ -52,6 +52,19 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class GoogleAuthRequest(BaseModel):
+    """Google sign-in request (authorization-code flow)."""
+    code: str = Field(..., description="Authorization code from Google (popup auth-code flow)")
+    redirect_uri: str = Field(default="postmessage", description="Redirect URI used by the client")
+
+
+class AppleAuthRequest(BaseModel):
+    """Apple sign-in request (Sign in with Apple JS)."""
+    id_token: str = Field(..., description="Identity token returned by AppleID.auth.signIn")
+    full_name: Optional[str] = Field(default=None, description="Name (only sent by Apple on first sign-in)")
+    nonce: Optional[str] = Field(default=None, description="Nonce to match against the token, if used")
+
+
 class PasswordResetRequest(BaseModel):
     """Password reset request schema."""
     email: EmailStr

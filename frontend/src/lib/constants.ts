@@ -15,6 +15,8 @@ export const API_ENDPOINTS = {
   CALLS: `${API_BASE}/api/v1/calls`,
   CALL: (id: string) => `${API_BASE}/api/v1/calls/${id}`,
   CALL_STATS: `${API_BASE}/api/v1/calls/stats`,
+  CALL_CONTACTS: `${API_BASE}/api/v1/calls/contacts`,
+  CALL_CONTACT_CALLS: (number: string) => `${API_BASE}/api/v1/calls/contacts/${encodeURIComponent(number)}/calls`,
 
   // Phone Numbers
   PHONE_NUMBERS: `${API_BASE}/api/v1/phone-numbers`,
@@ -33,6 +35,19 @@ export const API_ENDPOINTS = {
   INTEGRATIONS_AVAILABLE_FOR_TOOLS: `${API_BASE}/api/v1/integrations/available-for-tools`,
 
   // Workflows
+  // Knowledge base
+  KNOWLEDGE_BASES: `${API_BASE}/api/v1/knowledge/knowledge-bases`,
+  KNOWLEDGE_BASE: (id: string) => `${API_BASE}/api/v1/knowledge/knowledge-bases/${id}`,
+  KNOWLEDGE_BASE_DOCUMENTS: (id: string) =>
+    `${API_BASE}/api/v1/knowledge/knowledge-bases/${id}/documents`,
+  KNOWLEDGE_DOCUMENT: (id: string) => `${API_BASE}/api/v1/knowledge/documents/${id}`,
+  KNOWLEDGE_DOCUMENTS: `${API_BASE}/api/v1/knowledge/documents`,
+  KNOWLEDGE_UPLOAD: `${API_BASE}/api/v1/knowledge/documents/upload`,
+  KNOWLEDGE_SEARCH: `${API_BASE}/api/v1/knowledge/search`,
+  KNOWLEDGE_ASK: `${API_BASE}/api/v1/knowledge/ask`,
+  AGENT_KNOWLEDGE_BASES: (agentId: string) =>
+    `${API_BASE}/api/v1/knowledge/agents/${agentId}/knowledge-bases`,
+
   WORKFLOWS: `${API_BASE}/api/v1/workflows`,
   WORKFLOW: (id: string) => `${API_BASE}/api/v1/workflows/${id}`,
   WORKFLOW_EXECUTE: (id: string) => `${API_BASE}/api/v1/workflows/${id}/execute`,

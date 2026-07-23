@@ -66,7 +66,8 @@ class CallResponse(BaseModel):
     recording_url: Optional[str] = None
     recording_duration: Optional[int] = None
     transcript: Optional[str] = None
-    transcript_json: Optional[Dict[str, Any]] = None
+    transcript_json: Optional[Any] = None
+    summary: Optional[str] = None
     sentiment_score: Optional[float] = None
     sentiment_label: Optional[str] = None
     cost_stt: Optional[float] = None

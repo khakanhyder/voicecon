@@ -550,6 +550,19 @@ class VoiceSession:
             # Log user transcript
             await self._log_transcript_entry("user", utterance)
 
+            # Pull anything relevant from the agent's knowledge base(s) and give
+            # it to the model as context for THIS turn, so answers are grounded
+            # in the customer's own documents rather than the model's guesses.
+            kb_context = await self._get_kb_context(utterance)
+            if kb_context:
+                self.conversation.add_message(
+                    "system",
+                    "Use the following information from the company knowledge base to "
+                    "answer the caller's next question. If it doesn't contain the answer, "
+                    "say you don't have that information rather than guessing.\n\n"
+                    f"{kb_context}",
+                )
+
             # Add user message to conversation
             self.conversation.add_message("user", utterance)
 
@@ -584,6 +597,64 @@ class VoiceSession:
 
         finally:
             self.state = SessionState.LISTENING
+
+    async def _get_kb_context(self, query: str) -> Optional[str]:
+        """
+        Retrieve relevant knowledge-base passages for the caller's question.
+
+        Searches every knowledge base attached to this agent (auto_inject only).
+        Returns None when the agent has no knowledge base or nothing matches, so
+        a call is never blocked or slowed by a KB problem.
+        """
+        try:
+            from sqlalchemy import select
+            from app.models.knowledge_base import AgentKnowledgeBase
+            from app.services.knowledge_base.rag_service import search_knowledge_base_db
+            from app.core.config import settings as _settings
+
+            if not self.agent or not self.db:
+                return None
+
+            links = (
+                await self.db.execute(
+                    select(AgentKnowledgeBase)
+                    .where(
+                        AgentKnowledgeBase.agent_id == self.agent.id,
+                        AgentKnowledgeBase.is_active == True,  # noqa: E712
+                        AgentKnowledgeBase.auto_inject == True,  # noqa: E712
+                    )
+                    .order_by(AgentKnowledgeBase.priority.desc())
+                )
+            ).scalars().all()
+
+            if not links:
+                return None
+
+            passages = []
+            for link in links:
+                hits = await search_knowledge_base_db(
+                    db=self.db,
+                    knowledge_base_id=str(link.knowledge_base_id),
+                    query=query,
+                    api_key=_settings.OPENAI_API_KEY,
+                    top_k=link.max_results or 3,
+                    min_similarity=link.min_similarity or 0.2,
+                )
+                for h in hits:
+                    title = h.get("document_title") or "document"
+                    passages.append(f"[{title}] {h['content']}")
+
+            if not passages:
+                logger.info("KB search found nothing relevant for this utterance")
+                return None
+
+            logger.info(f"Injecting {len(passages)} knowledge-base passage(s) into the turn")
+            return "\n\n".join(passages[:5])
+
+        except Exception as e:
+            # Never let a KB failure break the conversation.
+            logger.error(f"Knowledge base lookup failed: {e}", exc_info=True)
+            return None
 
     async def _generate_llm_response(self) -> Optional[str]:
         """
@@ -1114,6 +1185,36 @@ class VoiceSession:
                     db=self.db,
                 )
                 logger.info(f"Saved transcript with {len(self.transcript_entries)} entries")
+
+                # Analyze transcript and persist sentiment + topics so the
+                # analytics dashboard has accurate per-call data.
+                try:
+                    analysis = await self.transcript_service.analyze_transcript(
+                        self.transcript_entries
+                    )
+                    if analysis.key_topics:
+                        self.call.topics = analysis.key_topics
+                except Exception as e:
+                    logger.warning(f"Transcript analysis failed for call {self.call_id}: {e}")
+
+                # Generate an AI conversation summary (with heuristic fallback)
+                # and derive sentiment from it.
+                try:
+                    from app.services.call.summary_service import get_summary_service
+
+                    summary_result = await get_summary_service().summarize(
+                        self.transcript_entries,
+                        provider=getattr(self.agent, "llm_provider", None) or "openai",
+                        model=getattr(self.agent, "llm_model", None),
+                    )
+                    if summary_result:
+                        self.call.summary = summary_result.summary
+                        self.call.sentiment_score = summary_result.sentiment_score
+                        self.call.sentiment_label = summary_result.sentiment_label
+                except Exception as e:
+                    logger.warning(f"Summary generation failed for call {self.call_id}: {e}")
+
+                await self.db.commit()
 
             # Update final costs
             await self._update_call_costs()

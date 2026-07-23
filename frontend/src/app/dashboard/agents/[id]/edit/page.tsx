@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, Bot, Wrench, Plus, Loader2, Trash2, Phone, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import {
   AgentTabBar, AgentTabContent, AgentTabId,
@@ -184,6 +185,116 @@ function CreateToolForm({
           Create &amp; add
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Agent Knowledge Tab ──────────────────────────────────────────────────────
+
+interface KnowledgeBaseOption {
+  id: string
+  name: string
+  description: string | null
+  document_count: number
+}
+
+function AgentKnowledgeTab({ agentId }: { agentId: string }) {
+  const [available, setAvailable] = useState<KnowledgeBaseOption[]>([])
+  const [selected, setSelected] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!agentId) return
+    Promise.all([
+      apiClient.get<KnowledgeBaseOption[]>(API_ENDPOINTS.KNOWLEDGE_BASES),
+      apiClient.get<{ knowledge_base_id: string }[]>(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId)),
+    ])
+      .then(([all, attached]) => {
+        setAvailable(all.data || [])
+        setSelected((attached.data || []).map((a) => a.knowledge_base_id))
+      })
+      .catch((e) => toast.error(getErrorMessage(e)))
+      .finally(() => setLoading(false))
+  }, [agentId])
+
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await apiClient.put(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId), {
+        knowledge_base_ids: selected,
+        max_results: 3,
+        min_similarity: 0.2,
+        auto_inject: true,
+      })
+      toast.success(
+        selected.length
+          ? `Agent will answer from ${selected.length} knowledge base(s)`
+          : 'Knowledge bases detached'
+      )
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading knowledge bases...</p>
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-lg font-semibold">Knowledge bases</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          Attach a knowledge base and this agent looks up relevant passages on every caller
+          question, answering from your documents instead of guessing.
+        </p>
+      </div>
+
+      {available.length === 0 ? (
+        <div className="rounded-md border p-6 text-center">
+          <p className="text-sm text-muted-foreground mb-3">
+            You haven&apos;t created a knowledge base yet.
+          </p>
+          <Link href="/dashboard/knowledge/new">
+            <Button variant="outline" size="sm">Create one</Button>
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {available.map((kb) => (
+              <label
+                key={kb.id}
+                className="flex items-start gap-3 rounded-md border p-3 cursor-pointer hover:bg-muted/50"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selected.includes(kb.id)}
+                  onChange={() => toggle(kb.id)}
+                />
+                <div className="min-w-0">
+                  <p className="font-medium">{kb.name}</p>
+                  {kb.description && (
+                    <p className="text-sm text-muted-foreground">{kb.description}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {kb.document_count} document(s)
+                  </p>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          <Button onClick={save} disabled={saving}>
+            {saving ? 'Saving...' : 'Save knowledge bases'}
+          </Button>
+        </>
+      )}
     </div>
   )
 }
@@ -476,7 +587,8 @@ export default function EditAgentPage() {
 
   const isToolsTab = tab === 'tools'
   const isWidgetTab = tab === 'widget'
-  const isCustomTab = isToolsTab || isWidgetTab
+  const isKnowledgeTab = tab === 'knowledge'
+  const isCustomTab = isToolsTab || isWidgetTab || isKnowledgeTab
   const formTabIndex = FORM_TABS.indexOf(tab as any)
 
   return (
@@ -504,6 +616,10 @@ export default function EditAgentPage() {
         {isToolsTab ? (
           <div className="p-5">
             <AgentToolsTab agentId={agentId} />
+          </div>
+        ) : isKnowledgeTab ? (
+          <div className="p-5">
+            <AgentKnowledgeTab agentId={agentId} />
           </div>
         ) : isWidgetTab ? (
           <div className="p-5">

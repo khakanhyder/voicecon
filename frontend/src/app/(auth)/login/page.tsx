@@ -2,10 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
+import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { Eye, EyeOff, Mail } from 'lucide-react'
-import { GoogleIcon, AppleIcon } from '@/lib/icons'
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
@@ -18,10 +17,6 @@ export default function LoginPage() {
     login({ email, password })
   }
 
-  const handleSocial = (provider: string) => {
-    toast.info(`${provider} sign-in is coming soon.`)
-  }
-
   return (
     <div className="w-full max-w-md px-1">
       <div className="mb-7">
@@ -30,24 +25,7 @@ export default function LoginPage() {
       </div>
 
       {/* Social logins */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => handleSocial('Google')}
-          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <GoogleIcon className="h-5 w-5" />
-          Login With Google
-        </button>
-        <button
-          type="button"
-          onClick={() => handleSocial('Apple')}
-          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <AppleIcon className="h-5 w-5 text-slate-900" />
-          Login With Apple
-        </button>
-      </div>
+      <SocialAuthButtons verb="Login" />
 
       {/* OR divider */}
       <div className="relative my-6">

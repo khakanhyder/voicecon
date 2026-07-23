@@ -19,7 +19,15 @@ class User(Base):
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Nullable: social-login (Google/Apple) users have no local password.
+    hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Auth provider: "email" (password), "google", "apple". A user may have both
+    # a password and a linked social account (linked by verified email).
+    auth_provider: Mapped[str] = mapped_column(String(20), default="email", nullable=False)
+    # Stable per-provider subject id (Google `sub`, Apple `sub`). Used to look up
+    # a returning social user even if their email changes.
+    google_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    apple_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     company_name: Mapped[Optional[str]] = mapped_column(String(255))
     phone_number: Mapped[Optional[str]] = mapped_column(String(50))

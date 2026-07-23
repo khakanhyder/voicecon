@@ -2,10 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
+import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { Eye, EyeOff, Mail, Lock, Phone, User } from 'lucide-react'
-import { GoogleIcon, AppleIcon } from '@/lib/icons'
 
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
@@ -53,10 +52,6 @@ export default function RegisterPage() {
     })
   }
 
-  const handleSocial = (provider: string) => {
-    toast.info(`${provider} sign-up is coming soon.`)
-  }
-
   const inputClass =
     'w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#243275] focus:ring-3 focus:ring-[#243275]/15 disabled:opacity-50'
 
@@ -70,24 +65,7 @@ export default function RegisterPage() {
       </div>
 
       {/* Social signups */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => handleSocial('Google')}
-          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <GoogleIcon className="h-5 w-5" />
-          Login With Google
-        </button>
-        <button
-          type="button"
-          onClick={() => handleSocial('Apple')}
-          className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 md:px-4 py-2.5 text-sm md:text-base font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <AppleIcon className="h-5 w-5 text-slate-900" />
-          Login With Apple
-        </button>
-      </div>
+      <SocialAuthButtons verb="Sign up" />
 
       {/* OR divider */}
       <div className="relative my-6">
