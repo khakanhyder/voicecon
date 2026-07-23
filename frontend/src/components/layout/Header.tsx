@@ -3,8 +3,9 @@
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
-import { Bell, Menu, Search, Plus } from 'lucide-react'
+import { Menu, Search, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { NotificationBell } from '@/components/layout/NotificationBell'
 
 const pageTitles: Record<string, { title: string; description: string; action?: { label: string; href: string } }> = {
   '/dashboard': { title: 'Dashboard', description: 'Overview of your voice AI platform' },
@@ -69,10 +70,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         )}
 
         {/* Notifications */}
-        <button className="relative flex items-center justify-center h-9 w-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
-          <Bell className="h-4.5 w-4.5" />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-blue-500 ring-2 ring-white" />
-        </button>
+        <NotificationBell />
 
         {/* User avatar */}
         <div className="flex items-center gap-2 pl-1">

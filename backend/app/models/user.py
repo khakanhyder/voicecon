@@ -31,6 +31,7 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     company_name: Mapped[Optional[str]] = mapped_column(String(255))
     phone_number: Mapped[Optional[str]] = mapped_column(String(50))
+    bio: Mapped[Optional[str]] = mapped_column(Text)
     avatar_url: Mapped[Optional[str]] = mapped_column(Text)
     timezone: Mapped[str] = mapped_column(String(100), default="UTC")
     language: Mapped[str] = mapped_column(String(10), default="en")

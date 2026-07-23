@@ -166,6 +166,50 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: Optional[str] = None
     SENDGRID_FROM_EMAIL: Optional[str] = None
 
+    # ---- Email / SMTP ----
+    # Generic SMTP transport. Fill these in to enable real email delivery; when
+    # unset (and SendGrid is also unset) the app falls back to a console provider
+    # that logs emails instead of sending them, so dev works with no credentials.
+    #   EMAIL_PROVIDER: "auto" | "smtp" | "sendgrid" | "console"
+    EMAIL_PROVIDER: str = Field(default="auto", description="Email provider selection")
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True   # STARTTLS on a plaintext port (587)
+    SMTP_USE_SSL: bool = False  # implicit TLS (465); mutually exclusive with STARTTLS
+    SMTP_TIMEOUT: int = 15
+    # Default From identity for all outbound mail.
+    EMAIL_FROM: str = Field(default="no-reply@voicecon.app", description="Default From address")
+    EMAIL_FROM_NAME: str = Field(default="Voicecon", description="Default From display name")
+
+    @property
+    def smtp_configured(self) -> bool:
+        """SMTP is usable when at least a host is set."""
+        return bool(self.SMTP_HOST)
+
+    @property
+    def sendgrid_configured(self) -> bool:
+        return bool(self.SENDGRID_API_KEY)
+
+    @property
+    def resolved_email_provider(self) -> str:
+        """The provider actually used given config and the EMAIL_PROVIDER hint."""
+        choice = (self.EMAIL_PROVIDER or "auto").lower()
+        if choice in ("smtp", "sendgrid", "console"):
+            return choice
+        # auto: prefer SMTP, then SendGrid, else console (log-only)
+        if self.smtp_configured:
+            return "smtp"
+        if self.sendgrid_configured:
+            return "sendgrid"
+        return "console"
+
+    @property
+    def email_from_full(self) -> str:
+        """RFC 5322 From header, e.g. 'Voicecon <no-reply@voicecon.app>'."""
+        return f"{self.EMAIL_FROM_NAME} <{self.EMAIL_FROM}>"
+
     # AWS (Storage)
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None

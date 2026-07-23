@@ -3,12 +3,17 @@ API v1 router aggregator.
 """
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, calls, telephony, phone_numbers, voice_stream, analytics, agents, integrations, workflows, knowledge_base, billing, marketplace, tools, onboarding, waitlist, chat
+from app.api.v1.endpoints import auth, calls, telephony, phone_numbers, voice_stream, analytics, agents, integrations, workflows, knowledge_base, billing, marketplace, tools, onboarding, waitlist, chat, users, team, api_keys, invitations, notifications
 
 api_router = APIRouter()
 
 # Include all endpoint routers
 api_router.include_router(auth.router, tags=["auth"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(team.router, prefix="/team", tags=["team"])
+api_router.include_router(api_keys.router, prefix="/api-keys", tags=["api-keys"])
+api_router.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(calls.router, prefix="/calls", tags=["calls"])
 api_router.include_router(telephony.router, prefix="/telephony", tags=["telephony"])
 api_router.include_router(phone_numbers.router, prefix="/phone-numbers", tags=["phone-numbers"])

@@ -26,6 +26,8 @@ from app.models.template import (
     TemplateReview, TemplateVersion
 )
 from app.models.chat import ChatWidget, ChatSession, ChatMessage
+from app.models.invitation import Invitation
+from app.models.notification import Notification
 
 __all__ = [
     "Base",
@@ -33,6 +35,9 @@ __all__ = [
     "ChatWidget",
     "ChatSession",
     "ChatMessage",
+    # Team invitations & notifications
+    "Invitation",
+    "Notification",
     # User models
     "User",
     "Organization",

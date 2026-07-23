@@ -10,9 +10,11 @@ import {
   Clock,
   Phone,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api';
+import { apiClient, getErrorMessage } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
+import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutModal';
 
 interface SubscriptionPlan {
   id: string;
@@ -82,26 +84,73 @@ export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
+
+  const fetchAll = async () => {
+    setLoading(true);
+    const [plansRes, subRes, usageRes, invRes] = await Promise.allSettled([
+      apiClient.get<SubscriptionPlan[]>(API_ENDPOINTS.BILLING_PLANS),
+      apiClient.get<Subscription | null>(API_ENDPOINTS.BILLING_SUBSCRIPTION),
+      apiClient.get<Usage>(API_ENDPOINTS.BILLING_USAGE),
+      apiClient.get<Invoice[]>(API_ENDPOINTS.BILLING_INVOICES),
+    ]);
+
+    if (plansRes.status === 'fulfilled') setPlans(plansRes.value.data);
+    setSubscription(subRes.status === 'fulfilled' ? subRes.value.data : null);
+    setUsage(usageRes.status === 'fulfilled' ? usageRes.value.data : null);
+    if (invRes.status === 'fulfilled') setInvoices(invRes.value.data);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true);
-      const [plansRes, subRes, usageRes, invRes] = await Promise.allSettled([
-        apiClient.get<SubscriptionPlan[]>(API_ENDPOINTS.BILLING_PLANS),
-        apiClient.get<Subscription | null>(API_ENDPOINTS.BILLING_SUBSCRIPTION),
-        apiClient.get<Usage>(API_ENDPOINTS.BILLING_USAGE),
-        apiClient.get<Invoice[]>(API_ENDPOINTS.BILLING_INVOICES),
-      ]);
-
-      if (plansRes.status === 'fulfilled') setPlans(plansRes.value.data);
-      if (subRes.status === 'fulfilled') setSubscription(subRes.value.data);
-      if (usageRes.status === 'fulfilled') setUsage(usageRes.value.data);
-      if (invRes.status === 'fulfilled') setInvoices(invRes.value.data);
-      setLoading(false);
-    };
-
     fetchAll();
   }, []);
+
+  // Switch an existing subscription to a different plan (no new card needed).
+  const switchPlan = async (planId: string) => {
+    setActionBusy(true);
+    try {
+      await apiClient.put(API_ENDPOINTS.BILLING_SUBSCRIPTION, { plan_id: planId, prorate: true });
+      toast.success('Plan updated');
+      await fetchAll();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const cancelSubscription = async () => {
+    if (!confirm('Cancel your subscription at the end of the current period?')) return;
+    setActionBusy(true);
+    try {
+      await apiClient.delete(API_ENDPOINTS.BILLING_SUBSCRIPTION);
+      toast.success('Subscription canceled');
+      await fetchAll();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Choosing a plan: switch in place if subscribed, otherwise open checkout.
+  const choosePlan = (plan: SubscriptionPlan) => {
+    if (subscription) {
+      switchPlan(plan.id);
+    } else {
+      setCheckoutPlan({
+        id: plan.id,
+        name: plan.name,
+        price_monthly: plan.price_monthly,
+        price_yearly: plan.price_yearly,
+      });
+    }
+  };
+
+  const scrollToPlans = () =>
+    document.getElementById('available-plans')?.scrollIntoView({ behavior: 'smooth' });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -190,14 +239,18 @@ export default function BillingPage() {
                 </div>
               </div>
               <div>
-                <div className="text-sm text-gray-600 mb-1">Payment Method</div>
+                <div className="text-sm text-gray-600 mb-1">Billing Period</div>
                 <div className="flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">•••• 4242</span>
+                  <span className="text-sm font-medium text-gray-900 capitalize">
+                    {subscription.billing_period}
+                  </span>
                 </div>
-                <button className="text-xs text-blue-600 hover:text-blue-700 mt-1">
-                  Update payment method
-                </button>
+                {subscription.canceled_at && (
+                  <div className="text-xs text-red-600 mt-1">
+                    Cancels {formatDate(subscription.current_period_end)}
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -207,10 +260,17 @@ export default function BillingPage() {
             </div>
           )}
 
-          {subscription && (
+          {subscription && !subscription.canceled_at && (
             <div className="flex gap-3">
-              <Button variant="outline">Change Plan</Button>
-              <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
+              <Button variant="outline" onClick={scrollToPlans} disabled={actionBusy}>
+                Change Plan
+              </Button>
+              <Button
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={cancelSubscription}
+                disabled={actionBusy}
+              >
                 Cancel Subscription
               </Button>
             </div>
@@ -336,7 +396,7 @@ export default function BillingPage() {
         </div>
 
         {/* Available Plans */}
-        <div className="bg-white border rounded-lg p-6">
+        <div id="available-plans" className="bg-white border rounded-lg p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Available Plans</h2>
@@ -454,7 +514,11 @@ export default function BillingPage() {
                         Current Plan
                       </Button>
                     ) : (
-                      <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                      <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => choosePlan(plan)}
+                        disabled={actionBusy}
+                      >
                         {subscription ? 'Switch Plan' : 'Get Started'}
                       </Button>
                     )}
@@ -565,6 +629,18 @@ export default function BillingPage() {
           )}
         </div>
       </div>
+
+      {checkoutPlan && (
+        <CheckoutModal
+          plan={checkoutPlan}
+          billingPeriod={billingPeriod}
+          onClose={() => setCheckoutPlan(null)}
+          onSuccess={async () => {
+            setCheckoutPlan(null);
+            await fetchAll();
+          }}
+        />
+      )}
     </div>
   );
 }

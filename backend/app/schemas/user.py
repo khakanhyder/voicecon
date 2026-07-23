@@ -14,6 +14,7 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     company_name: Optional[str] = None
     phone_number: Optional[str] = None
+    bio: Optional[str] = None
     timezone: str = "UTC"
     language: str = "en"
 
@@ -28,9 +29,17 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     company_name: Optional[str] = None
     phone_number: Optional[str] = None
+    bio: Optional[str] = None
     avatar_url: Optional[str] = None
     timezone: Optional[str] = None
     language: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    """Schema for changing the current user's password."""
+    # Optional so social-login users (no existing password) can set one.
+    current_password: Optional[str] = None
+    new_password: str = Field(..., min_length=8, description="New password (min 8 chars)")
 
 
 class UserInDB(UserBase):

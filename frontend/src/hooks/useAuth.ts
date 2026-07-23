@@ -24,6 +24,15 @@ export function useAuth() {
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
+  // A post-auth redirect target (e.g. an invite link) passed as ?redirect=…
+  // Read from the live URL so we don't need a useSearchParams Suspense boundary.
+  const getRedirect = (): string | null => {
+    if (typeof window === 'undefined') return null
+    const r = new URLSearchParams(window.location.search).get('redirect')
+    // Only allow same-origin relative paths — never an absolute/external URL.
+    return r && r.startsWith('/') && !r.startsWith('//') ? r : null
+  }
+
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: (credentials: LoginCredentials) => authService.login(credentials),
@@ -31,7 +40,7 @@ export function useAuth() {
       setUser(data.user)
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
       toast.success('Welcome back!')
-      router.push('/dashboard')
+      router.push(getRedirect() || '/dashboard')
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Login failed')
@@ -48,8 +57,16 @@ export function useAuth() {
     onSuccess: (data) => {
       setUser(data.user)
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
-      toast.success('Account created! Let’s set up your workspace.')
-      router.push('/onboarding/company')
+      // Invited users register to join an existing org — send them back to the
+      // invite link to accept, rather than through company onboarding.
+      const redirect = getRedirect()
+      if (redirect) {
+        toast.success('Account created!')
+        router.push(redirect)
+      } else {
+        toast.success('Account created! Let’s set up your workspace.')
+        router.push('/onboarding/company')
+      }
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Registration failed')

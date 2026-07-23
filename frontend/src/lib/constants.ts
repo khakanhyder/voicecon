@@ -70,6 +70,33 @@ export const API_ENDPOINTS = {
   ONBOARDING_STATUS: `${API_BASE}/api/v1/onboarding/status`,
   ONBOARDING_COMPANY: `${API_BASE}/api/v1/onboarding/company`,
 
+  // Profile / account
+  USERS_ME: `${API_BASE}/api/v1/users/me`,
+  USERS_ME_PASSWORD: `${API_BASE}/api/v1/users/me/change-password`,
+
+  // Team
+  TEAM_MEMBERS: `${API_BASE}/api/v1/team/members`,
+  TEAM_INVITE: `${API_BASE}/api/v1/team/invite`,
+  TEAM_MEMBER: (id: string) => `${API_BASE}/api/v1/team/members/${id}`,
+  TEAM_INVITATIONS: `${API_BASE}/api/v1/team/invitations`,
+  TEAM_INVITATION: (id: string) => `${API_BASE}/api/v1/team/invitations/${id}`,
+
+  // Invitations (public token-addressed)
+  INVITATION: (token: string) => `${API_BASE}/api/v1/invitations/${token}`,
+  INVITATION_ACCEPT: (token: string) => `${API_BASE}/api/v1/invitations/${token}/accept`,
+  INVITATION_REJECT: (token: string) => `${API_BASE}/api/v1/invitations/${token}/reject`,
+
+  // Notifications
+  NOTIFICATIONS: `${API_BASE}/api/v1/notifications`,
+  NOTIFICATIONS_UNREAD_COUNT: `${API_BASE}/api/v1/notifications/unread-count`,
+  NOTIFICATION_READ: (id: string) => `${API_BASE}/api/v1/notifications/${id}/read`,
+  NOTIFICATIONS_READ_ALL: `${API_BASE}/api/v1/notifications/read-all`,
+
+  // API keys
+  API_KEYS: `${API_BASE}/api/v1/api-keys`,
+  API_KEY: (id: string) => `${API_BASE}/api/v1/api-keys/${id}`,
+  API_KEY_REGENERATE: (id: string) => `${API_BASE}/api/v1/api-keys/${id}/regenerate`,
+
   // Tools
   TOOLS: `${API_BASE}/api/v1/tools`,
   TOOL: (id: string) => `${API_BASE}/api/v1/tools/${id}`,

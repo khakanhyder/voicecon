@@ -6,6 +6,7 @@ export interface User {
   full_name: string | null
   company_name: string | null
   phone_number: string | null
+  bio: string | null
   avatar_url: string | null
   timezone: string
   language: string
@@ -15,6 +16,16 @@ export interface User {
   last_login_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ProfileUpdate {
+  full_name?: string | null
+  company_name?: string | null
+  phone_number?: string | null
+  bio?: string | null
+  avatar_url?: string | null
+  timezone?: string | null
+  language?: string | null
 }
 
 export interface LoginCredentials {
@@ -68,8 +79,32 @@ export const authService = {
     return authService.persistSession(data)
   },
 
-  async fetchMe() {
-    return authService.getCurrentUser()
+  // Fetch the live profile from the backend and cache it locally.
+  async fetchMe(): Promise<User> {
+    const { data } = await apiClient.get<User>('/api/v1/users/me')
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(data))
+    }
+    return data
+  },
+
+  async updateProfile(update: ProfileUpdate): Promise<User> {
+    const { data } = await apiClient.patch<User>('/api/v1/users/me', update)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(data))
+    }
+    return data
+  },
+
+  async changePassword(params: { current_password?: string; new_password: string }) {
+    await apiClient.post('/api/v1/users/me/change-password', params)
+  },
+
+  async deleteAccount() {
+    await apiClient.delete('/api/v1/users/me')
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+    localStorage.removeItem('user')
   },
 
   async logout() {
