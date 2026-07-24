@@ -68,6 +68,12 @@ boto3==1.34.42  # For S3 storage
 python-dotenv==1.0.1
 python-dateutil==2.8.2
 pytz==2024.1
+# Imported at import time by the API router graph — must be declared explicitly.
+# jinja2 was previously only present locally (via mkdocs), so production had no
+# copy and the whole router failed to import.
+jinja2==3.1.6         # email templates (app/services/email/templates.py)
+aiofiles==25.1.0      # async file IO (call recording); also a deepgram-sdk dep
+psutil==7.2.2         # process/system metrics used by the health endpoint
 
 # Monitoring & Logging
 sentry-sdk[fastapi]==1.40.5

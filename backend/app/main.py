@@ -264,12 +264,17 @@ async def root():
     }
 
 
-# Import and include API routers
-try:
-    from app.api.v1.api import api_router
-    app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-except Exception as e:
-    logger.error(f"Failed to load API routers: {e}", exc_info=True)
+# Import and include API routers.
+#
+# This deliberately does NOT swallow import errors. Catching them leaves the
+# process serving a healthy-looking app with zero API routes: /health returns
+# 200, the platform keeps the deploy live, and every /api/v1/* call 404s — which
+# reads like a routing bug rather than a failed build. Crashing here makes the
+# deploy fail loudly instead, with the real ImportError at the top of the log.
+from app.api.v1.api import api_router
+
+app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+logger.info(f"Mounted {len(api_router.routes)} API routes at {settings.API_V1_PREFIX}")
 
 # Serve call recordings as static files
 try:
