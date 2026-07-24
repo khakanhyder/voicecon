@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   PHONE_NUMBER: (id: string) => `${API_BASE}/api/v1/phone-numbers/${id}`,
   PHONE_NUMBERS_SEARCH: `${API_BASE}/api/v1/phone-numbers/search`,
   PHONE_NUMBERS_PROVISION: `${API_BASE}/api/v1/phone-numbers/provision`,
+  PHONE_NUMBERS_PROVIDERS: `${API_BASE}/api/v1/phone-numbers/providers`,
 
   // Integrations
   INTEGRATIONS: `${API_BASE}/api/v1/integrations`,

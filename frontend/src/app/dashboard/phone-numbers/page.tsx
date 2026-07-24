@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   Phone, Plus, Search, DollarSign, TrendingUp,
   CheckCircle, Bot, Loader2, RefreshCw,
-  ChevronDown, X,
+  ChevronDown, X, Plug,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -27,10 +27,26 @@ interface PhoneNumber {
 interface AvailableNumber {
   phone_number: string
   friendly_name: string
+  provider: string
   locality: string | null
   region: string | null
   capabilities: Record<string, boolean>
+  monthly_cost: number | null
+  setup_cost: number | null
+  currency: string | null
 }
+
+/** A carrier the user has connected and can buy numbers from. */
+interface TelephonyProvider {
+  slug: string
+  name: string
+  source: 'integration' | 'platform'
+  connection_id: string | null
+  connection_name: string | null
+}
+
+/** Providers are keyed by connection so the same carrier can be connected twice. */
+const providerKey = (p: TelephonyProvider) => p.connection_id ?? p.slug
 
 const statusStyle: Record<string, string> = {
   active:   'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -66,9 +82,15 @@ export default function PhoneNumbersPage() {
   const [selectedAgent, setSelectedAgent] = useState('')
   const [purchaseTarget, setPurchaseTarget] = useState<AvailableNumber | null>(null)
 
+  // Connected carriers the user can buy from
+  const [providers, setProviders] = useState<TelephonyProvider[]>([])
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [providersLoading, setProvidersLoading] = useState(true)
+
   useEffect(() => {
     fetchNumbers()
     fetchAgents()
+    fetchProviders()
   }, [])
 
   const fetchNumbers = async () => {
@@ -90,13 +112,38 @@ export default function PhoneNumbersPage() {
     } catch {}
   }
 
+  const fetchProviders = async () => {
+    setProvidersLoading(true)
+    try {
+      const res = await apiClient.get<TelephonyProvider[]>(API_ENDPOINTS.PHONE_NUMBERS_PROVIDERS)
+      const list = Array.isArray(res.data) ? res.data : []
+      setProviders(list)
+      // Keep the current pick if it survived a refresh, else default to the first.
+      setSelectedProvider(prev =>
+        list.some(p => providerKey(p) === prev) ? prev : (list[0] ? providerKey(list[0]) : '')
+      )
+    } catch (e) {
+      setProviders([])
+    } finally {
+      setProvidersLoading(false)
+    }
+  }
+
+  const activeProvider = providers.find(p => providerKey(p) === selectedProvider) || null
+
   const searchNumbers = async () => {
+    if (!activeProvider) {
+      toast.error('Connect a phone provider before searching for numbers')
+      return
+    }
     setIsSearching(true)
     setSearchResults([])
     try {
       const params = new URLSearchParams({ country_code: countryCode, limit: '10' })
       if (areaCode) params.set('area_code', areaCode)
       if (contains) params.set('contains', contains)
+      params.set('provider', activeProvider.slug)
+      if (activeProvider.connection_id) params.set('connection_id', activeProvider.connection_id)
       const res = await apiClient.get<AvailableNumber[]>(
         `${API_ENDPOINTS.PHONE_NUMBERS_SEARCH}?${params}`
       )
@@ -111,11 +158,17 @@ export default function PhoneNumbersPage() {
 
   const purchaseNumber = async (num: AvailableNumber) => {
     if (!selectedAgent) { toast.error('Please select an agent to assign this number to'); return }
+    if (!activeProvider) { toast.error('Connect a phone provider before purchasing'); return }
     setIsPurchasing(num.phone_number)
     try {
       await apiClient.post(API_ENDPOINTS.PHONE_NUMBERS_PROVISION, {
         phone_number: num.phone_number,
         agent_id: selectedAgent,
+        provider: num.provider || activeProvider.slug,
+        connection_id: activeProvider.connection_id,
+        country_code: countryCode,
+        area_code: areaCode || null,
+        monthly_cost: num.monthly_cost,
       })
       toast.success(`${num.phone_number} provisioned successfully`)
       setPurchaseTarget(null)
@@ -313,11 +366,91 @@ export default function PhoneNumbersPage() {
       )}
 
       {/* SEARCH & PURCHASE tab */}
-      {activeTab === 'search' && (
+      {activeTab === 'search' && providersLoading && (
+        <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-slate-200">
+          <Loader2 className="h-8 w-8 text-blue-500 animate-spin mb-3" />
+          <p className="text-sm text-slate-500">Checking your connected phone providers…</p>
+        </div>
+      )}
+
+      {/* No carrier connected — nothing can be purchased until one is */}
+      {activeTab === 'search' && !providersLoading && providers.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 px-8 text-center bg-white rounded-xl border border-slate-200 card-shadow">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 mb-5">
+            <Plug className="h-8 w-8 text-amber-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-800">No phone provider connected</h3>
+          <p className="text-slate-500 text-sm mt-1.5 max-w-sm">
+            Numbers are purchased on your own carrier account. Connect Twilio or Telnyx
+            under Integrations, then come back here to buy a number.
+          </p>
+          <Link
+            href="/dashboard/integrations"
+            className="mt-6 flex items-center gap-2 rounded-xl gradient-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-all"
+          >
+            <Plug className="h-4 w-4" />
+            Connect a provider
+          </Link>
+        </div>
+      )}
+
+      {activeTab === 'search' && !providersLoading && providers.length > 0 && (
         <div className="space-y-5">
+          {/* Provider picker — only carriers the user has connected */}
+          <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Phone Provider</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {providers.length > 1
+                    ? 'Choose which connected carrier to buy this number from'
+                    : `Buying on your connected ${providers[0].name} account`}
+                </p>
+              </div>
+              <Link
+                href="/dashboard/integrations"
+                className="text-xs font-medium text-blue-600 hover:underline"
+              >
+                Manage providers
+              </Link>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {providers.map(p => {
+                const key = providerKey(p)
+                const isSelected = key === selectedProvider
+                return (
+                  <button
+                    key={key}
+                    onClick={() => { setSelectedProvider(key); setSearchResults([]); setPurchaseTarget(null) }}
+                    className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Plug className={`h-4 w-4 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
+                    <span>{p.name}</span>
+                    {p.source === 'platform' && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Platform
+                      </span>
+                    )}
+                    {isSelected && <CheckCircle className="h-3.5 w-3.5 text-blue-600" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Search form */}
           <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4">Search Available Numbers</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">
+              Search Available Numbers
+              {activeProvider && (
+                <span className="ml-2 font-normal text-slate-400">on {activeProvider.name}</span>
+              )}
+            </h3>
             <div className="grid gap-3 sm:grid-cols-4">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Country</label>
@@ -374,7 +507,12 @@ export default function PhoneNumbersPage() {
           {searchResults.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <p className="text-sm font-semibold text-slate-700">{searchResults.length} numbers available</p>
+                <p className="text-sm font-semibold text-slate-700">
+                  {searchResults.length} numbers available
+                  {activeProvider && (
+                    <span className="ml-1.5 font-normal text-slate-500">from {activeProvider.name}</span>
+                  )}
+                </p>
               </div>
               <div className="divide-y divide-slate-100">
                 {searchResults.map(num => (
@@ -386,6 +524,12 @@ export default function PhoneNumbersPage() {
                       <p className="text-sm font-semibold text-slate-900 font-mono">{num.phone_number}</p>
                       <p className="text-xs text-slate-400">
                         {[num.locality, num.region].filter(Boolean).join(', ') || 'Unknown region'}
+                        {num.monthly_cost != null && (
+                          <span className="ml-1.5 text-slate-500">
+                            · {num.currency === 'USD' || !num.currency ? '$' : ''}
+                            {num.monthly_cost.toFixed(2)}/mo
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-1">

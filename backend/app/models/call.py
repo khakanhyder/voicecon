@@ -37,6 +37,16 @@ class PhoneNumber(Base):
     provider: Mapped[str] = mapped_column(String(50), default="twilio")
     provider_sid: Mapped[Optional[str]] = mapped_column(String(255))
 
+    # The carrier integration this number was bought on. Null for numbers
+    # provisioned with server-level credentials or before providers were
+    # selectable — those fall back to any active connection for `provider`.
+    integration_connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("integration_connections.id", ondelete="SET NULL")
+    )
+
+    # Carrier-specific bookkeeping (e.g. Telnyx order id and TeXML application id)
+    provider_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+
     # Capabilities
     capabilities: Mapped[dict] = mapped_column(
         JSON, default={"voice": True, "sms": True}

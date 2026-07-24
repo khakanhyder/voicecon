@@ -11,7 +11,6 @@ import ReactFlow, {
   Controls,
   Background,
   MiniMap,
-  Panel,
   NodeTypes,
   MarkerType,
   BackgroundVariant,
@@ -407,11 +406,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
               className="bg-white border border-gray-200 rounded-lg"
             />
 
-            {/* Validation Panel */}
+            {/* Validation Panel.
+                Positioned manually rather than with React Flow's <Panel>: this
+                builder runs on react-flow-renderer v10, which does not export
+                Panel (that arrived in v11/@xyflow). Importing it yielded
+                `undefined` and crashed the builder the moment a validation
+                error appeared. */}
             {validationErrors.length > 0 && (
-              <Panel position="top-center">
+              <div className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
                 <FlowValidation errors={validationErrors} />
-              </Panel>
+              </div>
             )}
           </ReactFlow>
         </div>

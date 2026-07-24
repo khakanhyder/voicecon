@@ -468,3 +468,182 @@ async def get_call_details(
             status_code=500,
             detail=f"Failed to fetch call details: {str(e)}"
         )
+
+
+# ============================================================================
+# Telnyx — TeXML webhooks
+#
+# Numbers bought on Telnyx are attached to a TeXML application whose voice_url
+# points here. TeXML speaks the same XML dialect as TwiML and posts the same
+# form fields (CallSid, From, To, CallStatus), so the handling mirrors the
+# Twilio path — only the media-stream frames on the WebSocket differ.
+# ============================================================================
+
+
+@router.post("/telnyx/voice/{agent_id}")
+async def handle_telnyx_inbound_call(
+    agent_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Handle an inbound call webhook from a Telnyx TeXML application.
+
+    Returns TeXML that connects the call to the media-stream WebSocket.
+
+    Args:
+        agent_id: Agent ID to handle the call
+        request: FastAPI request object
+        db: Database session
+
+    Returns:
+        TeXML response connecting to the WebSocket
+    """
+    from app.services.telephony.texml import build_error_response, build_stream_response
+
+    try:
+        form_data = await request.form()
+
+        call_sid = form_data.get("CallSid")
+        from_number = form_data.get("From")
+        to_number = form_data.get("To")
+        call_status = form_data.get("CallStatus")
+
+        logger.info(
+            f"Inbound Telnyx call: CallSid={call_sid}, From={from_number}, "
+            f"To={to_number}, Status={call_status}, Agent={agent_id}"
+        )
+
+        agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
+        agent = agent_result.scalar_one_or_none()
+
+        if not agent:
+            logger.error(f"Agent not found: {agent_id}")
+            return Response(
+                content=build_error_response("We're sorry, the agent is not available."),
+                media_type="application/xml",
+            )
+
+        phone_result = await db.execute(
+            select(PhoneNumber).where(
+                PhoneNumber.phone_number == to_number,
+                PhoneNumber.agent_id == agent_id,
+            )
+        )
+        phone_number = phone_result.scalar_one_or_none()
+
+        call = Call(
+            user_id=agent.user_id,
+            organization_id=agent.organization_id,
+            agent_id=agent.id,
+            phone_number_id=phone_number.id if phone_number else None,
+            direction="inbound",
+            from_number=from_number,
+            to_number=to_number,
+            status=call_status or "initiated",
+            provider="telnyx",
+            provider_call_sid=call_sid,
+            metadata={
+                "telnyx_call_sid": call_sid,
+                "call_status": call_status,
+            },
+        )
+
+        db.add(call)
+        await db.commit()
+        await db.refresh(call)
+
+        logger.info(f"Created call record: {call.id}")
+
+        websocket_url = urljoin(
+            settings.WEBSOCKET_URL or f"wss://{request.headers.get('host')}",
+            f"/api/v1/voice/stream/{call.id}",
+        )
+
+        return Response(
+            content=build_stream_response(websocket_url, agent.name),
+            media_type="application/xml",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error handling Telnyx inbound call: {e}", exc_info=True)
+        return Response(
+            content=build_error_response(
+                "We're sorry, an error occurred. Please try again later."
+            ),
+            media_type="application/xml",
+        )
+
+
+@router.post("/telnyx/status")
+async def handle_telnyx_call_status(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Handle a call-status callback from a Telnyx TeXML application.
+
+    Args:
+        request: FastAPI request object
+        db: Database session
+
+    Returns:
+        Empty 200 response
+    """
+    try:
+        form_data = await request.form()
+
+        call_sid = form_data.get("CallSid")
+        call_status = form_data.get("CallStatus")
+        call_duration = form_data.get("CallDuration")
+
+        logger.info(
+            f"Telnyx call status: CallSid={call_sid}, Status={call_status}, "
+            f"Duration={call_duration}"
+        )
+
+        call_result = await db.execute(
+            select(Call).where(Call.provider_call_sid == call_sid)
+        )
+        call = call_result.scalar_one_or_none()
+
+        if not call:
+            logger.warning(f"Call not found: {call_sid}")
+            return Response(status_code=200)
+
+        from datetime import datetime
+
+        call.status = call_status
+
+        if call_status == "ringing" and not call.started_at:
+            call.started_at = datetime.utcnow()
+
+        elif call_status == "in-progress" and not call.answered_at:
+            call.answered_at = datetime.utcnow()
+
+        elif call_status == "completed":
+            call.ended_at = datetime.utcnow()
+
+            if call_duration:
+                call.duration_seconds = int(call_duration)
+                call.billable_duration_seconds = int(call_duration)
+
+        if not call.metadata:
+            call.metadata = {}
+
+        call.metadata.update({
+            "last_status": call_status,
+            "status_callback_count": call.metadata.get("status_callback_count", 0) + 1,
+        })
+
+        await db.commit()
+
+        logger.info(f"Updated call status: {call.id} -> {call_status}")
+
+        return Response(status_code=200)
+
+    except Exception as e:
+        logger.error(f"Error handling Telnyx call status: {e}", exc_info=True)
+        return Response(status_code=200)

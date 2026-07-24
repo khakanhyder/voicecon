@@ -34,6 +34,53 @@ interface IntegrationSetupProps {
 
 type ConnectionStatus = 'idle' | 'connecting' | 'testing' | 'success' | 'error'
 
+/**
+ * Field names that hold the actual secret, in order of preference. Connectors
+ * collect several fields (bucket names, region, phone numbers) but only one of
+ * them is the credential the API authenticates with; the rest travel alongside
+ * it as additional fields.
+ */
+const PRIMARY_CREDENTIAL_FIELDS = [
+  'api_key', 'access_token', 'api_token', 'token', 'secret_key',
+  'service_role_key', 'service_account_json', 'connection_string',
+  'secret_access_key', 'api_secret', 'auth_token',
+]
+
+/**
+ * Build the `api_key_auth` payload the connections API expects.
+ *
+ * Twilio is the exception: it authenticates with HTTP Basic, and the backend
+ * connector reads the credential as a Base64 "AccountSID:AuthToken" pair.
+ */
+function buildApiKeyAuth(
+  slug: string,
+  fields: Array<{ name: string; required: boolean }>,
+  values: Record<string, string>,
+): { api_key: string; additional_fields: Record<string, string> } {
+  const filled = Object.fromEntries(
+    Object.entries(values).filter(([, v]) => v != null && String(v).trim() !== '')
+  ) as Record<string, string>
+
+  if (slug === 'twilio') {
+    return {
+      api_key: btoa(`${filled.account_sid || ''}:${filled.auth_token || ''}`),
+      additional_fields: filled,
+    }
+  }
+
+  const primaryName =
+    PRIMARY_CREDENTIAL_FIELDS.find(name => filled[name]) ??
+    fields.find(f => f.required && filled[f.name])?.name
+
+  const additional_fields = { ...filled }
+  if (primaryName) delete additional_fields[primaryName]
+
+  return {
+    api_key: primaryName ? filled[primaryName] : '',
+    additional_fields,
+  }
+}
+
 export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
   integration,
   connectorId,
@@ -181,7 +228,11 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
         {
           connector_id: connectorId,
           name: `${integration.name} Connection`,
-          auth_data: apiKeyValues,
+          api_key_auth: buildApiKeyAuth(
+            integration.slug,
+            integration.apiKeyFields ?? [],
+            apiKeyValues,
+          ),
         }
       )
       setStatus('success')

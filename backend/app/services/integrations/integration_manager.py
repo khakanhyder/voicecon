@@ -366,6 +366,7 @@ class IntegrationManager:
 
             # Get credentials
             headers = {}
+            params = {}
 
             if connection.access_token_encrypted:
                 # OAuth2
@@ -380,14 +381,24 @@ class IntegrationManager:
                 api_key_location = auth_config.get("api_key_location", "header")
                 api_key_name = auth_config.get("api_key_name", "X-API-Key")
 
-                if api_key_location == "header":
-                    headers[api_key_name] = api_key
-                # Other locations can be added as needed
+                # Many providers need the credential wrapped in a scheme —
+                # "Basic {api_key}" for Twilio, "Bearer {api_key}" for Telnyx.
+                # Sending the bare key makes the header unparseable, so the test
+                # fails even when the credential is valid. This mirrors
+                # BaseConnector.get_auth_headers so a connection that tests
+                # green also works for real API calls.
+                api_key_format = auth_config.get("api_key_format", "{api_key}")
+                formatted_key = api_key_format.format(api_key=api_key)
+
+                if api_key_location == "query":
+                    params[api_key_name] = formatted_key
+                else:
+                    headers[api_key_name] = formatted_key
 
             # Make test request
             client = await self._get_http_client()
 
-            response = await client.get(test_url, headers=headers)
+            response = await client.get(test_url, headers=headers, params=params or None)
 
             response_time_ms = int((time.time() - start_time) * 1000)
 
