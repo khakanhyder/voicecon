@@ -112,6 +112,7 @@ export default function IntegrationsPage() {
       );
       const map: typeof connectionMap = {};
       for (const conn of res.data.connections) {
+        if (conn.status === 'disconnected') continue;
         const slug = conn.connector?.slug;
         if (!slug) continue;
         const s =

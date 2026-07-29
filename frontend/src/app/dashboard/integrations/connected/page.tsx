@@ -72,7 +72,9 @@ export default function ConnectedIntegrationsPage() {
       const res = await apiClient.get<{ connections: ApiConnection[]; total: number }>(
         API_ENDPOINTS.INTEGRATION_CONNECTIONS
       );
-      const mapped: ConnectedIntegration[] = res.data.connections.map((conn) => {
+      const mapped: ConnectedIntegration[] = res.data.connections
+        .filter((conn) => conn.status !== 'disconnected')
+        .map((conn) => {
         const slug = conn.connector.slug;
         const meta = catalogMetadata[slug] || { icon: '🔗', category: 'other' };
         return {
@@ -144,10 +146,10 @@ export default function ConnectedIntegrationsPage() {
   const errorCount = connectedIntegrations.filter((i) => i.status === 'error').length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="bg-white">
+        <div className="w-full px-6 py-8">
           <Button
             variant="ghost"
             onClick={() => router.push('/dashboard/integrations')}
@@ -159,7 +161,7 @@ export default function ConnectedIntegrationsPage() {
 
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Connected Integrations</h1>
+              <h1 className="text-3xl font-bold text-black border-[#000000] font-poppins mb-2">Connected Integrations</h1>
               <p className="text-gray-600">Manage your active integration connections</p>
             </div>
           </div>
@@ -210,7 +212,7 @@ export default function ConnectedIntegrationsPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="w-full px-6 py-8">
         {loading ? (
           <div className="text-center py-12">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />

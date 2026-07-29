@@ -67,7 +67,7 @@ class Document(Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # file, url, text, api
     source_url: Mapped[Optional[str]] = mapped_column(String(1000))  # Original URL or file path
-    file_type: Mapped[Optional[str]] = mapped_column(String(50))  # pdf, txt, docx, html, etc.
+    file_type: Mapped[Optional[str]] = mapped_column(String(255))  # pdf, txt, docx, html, etc.
     file_size: Mapped[Optional[int]] = mapped_column(Integer)  # Size in bytes
 
     # Content

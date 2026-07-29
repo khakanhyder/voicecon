@@ -42,6 +42,7 @@ export const API_ENDPOINTS = {
   KNOWLEDGE_BASE_DOCUMENTS: (id: string) =>
     `${API_BASE}/api/v1/knowledge/knowledge-bases/${id}/documents`,
   KNOWLEDGE_DOCUMENT: (id: string) => `${API_BASE}/api/v1/knowledge/documents/${id}`,
+  KNOWLEDGE_DOCUMENT_DOWNLOAD: (id: string) => `${API_BASE}/api/v1/knowledge/documents/${id}/download`,
   KNOWLEDGE_DOCUMENTS: `${API_BASE}/api/v1/knowledge/documents`,
   KNOWLEDGE_UPLOAD: `${API_BASE}/api/v1/knowledge/documents/upload`,
   KNOWLEDGE_SEARCH: `${API_BASE}/api/v1/knowledge/search`,

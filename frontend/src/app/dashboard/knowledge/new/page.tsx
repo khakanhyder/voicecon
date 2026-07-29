@@ -54,47 +54,49 @@ export default function NewKnowledgeBasePage() {
       </Link>
 
       <div>
-        <h1 className="text-3xl font-bold">Create Knowledge Base</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-3xl font-bold font-poppins text-[#000000]">Create Knowledge Base</h1>
+        <p className="text-[#000000] mt-1 font-poppins text-[14px]">
           Step 1 of 2 — name it here, then you&apos;ll land on its page where you upload
           documents (PDF, Word, text) or paste content.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-5">
         <div className="space-y-1.5">
-          <Label htmlFor="kb-name">Name</Label>
+          <Label htmlFor="kb-name" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Name</Label>
           <Input
             id="kb-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Support FAQs"
             required
+            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="kb-desc">Description (optional)</Label>
+          <Label htmlFor="kb-desc" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Description (optional)</Label>
           <Textarea
             id="kb-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What kind of content lives in here?"
             rows={3}
+            className="w-full rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 font-poppins text-[14px] text-black"
           />
         </div>
 
-        <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+        <div className="rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 text-sm text-[#000000] font-poppins">
           Your documents are automatically split and indexed for fast, accurate
           retrieval — nothing else to configure.
         </div>
 
         <div className="flex gap-3 pt-2">
-          <Button type="submit" disabled={isSaving}>
+          <Button type="submit" disabled={isSaving} className="bg-[#106959] text-white hover:opacity-90 rounded-[8px] font-poppins font-medium">
             {isSaving ? 'Creating...' : 'Create & add documents'}
           </Button>
           <Link href="/dashboard/knowledge">
-            <Button type="button" variant="outline">Cancel</Button>
+            <Button type="button" variant="outline" className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50">Cancel</Button>
           </Link>
         </div>
       </form>

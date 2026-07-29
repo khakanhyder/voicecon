@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { useConfirm } from '@/hooks/use-confirm'
 
 interface KnowledgeBase {
   id: string
@@ -45,7 +46,7 @@ interface AskResult {
   sources: AskSource[]
 }
 
-const ACCEPTED = '.txt,.md,.pdf,.docx,.json,.csv'
+const ACCEPTED = '.txt,.md,.pdf,.docx,.xlsx,.xls,.json,.csv'
 
 function statusStyle(status: string) {
   if (status === 'completed') return 'bg-green-100 text-green-700'
@@ -61,6 +62,8 @@ export default function KnowledgeBaseDetailPage() {
   const [kb, setKb] = useState<KnowledgeBase | null>(null)
   const [docs, setDocs] = useState<KBDocument[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  
+  const { confirm, ConfirmDialog } = useConfirm()
 
   const [isUploading, setIsUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -152,8 +155,53 @@ export default function KnowledgeBaseDetailPage() {
     }
   }
 
+
+  const handleDownload = async (docId: string, title: string) => {
+    try {
+      const url = API_ENDPOINTS.KNOWLEDGE_DOCUMENT_DOWNLOAD(docId);
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dlName = title.toLowerCase().endsWith('.txt') ? title : `${title}.txt`;
+      a.download = dlName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      toast.error('Failed to download document');
+    }
+  }
+
+  const getFileMeta = (title: string, mime?: string | null) => {
+    const ext = title.split('.').pop()?.toLowerCase() || '';
+    if (['pdf'].includes(ext) || (mime && mime.includes('pdf'))) {
+      return { label: 'PDF', bg: 'bg-red-500', name: 'PDF Document' };
+    } else if (['doc', 'docx'].includes(ext) || (mime && mime.includes('word'))) {
+      return { label: 'DOC', bg: 'bg-blue-500', name: 'Word Document' };
+    } else if (['xls', 'xlsx'].includes(ext) || (mime && (mime.includes('excel') || mime.includes('spreadsheet')))) {
+      return { label: 'XLS', bg: 'bg-green-500', name: 'Excel Spreadsheet' };
+    } else if (['csv'].includes(ext)) {
+      return { label: 'CSV', bg: 'bg-green-500', name: 'CSV File' };
+    } else if (['ppt', 'pptx'].includes(ext) || (mime && mime.includes('powerpoint'))) {
+      return { label: 'PPT', bg: 'bg-orange-500', name: 'PowerPoint' };
+    } else if (['txt', 'md', 'json'].includes(ext)) {
+      return { label: ext.toUpperCase(), bg: 'bg-slate-500', name: 'Text Document' };
+    }
+    return { label: ext ? ext.substring(0,3).toUpperCase() : 'DOC', bg: 'bg-slate-500', name: mime || 'Document' };
+  }
+
   const handleDeleteDoc = async (doc: KBDocument) => {
-    if (!confirm(`Delete "${doc.title}"?`)) return
+    const ok = await confirm({
+      title: 'Delete Document',
+      description: `Are you sure you want to delete "${doc.title}"? This cannot be undone.`,
+      isDestructive: true
+    })
+    if (!ok) return
     try {
       await apiClient.delete(API_ENDPOINTS.KNOWLEDGE_DOCUMENT(doc.id))
       setDocs((prev) => prev.filter((d) => d.id !== doc.id))
@@ -198,7 +246,7 @@ export default function KnowledgeBaseDetailPage() {
       </Link>
 
       <div>
-        <h1 className="text-3xl font-bold">{kb.name}</h1>
+        <h1 className="text-3xl font-bold font-poppins text-[#000000]">{kb.name}</h1>
         {kb.description && <p className="text-muted-foreground mt-1">{kb.description}</p>}
         <p className="text-sm text-muted-foreground mt-2">
           {ready} of {docs.length} document(s) ready · embeddings via {kb.embedding_model} ·
@@ -208,10 +256,10 @@ export default function KnowledgeBaseDetailPage() {
 
       {/* Add content */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border bg-card p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Upload a file</h2>
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+          <h2 className="text-xl font-bold font-poppins text-[#000000]">Upload a file</h2>
           <p className="text-sm text-muted-foreground">
-            PDF, Word (.docx), text, Markdown, JSON or CSV. Scanned/image-only PDFs can&apos;t be
+            PDF, Word (.docx), Excel (.xlsx), text, Markdown, JSON or CSV. Scanned/image-only PDFs can&apos;t be
             read — they need OCR.
           </p>
           <input
@@ -224,44 +272,46 @@ export default function KnowledgeBaseDetailPage() {
               if (f) handleUpload(f)
             }}
           />
-          <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>
+          <Button onClick={() => fileRef.current?.click()} disabled={isUploading} className="bg-[#106959] text-white hover:opacity-90 rounded-[8px] font-poppins font-medium h-[45px]">
             <Upload className="h-4 w-4 mr-2" />
             {isUploading ? 'Uploading...' : 'Choose file'}
           </Button>
         </div>
 
-        <div className="rounded-lg border bg-card p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Or paste text</h2>
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+          <h2 className="text-xl font-bold font-poppins text-[#000000]">Or paste text</h2>
           <div className="space-y-1.5">
-            <Label htmlFor="pt">Title</Label>
+            <Label htmlFor="pt" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Title</Label>
             <Input
               id="pt"
+              className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
               value={pasteTitle}
               onChange={(e) => setPasteTitle(e.target.value)}
               placeholder="e.g. Refund policy"
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="pb">Content</Label>
+            <Label htmlFor="pb" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Content</Label>
             <Textarea
               id="pb"
+              className="w-full rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 font-poppins text-[14px] text-black"
               rows={4}
               value={pasteBody}
               onChange={(e) => setPasteBody(e.target.value)}
               placeholder="Paste the policy, FAQ, or script here..."
             />
           </div>
-          <Button onClick={handlePaste} disabled={isPasting} variant="outline">
+          <Button onClick={handlePaste} disabled={isPasting} variant="outline" className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[45px]">
             {isPasting ? 'Adding...' : 'Add text'}
           </Button>
         </div>
       </div>
 
       {/* Documents */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Documents</h2>
-          <Button variant="outline" size="sm" onClick={fetchDocs}>
+          <h2 className="text-xl font-bold font-poppins text-[#000000]">Documents</h2>
+          <Button variant="outline" size="sm" onClick={fetchDocs} className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[40px]">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -274,32 +324,35 @@ export default function KnowledgeBaseDetailPage() {
         ) : (
           <div className="space-y-2">
             {docs.map((d) => (
-              <div key={d.id} className="flex items-start justify-between gap-4 rounded-md border p-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <FileText className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{d.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {d.total_chunks} chunk(s)
-                      {d.file_size ? ` · ${Math.round(d.file_size / 1024)} KB` : ''}
-                      {` · ${new Date(d.created_at).toLocaleString()}`}
-                    </p>
-                    {d.processing_error && (
-                      <p className="text-xs text-red-600 mt-1 break-words">{d.processing_error}</p>
-                    )}
-                  </div>
+              <div key={d.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-[#000000] bg-[#F4F4F4] p-4">
+                <div className="flex items-center gap-4 min-w-0 w-full sm:w-auto">
+                  {(() => {
+                    const meta = getFileMeta(d.title, d.file_type);
+                    return (
+                      <>
+                        <div className={`flex items-center justify-center h-10 w-10 ${meta.bg} rounded text-white shrink-0 font-bold text-xs uppercase`}>
+                          {meta.label}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[18px] font-poppins text-[#000000] truncate">{d.title}</p>
+                          <p className="text-[12px] font-poppins text-black mt-0.5">
+                            {meta.name} • {d.file_size ? `${(d.file_size / 1024).toFixed(2)} KB` : 'Unknown size'}
+                          </p>
+                          {d.processing_error && (
+                            <p className="text-xs text-red-600 mt-1 break-words">{d.processing_error}</p>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyle(d.processing_status)}`}>
-                    {d.processing_status}
-                  </span>
-                  <button
-                    onClick={() => handleDeleteDoc(d)}
-                    className="text-muted-foreground hover:text-red-600"
-                    aria-label="Delete document"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0 w-full sm:w-auto">
+                  <Button onClick={() => handleDownload(d.id, d.title)} className="flex-1 sm:flex-none bg-[#106959] hover:opacity-90 text-white rounded-[8px] font-poppins font-medium h-[40px] px-6">
+                    Download
+                  </Button>
+                  <Button onClick={() => handleDeleteDoc(d)} className="flex-1 sm:flex-none bg-[#FF0000] hover:bg-red-700 text-white rounded-[8px] font-poppins font-medium h-[40px] px-6">
+                    Delete
+                  </Button>
                 </div>
               </div>
             ))}
@@ -308,22 +361,23 @@ export default function KnowledgeBaseDetailPage() {
       </div>
 
       {/* Ask tester */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <div>
-          <h2 className="text-xl font-semibold">Ask your knowledge base</h2>
+          <h2 className="text-xl font-bold font-poppins text-[#000000]">Ask your knowledge base</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Ask a question the way a caller would. You get the answer your agent would give —
             retrieved from your documents, then written up by the LLM.
           </p>
         </div>
 
-        <form onSubmit={handleSearch} className="flex gap-2">
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2">
           <Input
             value={query}
+            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. ask anything that's in the attached documents"
           />
-          <Button type="submit" disabled={isSearching}>
+          <Button type="submit" disabled={isSearching} className="w-full sm:w-auto bg-[#106959] text-white hover:opacity-90 rounded-[8px] font-poppins font-medium h-[45px]">
             <Search className="h-4 w-4 mr-2" />
             {isSearching ? 'Thinking...' : 'Ask'}
           </Button>
@@ -368,6 +422,7 @@ export default function KnowledgeBaseDetailPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

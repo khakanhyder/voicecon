@@ -447,7 +447,7 @@ export default function IntegrationDetailPage() {
       if (connxRes.status === 'fulfilled') {
         const conns = connxRes.value.data.connections || (connxRes.value.data as any) || []
         const match = (Array.isArray(conns) ? conns : []).find(
-          (c: ApiConnection) => c.connector?.slug === slug
+          (c: ApiConnection) => c.connector?.slug === slug && c.status !== 'disconnected'
         )
         if (match) setExistingConnectionId(match.id)
       }

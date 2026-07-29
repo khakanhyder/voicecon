@@ -156,11 +156,42 @@ def _extract_docx_text(content: bytes) -> str:
                 cells = [c.text.strip() for c in row.cells if c.text.strip()]
                 if cells:
                     parts.append(" | ".join(cells))
-        return "\n".join(parts).strip()
+        return "\n\n".join(parts).strip()
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not read DOCX: {e}")
+
+
+def _extract_xlsx_text(content: bytes) -> str:
+    """Extract text from a .xlsx file."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(
+            status_code=400,
+            detail="XLSX support is not installed on the server (openpyxl missing).",
+        )
+
+    import io
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        parts = []
+        for sheetname in wb.sheetnames:
+            sheet = wb[sheetname]
+            # Include sheet name as context
+            parts.append(f"--- Sheet: {sheetname} ---")
+            for row in sheet.iter_rows(values_only=True):
+                # Filter out None values and convert everything to string
+                row_values = [str(cell).strip() for cell in row if cell is not None and str(cell).strip()]
+                if row_values:
+                    parts.append(" | ".join(row_values))
+        return "\n\n".join(parts).strip()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read XLSX: {e}")
 
 
 # Helper function to get RAG service
@@ -400,10 +431,12 @@ async def upload_document(
             text_content = _extract_pdf_text(content)
         elif name.endswith('.docx'):
             text_content = _extract_docx_text(content)
+        elif name.endswith(('.xlsx', '.xls')):
+            text_content = _extract_xlsx_text(content)
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Unsupported file format. Upload a .txt, .md, .json, .csv, .pdf or .docx file.",
+                detail="Unsupported file format. Upload a .txt, .md, .json, .csv, .pdf, .docx or .xlsx file.",
             )
 
         if not text_content.strip():
@@ -466,6 +499,48 @@ async def list_documents(
 
     return [DocumentResponse(**doc.__dict__) for doc in documents]
 
+
+@router.get("/documents/{doc_id}/download")
+async def download_document(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Download the text content of a document."""
+    from sqlalchemy import select
+    from fastapi.responses import PlainTextResponse
+    from app.models.knowledge_base import Document as DocumentModel
+
+    doc_result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == doc_id)
+    )
+    doc = doc_result.scalar_one_or_none()
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Verify kb ownership
+    kb_result = await db.execute(
+        select(KnowledgeBaseModel).where(
+            KnowledgeBaseModel.id == doc.knowledge_base_id,
+            KnowledgeBaseModel.organization_id == org_id
+        )
+    )
+    kb = kb_result.scalar_one_or_none()
+
+    if not kb:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    filename = doc.title
+    if not filename.lower().endswith(".txt"):
+        filename += ".txt"
+        
+    headers = {
+        'Content-Disposition': f'attachment; filename="{filename}"'
+    }
+
+    return PlainTextResponse(content=doc.content, headers=headers)
 
 @router.delete("/documents/{doc_id}", status_code=204)
 async def delete_document(

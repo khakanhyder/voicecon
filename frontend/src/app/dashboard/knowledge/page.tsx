@@ -63,14 +63,14 @@ export default function KnowledgeBasesPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold">Knowledge Base</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-3xl font-bold font-poppins text-[#000000]">Knowledge Base</h1>
+          <p className="text-black font-poppins mt-1 text-[14px]">
             Upload documents your agents answer from. Content is split into chunks, embedded,
             and searched by meaning during calls and chats.
           </p>
         </div>
         <Link href="/dashboard/knowledge/new">
-          <Button>
+          <Button className="bg-[#106959] text-white hover:opacity-90 rounded-[8px] font-poppins font-medium h-[45px]">
             <Plus className="h-4 w-4 mr-2" />
             Create Knowledge Base
           </Button>
@@ -80,12 +80,12 @@ export default function KnowledgeBasesPage() {
       {items.length === 0 ? (
         <div className="rounded-lg border bg-card p-12 text-center">
           <BookOpen className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
-          <h2 className="text-lg font-semibold">No knowledge bases yet</h2>
-          <p className="text-muted-foreground mt-1 mb-6">
+          <h2 className="text-[18px] font-bold font-poppins text-[#000000]">No knowledge bases yet</h2>
+          <p className="text-black font-poppins mt-1 text-[14px] mb-6">
             Create one, upload your FAQs or policies, then attach it to an agent.
           </p>
           <Link href="/dashboard/knowledge/new">
-            <Button>
+            <Button className="bg-[#106959] text-white hover:opacity-90 rounded-[8px] font-poppins font-medium h-[45px]">
               <Plus className="h-4 w-4 mr-2" />
               Create Knowledge Base
             </Button>
@@ -94,7 +94,7 @@ export default function KnowledgeBasesPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {items.map((kb) => (
-            <div key={kb.id} className="rounded-lg border bg-card p-6 flex flex-col">
+            <div key={kb.id} className="rounded-[10px] border border-[#000000] bg-white p-6 flex flex-col">
               <div className="flex items-start justify-between gap-2">
                 <div className="rounded-md bg-primary/10 p-2">
                   <BookOpen className="h-5 w-5 text-primary" />
@@ -110,9 +110,9 @@ export default function KnowledgeBasesPage() {
               </div>
 
               <Link href={`/dashboard/knowledge/${kb.id}`} className="mt-4 flex-1">
-                <h3 className="font-semibold text-lg hover:underline">{kb.name}</h3>
+                <h3 className="font-bold text-[18px] font-poppins text-black hover:underline">{kb.name}</h3>
                 {kb.description && (
-                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                  <p className="text-sm text-black font-poppins mt-1 text-[14px] line-clamp-2">
                     {kb.description}
                   </p>
                 )}

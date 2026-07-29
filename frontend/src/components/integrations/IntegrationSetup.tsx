@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ConfirmModal } from '@/components/ui/confirm-modal'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
@@ -97,6 +98,8 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
     message: string
     details?: string[]
   } | null>(null)
+  const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
 
   const isConnected = !!existingConnectionId && existingConnectionId !== 'simulated'
 
@@ -275,14 +278,20 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
   }
 
   // ── Disconnect ───────────────────────────────────────────────────────────
-  const handleDisconnect = async () => {
+  const handleDisconnect = () => {
+    setIsDisconnectModalOpen(true)
+  }
+
+  const confirmDisconnect = async () => {
     if (!existingConnectionId || existingConnectionId === 'simulated') {
       onDisconnected?.()
       setStatus('idle')
       setTestResults(null)
       setApiKeyValues({})
+      setIsDisconnectModalOpen(false)
       return
     }
+    setIsDisconnecting(true)
     try {
       await apiClient.delete(API_ENDPOINTS.INTEGRATION_CONNECTION(existingConnectionId))
       toast.success(`${integration.name} disconnected`)
@@ -292,6 +301,9 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
       setApiKeyValues({})
     } catch {
       toast.error('Failed to disconnect')
+    } finally {
+      setIsDisconnecting(false)
+      setIsDisconnectModalOpen(false)
     }
   }
 
@@ -375,6 +387,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
                 placeholder={`Enter your ${field.label.toLowerCase()}`}
                 required={field.required}
                 className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+                disabled={isConnected}
               />
             </div>
           ))}
@@ -540,6 +553,17 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
           </div>
         </>
       )}
+
+      <ConfirmModal
+        isOpen={isDisconnectModalOpen}
+        title={`Disconnect ${integration.name}?`}
+        description={`Are you sure you want to disconnect ${integration.name}? This might affect any workflows depending on this integration.`}
+        confirmText="Disconnect"
+        onConfirm={confirmDisconnect}
+        onCancel={() => setIsDisconnectModalOpen(false)}
+        isDestructive={true}
+        isLoading={isDisconnecting}
+      />
     </div>
   )
 }

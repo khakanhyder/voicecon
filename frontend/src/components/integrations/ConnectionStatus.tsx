@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle,
   XCircle,
@@ -11,6 +11,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getIconUrl } from './IntegrationCard';
 
 interface ConnectionStatusProps {
   integration: {
@@ -34,6 +35,8 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   onDisconnect,
   onConfigure,
 }) => {
+  const [iconFailed, setIconFailed] = useState(false);
+
   const getStatusBadge = () => {
     switch (integration.status) {
       case 'connected':
@@ -64,9 +67,9 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
   const getAuthIcon = () => {
     if (integration.authType === 'oauth2') {
-      return <Shield className="w-4 h-4 text-blue-600" title="OAuth 2.0" />;
+      return <Shield className="w-4 h-4 text-blue-600" />;
     }
-    return <Key className="w-4 h-4 text-purple-600" title="API Key" />;
+    return <Key className="w-4 h-4 text-purple-600" />;
   };
 
   const formatDate = (dateString: string) => {
@@ -92,26 +95,35 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
   return (
     <div
-      className={`bg-white border-2 rounded-lg p-6 transition-all ${
+      className={`border rounded-[10px] p-6 transition-all ${
         integration.status === 'connected'
-          ? 'border-gray-200 hover:border-gray-300'
+          ? 'border-[#000000] bg-[#0F6A590F]'
           : integration.status === 'error'
-          ? 'border-red-200 bg-red-50/30'
-          : 'border-yellow-200 bg-yellow-50/30'
+          ? 'border-red-500 bg-red-50/30'
+          : 'border-yellow-500 bg-yellow-50/30'
       }`}
     >
       <div className="flex items-start justify-between">
         {/* Left Side - Integration Info */}
         <div className="flex items-start gap-4 flex-1">
           {/* Icon */}
-          <div className="w-14 h-14 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center text-2xl">
-            {integration.icon}
+          <div className="w-14 h-14 bg-white border border-slate-200 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
+            {getIconUrl(integration.slug) && !iconFailed ? (
+              <img
+                src={getIconUrl(integration.slug)!}
+                alt={`${integration.name} icon`}
+                className="w-8 h-8 object-contain"
+                onError={() => setIconFailed(true)}
+              />
+            ) : (
+              <span className="text-2xl leading-none">{integration.icon}</span>
+            )}
           </div>
 
           {/* Details */}
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
-              <h3 className="text-lg font-semibold text-gray-900">{integration.name}</h3>
+              <h3 className="text-black text-[18px] tracking-wide font-poppins font-bold">{integration.name}</h3>
               {getStatusBadge()}
             </div>
 
