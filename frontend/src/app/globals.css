@@ -4,8 +4,14 @@
 
 @layer base {
   :root {
-    /* Brand — Deep Electric Blue */
-    --primary: 213 100% 54%;
+    /* Nav typography — uses Poppins when the viewer has it, otherwise falls
+       back to the app face. Declared here (not via next/font) so no build-time
+       Google Fonts request is needed. */
+    --font-poppins: 'Poppins', 'DM Sans', ui-sans-serif, system-ui, -apple-system,
+      'Segoe UI', Roboto, sans-serif;
+
+    /* Brand — Deep Green (#0F6A59) */
+    --primary: 169 75% 24%;
     --primary-foreground: 0 0% 100%;
 
     /* Surfaces */
@@ -25,8 +31,8 @@
     --muted: 214 32% 96%;
     --muted-foreground: 214 20% 42%;
 
-    --accent: 213 100% 96%;
-    --accent-foreground: 213 100% 38%;
+    --accent: 168 45% 95%;
+    --accent-foreground: 169 75% 24%;
 
     /* Semantic */
     --destructive: 0 84% 60%;
@@ -41,21 +47,21 @@
     /* Structural */
     --border: 214 20% 90%;
     --input: 214 20% 90%;
-    --ring: 213 100% 54%;
+    --ring: 169 75% 24%;
 
-    /* Sidebar — deep navy */
-    --sidebar-bg: 222 47% 6%;
-    --sidebar-fg: 214 20% 55%;
-    --sidebar-active-bg: 213 100% 54%;
+    /* Sidebar — brand green (#0F6A59) */
+    --sidebar-bg: 169 75% 24%;
+    --sidebar-fg: 0 0% 100%;
+    --sidebar-active-bg: 168 40% 38%;
     --sidebar-active-fg: 0 0% 100%;
-    --sidebar-hover-bg: 220 30% 11%;
-    --sidebar-border: 220 30% 12%;
+    --sidebar-hover-bg: 168 60% 30%;
+    --sidebar-border: 170 76% 17%;
 
     --radius: 0.625rem;
   }
 
   .dark {
-    --primary: 213 100% 60%;
+    --primary: 168 55% 34%;
     --primary-foreground: 0 0% 100%;
 
     --background: 222 47% 6%;
@@ -73,22 +79,22 @@
     --muted: 220 30% 13%;
     --muted-foreground: 214 20% 60%;
 
-    --accent: 213 100% 15%;
-    --accent-foreground: 213 100% 75%;
+    --accent: 169 60% 14%;
+    --accent-foreground: 168 55% 72%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 20% 98%;
 
     --border: 220 30% 15%;
     --input: 220 30% 15%;
-    --ring: 213 100% 60%;
+    --ring: 168 55% 34%;
 
-    --sidebar-bg: 222 47% 4%;
-    --sidebar-fg: 214 20% 50%;
-    --sidebar-active-bg: 213 100% 54%;
+    --sidebar-bg: 169 75% 20%;
+    --sidebar-fg: 0 0% 100%;
+    --sidebar-active-bg: 168 40% 34%;
     --sidebar-active-fg: 0 0% 100%;
-    --sidebar-hover-bg: 220 30% 10%;
-    --sidebar-border: 220 30% 10%;
+    --sidebar-hover-bg: 168 60% 26%;
+    --sidebar-border: 170 76% 14%;
   }
 }
 
@@ -121,6 +127,15 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/30;
   }
+
+  /* Completely disable @tailwindcss/forms default blue focus rings globally */
+  input:focus, textarea:focus, select:focus, [type='text']:focus, [type='email']:focus, [type='tel']:focus, [type='url']:focus, [type='password']:focus, [type='number']:focus, [type='search']:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: #000000 !important;
+    --tw-ring-shadow: none !important;
+    --tw-ring-color: transparent !important;
+  }
 }
 
 @layer utilities {
@@ -128,15 +143,26 @@
   .sidebar-fg { color: hsl(var(--sidebar-fg)); }
   .sidebar-border { border-color: hsl(var(--sidebar-border)); }
 
-  /* Dark navy → neon electric blue gradient */
+  /* Brand green hero gradient */
+  .gradient-brand {
+    background: linear-gradient(135deg, #093f36 0%, #0F6A59 42%, #16826a 72%, #1fa183 100%);
+  }
+
+  /* Subtle dotted texture for dark brand surfaces */
+  .brand-dots {
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.45) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+
+  /* Primary gradient — kept on the brand green so the pages that still use
+     this class (empty states, badges, logos) match the rest of the UI. */
   .gradient-primary {
     background: linear-gradient(
       135deg,
-      #010d1f 0%,
-      #031c3d 28%,
-      #063a78 58%,
-      #1168d4 82%,
-      #1a85ff 100%
+      #093f36 0%,
+      #0F6A59 45%,
+      #16826a 78%,
+      #1fa183 100%
     );
   }
 

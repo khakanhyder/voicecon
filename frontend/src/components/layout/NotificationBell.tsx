@@ -77,24 +77,24 @@ export function NotificationBell() {
       <button
         onClick={onOpen}
         aria-label="Notifications"
-        className="relative flex items-center justify-center h-9 w-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/5 hover:text-[#0F6A59]"
       >
         <Bell className="h-4.5 w-4.5" />
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0F6A59] px-1 text-[10px] font-semibold text-white ring-2 ring-white">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="absolute right-0 top-12 z-50 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={() => markAllRead.mutate()}
-                className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                className="flex items-center gap-1 text-xs font-medium text-[#0F6A59] hover:text-[#0d5a4c]"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
                 Mark all read
@@ -115,14 +115,14 @@ export function NotificationBell() {
                 <div
                   key={n.id}
                   className={`border-b border-slate-50 px-4 py-3 transition-colors ${
-                    n.is_read ? 'bg-white' : 'bg-blue-50/40'
+                    n.is_read ? 'bg-white' : 'bg-[#0F6A59]/[0.05]'
                   }`}
                   onMouseEnter={() => {
                     if (!n.is_read) markRead.mutate(n.id)
                   }}
                 >
                   <div className="flex items-start gap-2">
-                    {!n.is_read && <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-blue-500" />}
+                    {!n.is_read && <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-[#0F6A59]" />}
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-900">{n.title}</p>
                       {n.body && <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">{n.body}</p>}
@@ -133,7 +133,7 @@ export function NotificationBell() {
                           <button
                             disabled={acting}
                             onClick={() => handleAccept(n)}
-                            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            className="inline-flex items-center gap-1 rounded-md bg-[#0F6A59] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#0d5a4c] disabled:opacity-60"
                           >
                             <Check className="h-3 w-3" />
                             Accept

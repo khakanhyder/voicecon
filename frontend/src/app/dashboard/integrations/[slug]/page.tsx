@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { IntegrationSetup } from '@/components/integrations/IntegrationSetup'
+import { getIconUrl } from '@/components/integrations/IntegrationCard'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 
@@ -421,6 +422,7 @@ export default function IntegrationDetailPage() {
   const [connectorId, setConnectorId] = useState<string | undefined>()
   const [existingConnectionId, setExistingConnectionId] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
+  const [iconFailed, setIconFailed] = useState(false)
 
   // Load static catalog entry
   useEffect(() => {
@@ -484,12 +486,21 @@ export default function IntegrationDetailPage() {
         <Button variant="ghost" onClick={() => router.push('/dashboard/integrations')} className="mb-4 gap-2 -ml-2 text-slate-600">
           <ArrowLeft className="w-4 h-4" /> Back to Integrations
         </Button>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div className="bg-white rounded-[10px] border border-[#000000] shadow-sm p-6">
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
-              <span className="text-white text-2xl font-bold leading-none">
-                {integration.name.slice(0, 2).toUpperCase()}
-              </span>
+            <div className="w-16 h-16 bg-white border border-slate-200 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
+              {getIconUrl(integration.slug) && !iconFailed ? (
+                <img
+                  src={getIconUrl(integration.slug)!}
+                  alt={integration.name}
+                  className="w-10 h-10 object-contain"
+                  onError={() => setIconFailed(true)}
+                />
+              ) : (
+                <span className="text-3xl leading-none">
+                  {integration.icon || integration.name.slice(0, 2).toUpperCase()}
+                </span>
+              )}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">

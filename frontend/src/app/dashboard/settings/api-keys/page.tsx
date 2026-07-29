@@ -109,7 +109,7 @@ export default function APIKeysPage() {
 
       {/* New API Key Alert */}
       {newKey && (
-        <div className="rounded-lg border border-primary bg-primary/5 p-6 space-y-4">
+        <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <h3 className="font-semibold text-primary">New API Key Created</h3>
@@ -122,25 +122,25 @@ export default function APIKeysPage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Input value={newKey} readOnly className="font-mono text-sm" />
+            <Input value={newKey} readOnly className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"/>
             <Button onClick={() => copyToClipboard(newKey)}>Copy</Button>
           </div>
         </div>
       )}
 
       {/* Create API Key */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Create New API Key</h2>
         <form onSubmit={handleCreateKey} className="flex gap-4">
           <div className="flex-1 space-y-2">
-            <Label htmlFor="keyName">Key Name</Label>
+            <Label htmlFor="keyName" className="text-[14px] font-bold text-[#000000] font-poppins block">Key Name</Label>
             <Input
               id="keyName"
               placeholder="Production API"
               value={keyName}
               onChange={(e) => setKeyName(e.target.value)}
               required
-            />
+             className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="flex items-end">
             <Button type="submit" disabled={creating}>
@@ -151,7 +151,7 @@ export default function APIKeysPage() {
       </div>
 
       {/* API Keys List */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Your API Keys</h2>
 
         {loading ? (
@@ -169,7 +169,7 @@ export default function APIKeysPage() {
             {apiKeys.map((apiKey) => (
               <div
                 key={apiKey.id}
-                className="flex items-center justify-between rounded-lg border p-4"
+                className="flex items-center justify-between rounded-[10px] border border-[#000000] p-4 bg-white"
               >
                 <div className="space-y-1">
                   <p className="font-medium">
@@ -213,7 +213,7 @@ export default function APIKeysPage() {
       </div>
 
       {/* Security Notice */}
-      <div className="rounded-lg border-2 border-destructive/20 bg-destructive/5 p-6">
+      <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6">
         <h3 className="font-semibold text-destructive mb-2">Security Best Practices</h3>
         <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
           <li>Never share your API keys publicly or commit them to version control</li>

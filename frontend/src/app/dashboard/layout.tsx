@@ -30,7 +30,7 @@ export default function DashboardLayout({
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-100 border-t-brand" />
           <p className="text-sm text-slate-500 font-medium">Loading your workspace…</p>
         </div>
       </div>
@@ -54,7 +54,7 @@ export default function DashboardLayout({
           {isFullBleed ? (
             children
           ) : (
-            <div className="p-4 md:p-6 lg:p-8 max-w-screen-2xl mx-auto">
+            <div className="p-4 md:p-5">
               {children}
             </div>
           )}

@@ -1,12 +1,15 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import {
-  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen,
+  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen, ChevronUp, ChevronDown, Check,
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { apiClient } from '@/lib/api'
+import { API_ENDPOINTS } from '@/lib/constants'
 
 // ── LLM Providers & Models ────────────────────────────────────────────────────
 
@@ -381,15 +384,15 @@ export const LANGUAGES = [
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
 export const AGENT_TABS = [
-  { id: 'basic',        label: 'Basic',        icon: FileText },
-  { id: 'llm',          label: 'AI Model',     icon: Cpu },
-  { id: 'voice',        label: 'Voice',        icon: Volume2 },
-  { id: 'stt',          label: 'Transcriber',  icon: Mic },
-  { id: 'conversation', label: 'Conversation', icon: MessageSquare },
-  { id: 'advanced',     label: 'Advanced',     icon: Settings },
-  { id: 'tools',        label: 'Tools',        icon: Wrench },
-  { id: 'knowledge',    label: 'Knowledge',    icon: BookOpen },
-  { id: 'widget',       label: 'Chat Widget',  icon: MessageSquare },
+  { id: 'basic',        label: 'Prompt',         icon: FileText },
+  { id: 'llm',          label: 'LLM Selection',  icon: Cpu },
+  { id: 'stt',          label: 'Transcriber',    icon: Mic },
+  { id: 'voice',        label: 'Voice Selection',icon: Volume2 },
+  { id: 'tools',        label: 'Tools',          icon: Wrench },
+  { id: 'conversation', label: 'Conversation',   icon: MessageSquare },
+  { id: 'advanced',     label: 'Advanced',       icon: Settings },
+  { id: 'knowledge',    label: 'Knowledge',      icon: BookOpen },
+  { id: 'widget',       label: 'Chat Widget',    icon: MessageSquare },
 ] as const
 
 export type AgentTabId = typeof AGENT_TABS[number]['id']
@@ -420,6 +423,8 @@ export interface AgentFormState {
   background_noise_reduction: boolean
   sentiment_analysis_enabled: boolean
   emotion_detection_enabled: boolean
+  /** Knowledge bases the agent answers from — the "Files" picker. */
+  knowledge_base_ids: string[]
 }
 
 export const DEFAULT_FORM: AgentFormState = {
@@ -431,26 +436,43 @@ export const DEFAULT_FORM: AgentFormState = {
   interrupt_enabled: true, interrupt_sensitivity: 0.5,
   silence_timeout: 3000, max_call_duration: 1800,
   background_noise_reduction: true, sentiment_analysis_enabled: false, emotion_detection_enabled: false,
+  knowledge_base_ids: [],
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Slider with the value shown in a bordered box to the right of the label,
+ * matching the Temperature control in the design.
+ */
 function SliderField({ label, value, min, max, step, format, onChange, hints }: {
   label: string; value: number; min: number; max: number; step: number
   format?: (v: number) => string; onChange: (v: number) => void
   hints?: [string, string, string?]
 }) {
   const display = format ? format(value) : String(value)
+  const pct = ((value - min) / (max - min)) * 100
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium text-slate-700">{label}</Label>
-        <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{display}</span>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-[15px] font-semibold text-[#000000] font-poppins flex items-center gap-2">
+          {label} <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-black text-[9px] font-bold leading-none">i</span>
+        </Label>
+        <span className="min-w-[50px] rounded-[6px] border border-[#000000] bg-[#0F6A590A] px-3 py-1.5 text-center text-[13px] font-medium text-[#000000] font-poppins">
+          {display}
+        </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
-        className="w-full h-1.5 appearance-none bg-slate-200 rounded-full accent-blue-600 cursor-pointer"
-      />
+      <div className="relative pt-1 flex items-center h-4">
+        {/* Track below thumb */}
+        <div className="absolute w-full h-[2px] bg-slate-200 rounded-full" />
+        <div className="absolute h-[2px] bg-[#106959] rounded-full" style={{ width: `${pct}%` }} />
+        <input type="range" min={min} max={max} step={step} value={value}
+          onChange={e => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
+          className="w-full appearance-none cursor-pointer bg-transparent absolute"
+          style={{ WebkitAppearance: 'none' }}
+        />
+        {/* Simple style to make standard thumb invisible or styled. Here we just rely on browser thumb, it works fine for standard inputs. But we can style it via global css if needed. */}
+      </div>
       {hints && (
         <div className="flex justify-between text-xs text-slate-400">
           <span>{hints[0]}</span>{hints[2] && <span>{hints[2]}</span>}<span>{hints[1]}</span>
@@ -463,30 +485,155 @@ function SliderField({ label, value, min, max, step, format, onChange, hints }: 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-[#0F6A59]' : 'bg-slate-300'}`}>
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`}/>
     </button>
   )
 }
 
-function SectionCard({ title, icon: Icon, children, hint }: { title: string; icon: React.ElementType; hint?: string; children: React.ReactNode }) {
+/**
+ * Collapsible white card with a title, sub-caption and chevron — the "Model"
+ * panel in the design.
+ */
+function SectionCard({ title, subtitle, icon: Icon, children, hint }: {
+  title: string; subtitle?: string; icon?: React.ElementType; hint?: string; children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(true)
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50">
-        <div className="flex items-center gap-2.5">
-          <Icon className="h-4 w-4 text-slate-500"/>
-          <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
+    <div className="rounded-[10px] border border-[#000000] bg-white overflow-hidden mt-4">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-start justify-between gap-3 px-6 pt-5 pb-4 text-left"
+      >
+        <div className="flex items-start gap-2.5">
+          {Icon && <Icon className="mt-1 h-5 w-5 flex-shrink-0 text-[#0F6A59]" />}
+          <div>
+            <h2 className="text-[20px] font-bold text-[#000000] font-poppins leading-tight">{title}</h2>
+            {subtitle && <p className="mt-1 text-[12px] font-medium text-[#000000] font-poppins">{subtitle}</p>}
+          </div>
         </div>
-        {hint && <span className="text-xs text-slate-400">{hint}</span>}
+        <div className="flex items-center gap-3">
+          {hint && <span className="text-xs text-slate-400">{hint}</span>}
+          <ChevronUp className={`h-6 w-6 flex-shrink-0 text-[#106959] transition-transform ${open ? '' : 'rotate-180'}`} />
+        </div>
+      </button>
+      {open && <div className="px-6 pb-6 space-y-6">{children}</div>}
+    </div>
+  )
+}
+
+/**
+ * "Files" picker from the design — selects which knowledge bases the agent
+ * answers from. Multi-select, because an agent can hold several; the Knowledge
+ * tab edits the same attachment list.
+ */
+function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+  const [options, setOptions] = useState<{ id: string; name: string }[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    apiClient.get<{ id: string; name: string }[]>(API_ENDPOINTS.KNOWLEDGE_BASES)
+      .then(r => setOptions(r.data || []))
+      .catch(() => setOptions([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const selectedNames = options.filter(o => value.includes(o.id)).map(o => o.name)
+  const label = loading
+    ? 'Loading…'
+    : selectedNames.length === 0 ? 'Select File'
+    : selectedNames.length === 1 ? selectedNames[0]
+    : `${selectedNames.length} files selected`
+
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex h-[42px] w-full items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-3 text-[14px] font-poppins text-[#000000]"
+      >
+        <span className={selectedNames.length ? 'text-[#000000] font-medium' : 'text-slate-500 font-medium'}>{label}</span>
+        <ChevronDown className="h-5 w-5 flex-shrink-0 text-[#106959]" />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+          {options.length === 0 ? (
+            <p className="px-3 py-2.5 text-sm text-slate-400">No knowledge bases yet</p>
+          ) : (
+            options.map(o => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => toggle(o.id)}
+                className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
+                  value.includes(o.id) ? 'border-[#0F6A59] bg-[#0F6A59] text-white' : 'border-slate-300'
+                }`}>
+                  {value.includes(o.id) && <Check className="h-3 w-3" />}
+                </span>
+                <span className="truncate">{o.name}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Assistant name and description. These live in the side rail next to the
+ * "Create Assistant" action, matching the design.
+ */
+export function AgentIdentityFields({ form, set }: {
+  form: AgentFormState; set: (key: keyof AgentFormState, value: any) => void
+}) {
+  return (
+    <div className="space-y-4 rounded-[10px] border border-[#000000] bg-white p-5">
+      <div className="space-y-2">
+        <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Assistant Name <span className="text-red-500">*</span></Label>
+        <Input
+          placeholder="e.g. Riley"
+          value={form.name}
+          onChange={e => set('name', e.target.value)}
+          required
+          className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+        />
       </div>
-      <div className="p-5 space-y-5">{children}</div>
+      <div className="space-y-2">
+        <Label className="text-[14px] font-bold text-[#000000] font-poppins block mt-1">Description</Label>
+        <Textarea
+          placeholder="What does this assistant do?"
+          value={form.description}
+          onChange={e => set('description', e.target.value)}
+          rows={3}
+          className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]"
+        />
+      </div>
     </div>
   )
 }
 
 function ProviderBadge({ badge }: { badge: string }) {
   if (!badge) return null
-  return <span className="ml-2 text-xs bg-blue-50 text-blue-600 rounded px-1.5 py-0.5 font-medium">{badge}</span>
+  return <span className="ml-2 rounded bg-[#0F6A59]/10 px-1.5 py-0.5 text-xs font-medium text-[#0F6A59]">{badge}</span>
 }
 
 // ── Tab content ───────────────────────────────────────────────────────────────
@@ -495,40 +642,115 @@ export function AgentTabContent({ tab, form, set }: {
   tab: AgentTabId; form: AgentFormState; set: (key: keyof AgentFormState, value: any) => void
 }) {
 
-  if (tab === 'basic') return (
-    <SectionCard title="Basic Information" icon={FileText}>
-      <div className="space-y-1.5">
-        <Label>Agent Name <span className="text-red-500">*</span></Label>
-        <Input placeholder="e.g. Customer Support Agent" value={form.name} onChange={e => set('name', e.target.value)} required/>
+  if (tab === 'basic') {
+    return (
+      <div className="flex flex-col w-[85%]">
+        <SectionCard title="Model" subtitle="Configure the behaviour of the assistant">
+          <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
+            {/* Left column */}
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">First Message</Label>
+                <Input 
+                  value={form.first_message} 
+                  onChange={e => set('first_message', e.target.value)} 
+                  placeholder="Thank you for calling Wellness Partners..."
+                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 py-2"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins block mt-4">System Prompt</Label>
+                <Textarea
+                  placeholder="You are a helpful voice assistant."
+                  value={form.system_prompt} 
+                  onChange={e => set('system_prompt', e.target.value)}
+                  rows={13} required
+                  className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 py-3 leading-relaxed text-[13px]"
+                />
+              </div>
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Provider</Label>
+                {/* Visual match for Provider via input style */}
+                <div className="relative">
+                   <Input 
+                     value={LLM_PROVIDERS.find(p => p.value === form.llm_provider)?.label || 'open.ai'}
+                     readOnly
+                     className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                   />
+                   <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
+                     <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
+                     <SelectContent>
+                       {LLM_PROVIDERS.map(p => (
+                         <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                       ))}
+                     </SelectContent>
+                   </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Model</Label>
+                {/* Visual match for Model via input style */}
+                <div className="relative">
+                   <Input 
+                     value={(LLM_MODELS[form.llm_provider] || []).find(m => m.value === form.llm_model)?.label.split(' ')[0] || 'GPT-4'}
+                     readOnly
+                     className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                   />
+                   <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
+                     <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
+                     <SelectContent>
+                       {(LLM_MODELS[form.llm_provider] || []).map(m => (
+                         <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                       ))}
+                     </SelectContent>
+                   </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Files</Label>
+                <KnowledgeBaseSelect
+                  value={form.knowledge_base_ids}
+                  onChange={ids => set('knowledge_base_ids', ids)}
+                />
+              </div>
+
+              <div className="pt-2">
+                 <SliderField label="Temperature" value={form.llm_temperature} min={0} max={2} step={0.1}
+                 format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)}/>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <Label className="text-[15px] font-bold text-[#000000] font-poppins flex items-center gap-2">
+                  Max Token <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-black text-[9px] font-bold leading-none">i</span>
+                </Label>
+                <Input
+                  type="number" min={100} max={4000} step={50}
+                  value={form.llm_max_tokens}
+                  onChange={e => set('llm_max_tokens', parseInt(e.target.value) || 0)}
+                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
       </div>
-      <div className="space-y-1.5">
-        <Label>Description</Label>
-        <Textarea placeholder="What does this agent do?" value={form.description} onChange={e => set('description', e.target.value)} rows={2}/>
-      </div>
-      <div className="space-y-1.5">
-        <Label>System Prompt <span className="text-red-500">*</span></Label>
-        <Textarea
-          placeholder="You are a helpful voice assistant. Be concise and professional. Keep responses under 2 sentences."
-          value={form.system_prompt} onChange={e => set('system_prompt', e.target.value)}
-          rows={6} required className="font-mono text-sm"
-        />
-        <p className="text-xs text-slate-400">Defines agent personality and instructions. Keep responses short for voice.</p>
-      </div>
-      <div className="space-y-1.5">
-        <Label>First Message</Label>
-        <Input value={form.first_message} onChange={e => set('first_message', e.target.value)} placeholder="Hello! How can I help you today?"/>
-        <p className="text-xs text-slate-400">Opening greeting when the call starts.</p>
-      </div>
-    </SectionCard>
-  )
+    )
+  }
 
   if (tab === 'llm') return (
-    <SectionCard title="Language Model (LLM)" icon={Cpu} hint={`${LLM_PROVIDERS.length} providers`}>
+    <div className="flex flex-col w-[85%]">
+      <SectionCard title="LLM Selection" subtitle="Pick the model that powers the conversation" icon={Cpu} hint={`${LLM_PROVIDERS.length} providers`}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Provider</Label>
+        <div className="space-y-2">
+          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
           <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
-            <SelectTrigger><SelectValue/></SelectTrigger>
+            <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {LLM_PROVIDERS.map(p => (
                 <SelectItem key={p.value} value={p.value}>
@@ -538,10 +760,10 @@ export function AgentTabContent({ tab, form, set }: {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1.5">
-          <Label>Model</Label>
+        <div className="space-y-2">
+          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
           <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
-            <SelectTrigger><SelectValue/></SelectTrigger>
+            <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {(LLM_MODELS[form.llm_provider] || []).map(m => (
                 <SelectItem key={m.value} value={m.value}>
@@ -554,21 +776,24 @@ export function AgentTabContent({ tab, form, set }: {
       </div>
 
       {form.llm_provider === 'custom' && (
-        <div className="space-y-1.5">
-          <Label>Custom LLM Endpoint URL</Label>
+        <div className="space-y-2">
+          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Custom LLM Endpoint URL</Label>
           <Input value={form.llm_custom_url} onChange={e => set('llm_custom_url', e.target.value)}
             placeholder="https://your-llm-server.com/v1" className="font-mono text-sm"/>
           <p className="text-xs text-slate-400">Must be OpenAI-compatible (chat completions endpoint)</p>
         </div>
       )}
 
-      <SliderField label="Temperature" value={form.llm_temperature} min={0} max={2} step={0.1}
-        format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)}
-        hints={['0 · Deterministic', '2 · Creative', '1 · Balanced']}/>
-      <SliderField label="Max Tokens" value={form.llm_max_tokens} min={100} max={4000} step={100}
-        format={v => String(v)} onChange={v => set('llm_max_tokens', v)}
-        hints={['100 · Short', '4000 · Long']}/>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <SliderField label="Temperature" value={form.llm_temperature} min={0} max={2} step={0.1}
+          format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)}
+          hints={['0 · Deterministic', '2 · Creative', '1 · Balanced']}/>
+        <SliderField label="Max Token" value={form.llm_max_tokens} min={100} max={4000} step={100}
+          format={v => String(v)} onChange={v => set('llm_max_tokens', v)}
+          hints={['100 · Short', '4000 · Long']}/>
+      </div>
     </SectionCard>
+    </div>
   )
 
   if (tab === 'voice') {
@@ -576,12 +801,13 @@ export function AgentTabContent({ tab, form, set }: {
     const defaultVoiceId = currentVoices[0]?.value || '21m00Tcm4TlvDq8ikWAM'
 
     return (
-      <SectionCard title="Voice (Text-to-Speech)" icon={Volume2} hint={`${TTS_PROVIDERS.length} providers`}>
+    <div className="flex flex-col w-[85%]">
+      <SectionCard title="Voice Selection" subtitle="Choose how the assistant sounds" icon={Volume2} hint={`${TTS_PROVIDERS.length} providers`}>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Provider</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
             <Select value={form.tts_provider || 'elevenlabs'} onValueChange={v => { set('tts_provider', v); set('tts_voice_id', (TTS_VOICES[v] || TTS_VOICES.elevenlabs)[0]?.value || '21m00Tcm4TlvDq8ikWAM') }}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {TTS_PROVIDERS.map(p => (
                   <SelectItem key={p.value} value={p.value}>
@@ -591,10 +817,10 @@ export function AgentTabContent({ tab, form, set }: {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Voice</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Voice</Label>
             <Select value={form.tts_voice_id || defaultVoiceId || (currentVoices[0]?.value ?? '')} onValueChange={v => set('tts_voice_id', v)}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {currentVoices.map(v => (
                   <SelectItem key={v.value} value={v.value}>
@@ -611,21 +837,24 @@ export function AgentTabContent({ tab, form, set }: {
         </div>
 
         {form.tts_voice_id === '_custom' && (
-          <div className="space-y-1.5">
-            <Label>Custom Voice ID</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Custom Voice ID</Label>
             <Input value=""
               onChange={e => set('tts_voice_id', e.target.value)}
               placeholder="Enter provider-specific voice ID" className="font-mono text-sm"/>
           </div>
         )}
 
-        <SliderField label="Speech Speed" value={form.tts_speed} min={0.5} max={2.0} step={0.1}
-          format={v => `${v.toFixed(1)}x`} onChange={v => set('tts_speed', v)}
-          hints={['0.5x · Slow', '2.0x · Fast', '1.0x · Normal']}/>
-        <SliderField label="Pitch" value={form.tts_pitch} min={0.5} max={2.0} step={0.1}
-          format={v => v.toFixed(1)} onChange={v => set('tts_pitch', v)}
-          hints={['0.5 · Low', '2.0 · High', '1.0 · Normal']}/>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <SliderField label="Speech Speed" value={form.tts_speed} min={0.5} max={2.0} step={0.1}
+            format={v => `${v.toFixed(1)}x`} onChange={v => set('tts_speed', v)}
+            hints={['0.5x · Slow', '2.0x · Fast', '1.0x · Normal']}/>
+          <SliderField label="Pitch" value={form.tts_pitch} min={0.5} max={2.0} step={0.1}
+            format={v => v.toFixed(1)} onChange={v => set('tts_pitch', v)}
+            hints={['0.5 · Low', '2.0 · High', '1.0 · Normal']}/>
+        </div>
       </SectionCard>
+      </div>
     )
   }
 
@@ -633,12 +862,13 @@ export function AgentTabContent({ tab, form, set }: {
     const sttModels = STT_MODELS[form.stt_provider] || STT_MODELS.deepgram
     const defaultSttModel = sttModels[0]?.value || 'nova-2'
     return (
-      <SectionCard title="Transcriber (Speech-to-Text)" icon={Mic} hint={`${STT_PROVIDERS.length} providers`}>
+    <div className="flex flex-col w-[85%]">
+      <SectionCard title="Transcriber" subtitle="Speech-to-text engine for incoming audio" icon={Mic} hint={`${STT_PROVIDERS.length} providers`}>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label>Provider</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
             <Select value={form.stt_provider || 'deepgram'} onValueChange={v => { set('stt_provider', v); set('stt_model', (STT_MODELS[v] || STT_MODELS.deepgram)[0]?.value || 'nova-2') }}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {STT_PROVIDERS.map(p => (
                   <SelectItem key={p.value} value={p.value}>
@@ -648,10 +878,10 @@ export function AgentTabContent({ tab, form, set }: {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Model</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
             <Select value={form.stt_model || defaultSttModel} onValueChange={v => set('stt_model', v)}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {sttModels.map(m => (
                   <SelectItem key={m.value} value={m.value}>
@@ -661,10 +891,10 @@ export function AgentTabContent({ tab, form, set }: {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Language</Label>
+          <div className="space-y-2">
+            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Language</Label>
             <Select value={form.stt_language} onValueChange={v => set('stt_language', v)}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
               </SelectContent>
@@ -672,12 +902,14 @@ export function AgentTabContent({ tab, form, set }: {
           </div>
         </div>
       </SectionCard>
+      </div>
     )
   }
 
   if (tab === 'conversation') return (
-    <SectionCard title="Conversation Settings" icon={MessageSquare}>
-      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="flex flex-col w-[85%]">
+      <SectionCard title="Conversation" subtitle="Turn-taking and call limits" icon={MessageSquare}>
+      <div className="flex items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-4 py-3">
         <div>
           <p className="text-sm font-medium text-slate-800">Allow Interruptions (Barge-in)</p>
           <p className="text-xs text-slate-400 mt-0.5">User can speak while agent is talking</p>
@@ -696,16 +928,18 @@ export function AgentTabContent({ tab, form, set }: {
       <SliderField label="Max Call Duration" value={form.max_call_duration} min={60} max={7200} step={60}
         format={v => `${Math.floor(v/60)}m`} onChange={v => set('max_call_duration', v)} hints={['1m', '120m']}/>
     </SectionCard>
+    </div>
   )
 
   if (tab === 'advanced') return (
-    <SectionCard title="Advanced Features" icon={Settings}>
+    <div className="flex flex-col w-[85%]">
+      <SectionCard title="Advanced" subtitle="Extra signal processing and analysis" icon={Settings}>
       {[
         { key: 'background_noise_reduction', label: 'Background Noise Reduction', desc: 'Filter background noise from audio input' },
         { key: 'sentiment_analysis_enabled', label: 'Sentiment Analysis',          desc: 'Detect user sentiment in real-time during calls' },
         { key: 'emotion_detection_enabled',  label: 'Emotion Detection',           desc: 'Analyze emotional tone from voice patterns' },
       ].map(({ key, label, desc }) => (
-        <div key={key} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div key={key} className="flex items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-4 py-3">
           <div>
             <p className="text-sm font-medium text-slate-800">{label}</p>
             <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
@@ -714,6 +948,7 @@ export function AgentTabContent({ tab, form, set }: {
         </div>
       ))}
     </SectionCard>
+    </div>
   )
 
   return null
@@ -721,17 +956,35 @@ export function AgentTabContent({ tab, form, set }: {
 
 // ── Tab nav bar ───────────────────────────────────────────────────────────────
 
+/**
+ * Step row from the design — a green dot per step, the active step in bold
+ * slate with a green underline.
+ */
 export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; onChange: (tab: AgentTabId) => void }) {
   return (
-    <div className="flex gap-0 border-b border-slate-200 overflow-x-auto">
-      {AGENT_TABS.map(({ id, label, icon: Icon }) => (
-        <button key={id} type="button" onClick={() => onChange(id)}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-            activeTab === id ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-          }`}>
-          <Icon className="h-4 w-4"/>{label}
-        </button>
-      ))}
+    <div className="flex items-center gap-7 overflow-x-auto border-b border-[#E5E7EB] pt-1">
+      {AGENT_TABS.map(({ id, label }) => {
+        const active = activeTab === id
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(id)}
+            title={label}
+            className={`flex items-center gap-2 whitespace-nowrap pb-[14px] text-[15px] font-poppins transition-colors relative ${
+              active
+                ? 'font-bold text-[#000000]'
+                : 'font-medium text-[#000000] hover:opacity-80'
+            }`}
+          >
+            <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${active ? 'bg-[#106959]' : 'bg-[#106959]'}`} />
+            {label}
+            {active && (
+              <span className="absolute bottom-[-1px] left-0 w-full h-[3px] bg-[#106959] rounded-t-sm" />
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }

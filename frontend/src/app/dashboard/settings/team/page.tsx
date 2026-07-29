@@ -140,11 +140,11 @@ export default function TeamSettingsPage() {
 
       {/* Invite Member */}
       {canManage && (
-        <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Invite Team Member</h2>
           <form onSubmit={handleInvite} className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[220px] space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+              <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email Address</Label>
               <Input
                 id="email"
                 type="email"
@@ -152,13 +152,12 @@ export default function TeamSettingsPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-              />
+               className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
+              <Label htmlFor="role" className="text-[14px] font-bold text-[#000000] font-poppins block">Role</Label>
               <select
-                id="role"
-                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                id="role" className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
@@ -182,7 +181,7 @@ export default function TeamSettingsPage() {
 
       {/* Pending Invitations */}
       {canManage && invitations.length > 0 && (
-        <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">
             Pending Invitations
             <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -193,7 +192,7 @@ export default function TeamSettingsPage() {
             {invitations.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between rounded-lg border border-dashed p-4"
+                className="flex items-center justify-between rounded-[10px] border border-dashed border-[#000000] p-4 bg-white"
               >
                 <div className="flex items-center gap-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600">
@@ -228,7 +227,7 @@ export default function TeamSettingsPage() {
       )}
 
       {/* Team Members */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Team Members</h2>
 
         {loading ? (
@@ -245,7 +244,7 @@ export default function TeamSettingsPage() {
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between rounded-lg border p-4"
+                  className="flex items-center justify-between rounded-[10px] border border-[#000000] p-4 bg-white"
                 >
                   <div className="flex items-center gap-4">
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
@@ -261,8 +260,7 @@ export default function TeamSettingsPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     {canManage && !isOwner ? (
-                      <select
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      <select className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
                         value={member.role}
                         disabled={busyId === member.id}
                         onChange={(e) => handleRoleChange(member, e.target.value)}
@@ -298,7 +296,7 @@ export default function TeamSettingsPage() {
       </div>
 
       {/* Roles & Permissions */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Roles &amp; Permissions</h2>
         <div className="space-y-3">
           {[

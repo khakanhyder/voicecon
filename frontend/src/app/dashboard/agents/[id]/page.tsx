@@ -195,7 +195,7 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Hero card ── */}
-        <div className="bg-white rounded-2xl border border-slate-200 px-6 py-5 shadow-sm mb-4">
+        <div className="bg-white rounded-[10px] border border-[#000000] px-6 py-5 shadow-sm mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             {/* Avatar + name */}
             <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -278,14 +278,14 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Tab bar ── */}
-        <div className="flex gap-0 border-b border-slate-200 bg-white rounded-t-xl mb-0 px-1">
+        <div className="flex gap-0 border border-b-0 border-[#000000] bg-white rounded-t-[10px] mb-0 px-1">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === id
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-[#106959] text-[#106959]'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
@@ -296,7 +296,7 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Tab content ── */}
-        <div className="bg-white rounded-b-xl border border-t-0 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-b-[10px] border border-t-0 border-[#000000] p-6 shadow-sm">
 
           {/* OVERVIEW */}
           {activeTab === 'overview' && (
@@ -305,9 +305,9 @@ export default function AgentDetailPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <Settings2 className="h-4 w-4 text-slate-400" />
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">System Prompt</h3>
+                  <h3 className="text-[14px] font-bold text-[#000000] font-poppins block">System Prompt</h3>
                 </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 font-mono text-sm text-slate-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                <div className="rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-4 text-[14px] text-slate-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {agent.system_prompt || <span className="text-slate-400 italic">Not configured</span>}
                 </div>
               </div>
@@ -316,9 +316,9 @@ export default function AgentDetailPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <MessageSquare className="h-4 w-4 text-slate-400" />
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">First Message</h3>
+                  <h3 className="text-[14px] font-bold text-[#000000] font-poppins block">First Message</h3>
                 </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 font-mono text-sm text-slate-700 whitespace-pre-wrap">
+                <div className="rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-4 text-[14px] text-slate-700 whitespace-pre-wrap">
                   {agent.first_message || <span className="text-slate-400 italic">Not configured</span>}
                 </div>
 
@@ -329,7 +329,7 @@ export default function AgentDetailPage() {
                     { label: 'Silence Timeout',  value: `${((agent.silence_timeout||3000)/1000).toFixed(1)}s`, icon: Clock, copyable: false },
                     { label: 'Last Updated',     value: new Date(agent.updated_at).toLocaleDateString(), icon: Calendar, copyable: false },
                   ].map(({ label, value, icon: Icon }) => (
-                    <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <div key={label} className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-3">
                       <div className="flex items-center gap-1.5 mb-1">
                         <Icon className="h-3.5 w-3.5 text-slate-400" />
                         <span className="text-xs text-slate-400">{label}</span>
@@ -338,7 +338,7 @@ export default function AgentDetailPage() {
                     </div>
                   ))}
                   {/* Agent ID — copyable */}
-                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-3">
                     <div className="flex items-center gap-1.5 mb-1">
                       <Shield className="h-3.5 w-3.5 text-slate-400" />
                       <span className="text-xs text-slate-400">Agent ID</span>
@@ -376,7 +376,7 @@ export default function AgentDetailPage() {
 
               <div className="grid gap-4 md:grid-cols-3">
                 {/* LLM */}
-                <div className="rounded-xl border border-slate-200 p-4">
+                <div className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-4">
                   <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50">
                       <Cpu className="h-4 w-4 text-blue-600" />
@@ -399,7 +399,7 @@ export default function AgentDetailPage() {
                 </div>
 
                 {/* Voice */}
-                <div className="rounded-xl border border-slate-200 p-4">
+                <div className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-4">
                   <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50">
                       <Volume2 className="h-4 w-4 text-amber-600" />
@@ -421,7 +421,7 @@ export default function AgentDetailPage() {
                 </div>
 
                 {/* STT */}
-                <div className="rounded-xl border border-slate-200 p-4">
+                <div className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-4">
                   <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50">
                       <Mic className="h-4 w-4 text-blue-600" />
@@ -444,7 +444,7 @@ export default function AgentDetailPage() {
               </div>
 
               {/* Conversation settings */}
-              <div className="rounded-xl border border-slate-200 p-4">
+              <div className="rounded-[8px] border border-[#000000] bg-[#0F6A590A] p-4">
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100">
                     <Sliders className="h-4 w-4 text-slate-600" />
@@ -497,7 +497,7 @@ export default function AgentDetailPage() {
                   <p className="text-xs text-slate-400 mt-1">Call history will appear here once this agent handles calls.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+                <div className="divide-y divide-[#000000] rounded-[8px] border border-[#000000] overflow-hidden">
                   <div className="hidden md:grid grid-cols-[2rem_1fr_6rem_5rem_6rem_3rem] gap-3 px-4 py-2.5 bg-slate-50 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     <div />
                     <div>From / To</div>

@@ -1,6 +1,5 @@
-import React from 'react';
-import { CheckCircle, AlertCircle, Clock, ArrowRight, Zap } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React, { useState } from 'react';
+import { CheckCircle, AlertCircle, Clock } from 'lucide-react';
 
 interface IntegrationCardProps {
   integration: {
@@ -19,27 +18,92 @@ interface IntegrationCardProps {
   onConnect: () => void;
 }
 
+/**
+ * Brand icons bundled in `public/brand/apps-icons`. These take priority over
+ * the icon CDN — they're the official marks and need no network round-trip.
+ */
+export const localIcons: Record<string, string> = {
+  'google-calendar': 'calender.png',
+  'clickup': 'clickup.png',
+  'google-drive': 'gdrive.png',
+  'gmail': 'gmail.png',
+  'gohighlevel': 'gohightlevel.png',
+  'hubspot': 'hubspot.png',
+  'monday': 'moday.png',
+  'outlook': 'outlook.png',
+  'slack': 'slack.png',
+  'stripe': 'stripe.png',
+  'microsoft-teams': 'teams.png',
+  'telnyx': 'telnyx.png',
+  'trello': 'trello.png',
+  'twilio': 'twilio.png',
+  'zapier': 'zapier.png',
+};
+
+export const getIconUrl = (slug: string) => {
+  if (localIcons[slug]) return `/brand/apps-icons/${localIcons[slug]}`;
+
+  // Everything else still resolves from the icon CDN.
+  const map: Record<string, string> = {
+    'salesforce': 'salesforce',
+    'hubspot': 'hubspot',
+    'pipedrive': 'pipedrive',
+    'zendesk': 'zendesk',
+    'intercom': 'intercom',
+    'google-calendar': 'googlecalendar',
+    'calendly': 'calendly',
+    'cal-com': 'caldotcom',
+    'slack': 'slack',
+    'microsoft-teams': 'microsoftteams',
+    'twilio': 'twilio',
+    'sendgrid': 'sendgrid',
+    'zapier': 'zapier',
+    'make': 'make',
+    'google-sheets': 'googlesheets',
+    'google-drive': 'googledrive',
+    'airtable': 'airtable',
+    'stripe': 'stripe',
+    'notion': 'notion',
+    'monday': 'mondaydotcom',
+    'aws-s3': 'amazons3',
+    'azure-blob': 'microsoftazure',
+    'gcs': 'googlecloud',
+    'cloudflare-r2': 'cloudflare',
+    'supabase': 'supabase',
+    'clickup': 'clickup',
+    'trello': 'trello',
+    'whatsapp': 'whatsapp',
+    'gohighlevel': 'gohighlevel',
+    'telnyx': 'telnyx',
+    'vonage': 'vonage',
+    'langfuse': 'langfuse',
+    'gmail': 'gmail',
+    'outlook': 'microsoftoutlook',
+  };
+  return map[slug] ? `https://cdn.simpleicons.org/${map[slug]}` : null;
+};
+
 export const IntegrationCard: React.FC<IntegrationCardProps> = ({ integration, onConnect }) => {
   const getStatusBadge = () => {
     switch (integration.status) {
       case 'connected':
         return (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-medium">
-            <CheckCircle className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-medium ml-2">
+            <CheckCircle className="w-3 h-3" />
             Connected
           </div>
         );
       case 'error':
         return (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs font-medium">
-            <AlertCircle className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full text-[11px] font-medium ml-2">
+            <AlertCircle className="w-3 h-3" />
             Error
           </div>
         );
       case 'pending':
         return (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-medium">
-            <Clock className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-medium ml-2">
+            <Clock className="w-3 h-3" />
             Pending
           </div>
         );
@@ -48,100 +112,56 @@ export const IntegrationCard: React.FC<IntegrationCardProps> = ({ integration, o
     }
   };
 
-  const getAuthTypeBadge = () => {
-    const badges = {
-      oauth2: { text: 'OAuth 2.0', color: 'bg-violet-50 text-violet-700 border border-violet-200' },
-      api_key: { text: 'API Key', color: 'bg-blue-50 text-blue-700 border border-blue-200' },
-      basic: { text: 'Basic Auth', color: 'bg-slate-100 text-slate-600 border border-slate-200' },
-    };
-    const badge = badges[integration.authType];
-    return (
-      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
-        {badge.text}
-      </span>
-    );
-  };
-
   const isConnected = integration.status === 'connected';
+  const iconUrl = getIconUrl(integration.slug);
+  // Not every slug exists on the icon CDN, and the CDN may be unreachable —
+  // fall back to the catalog glyph so the tile is never empty.
+  const [iconFailed, setIconFailed] = useState(false);
 
   return (
     <div
-      className={`bg-white rounded-xl border transition-all overflow-hidden cursor-pointer group ${
-        isConnected
-          ? 'border-emerald-200 shadow-sm hover:shadow-md'
-          : integration.status === 'error'
-          ? 'border-red-200 shadow-sm hover:shadow-md'
-          : 'border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300'
-      }`}
+      className={`flex items-center justify-between px-3 sm:px-5 py-3 rounded-lg border border-[#000000] cursor-pointer group gap-2 sm:gap-4`}
+      style={{ background: '#0F6A590F' }}
       onClick={onConnect}
     >
-      {/* Connected stripe */}
-      {isConnected && <div className="h-1 w-full bg-gradient-to-r from-emerald-400 to-teal-500" />}
-
-      <div className="p-5">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-start gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center flex-shrink-0 shadow-sm">
-              <span className="text-white text-sm font-bold leading-none">
-                {integration.name.slice(0, 2).toUpperCase()}
-              </span>
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 mb-1">
-                <h3 className="font-semibold text-slate-900 leading-tight">{integration.name}</h3>
-                {integration.popular && (
-                  <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-400" title="Popular" />
-                )}
-              </div>
-              {getAuthTypeBadge()}
-            </div>
-          </div>
-          {getStatusBadge()}
-        </div>
-
-        {/* Description */}
-        <p className="text-sm text-slate-500 mb-3 line-clamp-2 min-h-[2.5rem]">
-          {integration.description}
-        </p>
-
-        {/* Features */}
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {integration.features.slice(0, 3).map((feature, idx) => (
-            <span key={idx} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs border border-slate-200">
-              {feature}
-            </span>
-          ))}
-          {integration.features.length > 3 && (
-            <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded text-xs border border-slate-200">
-              +{integration.features.length - 3} more
-            </span>
+      <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+        {/* Icon sits in a white rounded tile, per the design */}
+        <div className="flex h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white">
+          {iconUrl && !iconFailed ? (
+            <img
+              src={iconUrl}
+              alt={`${integration.name} icon`}
+              className="h-4 w-4 sm:h-5 sm:w-5 object-contain"
+              onError={() => setIconFailed(true)}
+            />
+          ) : (
+            <span className="text-base sm:text-lg leading-none">{integration.icon}</span>
           )}
         </div>
 
-        {/* Action Button */}
+        <div className="flex flex-col sm:flex-row sm:items-center min-w-0 flex-1">
+          <h3 className="text-black text-[14px] sm:text-[18px] tracking-wide truncate" style={{ fontFamily: 'Poppins, sans-serif' }}>{integration.name}</h3>
+          <div className="mt-1 sm:mt-0">
+            {getStatusBadge()}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-shrink-0 ml-1 sm:ml-0">
         {isConnected ? (
           <button
             onClick={(e) => { e.stopPropagation(); onConnect(); }}
-            className="w-full flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            className="flex items-center justify-center rounded bg-[#106959] px-3 sm:px-6 py-1.5 sm:py-2 text-[12px] sm:text-[14px] font-medium text-white hover:opacity-90 transition-all font-poppins"
           >
             Manage
-            <ArrowRight className="w-4 h-4" />
           </button>
         ) : (
           <button
             onClick={(e) => { e.stopPropagation(); onConnect(); }}
-            className="w-full flex items-center justify-center gap-2 rounded-md gradient-primary px-3 py-2 text-sm font-semibold text-white hover:opacity-90 transition-all shadow-sm"
+            className="flex items-center justify-center rounded bg-[#106959] px-3 sm:px-6 py-1.5 sm:py-2 text-[12px] sm:text-[14px] font-medium text-white hover:opacity-90 transition-all font-poppins"
           >
             Connect
-            <ArrowRight className="w-4 h-4" />
           </button>
-        )}
-
-        {isConnected && integration.connectedAt && (
-          <p className="text-xs text-slate-400 mt-2 text-center">
-            Connected {new Date(integration.connectedAt).toLocaleDateString()}
-          </p>
         )}
       </div>
     </div>

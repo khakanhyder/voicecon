@@ -3,19 +3,25 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bot } from 'lucide-react'
+import { ArrowLeft, Search } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import {
-  AgentTabBar, AgentTabContent, AgentTabId,
-  AgentFormState, DEFAULT_FORM,
+  AgentTabBar, AgentTabContent, AgentTabId, AgentIdentityFields,
+  AgentFormState, DEFAULT_FORM, AGENT_TABS,
 } from '@/components/agents/AgentForm'
+import { AssistantsRail } from '@/components/agents/AssistantsRail'
+
+// Tabs that hold create-time form fields. Tools, Knowledge and the Chat Widget
+// attach to an agent that already exists, so they stay on the edit screen.
+const FORM_TABS: AgentTabId[] = ['basic', 'llm', 'stt', 'voice', 'conversation', 'advanced']
 
 export default function NewAgentPage() {
   const router    = useRouter()
   const [tab,     setTab]     = useState<AgentTabId>('basic')
   const [loading, setLoading] = useState(false)
+  const [search,  setSearch]  = useState('')
   const [form,    setForm]    = useState<AgentFormState>(DEFAULT_FORM)
 
   const set = (key: keyof AgentFormState, value: any) =>
@@ -36,6 +42,18 @@ export default function NewAgentPage() {
         settings: { interrupt_enabled: form.interrupt_enabled, interrupt_sensitivity: form.interrupt_sensitivity, silence_timeout: form.silence_timeout, max_call_duration: form.max_call_duration },
         advanced: { background_noise_reduction: form.background_noise_reduction, sentiment_analysis_enabled: form.sentiment_analysis_enabled, emotion_detection_enabled: form.emotion_detection_enabled },
       })
+      // Knowledge bases attach to an agent that already exists, so the "Files"
+      // selection is applied right after creation.
+      if (form.knowledge_base_ids.length) {
+        try {
+          await apiClient.put(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(res.data.id), {
+            knowledge_base_ids: form.knowledge_base_ids,
+            max_results: 3, min_similarity: 0.2, auto_inject: true,
+          })
+        } catch {
+          toast.warning('Agent created, but the selected files could not be attached')
+        }
+      }
       toast.success('Agent created successfully')
       router.push(`/dashboard/agents/${res.data.id}`)
     } catch (e) {
@@ -45,70 +63,88 @@ export default function NewAgentPage() {
     }
   }
 
+  const tabIndex = FORM_TABS.indexOf(tab)
+  const activeLabel = AGENT_TABS.find(t => t.id === tab)?.label ?? ''
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <Link href="/dashboard/agents" className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-primary shadow">
-            <Bot className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Create Agent</h1>
-            <p className="text-sm text-slate-500">Configure your AI voice agent</p>
-          </div>
+        <h1 className="text-xl font-semibold text-slate-900">Assistant</h1>
+      </div>
+
+      {/* Step row + search */}
+      <div className="flex flex-col gap-3 border-b border-slate-200 pb-2 lg:flex-row lg:items-center lg:justify-between">
+        <AgentTabBar activeTab={tab} onChange={setTab} />
+        <div className="relative w-full lg:w-72 flex-shrink-0">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by user, roles"
+            className="w-full rounded-full border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15"
+          />
         </div>
       </div>
 
-      {/* Form card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <AgentTabBar activeTab={tab} onChange={setTab} />
-        <form onSubmit={handleSubmit}>
-          <div className="p-5">
-            <AgentTabContent tab={tab} form={form} set={set} />
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-between px-5 py-4 border-t border-slate-100 bg-slate-50">
-            <div className="flex gap-2">
-              {/* Step prev/next */}
-              {(['basic','llm','voice','stt','conversation','advanced'] as AgentTabId[]).indexOf(tab) > 0 && (
-                <button type="button" onClick={() => {
-                  const idx = (['basic','llm','voice','stt','conversation','advanced'] as AgentTabId[]).indexOf(tab)
-                  setTab((['basic','llm','voice','stt','conversation','advanced'] as AgentTabId[])[idx - 1])
-                }} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">
-                  Previous
-                </button>
-              )}
-              {tab !== 'advanced' && (
-                <button type="button" onClick={() => {
-                  const tabs: AgentTabId[] = ['basic','llm','voice','stt','conversation','advanced']
-                  setTab(tabs[tabs.indexOf(tab) + 1])
-                }} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">
-                  Next
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Link href="/dashboard/agents">
-                <button type="button" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all">
-                  Cancel
-                </button>
-              </Link>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-2 rounded-lg gradient-primary px-5 py-2 text-sm font-semibold text-white hover:opacity-90 transition-all shadow-sm disabled:opacity-60"
-              >
-                {loading ? 'Creating…' : 'Create Agent'}
-              </button>
-            </div>
-          </div>
-        </form>
+      {/* Section label */}
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-[#0F6A59]" />
+        <h2 className="text-sm font-semibold text-slate-900">{activeLabel}</h2>
       </div>
-    </div>
+
+      {/* Editor + rail */}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
+        <div className="space-y-5">
+          {tabIndex === -1 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+              <p className="text-sm font-medium text-slate-700">{activeLabel} is configured after the assistant exists</p>
+              <p className="mt-1 text-sm text-slate-400">Create the assistant first, then open it to set this up.</p>
+            </div>
+          ) : (
+            <AgentTabContent tab={tab} form={form} set={set} />
+          )}
+
+          {/* Step controls */}
+          <div className="flex items-center gap-2">
+            {tabIndex > 0 && (
+              <button type="button" onClick={() => setTab(FORM_TABS[tabIndex - 1])}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
+                Previous
+              </button>
+            )}
+            {tabIndex > -1 && tabIndex < FORM_TABS.length - 1 && (
+              <button type="button" onClick={() => setTab(FORM_TABS[tabIndex + 1])}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
+                Next
+              </button>
+            )}
+          </div>
+        </div>
+
+        <aside className="space-y-4">
+          <AgentIdentityFields form={form} set={set} />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-xl bg-[#0F6A59] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c] disabled:opacity-60"
+          >
+            {loading ? 'Creating…' : 'Create Assistant'}
+          </button>
+          <Link href="/dashboard/agents" className="block">
+            <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
+              Cancel
+            </button>
+          </Link>
+
+          <AssistantsRail filter={search} />
+        </aside>
+      </div>
+    </form>
   )
 }

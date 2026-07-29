@@ -16,6 +16,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   X,
   Hash,
   Zap,
@@ -23,7 +25,17 @@ import {
   User,
   Wrench,
   BookOpen,
+  Mic,
 } from 'lucide-react'
+
+/** Sidebar palette — brand green (#0F6A59). */
+const SIDEBAR = {
+  bg: '#0F6A59',
+  panel: 'rgba(0, 0, 0, 0.16)',
+  active: 'rgba(255, 255, 255, 0.16)',
+  hover: 'rgba(255, 255, 255, 0.08)',
+  divider: 'rgba(0, 0, 0, 0.22)',
+}
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, exact: true },
@@ -39,9 +51,18 @@ const navigation = [
   // { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
 ]
 
-const bottomNav = [
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
-]
+/** Settings renders as an expandable group, matching the design. */
+const settingsNav = {
+  name: 'Settings',
+  href: '/dashboard/settings',
+  icon: Settings,
+  children: [
+    { name: 'Profile', href: '/dashboard/settings/profile' },
+    { name: 'Billing', href: '/dashboard/settings/billing' },
+    { name: 'Team', href: '/dashboard/settings/team' },
+    { name: 'API Keys', href: '/dashboard/settings/api-keys' },
+  ],
+}
 
 interface SidebarProps {
   mobileOpen: boolean
@@ -52,16 +73,35 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
+  const [userOpen, setUserOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(
+    pathname?.startsWith('/dashboard/settings') ?? false
+  )
 
   // Close mobile sidebar on route change
   useEffect(() => {
     onMobileClose()
   }, [pathname])
 
+  // Keep the Settings group open while browsing its sub-pages
+  useEffect(() => {
+    if (pathname?.startsWith('/dashboard/settings')) setSettingsOpen(true)
+  }, [pathname])
+
   const isActive = (href: string, exact?: boolean) => {
     if (exact) return pathname === href
     return pathname === href || pathname?.startsWith(href + '/')
   }
+
+  const firstName = user?.full_name?.trim().split(' ')[0] || 'there'
+
+  /** Shared row styling for every top-level nav entry. */
+  const rowClass = (active: boolean) =>
+    cn(
+      'group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 font-poppins text-[17px] tracking-[0.25px] transition-colors duration-150',
+      collapsed ? 'justify-center px-2' : '',
+      active ? 'font-medium text-white' : 'text-white/80 hover:text-white'
+    )
 
   const NavItem = ({ item }: { item: typeof navigation[0] }) => {
     const active = isActive(item.href, item.exact)
@@ -70,28 +110,22 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       <Link
         href={item.href}
         title={collapsed ? item.name : undefined}
-        className={cn(
-          'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150',
-          collapsed ? 'justify-center px-2' : '',
-          active
-            ? 'text-white shadow-sm'
-            : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-        )}
-        style={active ? {
-          background: 'linear-gradient(135deg, rgba(17,104,212,0.5) 0%, rgba(26,133,255,0.35) 100%)',
-          borderLeft: '2px solid #1a85ff',
-          marginLeft: collapsed ? undefined : '0',
-        } : {}}
+        className={rowClass(active)}
+        style={{ background: active ? SIDEBAR.active : undefined }}
+        onMouseEnter={(e) => {
+          if (!active) e.currentTarget.style.background = SIDEBAR.hover
+        }}
+        onMouseLeave={(e) => {
+          if (!active) e.currentTarget.style.background = ''
+        }}
       >
-        <Icon className={cn('flex-shrink-0 h-5 w-5', active ? 'text-blue-300' : 'text-slate-400 group-hover:text-slate-200')} />
-        {!collapsed && (
-          <span className="truncate">{item.name}</span>
-        )}
+        <Icon className="h-5 w-5 flex-shrink-0" strokeWidth={1.75} />
+        {!collapsed && <span className="truncate">{item.name}</span>}
         {active && !collapsed && (
-          <span className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-400" />
+          <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full bg-white/80" />
         )}
         {collapsed && (
-          <div className="absolute left-full ml-3 hidden rounded-md bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block whitespace-nowrap z-50 border border-slate-700">
+          <div className="absolute left-full ml-3 z-50 hidden whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block" style={{ background: '#0b5045' }}>
             {item.name}
           </div>
         )}
@@ -99,74 +133,201 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     )
   }
 
-  const sidebarContent = (
-    <div className="flex h-full flex-col" style={{ background: 'hsl(222 47% 6%)' }}>
-      {/* Logo */}
-      <div className={cn(
-        'flex h-16 items-center border-b px-4 flex-shrink-0',
-        'border-white/10',
-        collapsed ? 'justify-center' : 'gap-3'
-      )}>
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg gradient-primary shadow-lg">
-          <Zap className="h-4 w-4 text-white" />
-        </div>
-        {!collapsed && (
-          <span className="text-lg font-bold text-white tracking-tight">Voicecon</span>
+  const Divider = () => (
+    <div
+      className={cn('h-[2px] rounded-full', collapsed ? 'mx-2' : 'mx-3')}
+      style={{ background: SIDEBAR.divider }}
+    />
+  )
+
+  const SettingsGroup = () => {
+    const active = isActive(settingsNav.href)
+    const Icon = settingsNav.icon
+
+    // Collapsed rail has no room for the sub-list — link straight to Settings.
+    if (collapsed) {
+      return (
+        <Link
+          href={settingsNav.href}
+          title={settingsNav.name}
+          className={rowClass(active)}
+          style={{ background: active ? SIDEBAR.active : undefined }}
+        >
+          <Icon className="h-5 w-5 flex-shrink-0" strokeWidth={1.75} />
+          <div className="absolute left-full ml-3 z-50 hidden whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block" style={{ background: '#0b5045' }}>
+            {settingsNav.name}
+          </div>
+        </Link>
+      )
+    }
+
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((open) => !open)}
+          className={rowClass(active)}
+          style={{ background: active && !settingsOpen ? SIDEBAR.active : undefined }}
+        >
+          <Icon className="h-5 w-5 flex-shrink-0" strokeWidth={1.75} />
+          <span className="truncate">{settingsNav.name}</span>
+          <ChevronDown
+            className={cn(
+              'ml-auto h-4 w-4 flex-shrink-0 transition-transform duration-200',
+              settingsOpen ? '' : '-rotate-90'
+            )}
+          />
+        </button>
+
+        {settingsOpen && (
+          <div className="mt-0.5 space-y-0.5 pl-[46px] pr-2">
+            <Link
+              href={settingsNav.href}
+              className={cn(
+                'block truncate rounded-lg px-3 py-2 font-poppins text-[15px] tracking-[0.25px] transition-colors',
+                pathname === settingsNav.href
+                  ? 'font-medium text-white'
+                  : 'text-white/75 hover:text-white'
+              )}
+            >
+              General
+            </Link>
+            {settingsNav.children.map((child) => {
+              const childActive = isActive(child.href)
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  className={cn(
+                    'block truncate rounded-lg px-3 py-2 font-poppins text-[15px] tracking-[0.25px] transition-colors',
+                    childActive ? 'font-medium text-white' : 'text-white/75 hover:text-white'
+                  )}
+                >
+                  {child.name}
+                </Link>
+              )
+            })}
+          </div>
         )}
       </div>
+    )
+  }
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
-        {navigation.map((item) => (
-          <NavItem key={item.href} item={item} />
-        ))}
-      </nav>
-
-      {/* Divider + Bottom nav */}
-      <div className="border-t border-white/10 py-3 px-2 space-y-0.5">
-        {bottomNav.map((item) => (
-          <NavItem key={item.href} item={item} />
-        ))}
+  const sidebarContent = (
+    <div
+      className="flex h-full flex-col overflow-hidden rounded-2xl"
+      style={{ background: SIDEBAR.bg }}
+    >
+      {/* Logo */}
+      <div className={cn("flex h-[72px] flex-shrink-0 items-center", collapsed ? "justify-center px-4" : "justify-start pl-6 px-4")}>
+        <Link href="/dashboard" title="Voicecon" className="flex items-center gap-3">
+          <Mic className="h-7 w-7 text-white flex-shrink-0" strokeWidth={2.25} />
+          {!collapsed && (
+            <span className="text-white font-bold text-[22px] tracking-wide font-poppins">Voicecon</span>
+          )}
+        </Link>
       </div>
 
-      {/* User profile */}
-      <div className="border-t border-white/10 p-3">
-        {collapsed ? (
-          <button
-            onClick={() => logout()}
-            title="Logout"
-            className="flex w-full items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        ) : (
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white text-sm font-semibold" style={{ background: 'linear-gradient(135deg, #1168d4 0%, #1a85ff 100%)' }}>
-              {user?.full_name ? user.full_name[0].toUpperCase() : <User className="h-4 w-4" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-white">{user?.full_name || 'User'}</p>
-              <p className="truncate text-xs text-slate-400">{user?.email}</p>
-            </div>
-            <button
-              onClick={() => logout()}
-              title="Logout"
-              className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-slate-200 transition-colors"
+      {/* Welcome card */}
+      <div className={cn('flex-shrink-0', collapsed ? 'px-2' : 'px-3')}>
+        <button
+          type="button"
+          onClick={() => (collapsed ? setCollapsed(false) : setUserOpen((open) => !open))}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-xl py-2.5 text-left transition-colors',
+            collapsed ? 'justify-center px-2' : 'px-3'
+          )}
+          style={{ background: SIDEBAR.panel }}
+        >
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 text-sm font-semibold text-white">
+            {user?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+            ) : user?.full_name ? (
+              user.full_name[0].toUpperCase()
+            ) : (
+              <User className="h-4 w-4" />
+            )}
+          </span>
+          {!collapsed && (
+            <>
+              <span className="min-w-0 flex-1">
+                <span className="block font-poppins text-[11px] leading-none text-white/70">
+                  Welcome back,
+                </span>
+                <span className="mt-1 block truncate font-poppins text-[15px] font-semibold leading-tight text-white">
+                  {firstName}
+                </span>
+              </span>
+              <ChevronUp
+                className={cn(
+                  'h-4 w-4 flex-shrink-0 text-white/80 transition-transform duration-200',
+                  userOpen ? '' : 'rotate-180'
+                )}
+              />
+            </>
+          )}
+        </button>
+
+        {/* Account panel — revealed by the chevron */}
+        {userOpen && !collapsed && (
+          <div className="mt-1.5 overflow-hidden rounded-xl" style={{ background: SIDEBAR.panel }}>
+            <p className="truncate px-3 pt-2.5 font-poppins text-[11px] text-white/60">
+              {user?.email}
+            </p>
+            <Link
+              href="/dashboard/settings/profile"
+              className="mt-1 flex items-center gap-2.5 px-3 py-2 font-poppins text-[14px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
             >
-              <LogOut className="h-4 w-4" />
+              <User className="h-4 w-4" strokeWidth={1.75} />
+              Profile
+            </Link>
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="flex w-full items-center gap-2.5 px-3 py-2 font-poppins text-[14px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" strokeWidth={1.75} />
+              Sign out
             </button>
           </div>
         )}
       </div>
 
-      {/* Collapse toggle — desktop only */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="hidden lg:flex absolute -right-3 top-20 h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 hover:text-white shadow-md transition-colors z-10"
-      >
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-      </button>
+      <div className="pt-4">
+        <Divider />
+      </div>
+
+      {/* Navigation — main items, then the Settings group directly beneath */}
+      <nav className="flex-1 overflow-y-auto py-3">
+        <div className={cn('space-y-1', collapsed ? 'px-2' : 'px-3')}>
+          {navigation.map((item) => (
+            <NavItem key={item.href} item={item} />
+          ))}
+        </div>
+
+        <div className="py-3">
+          <Divider />
+        </div>
+
+        <div className={collapsed ? 'px-2' : 'px-3'}>
+          <SettingsGroup />
+        </div>
+      </nav>
+
     </div>
+  )
+
+  // Lives outside the clipped panel so it can overhang the rounded edge.
+  const collapseToggle = (
+    <button
+      onClick={() => setCollapsed(!collapsed)}
+      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      className="absolute right-0 top-1/2 z-20 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-white shadow-md ring-2 ring-white transition-transform hover:scale-105 lg:flex"
+      style={{ background: '#0b5045' }}
+    >
+      {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+    </button>
   )
 
   return (
@@ -174,11 +335,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          'relative hidden lg:flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out',
-          collapsed ? 'w-16' : 'w-60'
+          'relative hidden flex-shrink-0 flex-col p-3 transition-all duration-300 ease-in-out lg:flex',
+          collapsed ? 'w-[92px]' : 'w-[276px]'
         )}
       >
         {sidebarContent}
+        {collapseToggle}
       </aside>
 
       {/* Mobile overlay */}
@@ -188,10 +350,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={onMobileClose}
           />
-          <aside className="absolute left-0 top-0 bottom-0 w-72 flex flex-col shadow-2xl z-50">
+          <aside className="absolute bottom-0 left-0 top-0 z-50 flex w-[288px] flex-col p-3 shadow-2xl">
             <button
               onClick={onMobileClose}
-              className="absolute right-3 top-3 z-10 rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+              className="absolute right-5 top-5 z-10 rounded-lg p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>

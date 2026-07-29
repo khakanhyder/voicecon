@@ -39,8 +39,8 @@ function AgentCard({ agent, onClick }: { agent: Agent; onClick: () => void }) {
       <div className="p-5 pb-4 cursor-pointer" onClick={onClick}>
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 border border-blue-100">
-              <Bot className="h-5 w-5 text-blue-600" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0F6A59]/10 border border-[#0F6A59]/15">
+              <Bot className="h-5 w-5 text-[#0F6A59]" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 leading-tight">{agent.name}</h3>
@@ -93,7 +93,7 @@ function AgentCard({ agent, onClick }: { agent: Agent; onClick: () => void }) {
           </Link>
           <button
             onClick={(e) => { e.stopPropagation(); onClick() }}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 transition-all"
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#0F6A59] hover:bg-[#0F6A59]/10 transition-all"
           >
             View <ArrowRight className="h-3.5 w-3.5" />
           </button>
@@ -170,11 +170,11 @@ export default function AgentsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search agents…"
-            className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 transition-all"
+            className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15 transition-all"
           />
         </div>
         <Link href="/dashboard/agents/new">
-          <button className="flex items-center gap-2 rounded-lg gradient-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-all shadow-sm whitespace-nowrap">
+          <button className="flex items-center gap-2 rounded-lg bg-[#0F6A59] hover:bg-[#0d5a4c] px-4 py-2.5 text-sm font-semibold text-white transition-all shadow-sm whitespace-nowrap">
             <Plus className="h-4 w-4" />
             New Agent
           </button>
@@ -186,21 +186,21 @@ export default function AgentsPage() {
         <div className="flex items-center gap-4 text-sm text-slate-500">
           <span><span className="font-semibold text-slate-900">{agents.length}</span> agents total</span>
           <span><span className="font-semibold text-emerald-600">{agents.filter(a => a.is_active).length}</span> active</span>
-          {search && <span className="text-blue-600">{filtered.length} matching &ldquo;{search}&rdquo;</span>}
+          {search && <span className="text-[#0F6A59]">{filtered.length} matching &ldquo;{search}&rdquo;</span>}
         </div>
       )}
 
       {/* Agent grid or empty state */}
       {filtered.length === 0 && !isLoading ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white py-20 px-8 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 mb-5">
-            <Bot className="h-8 w-8 text-blue-400" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#0F6A59]/10 mb-5">
+            <Bot className="h-8 w-8 text-[#0F6A59]/60" />
           </div>
           {search ? (
             <>
               <h3 className="text-lg font-semibold text-slate-800">No agents match &ldquo;{search}&rdquo;</h3>
               <p className="text-slate-500 text-sm mt-1.5">Try a different search term</p>
-              <button onClick={() => setSearch('')} className="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">
+              <button onClick={() => setSearch('')} className="mt-4 text-sm text-[#0F6A59] hover:text-[#0d5a4c] font-medium">
                 Clear search
               </button>
             </>
@@ -211,7 +211,7 @@ export default function AgentsPage() {
                 Create your first AI voice agent to start handling calls automatically
               </p>
               <Link href="/dashboard/agents/new">
-                <button className="mt-6 flex items-center gap-2 rounded-lg gradient-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-all shadow-sm">
+                <button className="mt-6 flex items-center gap-2 rounded-lg bg-[#0F6A59] hover:bg-[#0d5a4c] px-5 py-2.5 text-sm font-semibold text-white transition-all shadow-sm">
                   <Plus className="h-4 w-4" />
                   Create your first agent
                 </button>
@@ -231,11 +231,11 @@ export default function AgentsPage() {
 
           {/* Add another card */}
           <Link href="/dashboard/agents/new">
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 h-full min-h-48 hover:border-blue-300 hover:bg-blue-50 transition-all group cursor-pointer">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 group-hover:border-blue-400 transition-colors mb-3">
-                <Plus className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 h-full min-h-48 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 group-hover:border-[#0F6A59]/60 transition-colors mb-3">
+                <Plus className="h-5 w-5 text-slate-400 group-hover:text-[#0F6A59] transition-colors" />
               </div>
-              <p className="text-sm font-medium text-slate-500 group-hover:text-blue-600 transition-colors">Add agent</p>
+              <p className="text-sm font-medium text-slate-500 group-hover:text-[#0F6A59] transition-colors">Add agent</p>
             </div>
           </Link>
         </div>
