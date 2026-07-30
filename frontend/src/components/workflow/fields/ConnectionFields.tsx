@@ -13,7 +13,8 @@ interface Connection {
 }
 
 interface ConnectorAction {
-  name: string
+  action: string
+  label?: string
   description?: string
 }
 
@@ -134,7 +135,7 @@ export function ConnectionActionField({
         const list = res.data.actions ?? []
         setActions(list)
         // Switching connectors invalidates an action from the old one.
-        if (value && !list.some((a) => a.name === value)) onChange('')
+        if (value && !list.some((a) => a.action === value)) onChange('')
       })
       .catch(() => {
         if (!cancelled) setActions([])
@@ -182,8 +183,8 @@ export function ConnectionActionField({
     >
       <option value="">Select an action…</option>
       {actions.map((action) => (
-        <option key={action.name} value={action.name}>
-          {action.description ? `${action.name} — ${action.description}` : action.name}
+        <option key={action.action} value={action.action}>
+          {action.label ? `${action.label}` : action.action}
         </option>
       ))}
     </select>

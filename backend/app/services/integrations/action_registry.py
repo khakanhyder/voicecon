@@ -261,7 +261,7 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
         },
     ],
 
-    "google_calendar": [
+    "google-calendar": [
         {
             "action": "check_availability",
             "label": "Check Availability",
