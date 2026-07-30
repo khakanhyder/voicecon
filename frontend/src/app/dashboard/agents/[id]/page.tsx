@@ -1146,7 +1146,7 @@ function CallTestPanel({
               <form onSubmit={sendText} className="flex gap-2">
                 <input
                   value={textInput}
-                  onChange={e => setTextInput(e.target.value)}
+                  onChange={e => { setTextInput(e.target.value); resetIdleRef.current(); }}
                   placeholder={callState === 'listening' ? 'Speaking or type a message…' : 'Type a message…'}
                   disabled={callState === 'processing'}
                   className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 transition-all"
