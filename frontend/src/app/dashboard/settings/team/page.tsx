@@ -133,17 +133,14 @@ export default function TeamSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
-        <p className="text-muted-foreground">Invite team members and manage permissions</p>
-      </div>
+
 
       {/* Invite Member */}
       {canManage && (
         <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Invite Team Member</h2>
-          <form onSubmit={handleInvite} className="flex flex-wrap items-end gap-4">
-            <div className="flex-1 min-w-[220px] space-y-2">
+          <form onSubmit={handleInvite} className="flex flex-col sm:flex-row sm:items-end gap-4">
+            <div className="flex-1 space-y-2">
               <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email Address</Label>
               <Input
                 id="email"
@@ -154,7 +151,7 @@ export default function TeamSettingsPage() {
                 required
                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 w-full sm:w-auto">
               <Label htmlFor="role" className="text-[14px] font-bold text-[#000000] font-poppins block">Role</Label>
               <select
                 id="role" className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
@@ -168,7 +165,7 @@ export default function TeamSettingsPage() {
                 ))}
               </select>
             </div>
-            <Button type="submit" disabled={inviting}>
+            <Button type="submit" disabled={inviting} className="w-full sm:w-auto h-[45px]">
               {inviting ? 'Sending…' : 'Send Invite'}
             </Button>
           </form>
@@ -192,28 +189,29 @@ export default function TeamSettingsPage() {
             {invitations.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between rounded-[10px] border border-dashed border-[#000000] p-4 bg-white"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-dashed border-[#000000] p-4 bg-white"
               >
                 <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
                     <Mail className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="font-medium">{invite.email}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-medium break-all">{invite.email}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Invited as <span className="capitalize">{invite.role}</span>
                       {invite.invited_by_name ? ` by ${invite.invited_by_name}` : ''} · expires{' '}
                       {new Date(invite.expires_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-row items-center gap-3">
                   <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
                     Pending
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="flex-1 sm:flex-none justify-center"
                     disabled={busyId === invite.id}
                     onClick={() => handleCancelInvite(invite)}
                   >
@@ -244,23 +242,23 @@ export default function TeamSettingsPage() {
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between rounded-[10px] border border-[#000000] p-4 bg-white"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-[#000000] p-4 bg-white"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                    <div className="h-10 w-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
                       {initials(member)}
                     </div>
                     <div>
-                      <p className="font-medium">
+                      <p className="font-medium break-all">
                         {member.name || member.email}
                         {isSelf && <span className="text-xs text-muted-foreground"> (you)</span>}
                       </p>
-                      <p className="text-sm text-muted-foreground">{member.email}</p>
+                      <p className="text-sm text-muted-foreground break-all mt-0.5">{member.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 w-full sm:w-auto">
                     {canManage && !isOwner ? (
-                      <select className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+                      <select className="flex-1 sm:w-auto h-[40px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
                         value={member.role}
                         disabled={busyId === member.id}
                         onChange={(e) => handleRoleChange(member, e.target.value)}
@@ -272,16 +270,17 @@ export default function TeamSettingsPage() {
                         ))}
                       </select>
                     ) : (
-                      <div className="text-right">
+                      <div className="flex-1 sm:flex-none sm:text-right">
                         <p className="text-sm font-medium capitalize">{member.role}</p>
                       </div>
                     )}
-                    <span className="text-xs text-muted-foreground w-16 text-right">
+                    <span className="text-xs text-muted-foreground sm:w-16 sm:text-right">
                       {member.status}
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="flex-1 sm:flex-none justify-center"
                       disabled={!canManage || isOwner || busyId === member.id}
                       onClick={() => handleRemove(member)}
                     >

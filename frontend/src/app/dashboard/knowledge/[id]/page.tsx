@@ -246,9 +246,8 @@ export default function KnowledgeBaseDetailPage() {
       </Link>
 
       <div>
-        <h1 className="text-3xl font-bold font-poppins text-[#000000]">{kb.name}</h1>
-        {kb.description && <p className="text-muted-foreground mt-1">{kb.description}</p>}
-        <p className="text-sm text-muted-foreground mt-2">
+        {kb.description && <p className="text-black/60 font-poppins text-[14px]">{kb.description}</p>}
+        <p className="text-[13px] font-poppins text-black/50 mt-1">
           {ready} of {docs.length} document(s) ready · embeddings via {kb.embedding_model} ·
           chunk size {kb.chunk_size}
         </p>

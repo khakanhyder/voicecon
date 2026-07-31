@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import {
   Phone, PhoneIncoming, PhoneOutgoing, Search,
-  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Monitor,
+  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Monitor, Download
 } from 'lucide-react'
 
 interface Call {
@@ -20,6 +20,8 @@ interface Call {
   cost_total: number | null
   started_at: string
   agent_id: string
+  sentiment_label?: string
+  call_metadata?: Record<string, any>
 }
 
 const statusConfig: Record<string, { color: string; bg: string }> = {
@@ -80,7 +82,7 @@ export default function CallsPage() {
         duration: d.total_duration_minutes || 0,
         cost: d.total_cost || 0,
       })
-    } catch {}
+    } catch { }
   }
 
   const filtered = calls.filter(c => {
@@ -90,26 +92,30 @@ export default function CallsPage() {
   })
 
   const statCards = [
-    { label: 'Total Calls', value: stats.total, icon: Phone, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Completed', value: stats.completed, icon: Phone, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Active Now', value: stats.active, icon: Phone, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Total Minutes', value: stats.duration.toFixed(1), icon: Clock, color: 'text-violet-600', bg: 'bg-violet-50' },
-    { label: 'Total Cost', value: `$${stats.cost.toFixed(2)}`, icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'Total Calls', value: stats.total, icon: Phone, iconColor: 'text-[#106959]', iconBg: 'bg-[#0F6A5918]', accent: 'border-l-[#106959]', valueBg: 'from-[#0F6A5905] to-white' },
+    { label: 'Completed', value: stats.completed, icon: Phone, iconColor: 'text-emerald-600', iconBg: 'bg-emerald-50', accent: 'border-l-emerald-500', valueBg: 'from-emerald-50/40 to-white' },
+    { label: 'Active Now', value: stats.active, icon: Phone, iconColor: 'text-blue-600', iconBg: 'bg-blue-50', accent: 'border-l-blue-500', valueBg: 'from-blue-50/40 to-white' },
+    { label: 'Total Minutes', value: stats.duration.toFixed(1), icon: Clock, iconColor: 'text-violet-600', iconBg: 'bg-violet-50', accent: 'border-l-violet-500', valueBg: 'from-violet-50/40 to-white' },
+    { label: 'Total Cost', value: `$${stats.cost.toFixed(2)}`, icon: DollarSign, iconColor: 'text-amber-600', iconBg: 'bg-amber-50', accent: 'border-l-amber-500', valueBg: 'from-amber-50/40 to-white' },
   ]
 
   return (
     <div className="space-y-6">
+
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="bg-white rounded-xl border border-slate-200 p-4 card-shadow">
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${card.bg} mb-3`}>
-                <Icon className={`h-4 w-4 ${card.color}`} />
+            <div key={card.label} className={`flex items-center justify-between bg-gradient-to-br ${card.valueBg} rounded-[12px] border border-black/10 border-l-[3px] ${card.accent} p-5 hover:shadow-md transition-shadow duration-200`}>
+
+              <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[10px] ${card.iconBg}`}>
+                <Icon className={`h-6 w-6 ${card.iconColor}`} />
               </div>
-              <div className="text-xl font-bold text-slate-900">{card.value}</div>
-              <div className="text-xs text-slate-500 mt-0.5">{card.label}</div>
+              <div>
+                <div className="text-[28px] font-bold font-poppins text-[#000000] leading-none">{card.value}</div>
+                <div className="text-[13px] font-poppins text-black/50 mt-1.5 font-medium">{card.label}</div>
+              </div>
             </div>
           )
         })}
@@ -118,20 +124,20 @@ export default function CallsPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-black/40" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by phone number…"
-            className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 transition-all"
+            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] pl-9 pr-4 font-poppins text-[14px] text-black placeholder:text-black/40 outline-none"
           />
         </div>
         <div className="relative">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="appearance-none rounded-lg border border-slate-300 bg-white pl-4 pr-9 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-500/15 transition-all cursor-pointer"
+            className="appearance-none h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] pl-4 pr-9 font-poppins text-[14px] text-black outline-none cursor-pointer"
           >
             <option value="all">All statuses</option>
             <option value="completed">Completed</option>
@@ -139,125 +145,151 @@ export default function CallsPage() {
             <option value="missed">Missed</option>
             <option value="in_progress">In Progress</option>
           </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-black/40 pointer-events-none" />
         </div>
       </div>
 
+      {/* Table Export */}
+      <div className="flex items-center justify-between mb-3 mt-2 pr-1">
+        <div />
+        <button className="flex items-center gap-1.5 text-[14px] font-poppins font-medium text-black hover:text-[#106959] transition-colors">
+          Export CSV
+          <Download className="h-4 w-4" />
+        </button>
+      </div>
+
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
-        {isLoading ? (
-          <div className="divide-y divide-slate-100">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="flex items-center gap-4 px-6 py-4 animate-pulse">
-                <div className="h-9 w-9 bg-slate-100 rounded-lg flex-shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 w-32 bg-slate-100 rounded" />
-                  <div className="h-3 w-48 bg-slate-100 rounded" />
-                </div>
-                <div className="h-5 w-20 bg-slate-100 rounded-full" />
+      <div className="bg-white rounded-[10px] border border-[#000000] overflow-hidden">
+        <div className="overflow-x-auto">
+          <div className="min-w-[90rem] w-full">
+            {/* Table Header Always Visible */}
+            <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-[#0F6A5904] border-b border-[#000000] text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
+              <div className="flex items-center">
+                <input title="Select all" type="checkbox" className="rounded-[4px] border border-black/20 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
               </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 mb-5">
-              <Phone className="h-8 w-8 text-slate-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-slate-800">
-              {search || statusFilter !== 'all' ? 'No calls match your filters' : 'No calls yet'}
-            </h3>
-            <p className="text-slate-500 text-sm mt-1.5 max-w-xs">
-              {search || statusFilter !== 'all'
-                ? 'Try adjusting your search or filters'
-                : 'Your call history will appear here once agents start handling calls'}
-            </p>
-            {calls.length === 0 && (
-              <Link href="/dashboard/agents/new">
-                <button className="mt-6 flex items-center gap-2 rounded-lg gradient-primary px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-all">
-                  Create your first agent
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
-              </Link>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="hidden md:grid grid-cols-[2rem_1fr_1fr_7rem_6rem_7rem_3rem] gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              <div />
-              <div>From / To</div>
-              <div>Agent</div>
-              <div>Status</div>
+              <div>Call ID</div>
+              <div>Assistant</div>
+              <div>Assistant Phone Number</div>
+              <div>Customer Phone Number</div>
+              <div>End Reason</div>
+              <div>Success Evaluation</div>
+              <div>Start Time</div>
               <div>Duration</div>
-              <div>When</div>
-              <div />
+              <div>Cost</div>
             </div>
 
-            <div className="divide-y divide-slate-100">
-              {filtered.map((call) => {
-                const status = statusConfig[call.status] || statusConfig.initiated
-                return (
-                  <Link key={call.id} href={`/dashboard/calls/${call.id}`}>
-                  <div className="flex flex-col md:grid md:grid-cols-[2rem_1fr_1fr_7rem_6rem_7rem_3rem] gap-2 md:gap-4 px-4 md:px-6 py-4 hover:bg-slate-50 transition-colors group cursor-pointer">
-                    <div className="hidden md:flex items-center">
-                      {call.direction === 'test'
-                        ? <Monitor className="h-4 w-4 text-blue-400" />
-                        : call.direction === 'inbound'
-                        ? <PhoneIncoming className="h-4 w-4 text-slate-400" />
-                        : <PhoneOutgoing className="h-4 w-4 text-slate-400" />
-                      }
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 md:hidden">
-                        {call.direction === 'test'
-                          ? <Monitor className="h-4 w-4 text-blue-500" />
-                          : call.direction === 'inbound'
-                          ? <PhoneIncoming className="h-4 w-4 text-slate-500" />
-                          : <PhoneOutgoing className="h-4 w-4 text-slate-500" />
-                        }
-                      </div>
-                      <div>
-                        {call.direction === 'test' ? (
-                          <>
-                            <p className="text-sm font-medium text-slate-900">Web Test Call</p>
-                            <p className="text-xs text-slate-400">Browser · Dashboard</p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-sm font-medium text-slate-900">{call.from_number || '—'}</p>
-                            <p className="text-xs text-slate-400">→ {call.to_number || '—'}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="hidden md:flex items-center">
-                      <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
-                        <Bot className="h-3.5 w-3.5" />
-                        <span className="truncate max-w-[8rem]">{call.agent_id?.slice(0, 8) || '—'}</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${status.bg} ${status.color}`}>
-                        {call.status}
-                      </span>
-                    </div>
-                    <div className="hidden md:flex items-center text-sm text-slate-600">
-                      {formatDuration(call.duration_seconds)}
-                    </div>
-                    <div className="hidden md:flex items-center text-sm text-slate-500">
-                      {formatDate(call.started_at)}
-                    </div>
-                    <div className="hidden md:flex items-center">
-                      <button className="opacity-0 group-hover:opacity-100 transition-opacity rounded-lg p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50">
-                        <ArrowUpRight className="h-4 w-4" />
-                      </button>
-                    </div>
+            {isLoading ? (
+              <div className="divide-y divide-slate-100">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
+                    <div className="h-4 w-4 bg-slate-200 rounded-[4px] flex-shrink-0" />
+                    <div className="h-4 w-16 bg-slate-100 rounded" />
+                    <div className="h-4 w-24 bg-slate-100 rounded" />
+                    <div className="h-4 w-28 bg-slate-100 rounded" />
+                    <div className="h-4 w-28 bg-slate-100 rounded" />
+                    <div className="h-4 w-20 bg-slate-100 rounded" />
+                    <div className="h-5 w-16 bg-slate-100 rounded-full" />
+                    <div className="h-4 w-20 bg-slate-100 rounded" />
+                    <div className="h-4 w-12 bg-slate-100 rounded" />
+                    <div className="h-4 w-12 bg-slate-100 rounded" />
                   </div>
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 px-8 text-center bg-white">
+                <div className="flex h-16 w-16 items-center justify-center rounded-[10px] bg-[#0F6A5910] mb-5">
+                  <Phone className="h-8 w-8 text-[#106959]" />
+                </div>
+                <h3 className="text-[18px] font-bold font-poppins text-[#000000]">
+                  {search || statusFilter !== 'all' ? 'No calls match your filters' : 'No calls yet'}
+                </h3>
+                <p className="text-black font-poppins text-[14px] mt-1.5 max-w-sm">
+                  {search || statusFilter !== 'all'
+                    ? 'Try adjusting your search or filters to find what you are looking for.'
+                    : 'Your call history will appear here once your agents start making or receiving calls.'}
+                </p>
+                {calls.length === 0 && (
+                  <Link href="/dashboard/agents">
+                    <button className="mt-6 flex items-center gap-2 rounded-[8px] bg-[#106959] px-6 h-[45px] font-poppins font-semibold text-[14px] text-white hover:opacity-90 transition-all shadow-sm shadow-[#106959]/20">
+                      View your agents
+                      <ArrowUpRight className="h-4 w-4" />
+                    </button>
                   </Link>
-                )
-              })}
-            </div>
-          </>
-        )}
+                )}
+              </div>
+            ) : (
+              <div className="divide-y divide-black/10">
+                {filtered.map((call) => {
+                  const endReason = call.call_metadata?.disconnection_reason || call.status
+                  const assistantPhone = call.direction === 'outbound' ? call.from_number : call.direction === 'inbound' ? call.to_number : 'Web Test'
+                  const customerPhone = call.direction === 'inbound' ? call.from_number : call.direction === 'outbound' ? call.to_number : 'Web Test'
+
+                  return (
+                    <Link key={call.id} href={`/dashboard/calls/${call.id}`}>
+                      <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
+                        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" title="Select call" className="rounded-[4px] border border-black/20 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
+                        </div>
+
+                        <div className="text-[13px] font-poppins text-black/80 truncate font-medium" title={call.id}>
+                          {call.id.slice(0, 8).toUpperCase()}
+                        </div>
+
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#106959]/10">
+                            <Bot className="h-3.5 w-3.5 text-[#106959]" />
+                          </div>
+                          <span className="truncate text-[14px] font-poppins font-semibold text-[#000000]">
+                            {call.agent_id ? call.agent_id.slice(0, 8) + '...' : 'Unknown'}
+                          </span>
+                        </div>
+
+                        <div className="text-[14px] font-poppins text-black/70 truncate">
+                          {assistantPhone}
+                        </div>
+
+                        <div className="text-[14px] font-poppins text-[#000000] font-medium truncate">
+                          {customerPhone}
+                        </div>
+
+                        <div className="flex items-center">
+                          <span className="truncate text-[13px] font-poppins text-black/70 capitalize max-w-[7.5rem]" title={endReason}>
+                            {endReason.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center">
+                          {call.sentiment_label ? (
+                            <span className={`inline-flex items-center rounded-[6px] px-2.5 py-1 text-xs font-semibold font-poppins capitalize ${call.sentiment_label === 'positive' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                              call.sentiment_label === 'negative' ? 'bg-red-50 text-red-700 border border-red-100' :
+                                'bg-blue-50 text-blue-700 border border-blue-100'
+                              }`}>
+                              {call.sentiment_label}
+                            </span>
+                          ) : (
+                            <span className="text-[13px] font-poppins text-black/40">—</span>
+                          )}
+                        </div>
+
+                        <div className="text-[13px] font-poppins text-black/70 truncate">
+                          {formatDate(call.started_at)}
+                        </div>
+
+                        <div className="text-[13px] font-poppins text-black/70">
+                          {formatDuration(call.duration_seconds)}
+                        </div>
+
+                        <div className="text-[13px] font-poppins font-semibold text-[#000000]">
+                          {call.cost_total != null ? `$${Number(call.cost_total).toFixed(4)}` : '—'}
+                        </div>
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

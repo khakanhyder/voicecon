@@ -42,10 +42,10 @@ function StatSkeleton() {
  * the four tiles stay distinguishable without leaving the palette.
  */
 const ACCENTS = {
-  green: { solid: '#0F6A59', tint: 'rgba(15,106,89,0.13)',  grad: 'linear-gradient(135deg, #0F6A59 0%, #17836b 100%)' },
-  teal:  { solid: '#0d8a7a', tint: 'rgba(13,138,122,0.13)', grad: 'linear-gradient(135deg, #0d8a7a 0%, #14a894 100%)' },
-  cyan:  { solid: '#0e7490', tint: 'rgba(14,116,144,0.13)', grad: 'linear-gradient(135deg, #0e7490 0%, #1595b5 100%)' },
-  amber: { solid: '#b45309', tint: 'rgba(180,83,9,0.13)',   grad: 'linear-gradient(135deg, #b45309 0%, #d97a20 100%)' },
+  green: { solid: '#0F6A59', tint: 'rgba(15,106,89,0.13)', grad: 'linear-gradient(135deg, #0F6A59 0%, #17836b 100%)' },
+  teal: { solid: '#0d8a7a', tint: 'rgba(13,138,122,0.13)', grad: 'linear-gradient(135deg, #0d8a7a 0%, #14a894 100%)' },
+  cyan: { solid: '#0e7490', tint: 'rgba(14,116,144,0.13)', grad: 'linear-gradient(135deg, #0e7490 0%, #1595b5 100%)' },
+  amber: { solid: '#b45309', tint: 'rgba(180,83,9,0.13)', grad: 'linear-gradient(135deg, #b45309 0%, #d97a20 100%)' },
 } as const
 
 const quickActions = [
@@ -84,10 +84,10 @@ const quickActions = [
 ]
 
 const features = [
-  { icon: Zap,          title: 'Real-time AI',        desc: 'Sub-500ms voice response with GPT-4 & Claude' },
-  { icon: TrendingUp,   title: 'Smart Analytics',     desc: 'Track call quality, sentiment, and performance' },
-  { icon: Clock,        title: '24/7 Available',      desc: 'Agents that never sleep, never miss a call' },
-  { icon: CheckCircle2, title: 'Compliant & Secure',  desc: 'SOC 2 Type II, GDPR, HIPAA ready' },
+  { icon: Zap, title: 'Real-time AI', desc: 'Sub-500ms voice response with GPT-4 & Claude' },
+  { icon: TrendingUp, title: 'Smart Analytics', desc: 'Track call quality, sentiment, and performance' },
+  { icon: Clock, title: '24/7 Available', desc: 'Agents that never sleep, never miss a call' },
+  { icon: CheckCircle2, title: 'Compliant & Secure', desc: 'SOC 2 Type II, GDPR, HIPAA ready' },
 ]
 
 export default function DashboardPage() {
@@ -113,29 +113,29 @@ export default function DashboardPage() {
         apiClient.get<any[]>(API_ENDPOINTS.PHONE_NUMBERS),
       ])
 
-      const agentData   = agentsRes.status  === 'fulfilled' ? agentsRes.value.data  : null
-      const callData    = callsRes.status   === 'fulfilled' ? callsRes.value.data   : null
-      const intData     = intRes.status     === 'fulfilled' ? intRes.value.data     : null
-      const wfData      = wfRes.status      === 'fulfilled' ? wfRes.value.data      : null
-      const phoneData   = phoneRes.status   === 'fulfilled' ? phoneRes.value.data   : null
+      const agentData = agentsRes.status === 'fulfilled' ? agentsRes.value.data : null
+      const callData = callsRes.status === 'fulfilled' ? callsRes.value.data : null
+      const intData = intRes.status === 'fulfilled' ? intRes.value.data : null
+      const wfData = wfRes.status === 'fulfilled' ? wfRes.value.data : null
+      const phoneData = phoneRes.status === 'fulfilled' ? phoneRes.value.data : null
 
       const agentList = agentData?.agents || []
-      const intList   = intData?.connections || []
-      const wfList    = wfData?.workflows || []
+      const intList = intData?.connections || []
+      const wfList = wfData?.workflows || []
       const phoneList = Array.isArray(phoneData) ? phoneData : []
 
       setStats({
         activeAgents: agentList.filter((a: any) => a.is_active).length,
-        callsToday:   callData?.total_calls ?? 0,
+        callsToday: callData?.total_calls ?? 0,
         integrations: intList.filter((i: any) => i.status === 'active' || i.status === 'connected').length,
-        workflows:    wfList.length,
+        workflows: wfList.length,
       })
 
       setChecklist({
-        hasAgents:       agentList.length > 0,
+        hasAgents: agentList.length > 0,
         hasPhoneNumbers: phoneList.length > 0,
         hasIntegrations: intList.filter((i: any) => i.status === 'active' || i.status === 'connected').length > 0,
-        hasWorkflows:    wfList.length > 0,
+        hasWorkflows: wfList.length > 0,
       })
     } catch (e) {
       setStats({ activeAgents: 0, callsToday: 0, integrations: 0, workflows: 0 })
@@ -146,17 +146,17 @@ export default function DashboardPage() {
   }
 
   const statCards = [
-    { name: 'Active Agents', value: stats?.activeAgents ?? 0, icon: Bot,       accent: ACCENTS.green, href: '/dashboard/agents' },
-    { name: 'Total Calls',   value: stats?.callsToday   ?? 0, icon: Phone,     accent: ACCENTS.teal,  href: '/dashboard/calls' },
-    { name: 'Integrations',  value: stats?.integrations ?? 0, icon: Plug,      accent: ACCENTS.cyan,  href: '/dashboard/integrations' },
-    { name: 'Workflows',     value: stats?.workflows    ?? 0, icon: GitBranch, accent: ACCENTS.amber, href: '/dashboard/workflows' },
+    { name: 'Active Agents', value: stats?.activeAgents ?? 0, icon: Bot, accent: ACCENTS.green, href: '/dashboard/agents' },
+    { name: 'Total Calls', value: stats?.callsToday ?? 0, icon: Phone, accent: ACCENTS.teal, href: '/dashboard/calls' },
+    { name: 'Integrations', value: stats?.integrations ?? 0, icon: Plug, accent: ACCENTS.cyan, href: '/dashboard/integrations' },
+    { name: 'Workflows', value: stats?.workflows ?? 0, icon: GitBranch, accent: ACCENTS.amber, href: '/dashboard/workflows' },
   ]
 
   const checklistSteps = [
-    { title: 'Create your first AI agent',   href: '/dashboard/agents/new',     done: checklist?.hasAgents ?? false },
-    { title: 'Connect a phone number',        href: '/dashboard/phone-numbers',  done: checklist?.hasPhoneNumbers ?? false },
-    { title: 'Set up an integration',         href: '/dashboard/integrations',   done: checklist?.hasIntegrations ?? false },
-    { title: 'Build your first workflow',     href: '/dashboard/workflows/new',  done: checklist?.hasWorkflows ?? false },
+    { title: 'Create your first AI agent', href: '/dashboard/agents/new', done: checklist?.hasAgents ?? false },
+    { title: 'Connect a phone number', href: '/dashboard/phone-numbers', done: checklist?.hasPhoneNumbers ?? false },
+    { title: 'Set up an integration', href: '/dashboard/integrations', done: checklist?.hasIntegrations ?? false },
+    { title: 'Build your first workflow', href: '/dashboard/workflows/new', done: checklist?.hasWorkflows ?? false },
   ]
   const completedCount = checklistSteps.filter(s => s.done).length
 
@@ -201,7 +201,7 @@ export default function DashboardPage() {
             </Link>
             <Link
               href="/dashboard/analytics"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-2 md:px-5 py-2.5 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20"
             >
               <BarChart3 className="h-4 w-4" />
               View Analytics
@@ -214,9 +214,9 @@ export default function DashboardPage() {
           <div className="relative mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: 'Active Agents', value: stats.activeAgents, icon: Bot },
-              { label: 'Total Calls',   value: stats.callsToday,   icon: Phone },
-              { label: 'Integrations',  value: stats.integrations, icon: Plug },
-              { label: 'Workflows',     value: stats.workflows,    icon: GitBranch },
+              { label: 'Total Calls', value: stats.callsToday, icon: Phone },
+              { label: 'Integrations', value: stats.integrations, icon: Plug },
+              { label: 'Workflows', value: stats.workflows, icon: GitBranch },
             ].map(item => {
               const Icon = item.icon
               return (
@@ -239,38 +239,38 @@ export default function DashboardPage() {
       {/* ── Stat cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {isLoading
-          ? [1,2,3,4].map(i => <StatSkeleton key={i} />)
+          ? [1, 2, 3, 4].map(i => <StatSkeleton key={i} />)
           : statCards.map((stat) => {
-              const Icon = stat.icon
-              return (
-                <Link key={stat.name} href={stat.href} className="group block">
-                  <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition-all duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_16px_32px_-18px_rgba(15,23,42,0.35)]">
-                    {/* Accent bar wipes in on hover */}
-                    <span
-                      className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100"
-                      style={{ background: stat.accent.grad }}
-                    />
-                    {/* Corner wash */}
-                    <span
-                      className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
-                      style={{ background: stat.accent.tint }}
-                    />
+            const Icon = stat.icon
+            return (
+              <Link key={stat.name} href={stat.href} className="group block">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition-all duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_16px_32px_-18px_rgba(15,23,42,0.35)]">
+                  {/* Accent bar wipes in on hover */}
+                  <span
+                    className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100"
+                    style={{ background: stat.accent.grad }}
+                  />
+                  {/* Corner wash */}
+                  <span
+                    className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+                    style={{ background: stat.accent.tint }}
+                  />
 
-                    <div className="relative flex items-start justify-between">
-                      <div
-                        className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 group-hover:scale-105"
-                        style={{ background: stat.accent.tint }}
-                      >
-                        <Icon className="h-5 w-5" style={{ color: stat.accent.solid }} />
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-400" />
+                  <div className="relative flex items-start justify-between">
+                    <div
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 group-hover:scale-105"
+                      style={{ background: stat.accent.tint }}
+                    >
+                      <Icon className="h-5 w-5" style={{ color: stat.accent.solid }} />
                     </div>
-                    <div className="relative mt-5 text-3xl font-bold tabular-nums text-slate-900">{stat.value}</div>
-                    <div className="relative mt-0.5 text-sm text-slate-500">{stat.name}</div>
+                    <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-400" />
                   </div>
-                </Link>
-              )
-            })
+                  <div className="relative mt-5 text-3xl font-bold tabular-nums text-slate-900">{stat.value}</div>
+                  <div className="relative mt-0.5 text-sm text-slate-500">{stat.name}</div>
+                </div>
+              </Link>
+            )
+          })
         }
       </div>
 
@@ -384,39 +384,36 @@ export default function DashboardPage() {
 
         <div className="space-y-2.5">
           {isLoading
-            ? [1,2,3,4].map(i => (
-                <div key={i} className="h-13 rounded-lg bg-slate-100 animate-pulse" style={{ height: '52px' }} />
-              ))
+            ? [1, 2, 3, 4].map(i => (
+              <div key={i} className="h-13 rounded-lg bg-slate-100 animate-pulse" style={{ height: '52px' }} />
+            ))
             : checklistSteps.map((step, i) => (
-                <Link key={step.title} href={step.href}>
-                  <div className={`flex items-center gap-4 rounded-lg border px-4 py-3 transition-all group ${
-                    step.done
-                      ? 'border-[#0F6A59]/20 bg-[#0F6A59]/[0.06]'
-                      : 'border-slate-200 bg-slate-50 hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/[0.04]'
+              <Link key={step.title} href={step.href}>
+                <div className={`flex items-center gap-4 rounded-lg border px-4 py-3 transition-all group ${step.done
+                  ? 'border-[#0F6A59]/20 bg-[#0F6A59]/[0.06]'
+                  : 'border-slate-200 bg-slate-50 hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/[0.04]'
                   }`}>
-                    <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors ${
-                      step.done
-                        ? 'border-[#0F6A59] bg-[#0F6A59] text-white'
-                        : 'border-slate-300 text-slate-400 group-hover:border-[#0F6A59] group-hover:text-[#0F6A59]'
+                  <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors ${step.done
+                    ? 'border-[#0F6A59] bg-[#0F6A59] text-white'
+                    : 'border-slate-300 text-slate-400 group-hover:border-[#0F6A59] group-hover:text-[#0F6A59]'
                     }`}>
-                      {step.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : i + 1}
-                    </div>
-                    <span className={`text-sm font-medium flex-1 transition-colors ${
-                      step.done
-                        ? 'text-[#0F6A59] line-through decoration-[#0F6A59]/40'
-                        : 'text-slate-700 group-hover:text-[#0F6A59]'
-                    }`}>
-                      {step.title}
-                    </span>
-                    {!step.done && (
-                      <ArrowRight className="h-4 w-4 text-slate-300 transition-colors group-hover:text-[#0F6A59]" />
-                    )}
-                    {step.done && (
-                      <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[#0F6A59]" />
-                    )}
+                    {step.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : i + 1}
                   </div>
-                </Link>
-              ))
+                  <span className={`text-sm font-medium flex-1 transition-colors ${step.done
+                    ? 'text-[#0F6A59] line-through decoration-[#0F6A59]/40'
+                    : 'text-slate-700 group-hover:text-[#0F6A59]'
+                    }`}>
+                    {step.title}
+                  </span>
+                  {!step.done && (
+                    <ArrowRight className="h-4 w-4 text-slate-300 transition-colors group-hover:text-[#0F6A59]" />
+                  )}
+                  {step.done && (
+                    <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[#0F6A59]" />
+                  )}
+                </div>
+              </Link>
+            ))
           }
         </div>
       </div>

@@ -145,10 +145,7 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
-        <p className="text-muted-foreground">Manage your personal information and preferences</p>
-      </div>
+
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Personal Information */}
@@ -162,12 +159,12 @@ export default function ProfileSettingsPage() {
                 id="fullName"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-               className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email</Label>
-              <Input id="email" type="email" value={formData.email} disabled className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"/>
+              <Input id="email" type="email" value={formData.email} disabled className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
               <p className="text-xs text-muted-foreground">
                 Contact support to change your email address
               </p>
@@ -181,7 +178,7 @@ export default function ProfileSettingsPage() {
                 placeholder="+1 (555) 123-4567"
                 value={formData.phone_number}
                 onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-               className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
 
             <div className="space-y-2">
@@ -191,7 +188,7 @@ export default function ProfileSettingsPage() {
                 placeholder="Acme Inc."
                 value={formData.company_name}
                 onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-               className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
           </div>
 
@@ -203,7 +200,7 @@ export default function ProfileSettingsPage() {
               value={formData.bio}
               onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
               rows={4}
-             className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]" />
+              className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]" />
           </div>
         </div>
 
@@ -251,7 +248,7 @@ export default function ProfileSettingsPage() {
                 placeholder="https://…/avatar.png"
                 value={formData.avatar_url}
                 onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-               className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
               <p className="text-xs text-muted-foreground">
                 Paste a public image URL. Saved with your profile.
               </p>
@@ -278,7 +275,7 @@ export default function ProfileSettingsPage() {
               value={pw.current_password}
               onChange={(e) => setPw({ ...pw, current_password: e.target.value })}
               placeholder="Leave blank if none set"
-             className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="newPw" className="text-[14px] font-bold text-[#000000] font-poppins block">New Password</Label>
@@ -287,7 +284,7 @@ export default function ProfileSettingsPage() {
               type="password"
               value={pw.new_password}
               onChange={(e) => setPw({ ...pw, new_password: e.target.value })}
-             className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPw" className="text-[14px] font-bold text-[#000000] font-poppins block">Confirm New Password</Label>
@@ -296,7 +293,7 @@ export default function ProfileSettingsPage() {
               type="password"
               value={pw.confirm}
               onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
-             className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
         </div>
         <Button type="submit" variant="outline" disabled={changingPw}>

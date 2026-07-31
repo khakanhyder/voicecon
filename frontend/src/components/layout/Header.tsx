@@ -11,7 +11,8 @@ const pageTitles: Record<string, { title: string; description: string; action?: 
   '/dashboard': { title: 'Dashboard', description: 'Overview of your voice AI platform' },
   '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new' } },
   '/dashboard/calls': { title: 'Call History', description: 'View and manage all calls' },
-  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers' },
+  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Purchase Number', href: '/dashboard/phone-numbers?tab=search' } },
+  '/dashboard/tools': { title: 'Tools', description: 'Manage integration tools' },
   '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new' } },
   '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new' } },
   '/dashboard/integrations': { title: 'Integrations', description: 'Connect your apps and services' },
@@ -32,7 +33,27 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user } = useAuth()
   const pathname = usePathname()
 
-  const pageInfo = pageTitles[pathname] || { title: 'Voicecon', description: '' }
+  const getPageInfo = (path: string) => {
+    // Exact match first
+    if (pageTitles[path]) return { ...pageTitles[path] }
+
+    // Find longest matching prefix
+    const matches = Object.keys(pageTitles)
+      .filter((p) => path.startsWith(p + '/'))
+      .sort((a, b) => b.length - a.length)
+
+    if (matches.length > 0) {
+      const parentInfo = pageTitles[matches[0]]
+      return {
+        ...parentInfo,
+        action: undefined // Don't show parent actions (like "New Agent") on sub-pages
+      }
+    }
+
+    return { title: 'Voicecon', description: '' }
+  }
+
+  const pageInfo = getPageInfo(pathname)
 
   return (
     // The header floats as its own rounded panel, matching the sidebar and the

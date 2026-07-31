@@ -228,55 +228,22 @@ export default function WorkflowDetailPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border bg-card p-6">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Total Executions</div>
           <div className="text-3xl font-bold">{workflow.total_executions}</div>
         </div>
-        <div className="rounded-lg border bg-card p-6">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Successful</div>
           <div className="text-3xl font-bold text-green-600">{workflow.successful_executions}</div>
         </div>
-        <div className="rounded-lg border bg-card p-6">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Failed</div>
           <div className="text-3xl font-bold text-red-600">{workflow.failed_executions}</div>
         </div>
       </div>
 
-      {/* Test run */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="text-xl font-semibold">Test this workflow</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Runs the flow without a real phone call. Nothing is dialled — you get a
-              transcript of what the agent would say.
-            </p>
-          </div>
-          <Button onClick={handleTestRun} disabled={isRunning}>
-            {isRunning ? 'Running...' : 'Run test'}
-          </Button>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">
-            Caller answers <span className="text-muted-foreground font-normal">(optional JSON)</span>
-          </label>
-          <textarea
-            className="w-full rounded-md border bg-background p-3 font-mono text-sm"
-            rows={3}
-            value={testAnswers}
-            onChange={(e) => setTestAnswers(e.target.value)}
-            placeholder='{"intent": "schedule", "customer_name": "Sajid"}'
-          />
-          <p className="text-xs text-muted-foreground">
-            Scripts what the caller says. Each key is an Ask step&apos;s variable name — change
-            these to drive different branches.
-          </p>
-        </div>
-      </div>
-
       {/* Execution history */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Execution history</h2>
           <Button variant="outline" size="sm" onClick={fetchExecutions}>Refresh</Button>
@@ -375,7 +342,7 @@ export default function WorkflowDetailPage() {
       {/* Configuration */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Trigger Configuration */}
-        <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Trigger Configuration</h2>
 
           <div className="space-y-3">
@@ -396,7 +363,7 @@ export default function WorkflowDetailPage() {
         </div>
 
         {/* Execution Settings */}
-        <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Execution Settings</h2>
 
           <div className="space-y-3">
@@ -424,7 +391,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Workflow Steps */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Workflow Steps</h2>
           <Link href={`/dashboard/workflows/${workflowId}/builder`}>
@@ -478,7 +445,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Quick Actions</h2>
 
         <div className="flex gap-2">
@@ -495,7 +462,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Metadata */}
-      <div className="rounded-lg border bg-card p-6 space-y-4">
+      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Information</h2>
 
         <div className="grid gap-4 md:grid-cols-3">

@@ -116,25 +116,25 @@ function fmtDate(d: string | null) {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-slate-100 last:border-0">
-      <span className="text-xs text-slate-500">{label}</span>
-      <span className="text-sm font-semibold text-slate-800">{value}</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-black/10 last:border-0">
+      <span className="text-[12px] font-poppins text-black/60">{label}</span>
+      <span className="text-[14px] font-bold font-poppins text-[#000000]">{value}</span>
     </div>
   )
 }
 
 function SentimentBar({ score, label }: { score: number | null; label: string | null }) {
-  if (score == null) return <p className="text-sm text-slate-400 italic">No sentiment data</p>
+  if (score == null) return <p className="text-[14px] font-poppins text-black/40 italic">No sentiment data</p>
   const pct = Math.round(score * 100)
   const color = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-400' : 'bg-red-400'
   const textColor = pct >= 70 ? 'text-emerald-700' : pct >= 40 ? 'text-amber-700' : 'text-red-600'
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className={`text-sm font-semibold capitalize ${textColor}`}>{label || (pct >= 70 ? 'Positive' : pct >= 40 ? 'Neutral' : 'Negative')}</span>
-        <span className="text-sm font-bold text-slate-800">{pct}/100</span>
+        <span className={`text-[14px] font-bold font-poppins capitalize ${textColor}`}>{label || (pct >= 70 ? 'Positive' : pct >= 40 ? 'Neutral' : 'Negative')}</span>
+        <span className="text-[14px] font-bold font-poppins text-[#000000]">{pct}/100</span>
       </div>
-      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+      <div className="h-2 w-full bg-black/5 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -157,7 +157,7 @@ function AudioPlayer({ url }: { url: string }) {
   const fmtT = (t: number) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="flex items-center gap-3 rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-4 py-3">
       <audio
         ref={audioRef}
         src={url}
@@ -167,7 +167,7 @@ function AudioPlayer({ url }: { url: string }) {
       />
       <button
         onClick={toggle}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[#106959] text-white hover:opacity-90 transition-colors"
       >
         {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
       </button>
@@ -182,13 +182,13 @@ function AudioPlayer({ url }: { url: string }) {
             setCurrent(t)
             if (audioRef.current) audioRef.current.currentTime = t
           }}
-          className="w-full accent-indigo-600"
+          className="w-full accent-[#106959]"
         />
       </div>
-      <span className="text-xs font-mono text-slate-500 flex-shrink-0">
+      <span className="text-[12px] font-mono font-poppins text-black/60 flex-shrink-0">
         {fmtT(current)} / {fmtT(duration)}
       </span>
-      <Volume2 className="h-4 w-4 text-slate-400 flex-shrink-0" />
+      <Volume2 className="h-4 w-4 text-black/40 flex-shrink-0" />
     </div>
   )
 }
@@ -210,19 +210,19 @@ export default function CallDetailPage() {
 
   if (isLoading) return (
     <div className="max-w-4xl mx-auto space-y-4 animate-pulse">
-      <div className="h-8 w-48 bg-slate-200 rounded-lg" />
-      <div className="h-28 bg-slate-100 rounded-2xl" />
+      <div className="h-8 w-48 bg-slate-200 rounded-[8px]" />
+      <div className="h-28 bg-slate-100 rounded-[10px]" />
       <div className="grid grid-cols-3 gap-4">
-        {[1,2,3].map(i => <div key={i} className="h-36 bg-slate-100 rounded-xl" />)}
+        {[1,2,3].map(i => <div key={i} className="h-36 bg-slate-100 rounded-[10px]" />)}
       </div>
     </div>
   )
 
   if (!call) return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <Phone className="h-12 w-12 text-slate-200 mb-3" />
-      <p className="text-slate-500">Call not found</p>
-      <Link href="/dashboard/calls" className="mt-4 text-sm text-blue-600 hover:underline">Back to calls</Link>
+      <Phone className="h-12 w-12 text-black/20 mb-3" />
+      <p className="text-black/60 font-poppins">Call not found</p>
+      <Link href="/dashboard/calls" className="mt-4 text-[14px] font-poppins text-[#106959] hover:underline">Back to calls</Link>
     </div>
   )
 
@@ -235,46 +235,46 @@ export default function CallDetailPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-5">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Link href="/dashboard/calls" className="flex items-center gap-1 hover:text-slate-700 transition-colors">
+      <div className="flex items-center gap-2 text-[14px] font-poppins text-black/60">
+        <Link href="/dashboard/calls" className="flex items-center gap-1 hover:text-[#106959] transition-colors">
           <ArrowLeft className="h-3.5 w-3.5" /> Calls
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-slate-900 font-medium font-mono text-xs">{call.id.slice(0, 8)}…</span>
+        <span className="text-[#000000] font-bold font-mono text-[12px]">{call.id.slice(0, 8)}…</span>
       </div>
 
       {/* Hero card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white rounded-[10px] border border-[#000000] p-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[10px] bg-[#0F6A5910]">
               {call.direction === 'inbound'
-                ? <PhoneIncoming className="h-5 w-5 text-slate-600" />
-                : <PhoneOutgoing className="h-5 w-5 text-slate-600" />
+                ? <PhoneIncoming className="h-5 w-5 text-[#106959]" />
+                : <PhoneOutgoing className="h-5 w-5 text-[#106959]" />
               }
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-lg font-bold text-slate-900">{call.from_number || '—'}</span>
-                <span className="text-slate-400 text-sm">→</span>
-                <span className="text-sm text-slate-600">{call.to_number || '—'}</span>
-                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${status.bg} ${status.color}`}>
+                <span className="text-[18px] font-bold font-poppins text-[#000000]">{call.from_number || '—'}</span>
+                <span className="text-black/40 text-[14px] font-poppins">→</span>
+                <span className="text-[14px] font-poppins text-black/70">{call.to_number || '—'}</span>
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium font-poppins ${status.bg} ${status.color}`}>
                   {call.status}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5 capitalize">{call.direction} · {fmtDate(call.started_at)}</p>
+              <p className="text-[12px] font-poppins text-black/50 mt-0.5 capitalize">{call.direction} · {fmtDate(call.started_at)}</p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm flex-shrink-0">
             <div className="text-center">
-              <p className="text-lg font-bold text-slate-900">{fmtDur(call.duration_seconds)}</p>
-              <p className="text-xs text-slate-400">Duration</p>
+              <p className="text-[18px] font-bold font-poppins text-[#000000]">{fmtDur(call.duration_seconds)}</p>
+              <p className="text-[12px] font-poppins text-black/50">Duration</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-slate-900">
+              <p className="text-[18px] font-bold font-poppins text-[#000000]">
                 {totalCost ? `$${Number(totalCost).toFixed(4)}` : '—'}
               </p>
-              <p className="text-xs text-slate-400">Cost</p>
+              <p className="text-[12px] font-poppins text-black/50">Cost</p>
             </div>
           </div>
         </div>
@@ -286,27 +286,27 @@ export default function CallDetailPage() {
         {/* Transcript — 2 cols */}
         <div className="lg:col-span-2 space-y-4">
           {/* Conversation summary */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-              <Sparkles className="h-4 w-4 text-blue-500" />
+          <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+              <Sparkles className="h-4 w-4 text-[#106959]" />
               Conversation Summary
             </h3>
             {call.summary ? (
-              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{call.summary}</p>
+              <p className="text-[14px] font-poppins text-black/70 leading-relaxed whitespace-pre-wrap">{call.summary}</p>
             ) : (
               <div className="flex flex-col items-center justify-center py-6 text-center">
-                <Sparkles className="h-7 w-7 text-slate-200 mb-2" />
-                <p className="text-sm text-slate-400">No summary available</p>
-                <p className="text-xs text-slate-300 mt-1">A summary is generated automatically when a call completes</p>
+                <Sparkles className="h-7 w-7 text-black/10 mb-2" />
+                <p className="text-[14px] font-poppins text-black/40">No summary available</p>
+                <p className="text-[12px] font-poppins text-black/30 mt-1">A summary is generated automatically when a call completes</p>
               </div>
             )}
           </div>
 
           {/* Recording player */}
           {call.recording_url && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-                <Volume2 className="h-4 w-4 text-blue-500" />
+            <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+              <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+                <Volume2 className="h-4 w-4 text-[#106959]" />
                 Recording
               </h3>
               <AudioPlayer url={
@@ -315,7 +315,7 @@ export default function CallDetailPage() {
                   : call.recording_url
               } />
               {call.recording_duration && (
-                <p className="text-xs text-slate-400 mt-2">
+                <p className="text-[12px] font-poppins text-black/50 mt-2">
                   Duration: {fmtDur(call.recording_duration)}
                 </p>
               )}
@@ -323,20 +323,20 @@ export default function CallDetailPage() {
           )}
 
           {/* Transcript */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-4">
-              <FileText className="h-4 w-4 text-slate-400" />
+          <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-4">
+              <FileText className="h-4 w-4 text-black/50" />
               Transcript
               {transcript.length > 0 && (
-                <span className="ml-auto text-xs text-slate-400 font-normal">{transcript.length} turns</span>
+                <span className="ml-auto text-[12px] text-black/40 font-normal font-poppins">{transcript.length} turns</span>
               )}
             </h3>
 
             {transcript.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText className="h-10 w-10 text-slate-200 mb-3" />
-                <p className="text-sm text-slate-400">No transcript available</p>
-                <p className="text-xs text-slate-300 mt-1">Transcripts appear for completed calls</p>
+                <FileText className="h-10 w-10 text-black/10 mb-3" />
+                <p className="text-[14px] font-poppins text-black/40">No transcript available</p>
+                <p className="text-[12px] font-poppins text-black/30 mt-1">Transcripts appear for completed calls</p>
               </div>
             ) : (
               <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
@@ -345,25 +345,25 @@ export default function CallDetailPage() {
                   return (
                     <div key={i} className={`flex gap-2.5 ${isAgent ? 'justify-start' : 'justify-end'}`}>
                       {isAgent && (
-                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 mt-1">
-                          <Bot className="h-3.5 w-3.5 text-blue-600" />
+                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#0F6A5920] mt-1">
+                          <Bot className="h-3.5 w-3.5 text-[#106959]" />
                         </div>
                       )}
-                      <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${
+                      <div className={`max-w-[80%] rounded-[10px] px-3.5 py-2.5 ${
                         isAgent
-                          ? 'bg-slate-100 text-slate-800 rounded-bl-sm'
-                          : 'bg-blue-600 text-white rounded-br-sm'
+                          ? 'bg-[#0F6A590A] border border-black/10 text-[#000000] rounded-bl-sm'
+                          : 'bg-[#106959] text-white rounded-br-sm'
                       }`}>
-                        <p className="text-sm leading-relaxed">{entry.text}</p>
+                        <p className="text-[14px] font-poppins leading-relaxed">{entry.text}</p>
                         {entry.timestamp && (
-                          <p className={`text-xs mt-1 ${isAgent ? 'text-slate-400' : 'text-blue-200'}`}>
+                          <p className={`text-[11px] font-poppins mt-1 ${isAgent ? 'text-black/40' : 'text-white/60'}`}>
                             {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         )}
                       </div>
                       {!isAgent && (
-                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-slate-200 mt-1">
-                          <User className="h-3.5 w-3.5 text-slate-600" />
+                        <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-black/10 mt-1">
+                          <User className="h-3.5 w-3.5 text-black/60" />
                         </div>
                       )}
                     </div>
@@ -374,7 +374,7 @@ export default function CallDetailPage() {
 
             {/* Raw transcript fallback */}
             {call.transcript && transcript.length === 0 && (
-              <pre className="text-xs text-slate-600 bg-slate-50 rounded-lg p-4 whitespace-pre-wrap font-mono max-h-80 overflow-y-auto">
+              <pre className="text-[12px] text-black/60 bg-[#0F6A590A] rounded-[8px] p-4 whitespace-pre-wrap font-mono max-h-80 overflow-y-auto">
                 {call.transcript}
               </pre>
             )}
@@ -384,14 +384,14 @@ export default function CallDetailPage() {
         {/* Sidebar — 1 col */}
         <div className="space-y-4">
           {/* Call info */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-              <Phone className="h-4 w-4 text-slate-400" />
+          <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+              <Phone className="h-4 w-4 text-black/50" />
               Call Details
             </h3>
             <InfoRow label="Direction" value={<span className="capitalize">{call.direction}</span>} />
             <InfoRow label="Status" value={
-              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${status.bg} ${status.color}`}>
+              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium font-poppins ${status.bg} ${status.color}`}>
                 {call.status}
               </span>
             } />
@@ -401,7 +401,7 @@ export default function CallDetailPage() {
             <InfoRow label="Duration" value={fmtDur(call.duration_seconds)} />
             {call.agent_id && (
               <InfoRow label="Agent ID" value={
-                <Link href={`/dashboard/agents/${call.agent_id}`} className="font-mono text-xs text-blue-600 hover:underline">
+                <Link href={`/dashboard/agents/${call.agent_id}`} className="font-mono text-[12px] font-poppins text-[#106959] hover:underline">
                   {call.agent_id.slice(0, 8)}…
                 </Link>
               } />
@@ -409,18 +409,18 @@ export default function CallDetailPage() {
           </div>
 
           {/* Sentiment */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-              <Activity className="h-4 w-4 text-slate-400" />
+          <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+              <Activity className="h-4 w-4 text-black/50" />
               Sentiment
             </h3>
             <SentimentBar score={call.sentiment_score} label={call.sentiment_label} />
           </div>
 
           {/* Cost breakdown */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-              <DollarSign className="h-4 w-4 text-slate-400" />
+          <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+              <DollarSign className="h-4 w-4 text-black/50" />
               Cost Breakdown
             </h3>
             {[
@@ -429,19 +429,19 @@ export default function CallDetailPage() {
               { label: 'TTS',       value: call.cost_tts,       icon: Volume2 },
               { label: 'Telephony', value: call.cost_telephony, icon: Phone },
             ].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <div key={label} className="flex items-center justify-between py-2 border-b border-black/10 last:border-0">
+                <div className="flex items-center gap-1.5 text-[12px] font-poppins text-black/60">
                   <Icon className="h-3.5 w-3.5" />
                   {label}
                 </div>
-                <span className="text-sm font-medium text-slate-700">
+                <span className="text-[14px] font-bold font-poppins text-black/80">
                   {value != null ? `$${Number(value).toFixed(4)}` : '—'}
                 </span>
               </div>
             ))}
-            <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-200">
-              <span className="text-xs font-semibold text-slate-700">Total</span>
-              <span className="text-sm font-bold text-slate-900">
+            <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#000000]">
+              <span className="text-[12px] font-bold font-poppins text-[#000000]">Total</span>
+              <span className="text-[14px] font-bold font-poppins text-[#000000]">
                 {totalCost ? `$${Number(totalCost).toFixed(4)}` : '—'}
               </span>
             </div>
@@ -449,14 +449,14 @@ export default function CallDetailPage() {
 
           {/* Tags */}
           {call.tags && call.tags.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
-                <Tag className="h-4 w-4 text-slate-400" />
+            <div className="bg-white rounded-[10px] border border-[#000000] p-5">
+              <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
+                <Tag className="h-4 w-4 text-black/50" />
                 Tags
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {call.tags.map(tag => (
-                  <span key={tag} className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
+                  <span key={tag} className="px-2.5 py-1 bg-[#0F6A5910] text-[#106959] rounded-full text-[12px] font-medium font-poppins border border-[#106959]/20">
                     {tag}
                   </span>
                 ))}

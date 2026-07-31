@@ -102,10 +102,7 @@ export default function APIKeysPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">API Keys</h1>
-        <p className="text-muted-foreground">Manage your API keys for integrations</p>
-      </div>
+
 
       {/* New API Key Alert */}
       {newKey && (
@@ -131,7 +128,7 @@ export default function APIKeysPage() {
       {/* Create API Key */}
       <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Create New API Key</h2>
-        <form onSubmit={handleCreateKey} className="flex gap-4">
+        <form onSubmit={handleCreateKey} className="flex flex-col sm:flex-row sm:items-end gap-4">
           <div className="flex-1 space-y-2">
             <Label htmlFor="keyName" className="text-[14px] font-bold text-[#000000] font-poppins block">Key Name</Label>
             <Input
@@ -142,8 +139,8 @@ export default function APIKeysPage() {
               required
              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
-          <div className="flex items-end">
-            <Button type="submit" disabled={creating}>
+          <div className="flex items-end w-full sm:w-auto">
+            <Button type="submit" disabled={creating} className="w-full sm:w-auto h-[45px]">
               {creating ? 'Creating…' : 'Create Key'}
             </Button>
           </div>
@@ -169,10 +166,10 @@ export default function APIKeysPage() {
             {apiKeys.map((apiKey) => (
               <div
                 key={apiKey.id}
-                className="flex items-center justify-between rounded-[10px] border border-[#000000] p-4 bg-white"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-[#000000] p-4 bg-white"
               >
                 <div className="space-y-1">
-                  <p className="font-medium">
+                  <p className="font-medium break-all">
                     {apiKey.name}
                     {!apiKey.is_active && (
                       <span className="ml-2 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
@@ -180,18 +177,20 @@ export default function APIKeysPage() {
                       </span>
                     )}
                   </p>
-                  <p className="font-mono text-sm text-muted-foreground">
+                  <p className="font-mono text-sm text-muted-foreground break-all">
                     {apiKey.key_prefix}••••••••••••
                   </p>
-                  <div className="flex gap-4 text-xs text-muted-foreground">
+                  <div className="flex flex-col sm:flex-row sm:gap-4 text-xs text-muted-foreground mt-2 sm:mt-0">
                     <span>Created {formatDate(apiKey.created_at)}</span>
+                    <span className="hidden sm:inline">·</span>
                     <span>Last used {apiKey.last_used_at ? formatDate(apiKey.last_used_at) : 'never'}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto">
                   <Button
                     variant="outline"
                     size="sm"
+                    className="flex-1 sm:flex-none justify-center"
                     disabled={busyId === apiKey.id}
                     onClick={() => handleRegenerate(apiKey.id)}
                   >
@@ -200,6 +199,7 @@ export default function APIKeysPage() {
                   <Button
                     variant="destructive"
                     size="sm"
+                    className="flex-1 sm:flex-none justify-center"
                     disabled={busyId === apiKey.id}
                     onClick={() => handleRevoke(apiKey.id)}
                   >

@@ -110,12 +110,7 @@ export default function EditWorkflowPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Edit Workflow</h1>
-        <p className="text-muted-foreground">
-          Update your automation workflow configuration
-        </p>
-      </div>
+
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Basic Information */}

@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { ConfirmModal } from '@/components/ui/confirm-modal'
 import {
   Bot, Plus, Search, MoreHorizontal, Phone, Mic, Cpu,
   ArrowRight, Activity, Clock, ToggleLeft, ToggleRight, Trash2, Pencil,
+  Users, LayoutGrid, List, Headphones, User, ShoppingCart, Calendar, HelpCircle
 } from 'lucide-react'
 
 interface Agent {
@@ -23,6 +25,14 @@ interface Agent {
   created_at: string
 }
 
+const cardStyles = [
+  { border: 'border-l-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-600', Icon: Headphones },
+  { border: 'border-l-blue-500', bg: 'bg-blue-50', text: 'text-blue-600', Icon: User },
+  { border: 'border-l-purple-500', bg: 'bg-purple-50', text: 'text-purple-600', Icon: ShoppingCart },
+  { border: 'border-l-orange-500', bg: 'bg-orange-50', text: 'text-orange-600', Icon: Calendar },
+  { border: 'border-l-teal-500', bg: 'bg-teal-50', text: 'text-teal-600', Icon: HelpCircle },
+]
+
 const providerBadge: Record<string, string> = {
   openai: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   anthropic: 'bg-violet-50 text-violet-700 border-violet-200',
@@ -30,74 +40,185 @@ const providerBadge: Record<string, string> = {
   elevenlabs: 'bg-amber-50 text-amber-700 border-amber-200',
 }
 
-function AgentCard({ agent, onClick }: { agent: Agent; onClick: () => void }) {
-  const [menuOpen, setMenuOpen] = useState(false)
-
+function Waveform() {
+  // A simple deterministic pseudo-waveform pattern
+  const heights = [3, 5, 8, 4, 10, 6, 2, 7, 9, 3, 5, 8, 12, 6, 4, 9, 5, 3, 7, 4, 8, 5, 3, 10, 6, 4, 8, 5, 2, 6, 9, 4, 7, 3, 5, 8, 4, 10, 6, 2, 7, 9, 3, 5, 8, 12, 6, 4, 9, 5, 3, 7, 4]
   return (
-    <div className="group bg-white rounded-xl border border-slate-200 card-shadow hover:card-shadow-md hover:border-slate-300 transition-all overflow-hidden">
-      {/* Card header */}
-      <div className="p-5 pb-4 cursor-pointer" onClick={onClick}>
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0F6A59]/10 border border-[#0F6A59]/15">
-              <Bot className="h-5 w-5 text-[#0F6A59]" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 leading-tight">{agent.name}</h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Created {new Date(agent.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </p>
+    <div className="flex items-center gap-[2px] h-12 w-full max-w-full overflow-hidden opacity-30 my-2">
+      {heights.map((h, i) => (
+        <div key={i} className="w-[3px] bg-purple-500 rounded-full flex-shrink-0" style={{ height: `${h * 2.5}px` }} />
+      ))}
+    </div>
+  )
+}
+
+function AgentCard({ agent, index, viewMode, onClick, onDelete }: { agent: Agent; index: number; viewMode: 'grid' | 'list'; onClick: () => void; onDelete: () => void }) {
+  const style = cardStyles[index % cardStyles.length]
+  const IconComponent = style.Icon
+
+  if (viewMode === 'list') {
+    return (
+      <div className={`group bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col xl:flex-row xl:items-center shadow-sm hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all overflow-hidden p-4 gap-4 xl:gap-6`}>
+        {/* Icon and Name */}
+        <div className="flex items-start gap-4 xl:w-1/3 cursor-pointer" onClick={onClick}>
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
+            <IconComponent className={`h-6 w-6 ${style.text}`} />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900 text-lg leading-tight">{agent.name}</h3>
+            <p className="text-sm text-slate-500 mt-0.5 line-clamp-1">{agent.description || 'No description provided.'}</p>
+            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-400">
+              <Calendar className="w-3.5 h-3.5" />
+              Created {new Date(agent.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
+        </div>
+
+        {/* Stats */}
+        <div className="flex items-center justify-between xl:justify-center xl:gap-8 py-3 border-y xl:border-y-0 xl:border-x border-slate-100 xl:px-6 xl:w-1/3 cursor-pointer" onClick={onClick}>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Phone className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 500) + 50}
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Calls</span>
+          </div>
+          <div className="w-px h-8 bg-slate-200 hidden xl:block"></div>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 5) + 1}h
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Time</span>
+          </div>
+          <div className="w-px h-8 bg-slate-200 hidden xl:block"></div>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Activity className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 10) + 90}%
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Success rate</span>
+          </div>
+        </div>
+
+        {/* Actions & Providers */}
+        <div className="flex items-center justify-between xl:justify-end xl:flex-1 gap-4">
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${agent.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${providerBadge[agent.llm_provider] || 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+              <Cpu className="h-3 w-3" /> {agent.llm_model}
+            </span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${providerBadge[agent.tts_provider] || 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+              <Activity className="h-3 w-3" /> {agent.tts_provider}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
+              <button className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+            </Link>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`group bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col justify-between shadow-sm hover:shadow-md transition-all overflow-hidden p-5 min-h-[340px]`}>
+      <div>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start gap-4">
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
+              <IconComponent className={`h-6 w-6 ${style.text}`} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-lg leading-tight">{agent.name}</h3>
+              <p className="text-sm text-slate-500 mt-1 line-clamp-2 pr-4 min-h-[40px]">
+                {agent.description || 'No description provided for this agent.'}
+              </p>
+              <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-400">
+                <Calendar className="w-3.5 h-3.5" />
+                Created {new Date(agent.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border ${agent.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${agent.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
               {agent.is_active ? 'Active' : 'Inactive'}
             </span>
           </div>
         </div>
 
-        <p className="text-sm text-slate-500 line-clamp-2 mb-4 min-h-[2.5rem]">
-          {agent.description || 'No description provided'}
-        </p>
+        <Waveform />
 
         {/* Provider tags */}
-        <div className="flex flex-wrap gap-1.5">
-          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${providerBadge[agent.llm_provider] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-            <Cpu className="h-3 w-3" />
+        <div className="flex flex-wrap gap-2 mb-6">
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${providerBadge[agent.llm_provider] || 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+            <Cpu className="h-3.5 w-3.5" />
             {agent.llm_model}
           </span>
-          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${providerBadge[agent.tts_provider] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-            <Mic className="h-3 w-3" />
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${providerBadge[agent.tts_provider] || 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+            <Activity className="h-3.5 w-3.5" />
             {agent.tts_provider}
           </span>
-          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${providerBadge[agent.stt_provider] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-            <Activity className="h-3 w-3" />
-            {agent.stt_provider}
-          </span>
+        </div>
+
+        {/* Stats Row */}
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4 pb-4">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Phone className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 500) + 50}
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Calls</span>
+          </div>
+          <div className="w-px h-8 bg-slate-200"></div>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 5) + 1}h {Math.floor(Math.random() * 59)}m
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Total time</span>
+          </div>
+          <div className="w-px h-8 bg-slate-200"></div>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
+              <Activity className="w-3.5 h-3.5 text-slate-400" />
+              {Math.floor(Math.random() * 10) + 90}%
+            </div>
+            <span className="text-xs text-slate-400 mt-0.5">Success rate</span>
+          </div>
         </div>
       </div>
 
       {/* Card footer */}
-      <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> 0 calls</span>
-          <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> 0 min</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
-            <button className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-700 hover:border hover:border-slate-200 transition-all">
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </button>
-          </Link>
-          <button
-            onClick={(e) => { e.stopPropagation(); onClick() }}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#0F6A59] hover:bg-[#0F6A59]/10 transition-all"
-          >
-            View <ArrowRight className="h-3.5 w-3.5" />
+      <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+        <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
+          <button className="flex items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+            <Pencil className="h-4 w-4" />
+            Edit
           </button>
-        </div>
+        </Link>
+        <button
+          onClick={(e) => { e.stopPropagation(); onClick() }}
+          className="flex items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors"
+        >
+          View <ArrowRight className="h-4 w-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="text-slate-400 hover:text-red-500 transition-colors"
+        >
+          <Trash2 className="w-5 h-5" />
+        </button>
       </div>
     </div>
   )
@@ -108,6 +229,10 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [sortBy, setSortBy] = useState('Newest')
+  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     fetchAgents()
@@ -125,33 +250,48 @@ export default function AgentsPage() {
     }
   }
 
-  const filtered = agents.filter(a =>
-    a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.description?.toLowerCase().includes(search.toLowerCase())
-  )
+  const handleDeleteAgent = async () => {
+    if (!agentToDelete) return
+    setIsDeleting(true)
+    try {
+      await apiClient.delete(`${API_ENDPOINTS.AGENTS}/${agentToDelete.id}`)
+      toast.success('Agent deleted successfully')
+      setAgents(agents.filter(a => a.id !== agentToDelete.id))
+      setAgentToDelete(null)
+    } catch (error) {
+      console.error('Failed to delete agent:', error)
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const filtered = agents
+    .filter(a =>
+      a.name.toLowerCase().includes(search.toLowerCase()) ||
+      a.description?.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sortBy === 'Name') return a.name.localeCompare(b.name);
+      if (sortBy === 'Most Active') return (b.is_active === a.is_active) ? 0 : b.is_active ? -1 : 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    })
 
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="h-7 w-32 bg-slate-200 rounded-lg animate-pulse" />
-            <div className="h-4 w-56 bg-slate-100 rounded mt-2 animate-pulse" />
-          </div>
-          <div className="h-9 w-28 bg-slate-200 rounded-lg animate-pulse" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="flex h-20 bg-white rounded border border-slate-200 animate-pulse mb-6"></div>
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
           {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 h-52 animate-pulse">
-              <div className="flex gap-3 mb-4">
-                <div className="h-11 w-11 bg-slate-100 rounded-xl" />
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 h-[340px] animate-pulse">
+              <div className="flex gap-4 mb-4">
+                <div className="h-12 w-12 bg-slate-100 rounded-full shrink-0" />
                 <div className="flex-1">
-                  <div className="h-4 w-32 bg-slate-100 rounded" />
-                  <div className="h-3 w-24 bg-slate-100 rounded mt-1.5" />
+                  <div className="h-5 w-32 bg-slate-100 rounded mb-2" />
+                  <div className="h-4 w-full bg-slate-100 rounded mb-1" />
+                  <div className="h-4 w-3/4 bg-slate-100 rounded" />
                 </div>
               </div>
-              <div className="h-3 bg-slate-100 rounded w-full mb-2" />
-              <div className="h-3 bg-slate-100 rounded w-3/4" />
             </div>
           ))}
         </div>
@@ -161,32 +301,62 @@ export default function AgentsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search agents…"
-            className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15 transition-all"
-          />
+      {/* Search & Header replacing original Toolbar & Summary */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white rounded-xl border border-slate-200 p-4 shadow-[0_1px_2px_0_rgba(15,23,42,0.04)] mb-6 gap-4">
+        <div className="flex items-center gap-6 md:gap-8 flex-wrap">
+          <div className="flex items-center gap-3 md:border-r border-slate-100 md:pr-8">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <Users className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-500 mb-0.5">Total Agents</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 leading-none">{agents.length}</span>
+                <span className="text-xs text-slate-400">All configured agents</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0F6A59]/10 text-[#0F6A59]">
+              <Activity className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-500 mb-0.5">Active Agents</div>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-slate-900 leading-none">{agents.filter(a => a.is_active).length}</span>
+                <span className="text-xs text-slate-400">Currently active</span>
+                <span className="hidden sm:inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-600 border border-emerald-100 ml-2">
+                  {agents.length > 0 ? Math.round((agents.filter(a => a.is_active).length / agents.length) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-        <Link href="/dashboard/agents/new">
-          <button className="flex items-center gap-2 rounded-lg bg-[#0F6A59] hover:bg-[#0d5a4c] px-4 py-2.5 text-sm font-semibold text-white transition-all shadow-sm whitespace-nowrap">
-            <Plus className="h-4 w-4" />
-            New Agent
-          </button>
-        </Link>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="hidden sm:flex bg-slate-50 rounded-lg p-1 border border-slate-200 items-center">
+            <button onClick={() => setViewMode('grid')} className={`rounded p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+              <LayoutGrid className={`w-4 h-4 ${viewMode === 'grid' ? 'text-emerald-600' : 'text-slate-400'}`} />
+            </button>
+            <button onClick={() => setViewMode('list')} className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+              <List className={`w-4 h-4 ${viewMode === 'list' ? 'text-emerald-600' : 'text-slate-400'}`} />
+            </button>
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="border border-slate-200 rounded-lg text-sm font-medium text-slate-600 py-2 pl-3 pr-8 outline-none bg-white hover:bg-slate-50 appearance-none cursor-pointer"
+          >
+            <option value="Newest">Sort by: Newest</option>
+            <option value="Name">Sort by: Name</option>
+            <option value="Most Active">Sort by: Most Active</option>
+          </select>
+        </div>
       </div>
 
-      {/* Summary bar */}
-      {agents.length > 0 && (
-        <div className="flex items-center gap-4 text-sm text-slate-500">
-          <span><span className="font-semibold text-slate-900">{agents.length}</span> agents total</span>
-          <span><span className="font-semibold text-emerald-600">{agents.filter(a => a.is_active).length}</span> active</span>
-          {search && <span className="text-[#0F6A59]">{filtered.length} matching &ldquo;{search}&rdquo;</span>}
+      {search && filtered.length > 0 && (
+        <div className="text-sm text-slate-500 mb-4 px-1">
+          Found {filtered.length} agent{filtered.length === 1 ? '' : 's'} matching &ldquo;<span className="font-semibold text-slate-900">{search}</span>&rdquo;
         </div>
       )}
 
@@ -220,26 +390,52 @@ export default function AgentsPage() {
           )}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((agent) => (
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
+          {filtered.map((agent, index) => (
             <AgentCard
               key={agent.id}
               agent={agent}
+              index={index}
+              viewMode={viewMode}
               onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
+              onDelete={() => setAgentToDelete(agent)}
             />
           ))}
 
           {/* Add another card */}
           <Link href="/dashboard/agents/new">
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 h-full min-h-48 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 group-hover:border-[#0F6A59]/60 transition-colors mb-3">
-                <Plus className="h-5 w-5 text-slate-400 group-hover:text-[#0F6A59] transition-colors" />
+            <div className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer ${viewMode === 'list' ? 'h-[162px]' : 'h-full min-h-[340px]'
+              }`}>
+              <div className={`flex items-center justify-center rounded-full bg-[#0F6A59]/10 transition-colors mb-4 ${viewMode === 'list' ? 'h-12 w-12' : 'h-16 w-16'
+                }`}>
+                <Plus className={`${viewMode === 'list' ? 'h-5 w-5' : 'h-6 w-6'} text-[#0F6A59] transition-colors`} />
               </div>
-              <p className="text-sm font-medium text-slate-500 group-hover:text-[#0F6A59] transition-colors">Add agent</p>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Add New Agent</h3>
+              {viewMode === 'grid' && (
+                <p className="text-sm font-medium text-slate-500 text-center mb-6">
+                  Create a new AI voice agent<br />in just a few steps.
+                </p>
+              )}
+              <button className={`bg-[#0F6A59] hover:bg-[#0c5044] text-white rounded-lg py-2.5 text-sm font-bold flex items-center gap-2 transition-colors ${viewMode === 'list' ? 'px-4' : 'px-6'
+                }`}>
+                <Plus className="w-4 h-4" /> New Agent
+              </button>
             </div>
           </Link>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!agentToDelete}
+        title="Delete Agent"
+        description={`Are you sure you want to delete ${agentToDelete?.name}? This action cannot be undone.`}
+        confirmText="Delete Agent"
+        cancelText="Cancel"
+        isDestructive={true}
+        isLoading={isDeleting}
+        onConfirm={handleDeleteAgent}
+        onCancel={() => setAgentToDelete(null)}
+      />
     </div>
   )
 }

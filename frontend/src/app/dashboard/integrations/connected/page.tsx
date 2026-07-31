@@ -159,12 +159,8 @@ export default function ConnectedIntegrationsPage() {
             Back to All Integrations
           </Button>
 
-          <div className="flex items-start justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold text-black border-[#000000] font-poppins mb-2">Connected Integrations</h1>
-              <p className="text-gray-600">Manage your active integration connections</p>
-            </div>
-          </div>
+
+
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 mb-6">

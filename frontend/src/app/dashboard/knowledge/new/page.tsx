@@ -54,8 +54,7 @@ export default function NewKnowledgeBasePage() {
       </Link>
 
       <div>
-        <h1 className="text-3xl font-bold font-poppins text-[#000000]">Create Knowledge Base</h1>
-        <p className="text-[#000000] mt-1 font-poppins text-[14px]">
+        <p className="text-black/60 mt-1 font-poppins text-[14px]">
           Step 1 of 2 — name it here, then you&apos;ll land on its page where you upload
           documents (PDF, Word, text) or paste content.
         </p>

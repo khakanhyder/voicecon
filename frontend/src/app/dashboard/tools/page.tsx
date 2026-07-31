@@ -738,50 +738,33 @@ function ToolCard({ tool, onEdit, onDelete, onToggle }: {
   const paramCount = (() => { const p=(tool.config as any)?.parameters?.properties; return p?Object.keys(p).length:0 })()
 
   return (
-    <div onClick={()=>onEdit(tool)} className="bg-white rounded-[10px] border border-[#000000] hover:shadow-md transition-all overflow-hidden cursor-pointer group">
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${catMeta?.bg||'bg-slate-50'} border ${catMeta?.border||'border-slate-200'}`}>
-              <Icon className={`h-5 w-5 ${catMeta?.color||'text-slate-500'}`}/>
-            </div>
-            <div>
-              <h3 className="font-bold font-poppins text-[#000000] leading-tight transition-colors">{tool.name}</h3>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <CatIcon className={`h-3 w-3 ${catMeta?.color||'text-slate-400'}`}/>
-                <span className="text-xs text-slate-400">{typeMeta?.label||tool.tool_type}</span>
-                {paramCount>0 && <span className="text-xs text-slate-300">· {paramCount} param{paramCount!==1?'s':''}</span>}
-              </div>
-            </div>
-          </div>
-          <button onClick={e=>{e.stopPropagation();onToggle(tool.id,!tool.is_active)}} className="ml-2 flex-shrink-0" title={tool.is_active?'Deactivate':'Activate'}>
-            {tool.is_active ? <ToggleRight className="h-6 w-6 text-blue-500"/> : <ToggleLeft className="h-6 w-6 text-slate-300"/>}
-          </button>
+    <div onClick={()=>onEdit(tool)} className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-0 shadow-sm cursor-pointer hover:shadow-md transition-all group">
+      <div className="flex items-start md:items-center gap-4">
+        <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[8px] bg-white shadow-sm border ${catMeta?.border||'border-slate-200'}`}>
+          <Icon className={`h-6 w-6 ${catMeta?.color||'text-slate-500'}`}/>
         </div>
-        {tool.description && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{tool.description}</p>}
-        {configPreview && <p className="text-xs text-slate-400 font-mono truncate">{configPreview}</p>}
-        {testResult && (
-          <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs mt-3 ${testResult.success?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
-            {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 mt-0.5"/> : <XCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5"/>}
-            <span className="line-clamp-2">{testResult.message}</span>
-          </div>
-        )}
+        <div className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-3">
+          <h3 className="font-bold font-poppins text-[#000000] text-base">{tool.name}</h3>
+          <span className={`inline-flex items-center self-start md:self-auto gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border ${tool.is_active?'bg-emerald-50 text-emerald-700 border-emerald-200':'bg-slate-100 text-slate-500 border-slate-200'}`}>
+             <CheckCircle2 className={`h-3 w-3 ${tool.is_active?'text-emerald-500':'text-slate-400'}`} />
+             {tool.is_active?'Connected':'Disconnected'}
+          </span>
+        </div>
       </div>
-      <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 flex items-center justify-between">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${tool.is_active?'bg-emerald-50 text-emerald-700 border-emerald-200':'bg-slate-100 text-slate-500 border-slate-200'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${tool.is_active?'bg-emerald-500':'bg-slate-400'}`}/>{tool.is_active?'Active':'Inactive'}
-        </span>
-        <div className="flex items-center gap-1">
-          <button onClick={e=>{e.stopPropagation();onEdit(tool)}} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-blue-600 hover:border hover:border-slate-200 transition-all">
-            <Pencil className="h-3.5 w-3.5"/>Edit
-          </button>
-          <button onClick={handleTest} disabled={testing} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-700 hover:border hover:border-slate-200 transition-all disabled:opacity-50">
-            {testing?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<FlaskConical className="h-3.5 w-3.5"/>}Test
-          </button>
-          <button onClick={e=>{e.stopPropagation();onDelete(tool.id)}} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition-all">
-            <Trash2 className="h-3.5 w-3.5"/>Delete
-          </button>
-        </div>
+      
+      <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto mt-2 md:mt-0">
+         <button onClick={handleTest} disabled={testing} className="flex-1 md:flex-none flex items-center justify-center gap-1.5 text-slate-500 hover:text-[#106959] bg-white border border-slate-200 px-3 py-2 rounded-[8px] transition-all disabled:opacity-50 text-sm font-medium shadow-sm hover:border-[#106959]/30 hover:bg-[#106959]/5" title="Test Tool">
+            {testing?<Loader2 className="h-4 w-4 animate-spin"/>:<FlaskConical className="h-4 w-4"/>}
+            Test
+         </button>
+         <button onClick={e=>{e.stopPropagation();onDelete(tool.id)}} className="flex-1 md:flex-none flex items-center justify-center gap-1.5 text-red-600 bg-white border border-red-200 hover:bg-red-50 px-3 md:px-4 py-2 rounded-[8px] text-sm font-medium transition-all shadow-sm" title="Delete Tool">
+            <Trash2 className="h-4 w-4"/>
+            Delete
+         </button>
+         <button onClick={e=>{e.stopPropagation();onEdit(tool)}} className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-[#106959] hover:bg-[#0c5044] text-white px-4 md:px-5 py-2 rounded-[8px] font-medium text-sm transition-all font-poppins shadow-sm">
+            <Pencil className="h-4 w-4"/>
+            Edit
+         </button>
       </div>
     </div>
   )
@@ -943,7 +926,7 @@ export default function ToolsPage() {
         {/* Category tabs */}
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={()=>setActiveCategory(null)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-all border ${!activeCategory?'bg-slate-900 text-white border-slate-900':'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-all border ${!activeCategory?'bg-[#0F6A59] text-white border-[#0F6A59]':'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
             All <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${!activeCategory?'bg-white/20 text-white':'bg-slate-100 text-slate-500'}`}>{tools.length}</span>
           </button>
           {Object.entries(TOOL_TYPES).map(([key,cat])=>{
@@ -975,16 +958,18 @@ export default function ToolsPage() {
             )}
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="flex flex-col gap-3">
             {filtered.map(tool=>(
               <ToolCard key={tool.id} tool={tool} onEdit={setFormTool} onDelete={handleDelete} onToggle={handleToggle}/>
             ))}
             <button onClick={()=>{setPrefillType(null);setFormTool('new')}}
-              className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 min-h-40 hover:border-blue-300 hover:bg-blue-50 transition-all group cursor-pointer">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 group-hover:border-blue-400 transition-colors mb-3">
-                <Plus className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors"/>
+              className="flex items-center justify-center rounded-[10px] border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 hover:border-blue-300 hover:bg-blue-50 transition-all group cursor-pointer h-[80px]">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-dashed border-slate-300 group-hover:border-blue-400 transition-colors">
+                  <Plus className="h-4 w-4 text-slate-400 group-hover:text-blue-500 transition-colors"/>
+                </div>
+                <p className="text-sm font-medium text-slate-500 group-hover:text-blue-600 transition-colors">Add tool</p>
               </div>
-              <p className="text-sm font-medium text-slate-500 group-hover:text-blue-600 transition-colors">Add tool</p>
             </button>
           </div>
         )}

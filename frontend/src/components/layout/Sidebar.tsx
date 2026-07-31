@@ -26,6 +26,10 @@ import {
   Wrench,
   BookOpen,
   Mic,
+  CreditCard,
+  Users,
+  Key,
+  Sliders,
 } from 'lucide-react'
 
 /** Sidebar palette — brand green (#0F6A59). */
@@ -57,10 +61,10 @@ const settingsNav = {
   href: '/dashboard/settings',
   icon: Settings,
   children: [
-    { name: 'Profile', href: '/dashboard/settings/profile' },
-    { name: 'Billing', href: '/dashboard/settings/billing' },
-    { name: 'Team', href: '/dashboard/settings/team' },
-    { name: 'API Keys', href: '/dashboard/settings/api-keys' },
+    { name: 'Profile', href: '/dashboard/settings/profile', icon: User },
+    { name: 'Billing', href: '/dashboard/settings/billing', icon: CreditCard },
+    { name: 'Team', href: '/dashboard/settings/team', icon: Users },
+    { name: 'API Keys', href: '/dashboard/settings/api-keys', icon: Key },
   ],
 }
 
@@ -180,29 +184,32 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         </button>
 
         {settingsOpen && (
-          <div className="mt-0.5 space-y-0.5 pl-[46px] pr-2">
+          <div className="mt-1 space-y-1 pl-[28px] pr-2">
             <Link
               href={settingsNav.href}
               className={cn(
-                'block truncate rounded-lg px-3 py-2 font-poppins text-[15px] tracking-[0.25px] transition-colors',
+                'flex items-center gap-3 truncate rounded-lg px-3 py-2 font-poppins text-[14px] tracking-[0.25px] transition-colors',
                 pathname === settingsNav.href
-                  ? 'font-medium text-white'
-                  : 'text-white/75 hover:text-white'
+                  ? 'bg-white/10 font-medium text-white'
+                  : 'text-white/75 hover:bg-white/5 hover:text-white'
               )}
             >
+              <Sliders className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={2} />
               General
             </Link>
             {settingsNav.children.map((child) => {
               const childActive = isActive(child.href)
+              const ChildIcon = child.icon
               return (
                 <Link
                   key={child.href}
                   href={child.href}
                   className={cn(
-                    'block truncate rounded-lg px-3 py-2 font-poppins text-[15px] tracking-[0.25px] transition-colors',
-                    childActive ? 'font-medium text-white' : 'text-white/75 hover:text-white'
+                    'flex items-center gap-3 truncate rounded-lg px-3 py-2 font-poppins text-[14px] tracking-[0.25px] transition-colors',
+                    childActive ? 'bg-white/10 font-medium text-white' : 'text-white/75 hover:bg-white/5 hover:text-white'
                   )}
                 >
+                  <ChildIcon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={2} />
                   {child.name}
                 </Link>
               )

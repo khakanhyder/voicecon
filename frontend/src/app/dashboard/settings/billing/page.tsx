@@ -178,20 +178,16 @@ export default function BillingPage() {
   const currentPlan = plans.find((p) => p.id === subscription?.plan_id);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
-          <p className="text-gray-600 mt-1">Manage your subscription, usage, and invoices</p>
-        </div>
+
 
         {/* Current Subscription */}
-        <div className="bg-white border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Current Plan</h2>
-              <p className="text-sm text-gray-600">Your active subscription</p>
+              <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Current Plan</h2>
+              <p className="text-[14px] font-poppins text-black/60 mt-1">Your active subscription</p>
             </div>
             {loading ? (
               <Skeleton className="w-20 h-7" />
@@ -219,30 +215,30 @@ export default function BillingPage() {
           ) : subscription ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
               <div>
-                <div className="text-sm text-gray-600 mb-1">Plan</div>
-                <div className="text-2xl font-bold text-blue-600">{subscription.plan_name}</div>
+                <div className="text-[14px] font-poppins text-black/60 mb-1">Plan</div>
+                <div className="text-[24px] font-bold font-poppins text-[#106959]">{subscription.plan_name}</div>
                 {currentPlan && (
-                  <div className="text-sm text-gray-500">
+                  <div className="text-[14px] font-poppins text-black/60">
                     ${currentPlan.price_monthly}/month
                   </div>
                 )}
               </div>
               <div>
-                <div className="text-sm text-gray-600 mb-1">Current Period</div>
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-[14px] font-poppins text-black/60 mb-1">Current Period</div>
+                <div className="text-[14px] font-medium font-poppins text-[#000000]">
                   {formatDate(subscription.current_period_start)} -{' '}
                   {formatDate(subscription.current_period_end)}
                 </div>
-                <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                <div className="text-[12px] font-poppins text-black/50 mt-1 flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
                   Renews {formatDate(subscription.current_period_end)}
                 </div>
               </div>
               <div>
-                <div className="text-sm text-gray-600 mb-1">Billing Period</div>
+                <div className="text-[14px] font-poppins text-black/60 mb-1">Billing Period</div>
                 <div className="flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900 capitalize">
+                  <CreditCard className="w-4 h-4 text-black/40" />
+                  <span className="text-[14px] font-medium font-poppins text-[#000000] capitalize">
                     {subscription.billing_period}
                   </span>
                 </div>
@@ -278,8 +274,11 @@ export default function BillingPage() {
         </div>
 
         {/* Usage This Period */}
-        <div className="bg-white border rounded-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Usage This Period</h2>
+        <div className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+          <div className="mb-6">
+            <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Usage This Period</h2>
+            <p className="text-[14px] font-poppins text-black/60 mt-1">Track your monthly minutes and calls</p>
+          </div>
 
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -299,16 +298,16 @@ export default function BillingPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-blue-600" />
-                    <span className="font-medium text-gray-900">Call Minutes</span>
+                    <Clock className="w-5 h-5 text-[#106959]" />
+                    <span className="font-medium font-poppins text-[#000000]">Call Minutes</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-[14px] font-semibold font-poppins text-[#000000]">
                     {usage.minutes_used} / {usage.minutes_included}
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                <div className="w-full bg-[#0F6A590A] rounded-full h-2 mb-2">
                   <div
-                    className="bg-blue-600 h-2 rounded-full"
+                    className="bg-[#106959] h-2 rounded-full"
                     style={{
                       width: `${Math.min(
                         100,
@@ -319,7 +318,7 @@ export default function BillingPage() {
                     }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600">
+                <div className="flex items-center justify-between text-[12px] font-poppins text-black/50">
                   <span>
                     {usage.minutes_included > 0
                       ? Math.round((usage.minutes_used / usage.minutes_included) * 100)
@@ -338,16 +337,16 @@ export default function BillingPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Phone className="w-5 h-5 text-green-600" />
-                    <span className="font-medium text-gray-900">Total Calls</span>
+                    <Phone className="w-5 h-5 text-[#106959]" />
+                    <span className="font-medium font-poppins text-[#000000]">Total Calls</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-[14px] font-semibold font-poppins text-[#000000]">
                     {usage.calls_used} / {usage.calls_included}
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                <div className="w-full bg-[#0F6A590A] rounded-full h-2 mb-2">
                   <div
-                    className="bg-green-600 h-2 rounded-full"
+                    className="bg-[#106959] h-2 rounded-full"
                     style={{
                       width: `${Math.min(
                         100,
@@ -358,7 +357,7 @@ export default function BillingPage() {
                     }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600">
+                <div className="flex items-center justify-between text-[12px] font-poppins text-black/50">
                   <span>
                     {usage.calls_included > 0
                       ? Math.round((usage.calls_used / usage.calls_included) * 100)
@@ -396,18 +395,18 @@ export default function BillingPage() {
         </div>
 
         {/* Available Plans */}
-        <div id="available-plans" className="bg-white border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-6">
+        <div id="available-plans" className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+          <div className="flex flex-col items-center justify-center mb-8 pt-4 gap-5 text-center">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Available Plans</h2>
-              <p className="text-sm text-gray-600">Choose the plan that fits your needs</p>
+              <h2 className="text-[24px] font-bold font-poppins text-[#000000]">Available Plans</h2>
+              <p className="text-[14px] font-poppins text-black/60 mt-1">Choose the plan that fits your needs</p>
             </div>
-            <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+            <div className="flex items-center justify-center gap-2 bg-[#0F6A590A] border border-black/10 rounded-lg p-1">
               <button
                 onClick={() => setBillingPeriod('monthly')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
                   billingPeriod === 'monthly'
-                    ? 'bg-white text-gray-900 shadow-sm'
+                    ? 'bg-white text-[#106959] shadow-sm ring-1 ring-black/5'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -415,22 +414,22 @@ export default function BillingPage() {
               </button>
               <button
                 onClick={() => setBillingPeriod('yearly')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-6 py-2.5 rounded-md text-sm font-semibold transition-all flex items-center gap-1.5 ${
                   billingPeriod === 'yearly'
-                    ? 'bg-white text-gray-900 shadow-sm'
+                    ? 'bg-white text-[#106959] shadow-sm ring-1 ring-black/5'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 Yearly
-                <span className="ml-1 text-xs text-green-600">(Save 15%)</span>
+                <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-green-100 text-green-700">Save 15%</span>
               </button>
             </div>
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex flex-col md:flex-row flex-wrap justify-center gap-6">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="border-2 rounded-lg p-6 space-y-4">
+                <div key={i} className="w-full md:w-[350px] border border-black/10 rounded-[10px] p-6 space-y-4">
                   <Skeleton className="h-6 w-28" />
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-12 w-24" />
@@ -439,83 +438,83 @@ export default function BillingPage() {
                       <Skeleton key={j} className="h-4 w-full" />
                     ))}
                   </div>
-                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full mt-auto" />
                 </div>
               ))}
             </div>
           ) : plans.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex flex-col md:flex-row flex-wrap justify-center gap-6">
               {plans
                 .filter((p) => p.is_active && p.is_public)
                 .map((plan) => (
                   <div
                     key={plan.id}
-                    className={`border-2 rounded-lg p-6 ${
+                    className={`w-full md:w-[350px] flex flex-col rounded-[10px] border p-6 transition-all bg-white relative top-0 hover:-top-1 ${
                       plan.id === subscription?.plan_id
-                        ? 'border-blue-600 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-[#106959] bg-[#0F6A590A] shadow-sm'
+                        : 'border-black/10 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]'
                     }`}
                   >
                     <div className="mb-4">
-                      <h3 className="text-lg font-bold text-gray-900">{plan.name}</h3>
-                      <p className="text-sm text-gray-600 mt-1">{plan.description}</p>
+                      <h3 className="text-[20px] font-bold font-poppins text-[#000000]">{plan.name}</h3>
+                      <p className="text-[13px] font-poppins text-black/60 mt-2">{plan.description}</p>
                     </div>
 
                     <div className="mb-6">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-4xl font-bold text-gray-900">
+                        <span className="text-[40px] font-bold text-[#000000] font-poppins">
                           $
                           {billingPeriod === 'monthly'
                             ? plan.price_monthly
                             : Math.round(((plan.price_yearly ?? plan.price_monthly * 10) / 12) * 10) /
                               10}
                         </span>
-                        <span className="text-gray-600">/month</span>
+                        <span className="text-gray-500 font-medium text-sm">/month</span>
                       </div>
                       {billingPeriod === 'yearly' && plan.price_yearly && (
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-[12px] font-medium text-[#106959] mt-1 bg-green-50 w-fit px-2 py-0.5 rounded">
                           Billed ${plan.price_yearly} annually
                         </p>
                       )}
                     </div>
 
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>{plan.included_minutes.toLocaleString()} minutes/month</span>
+                    <div className="space-y-3.5 mb-8 flex-1">
+                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
+                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
+                        <span><strong className="font-semibold">{plan.included_minutes.toLocaleString()}</strong> minutes/month</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>{plan.included_calls.toLocaleString()} calls/month</span>
+                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
+                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
+                        <span><strong className="font-semibold">{plan.included_calls.toLocaleString()}</strong> calls/month</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>Up to {plan.max_agents} agents</span>
+                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
+                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
+                        <span>Up to <strong className="font-semibold">{plan.max_agents}</strong> agents</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                        <span>Up to {plan.max_phone_numbers} phone numbers</span>
+                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
+                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
+                        <span>Up to <strong className="font-semibold">{plan.max_phone_numbers}</strong> phone numbers</span>
                       </div>
                       {Object.entries(plan.features || {}).map(([feature, enabled]) =>
                         enabled ? (
                           <div
                             key={feature}
-                            className="flex items-center gap-2 text-sm text-gray-600"
+                            className="flex items-start gap-2.5 text-[14px] text-gray-700 font-poppins"
                           >
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                            <span>{feature}</span>
+                            <CheckCircle className="w-[18px] h-[18px] text-[#106959] mt-0.5" />
+                            <span className="leading-tight">{feature}</span>
                           </div>
                         ) : null
                       )}
                     </div>
 
                     {plan.id === subscription?.plan_id ? (
-                      <Button disabled className="w-full">
+                      <Button disabled className="w-full h-[45px] font-poppins text-sm rounded-[8px]">
                         Current Plan
                       </Button>
                     ) : (
                       <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        className="w-full h-[45px] font-poppins text-sm rounded-[8px] bg-[#106959] hover:bg-[#0c5044] text-white shadow-sm"
                         onClick={() => choosePlan(plan)}
                         disabled={actionBusy}
                       >
@@ -523,23 +522,23 @@ export default function BillingPage() {
                       </Button>
                     )}
 
-                    <div className="mt-4 pt-4 border-t text-xs text-gray-500">
-                      <div>Overage: ${plan.overage_rate_per_minute}/min</div>
-                      <div>Extra calls: ${plan.overage_rate_per_call}/call</div>
+                    <div className="mt-5 pt-4 border-t border-black/5 text-[12px] text-gray-500 font-poppins flex flex-col gap-1">
+                      <div>Overage minutes: <span className="font-medium text-gray-900">${plan.overage_rate_per_minute}/min</span></div>
+                      <div>Extra calls: <span className="font-medium text-gray-900">${plan.overage_rate_per_call}/call</span></div>
                     </div>
                   </div>
                 ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-sm">No plans available.</p>
+            <p className="text-gray-500 text-sm text-center">No plans available.</p>
           )}
         </div>
 
         {/* Invoice History */}
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <h2 className="text-xl font-bold text-gray-900">Invoice History</h2>
-            <p className="text-sm text-gray-600 mt-1">Download and view past invoices</p>
+        <div className="rounded-[10px] border border-black/10 bg-white overflow-hidden shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+          <div className="px-6 py-5 border-b border-black/10">
+            <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Invoice History</h2>
+            <p className="text-[14px] font-poppins text-black/60 mt-1">Download and view past invoices</p>
           </div>
 
           {loading ? (
@@ -628,8 +627,7 @@ export default function BillingPage() {
             </div>
           )}
         </div>
-      </div>
-
+      
       {checkoutPlan && (
         <CheckoutModal
           plan={checkoutPlan}
