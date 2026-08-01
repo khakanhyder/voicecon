@@ -33,7 +33,27 @@ Version 1.0.0 | Last Updated: December 19, 2025
 3. Verify your email address
 4. Complete your profile
 
-#### 2. Choose Your Plan
+#### 2. Company Information — and your first phone number
+
+The **Company Information** step also offers a phone number, under
+**Get a number for my assistant**:
+
+1. Pick a country and (optionally) an area code, then **Search**
+2. Click **Get this number** on one you like
+
+The number is bought immediately on **Voicecon's shared Twilio account** — no
+carrier account of your own needed — and pointed at an assistant created from
+the name and instructions on that same screen. Inbound calls work as soon as
+onboarding finishes.
+
+If you have already connected your own Twilio or Telnyx under **Integrations**,
+that account is offered here too and is used by default, so the number is billed
+to you rather than to us.
+
+Prefer to just leave a contact number? Switch to **Enter my own number** —
+nothing is purchased.
+
+#### 3. Choose Your Plan
 
 Navigate to **Settings → Billing** to select a subscription plan:
 
@@ -43,7 +63,7 @@ Navigate to **Settings → Billing** to select a subscription plan:
 | **Professional** | $299/month | 5,000 minutes | Growing businesses |
 | **Enterprise** | Custom | Unlimited | Large organizations |
 
-#### 3. Configure Your Organization
+#### 4. Configure Your Organization
 
 1. Go to **Settings → Organization**
 2. Upload your company logo
@@ -207,9 +227,24 @@ Before deploying, test your agent:
 #### Step 1: Navigate to Phone Numbers
 
 1. Click **Phone Numbers** in sidebar
-2. Click **Buy Number** button
+2. Click **Purchase Number** button
 
-#### Step 2: Search for Numbers
+#### Step 2: Choose the account to buy on
+
+Numbers are always bought on a real carrier account, and billed to whichever one
+you pick:
+
+- **Twilio · Voicecon shared account** — our own Twilio. Selected by default, so
+  you can buy a number without setting anything up.
+- **Your own carrier** — connect Twilio or Telnyx under **Integrations** and it
+  appears here as an extra option. Once connected, your own Twilio becomes the
+  default and numbers are billed to your carrier account, not to us.
+
+Both options work the same way from here on: search, buy, assign to an agent.
+Releasing a number always goes back to the account it was bought on, so it is
+safe to connect your own Twilio after buying on the shared one.
+
+#### Step 3: Search for Numbers
 
 **Search Options**:
 - **Area Code**: Enter desired area code (e.g., 415 for San Francisco)
@@ -221,11 +256,12 @@ Before deploying, test your agent:
 - **Toll-Free**: 1-800, 1-888, etc. ($2/month)
 - **International**: Available for 50+ countries (prices vary)
 
-#### Step 3: Purchase and Configure
+#### Step 4: Purchase and Configure
 
-1. Click **Buy** on your chosen number
-2. Enter billing information
-3. Assign to an agent (or leave unassigned)
+1. Click **Purchase** on your chosen number
+2. Pick the agent that should answer calls on it
+3. Click **Confirm** — the number is bought and its voice webhook is pointed at
+   that agent automatically
 
 ### Assign Number to Agent
 

@@ -7,18 +7,24 @@ Handles:
 - WebSocket media stream handling
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from urllib.parse import urljoin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from twilio.request_validator import RequestValidator
 
 from app.core.config import settings
 from app.database import get_db
 from app.models.call import Call, PhoneNumber
 from app.models.agent import Agent
-from app.services.telephony.twilio_service import get_twilio_service
+from app.services.telephony.provider_registry import credentials_for_number
+from app.services.telephony.twilio_service import (
+    build_twiml_error,
+    build_twiml_for_websocket,
+    get_twilio_service_for_number,
+)
 from app.core.dependencies import get_current_user, get_current_active_user
 from app.models.user import User
 
@@ -45,20 +51,66 @@ def _public_webhook_url(request: Request) -> str:
     return str(request.url)
 
 
-def validate_twilio_request(request: Request, form_data) -> bool:
+async def _candidate_auth_tokens(db: AsyncSession, form_data) -> List[str]:
+    """
+    Auth tokens that could legitimately have signed this webhook.
+
+    A number bought on a user's own Twilio account is signed with *their* auth
+    token, not the platform one, so the token is looked up from the account the
+    number lives on. The platform token is always included as well, since the
+    platform account signs webhooks for numbers bought on it.
+    """
+    tokens: List[str] = []
+
+    # Inbound webhooks name our number in `To`; outbound ones in `From`.
+    numbers = {
+        str(form_data.get(field))
+        for field in ("To", "From", "Called", "Caller")
+        if form_data.get(field)
+    }
+
+    if numbers:
+        result = await db.execute(
+            select(PhoneNumber).where(
+                PhoneNumber.phone_number.in_(numbers),
+                PhoneNumber.provider == "twilio",
+            )
+        )
+        for number in result.scalars().all():
+            credentials = await credentials_for_number(
+                db,
+                "twilio",
+                connection_id=number.integration_connection_id,
+                provider_metadata=number.provider_metadata or {},
+            )
+            token = credentials.get("auth_token")
+            if token:
+                tokens.append(token)
+
+    if settings.TWILIO_AUTH_TOKEN:
+        tokens.append(settings.TWILIO_AUTH_TOKEN)
+
+    seen = set()
+    return [t for t in tokens if not (t in seen or seen.add(t))]
+
+
+async def validate_twilio_request(request: Request, form_data, db: AsyncSession) -> bool:
     """
     Validate the X-Twilio-Signature on a webhook request.
 
-    Returns True (allow) when validation is disabled or no auth token is
-    configured — there is nothing to validate against in that case, so local and
-    credential-less environments are unaffected. When a token is present and
-    validation is enabled, the real signature check is enforced.
+    Returns True (allow) when validation is disabled or no auth token can be
+    found — there is nothing to validate against in that case, so local and
+    credential-less environments are unaffected. Otherwise the signature must
+    match the account that owns the number the call is for.
     """
     if not settings.TWILIO_VALIDATE_WEBHOOKS:
         return True
-    if not settings.TWILIO_AUTH_TOKEN:
+
+    tokens = await _candidate_auth_tokens(db, form_data)
+    if not tokens:
         logger.warning(
-            "Twilio webhook signature not validated: no TWILIO_AUTH_TOKEN configured"
+            "Twilio webhook signature not validated: no auth token available for "
+            "this number and no TWILIO_AUTH_TOKEN configured"
         )
         return True
 
@@ -67,18 +119,15 @@ def validate_twilio_request(request: Request, form_data) -> bool:
         logger.error("Rejecting webhook: missing X-Twilio-Signature header")
         return False
 
-    try:
-        twilio_service = get_twilio_service()
-    except Exception as e:
-        logger.error(f"Cannot validate Twilio signature: {e}")
-        return False
-
     url = _public_webhook_url(request)
     post_vars = {k: str(v) for k, v in form_data.items()}
-    valid = twilio_service.validate_request(url, post_vars, signature)
-    if not valid:
-        logger.error(f"Rejecting webhook: invalid Twilio signature for {url}")
-    return valid
+
+    for token in tokens:
+        if RequestValidator(token).validate(url, post_vars, signature):
+            return True
+
+    logger.error(f"Rejecting webhook: invalid Twilio signature for {url}")
+    return False
 
 
 @router.post("/twilio/voice/{agent_id}")
@@ -115,9 +164,9 @@ async def handle_inbound_call(
             f"To={to_number}, Status={call_status}, Agent={agent_id}"
         )
 
-        # Validate the Twilio webhook signature (auto-skips when no auth token
-        # is configured, so credential-less dev is unaffected).
-        if not validate_twilio_request(request, form_data):
+        # Validate the Twilio webhook signature against the account that owns
+        # this number — the platform account, or the user's own connected one.
+        if not await validate_twilio_request(request, form_data, db):
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
         # Get agent from database
@@ -128,10 +177,7 @@ async def handle_inbound_call(
 
         if not agent:
             logger.error(f"Agent not found: {agent_id}")
-            twilio_service = get_twilio_service()
-            twiml = twilio_service.generate_twiml_error(
-                "We're sorry, the agent is not available."
-            )
+            twiml = build_twiml_error("We're sorry, the agent is not available.")
             return Response(content=twiml, media_type="application/xml")
 
         # Get phone number record
@@ -177,8 +223,7 @@ async def handle_inbound_call(
         logger.info(f"WebSocket URL: {websocket_url}")
 
         # Generate TwiML response
-        twilio_service = get_twilio_service()
-        twiml = twilio_service.generate_twiml_for_websocket(
+        twiml = build_twiml_for_websocket(
             websocket_url=websocket_url,
             agent_name=agent.name,
         )
@@ -195,8 +240,7 @@ async def handle_inbound_call(
         logger.error(f"Error handling inbound call: {e}", exc_info=True)
 
         # Return error TwiML
-        twilio_service = get_twilio_service()
-        twiml = twilio_service.generate_twiml_error(
+        twiml = build_twiml_error(
             "We're sorry, an error occurred. Please try again later."
         )
         return Response(content=twiml, media_type="application/xml")
@@ -228,7 +272,7 @@ async def handle_call_status(
         form_data = await request.form()
 
         # Validate the webhook signature (auto-skips without an auth token).
-        if not validate_twilio_request(request, form_data):
+        if not await validate_twilio_request(request, form_data, db):
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
         call_sid = form_data.get("CallSid")
@@ -368,8 +412,9 @@ async def initiate_outbound_call(
 
             from_number = phone_number[0].phone_number
 
-        # Initiate call via Twilio
-        twilio_service = get_twilio_service()
+        # Dial out from the account that owns the number, not necessarily the
+        # platform one.
+        twilio_service = await get_twilio_service_for_number(db, from_number)
 
         webhook_base_url = settings.API_BASE_URL or f"https://{settings.SERVER_HOST}"
 
@@ -454,8 +499,9 @@ async def get_call_details(
                 detail="Call not found or access denied"
             )
 
-        # Get details from Twilio
-        twilio_service = get_twilio_service()
+        # Details live in the account the call was placed on.
+        own_number = call.from_number if call.direction == "outbound" else call.to_number
+        twilio_service = await get_twilio_service_for_number(db, own_number)
         details = await twilio_service.get_call_details(call_sid)
 
         return details

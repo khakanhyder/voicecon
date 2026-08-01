@@ -21,12 +21,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
 from app.database import get_db
 from app.models.call import PhoneNumber
 from app.models.agent import Agent
 from app.models.user import User
+from app.services.telephony.number_provisioning import (
+    NumberNotRecordedError,
+    WebhookUrlNotConfigured,
+    purchase_number_for_agent,
+    status_webhook_url,
+    voice_webhook_url,
+)
 from app.services.telephony.provider_registry import (
+    CREDENTIAL_SOURCE_KEY,
     AmbiguousProviderError,
     NoTelephonyProviderError,
     list_available_providers,
@@ -105,27 +112,16 @@ class AvailablePhoneNumber(BaseModel):
 
 
 class TelephonyProviderResponse(BaseModel):
-    """A carrier the user can buy numbers from."""
+    """A carrier account the user can buy numbers from."""
     slug: str
     name: str
-    source: str = Field(description="'integration' (user-connected) or 'platform' (server credentials)")
+    source: str = Field(description="'integration' (user-connected) or 'platform' (Voicecon's own account)")
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
-
-
-def _webhook_base_url() -> str:
-    """Public base URL that carriers should call back on."""
-    return (settings.API_BASE_URL or f"https://{settings.SERVER_HOST}").rstrip("/")
-
-
-def _voice_webhook_url(provider_slug: str, agent_id: str) -> str:
-    """Inbound-call webhook for an agent on a given carrier."""
-    return f"{_webhook_base_url()}/api/v1/telephony/{provider_slug}/voice/{agent_id}"
-
-
-def _status_webhook_url(provider_slug: str) -> str:
-    """Call-status callback for a carrier."""
-    return f"{_webhook_base_url()}/api/v1/telephony/{provider_slug}/status"
+    is_default: bool = Field(
+        default=False,
+        description="Pre-selected in the purchase UI when the user makes no choice",
+    )
 
 
 def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
@@ -162,15 +158,22 @@ async def list_phone_number_providers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List the carriers this user can buy phone numbers from.
+    List the carrier accounts this user can buy phone numbers from.
 
-    Only carriers the user has actually connected under Integrations are
-    returned, so the purchase UI can show just those. An empty list means the
-    user needs to connect Twilio or Telnyx first.
+    Includes the Voicecon platform Twilio account (when the server is configured
+    for it) alongside any carrier the user connected under Integrations, so the
+    purchase UI can offer both. The first entry is the default — the user's own
+    Twilio if they connected one, otherwise the platform Twilio.
+
+    An empty list means the server has no platform Twilio configured and the
+    user has connected nothing.
     """
     try:
         options = await list_available_providers(db, current_user)
-        return [TelephonyProviderResponse(**option.as_dict()) for option in options]
+        return [
+            TelephonyProviderResponse(**option.as_dict(), is_default=(index == 0))
+            for index, option in enumerate(options)
+        ]
 
     except Exception as e:
         logger.error(f"Error listing phone number providers: {e}", exc_info=True)
@@ -265,25 +268,26 @@ async def provision_phone_number(
         )
 
     try:
-        resolved = await resolve_provider(
+        phone_number_record, _ = await purchase_number_for_agent(
             db,
             current_user,
-            slug=provision_request.provider,
-            connection_id=provision_request.connection_id,
-        )
-    except (NoTelephonyProviderError, AmbiguousProviderError, NumberProviderError) as e:
-        raise _provider_http_error(e)
-
-    try:
-        purchased = await resolved.provider.purchase_number(
+            agent,
             phone_number=provision_request.phone_number,
-            voice_url=_voice_webhook_url(resolved.slug, str(agent.id)),
-            status_callback_url=_status_webhook_url(resolved.slug),
-            label=f"Voicecon Agent {agent.name}"[:255],
+            provider=provision_request.provider,
+            connection_id=provision_request.connection_id,
+            country_code=provision_request.country_code,
+            area_code=provision_request.area_code,
+            monthly_cost=provision_request.monthly_cost,
         )
+    except (NoTelephonyProviderError, AmbiguousProviderError) as e:
+        raise _provider_http_error(e)
     except NumberProviderError as e:
-        logger.error(f"Purchase failed on {resolved.slug}: {e}")
+        logger.error(f"Purchase failed for {provision_request.phone_number}: {e}")
         raise HTTPException(status_code=502, detail=str(e))
+    except WebhookUrlNotConfigured as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except NumberNotRecordedError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Error provisioning phone number: {e}", exc_info=True)
         raise HTTPException(
@@ -291,53 +295,6 @@ async def provision_phone_number(
             detail=f"Failed to provision phone number: {str(e)}"
         )
 
-    # The number is bought at this point — persist it even if some optional
-    # detail is missing, so the user never pays for an untracked number.
-    try:
-        phone_number_record = PhoneNumber(
-            phone_number=purchased.phone_number,
-            country_code=provision_request.country_code,
-            area_code=provision_request.area_code,
-            provider=purchased.provider,
-            provider_sid=purchased.provider_sid,
-            integration_connection_id=resolved.connection_uuid,
-            provider_metadata=purchased.provider_metadata or {},
-            agent_id=agent.id,
-            user_id=agent.user_id,
-            organization_id=agent.organization_id,
-            capabilities=purchased.capabilities or {"voice": True},
-            # Neither carrier quotes a price on purchase, so fall back to the
-            # price the user was shown when they picked the number.
-            monthly_cost=purchased.monthly_cost
-            if purchased.monthly_cost is not None
-            else provision_request.monthly_cost,
-            status="active",
-        )
-
-        db.add(phone_number_record)
-        await db.commit()
-        await db.refresh(phone_number_record)
-
-    except Exception as e:
-        await db.rollback()
-        logger.error(
-            f"Purchased {purchased.phone_number} on {resolved.slug} but failed to "
-            f"record it: {e}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"{purchased.phone_number} was purchased on "
-                f"{resolved.option.name} but could not be saved. Contact support "
-                f"before buying another number."
-            ),
-        )
-
-    logger.info(
-        f"Provisioned {purchased.phone_number} on {resolved.slug} "
-        f"(record {phone_number_record.id})"
-    )
     return _to_response(phone_number_record)
 
 
@@ -481,15 +438,24 @@ async def update_phone_number(
                     current_user,
                     provider_slug=phone_number.provider,
                     connection_id=phone_number.integration_connection_id,
+                    provider_metadata=phone_number.provider_metadata or {},
                 )
                 metadata = await resolved.provider.update_voice_webhook(
                     provider_sid=phone_number.provider_sid,
-                    voice_url=_voice_webhook_url(resolved.slug, str(agent.id)),
+                    voice_url=voice_webhook_url(resolved.slug, str(agent.id)),
                     phone_number=phone_number.phone_number,
-                    status_callback_url=_status_webhook_url(resolved.slug),
+                    status_callback_url=status_webhook_url(resolved.slug),
                     provider_metadata=phone_number.provider_metadata or {},
                 )
-                phone_number.provider_metadata = metadata or phone_number.provider_metadata
+                # Merge rather than replace: the carrier only returns its own
+                # bookkeeping, and the account the number lives on must survive.
+                phone_number.provider_metadata = {
+                    **(phone_number.provider_metadata or {}),
+                    **(metadata or {}),
+                    CREDENTIAL_SOURCE_KEY: resolved.option.source,
+                }
+            except WebhookUrlNotConfigured as e:
+                raise HTTPException(status_code=500, detail=str(e))
             except (NoTelephonyProviderError, NumberProviderError) as e:
                 raise _provider_http_error(e)
 
@@ -546,6 +512,7 @@ async def release_phone_number(
             current_user,
             provider_slug=phone_number.provider,
             connection_id=phone_number.integration_connection_id,
+            provider_metadata=phone_number.provider_metadata or {},
         )
         await resolved.provider.release_number(
             provider_sid=phone_number.provider_sid,

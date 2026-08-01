@@ -2,22 +2,44 @@
 Onboarding endpoints — company information capture and onboarding status.
 
 Flow: Sign Up -> Company Information -> Pricing -> Billing (or Free Trial) -> Dashboard
+
+The company step can also claim a phone number. It buys on the same accounts as
+the dashboard (Voicecon's shared Twilio by default, or the user's own carrier if
+they have already connected one) and attaches the number to the assistant being
+described on that screen, so an inbound call works the moment onboarding ends.
 """
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, get_current_org_id, get_db
+from app.models.agent import Agent
 from app.models.user import User, Organization
+from app.models.call import PhoneNumber
 from app.models.company import CompanyProfile
 from app.models.subscription import Subscription
 from app.schemas.onboarding import (
+    ClaimPhoneNumberRequest,
+    ClaimPhoneNumberResponse,
     CompanyProfileRequest,
     CompanyProfileResponse,
     OnboardingStatusResponse,
 )
+from app.services.telephony.number_provisioning import (
+    NumberNotRecordedError,
+    WebhookUrlNotConfigured,
+    purchase_number_for_agent,
+)
+from app.services.telephony.provider_registry import (
+    AmbiguousProviderError,
+    NoTelephonyProviderError,
+)
+from app.services.telephony.providers import NumberProviderError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,3 +135,131 @@ async def save_company_profile(
     await db.refresh(profile)
 
     return CompanyProfileResponse.model_validate(profile)
+
+
+async def _assistant_agent(
+    db: AsyncSession,
+    user: User,
+    org_id: uuid.UUID,
+    assistant_name: str | None,
+    assistant_instructions: str | None,
+) -> tuple[Agent, bool]:
+    """
+    The agent that should answer calls on a number claimed during onboarding.
+
+    A number is only reachable through an agent, and a user in onboarding
+    usually has none yet — so the assistant they are describing on screen is
+    created here. Users who already have an agent (re-running onboarding, or
+    invited into an existing account) keep their first one rather than
+    accumulating duplicates.
+    """
+    existing = await db.execute(
+        select(Agent)
+        .where(Agent.user_id == user.id, Agent.is_active.is_(True))
+        .order_by(Agent.created_at.asc())
+        .limit(1)
+    )
+    agent = existing.scalar_one_or_none()
+    if agent:
+        return agent, False
+
+    result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.organization_id == org_id)
+    )
+    profile = result.scalar_one_or_none()
+
+    name = (
+        assistant_name
+        or (profile.assistant_name if profile else None)
+        or (profile.company_name if profile else None)
+        or "AI Assistant"
+    )
+    instructions = assistant_instructions or (
+        profile.assistant_instructions if profile else None
+    )
+
+    agent = Agent(
+        user_id=user.id,
+        organization_id=org_id,
+        name=name[:255],
+        description="Created during onboarding",
+        system_prompt=instructions
+        or "You are a helpful voice assistant. Answer calls politely and concisely.",
+    )
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
+
+    logger.info(f"Created onboarding assistant {agent.id} for user {user.id}")
+    return agent, True
+
+
+@router.post("/phone-number", response_model=ClaimPhoneNumberResponse)
+async def claim_phone_number(
+    payload: ClaimPhoneNumberRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Buy a phone number during onboarding and attach it to the user's assistant.
+
+    The account is chosen the same way as on the Phone Numbers page: the user's
+    own Twilio when they have connected one, otherwise Voicecon's shared Twilio.
+    Numbers are searched through `GET /api/v1/phone-numbers/search`, which the
+    onboarding screen calls directly.
+    """
+    existing = await db.execute(
+        select(PhoneNumber).where(PhoneNumber.phone_number == payload.phone_number)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Phone number already provisioned")
+
+    agent, agent_created = await _assistant_agent(
+        db, current_user, org_id, payload.assistant_name, payload.assistant_instructions
+    )
+
+    try:
+        record, resolved = await purchase_number_for_agent(
+            db,
+            current_user,
+            agent,
+            phone_number=payload.phone_number,
+            provider=payload.provider,
+            connection_id=payload.connection_id,
+            country_code=payload.country_code,
+            area_code=payload.area_code,
+            monthly_cost=payload.monthly_cost,
+        )
+    except (NoTelephonyProviderError, AmbiguousProviderError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except NumberProviderError as e:
+        logger.error(f"Onboarding purchase failed for {payload.phone_number}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except (WebhookUrlNotConfigured, NumberNotRecordedError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error claiming phone number: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to claim phone number: {str(e)}"
+        )
+
+    # Show the claimed number back on the company form when it reloads.
+    result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.organization_id == org_id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile:
+        profile.phone_number = record.phone_number
+        await db.commit()
+
+    return ClaimPhoneNumberResponse(
+        phone_number_id=record.id,
+        phone_number=record.phone_number,
+        provider=record.provider,
+        source=resolved.option.source,
+        account_name=resolved.option.connection_name or resolved.option.name,
+        agent_id=agent.id,
+        agent_name=agent.name,
+        agent_created=agent_created,
+    )

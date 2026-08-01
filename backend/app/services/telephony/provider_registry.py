@@ -1,18 +1,24 @@
 """
 Resolve which telephony carrier a user can buy numbers from.
 
-A user buys numbers on their *own* carrier account, which they connect under
-Integrations. This module turns those connections into ready-to-use
+Twilio is the default carrier. Numbers can be bought two ways:
+
+- **Platform** — on Voicecon's own Twilio account, from the server's
+  `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. Always offered when those are
+  configured, so a user can buy a number without connecting anything.
+- **Integration** — on the user's *own* carrier account (Twilio or Telnyx),
+  connected under Integrations.
+
+Both are offered side by side, so a user who has connected their own Twilio can
+still pick either account. This module turns them into ready-to-use
 `NumberProvider` instances:
 
-- `list_available_providers` — what to show in the provider picker.
+- `list_available_providers` — what to show in the provider picker, Twilio first.
 - `resolve_provider` — the provider to actually use for a search/purchase.
 - `resolve_provider_for_number` — the provider that owns an existing number,
-  so releases and webhook updates go back to the right carrier.
-
-If no carrier integration is connected but the server has Twilio credentials in
-its environment, Twilio is still offered as a "platform" provider. That keeps
-single-tenant and demo deployments working exactly as they did before.
+  so releases and webhook updates go back to the right account.
+- `credentials_for_number` — raw credentials for the account a number lives on,
+  used for webhook signature checks and outbound calls.
 """
 import base64
 import logging
@@ -40,6 +46,28 @@ logger = logging.getLogger(__name__)
 #: server-level credentials rather than a user's integration.
 PLATFORM_SOURCE = "platform"
 INTEGRATION_SOURCE = "integration"
+
+#: Carrier used when the caller does not name one. Twilio is the product
+#: default: it is the carrier the platform account runs on.
+DEFAULT_PROVIDER_SLUG = "twilio"
+
+#: Platform providers have no `IntegrationConnection` row, so they get a
+#: synthetic connection id instead. It keeps the platform account addressable
+#: and distinct from a user's own connection to the same carrier — without it,
+#: "buy on Twilio" would be ambiguous for a user who connected their own.
+PLATFORM_CONNECTION_PREFIX = "platform:"
+
+#: Label shown for the platform account in the provider picker.
+PLATFORM_CONNECTION_NAME = "Voicecon shared account"
+
+#: `provider_metadata` key recording which account a number was bought on, so
+#: it can be routed back there once the picker offers both.
+CREDENTIAL_SOURCE_KEY = "credential_source"
+
+
+def platform_connection_id(slug: str) -> str:
+    """Synthetic connection id identifying a carrier's platform credentials."""
+    return f"{PLATFORM_CONNECTION_PREFIX}{slug}"
 
 
 class NoTelephonyProviderError(Exception):
@@ -91,12 +119,37 @@ class ResolvedProvider:
             return None
 
 
+def _platform_options() -> List[ProviderOption]:
+    """
+    Carriers the server itself holds credentials for.
+
+    Today that is Twilio only — the platform account users buy on when they
+    have not brought their own.
+    """
+    if not (settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN):
+        return []
+
+    return [
+        ProviderOption(
+            slug="twilio",
+            name="Twilio",
+            source=PLATFORM_SOURCE,
+            connection_id=platform_connection_id("twilio"),
+            connection_name=PLATFORM_CONNECTION_NAME,
+        )
+    ]
+
+
 async def list_available_providers(db: AsyncSession, user: User) -> List[ProviderOption]:
     """
-    List the carriers this user can currently buy numbers from.
+    List the accounts this user can currently buy numbers from.
 
-    Only active connections to a telephony connector are returned, so a carrier
-    the user has not connected never shows up in the picker.
+    Returns the user's own connected carriers *and* the platform Twilio account
+    (when the server has credentials), so a user who connected their own Twilio
+    can still choose between the two.
+
+    Ordered so the first entry is the sensible default: the user's own Twilio if
+    they connected one, otherwise the platform Twilio, with other carriers last.
     """
     result = await db.execute(
         select(IntegrationConnection, IntegrationConnector)
@@ -113,9 +166,9 @@ async def list_available_providers(db: AsyncSession, user: User) -> List[Provide
         .order_by(IntegrationConnection.created_at.asc())
     )
 
-    options: List[ProviderOption] = []
+    connected: List[ProviderOption] = []
     for connection, connector in result.all():
-        options.append(
+        connected.append(
             ProviderOption(
                 slug=connector.slug,
                 name=connector.name,
@@ -125,19 +178,10 @@ async def list_available_providers(db: AsyncSession, user: User) -> List[Provide
             )
         )
 
-    # Server-level Twilio credentials keep working when nothing is connected.
-    has_twilio = any(option.slug == "twilio" for option in options)
-    if not has_twilio and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
-        options.append(
-            ProviderOption(
-                slug="twilio",
-                name="Twilio",
-                source=PLATFORM_SOURCE,
-                connection_name="Platform credentials",
-            )
-        )
+    default_connected = [o for o in connected if o.slug == DEFAULT_PROVIDER_SLUG]
+    other_connected = [o for o in connected if o.slug != DEFAULT_PROVIDER_SLUG]
 
-    return options
+    return [*default_connected, *_platform_options(), *other_connected]
 
 
 async def resolve_provider(
@@ -147,22 +191,24 @@ async def resolve_provider(
     connection_id: Optional[str] = None,
 ) -> ResolvedProvider:
     """
-    Pick the carrier to use for a search or purchase.
+    Pick the account to use for a search or purchase.
 
-    With one carrier available it is used automatically; with several, the
-    caller must say which one (by `slug`, or by `connection_id` when the same
-    carrier is connected more than once).
+    `connection_id` selects an exact account — a user's own connection, or the
+    platform account via its synthetic `platform:<slug>` id. `slug` selects a
+    carrier, preferring the user's own account over the platform one. With
+    neither, Twilio is used when available, since it is the default carrier.
 
     Raises:
-        NoTelephonyProviderError: nothing connected, or the requested carrier
-            is not connected.
-        AmbiguousProviderError: several carriers available and none chosen.
+        NoTelephonyProviderError: no account available, or the requested one is
+            not available.
+        AmbiguousProviderError: several carriers available, none of them the
+            default, and none chosen.
     """
     options = await list_available_providers(db, user)
 
     if not options:
         raise NoTelephonyProviderError(
-            "No phone provider is connected. Connect Twilio or Telnyx under "
+            "No phone provider is available. Connect Twilio or Telnyx under "
             "Integrations to buy phone numbers."
         )
 
@@ -170,26 +216,31 @@ async def resolve_provider(
         match = next((o for o in options if o.connection_id == connection_id), None)
         if not match:
             raise NoTelephonyProviderError(
-                "That phone provider connection is not available. It may have "
-                "been disconnected."
+                "That phone provider account is not available. It may have been "
+                "disconnected."
             )
     elif slug:
+        # Options are ordered own-account-first, so this prefers the user's own
+        # carrier account over the platform one for the same carrier.
         matches = [o for o in options if o.slug == slug]
         if not matches:
             available = ", ".join(sorted({o.name for o in options})) or "none"
             raise NoTelephonyProviderError(
-                f"{slug.title()} is not connected. Connect it under Integrations "
+                f"{slug.title()} is not available. Connect it under Integrations "
                 f"first. Currently available: {available}."
             )
         match = matches[0]
     else:
         distinct_slugs = {o.slug for o in options}
-        if len(distinct_slugs) > 1:
+        default_match = next(
+            (o for o in options if o.slug == DEFAULT_PROVIDER_SLUG), None
+        )
+        if len(distinct_slugs) > 1 and default_match is None:
             raise AmbiguousProviderError(
                 "Several phone providers are connected "
                 f"({', '.join(sorted(distinct_slugs))}). Choose which one to use."
             )
-        match = options[0]
+        match = default_match or options[0]
 
     return ResolvedProvider(provider=await _build_provider(db, match), option=match)
 
@@ -199,13 +250,20 @@ async def resolve_provider_for_number(
     user: User,
     provider_slug: str,
     connection_id: Optional[UUID] = None,
+    provider_metadata: Optional[Dict[str, Any]] = None,
 ) -> ResolvedProvider:
     """
     Rebuild the provider that owns an already-purchased number.
 
-    Prefers the exact connection the number was bought on; falls back to any
-    active connection for the same carrier, which covers numbers bought before
-    the connection was recorded (and numbers bought on platform credentials).
+    A number lives in exactly one account, so releases and webhook changes must
+    go back to that account:
+
+    1. the connection it was bought on, when one was recorded;
+    2. the platform account, when the number was bought on platform credentials
+       (recorded in `provider_metadata`) — never the user's own account, which
+       does not own the number;
+    3. otherwise any account for the same carrier, which covers numbers bought
+       before the source was recorded.
     """
     options = await list_available_providers(db, user)
 
@@ -214,16 +272,63 @@ async def resolve_provider_for_number(
         match = next(
             (o for o in options if o.connection_id == str(connection_id)), None
         )
+
+    if match is None and (provider_metadata or {}).get(CREDENTIAL_SOURCE_KEY) == PLATFORM_SOURCE:
+        match = next(
+            (
+                o
+                for o in options
+                if o.slug == provider_slug and o.source == PLATFORM_SOURCE
+            ),
+            None,
+        )
+        if match is None:
+            raise NoTelephonyProviderError(
+                f"This number was bought on the Voicecon {provider_slug.title()} "
+                f"account, which is no longer configured on the server. Contact "
+                f"support to manage it."
+            )
+
     if match is None:
         match = next((o for o in options if o.slug == provider_slug), None)
 
     if match is None:
         raise NoTelephonyProviderError(
-            f"No active {provider_slug.title()} connection is available to manage "
+            f"No active {provider_slug.title()} account is available to manage "
             f"this number. Reconnect {provider_slug.title()} under Integrations."
         )
 
     return ResolvedProvider(provider=await _build_provider(db, match), option=match)
+
+
+async def credentials_for_number(
+    db: AsyncSession,
+    provider_slug: str,
+    connection_id: Optional[UUID] = None,
+    provider_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Credentials for the carrier account a number lives on.
+
+    Used where a `NumberProvider` is not what is needed — validating the webhook
+    signature on an inbound call, or dialling out from the number — both of
+    which must use the account that actually owns it. Returns `{}` when the
+    account cannot be resolved, so callers can fall back rather than fail.
+    """
+    if connection_id:
+        connection = await db.get(IntegrationConnection, connection_id)
+        if connection:
+            try:
+                return _connection_credentials(provider_slug, connection)
+            except NumberProviderError as e:
+                logger.warning(f"Could not read credentials for {connection_id}: {e}")
+        return {}
+
+    if (provider_metadata or {}).get(CREDENTIAL_SOURCE_KEY) == INTEGRATION_SOURCE:
+        # Bought on a user connection that has since been removed.
+        return {}
+
+    return _platform_credentials(provider_slug)
 
 
 async def _build_provider(db: AsyncSession, option: ProviderOption) -> NumberProvider:
@@ -234,6 +339,12 @@ async def _build_provider(db: AsyncSession, option: ProviderOption) -> NumberPro
 
     if option.source == PLATFORM_SOURCE:
         credentials = _platform_credentials(option.slug)
+        if not credentials or not all(credentials.values()):
+            raise NoTelephonyProviderError(
+                f"The Voicecon {option.name} account is not configured on this "
+                f"server. Connect your own {option.name} account under "
+                f"Integrations to buy numbers."
+            )
     else:
         connection = await db.get(IntegrationConnection, UUID(option.connection_id))
         if not connection:

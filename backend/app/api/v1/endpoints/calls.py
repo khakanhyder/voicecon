@@ -25,7 +25,7 @@ from app.schemas.call import (
     PhoneNumberCreate,
     PhoneNumberResponse,
 )
-from app.services.telephony.twilio_service import get_twilio_service
+from app.services.telephony.twilio_service import get_twilio_service_for_number
 from app.core.config import settings
 
 router = APIRouter()
@@ -178,12 +178,15 @@ async def create_call(
 
     # Integrate with Twilio to initiate call
     try:
-        twilio_service = get_twilio_service()
+        dial_from = from_number if from_number != "system" else phone_number.phone_number
+        # Credentials follow the number: platform-bought numbers dial on the
+        # platform account, numbers bought on a user's own Twilio dial on theirs.
+        twilio_service = await get_twilio_service_for_number(db, dial_from)
         webhook_base_url = settings.API_BASE_URL or f"https://{settings.SERVER_HOST}"
 
         call_details = await twilio_service.make_outbound_call(
             to_number=call_data.to_number,
-            from_number=from_number if from_number != "system" else phone_number.phone_number,
+            from_number=dial_from,
             agent_id=str(agent.id),
             webhook_base_url=webhook_base_url,
         )

@@ -37,17 +37,27 @@ interface AvailableNumber {
   currency: string | null
 }
 
-/** A carrier the user has connected and can buy numbers from. */
+/**
+ * A carrier account the user can buy numbers from — either Voicecon's own
+ * Twilio ('platform') or a carrier they connected under Integrations.
+ */
 interface TelephonyProvider {
   slug: string
   name: string
   source: 'integration' | 'platform'
   connection_id: string | null
   connection_name: string | null
+  is_default?: boolean
 }
 
-/** Providers are keyed by connection so the same carrier can be connected twice. */
+/** Keyed by account, so the same carrier can appear as platform *and* own. */
 const providerKey = (p: TelephonyProvider) => p.connection_id ?? p.slug
+
+/** Which account the number is billed to — the thing users actually pick on. */
+const providerAccountLabel = (p: TelephonyProvider) =>
+  p.source === 'platform'
+    ? 'Voicecon shared account'
+    : p.connection_name || 'Your connected account'
 
 const statusStyle: Record<string, string> = {
   active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -118,9 +128,11 @@ export default function PhoneNumbersPage() {
       const res = await apiClient.get<TelephonyProvider[]>(API_ENDPOINTS.PHONE_NUMBERS_PROVIDERS)
       const list = Array.isArray(res.data) ? res.data : []
       setProviders(list)
-      // Keep the current pick if it survived a refresh, else default to the first.
+      // Keep the current pick if it survived a refresh, else fall back to the
+      // account the API marks as default (Twilio, own connection before shared).
+      const fallback = list.find(p => p.is_default) ?? list[0]
       setSelectedProvider(prev =>
-        list.some(p => providerKey(p) === prev) ? prev : (list[0] ? providerKey(list[0]) : '')
+        list.some(p => providerKey(p) === prev) ? prev : (fallback ? providerKey(fallback) : '')
       )
     } catch (e) {
       setProviders([])
@@ -230,10 +242,11 @@ export default function PhoneNumbersPage() {
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 mb-5">
                     <Plug className="h-8 w-8 text-amber-500" />
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-800">No phone provider connected</h3>
+                  <h3 className="text-lg font-semibold text-slate-800">No phone provider available</h3>
                   <p className="text-slate-500 text-sm mt-1.5 max-w-sm">
-                    Numbers are purchased on your own carrier account. Connect Twilio or Telnyx
-                    under Integrations, then come back here to buy a number.
+                    Voicecon&apos;s shared Twilio account isn&apos;t configured on this server, so
+                    numbers have to be bought on your own carrier account. Connect Twilio or
+                    Telnyx under Integrations, then come back here to buy a number.
                   </p>
                   <Link
                     href="/dashboard/integrations"
@@ -254,8 +267,8 @@ export default function PhoneNumbersPage() {
                         <h3 className="text-[14px] font-bold text-[#000000]">Phone Provider</h3>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {providers.length > 1
-                            ? 'Choose which connected carrier to buy this number from'
-                            : `Buying on your connected ${providers[0].name} account`}
+                            ? 'Choose which account to buy this number on — it is billed there'
+                            : `Buying on ${providers[0].name} · ${providerAccountLabel(providers[0])}`}
                         </p>
                       </div>
                       {/* <Link
@@ -273,19 +286,26 @@ export default function PhoneNumbersPage() {
                             <button
                               key={key}
                               onClick={() => { setSelectedProvider(key); setSearchResults([]); setPurchaseTarget(null) }}
-                              className={`flex items-center gap-2 rounded-[6px] border px-4 py-2 font-medium transition-all ${isSelected
+                              className={`flex items-center gap-2.5 rounded-[6px] border px-4 py-2 font-medium transition-all text-left ${isSelected
                                 ? 'border-[#106959] bg-[#106959]/10 text-[#106959]'
                                 : 'border-[#2E2E2E] bg-white text-black hover:border-black'
                                 }`}
                             >
-                              <Plug className={`h-4 w-4 ${isSelected ? 'text-[#106959]' : 'text-slate-500'}`} />
-                              <span>{p.name}</span>
-                              {p.source === 'platform' && (
-                                <span className="rounded bg-[#ECF3F2] border border-[#2e2e2e]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                                  Platform
+                              <Plug className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-[#106959]' : 'text-slate-500'}`} />
+                              <span className="flex flex-col leading-tight">
+                                <span className="flex items-center gap-1.5">
+                                  {p.name}
+                                  {p.source === 'platform' && (
+                                    <span className="rounded bg-[#ECF3F2] border border-[#2e2e2e]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                                      Included
+                                    </span>
+                                  )}
                                 </span>
-                              )}
-                              {isSelected && <CheckCircle className="h-3.5 w-3.5 text-[#106959]" />}
+                                <span className={`text-[11px] font-normal ${isSelected ? 'text-[#106959]/80' : 'text-slate-500'}`}>
+                                  {providerAccountLabel(p)}
+                                </span>
+                              </span>
+                              {isSelected && <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 text-[#106959]" />}
                             </button>
                           )
                         })}
@@ -300,7 +320,9 @@ export default function PhoneNumbersPage() {
                     <h3 className="text-[14px] font-bold text-[#000000] mb-3">
                       Search Available Numbers
                       {activeProvider && (
-                        <span className="ml-2 font-normal text-slate-500">on {activeProvider.name}</span>
+                        <span className="ml-2 font-normal text-slate-500">
+                          on {activeProvider.name} · {providerAccountLabel(activeProvider)}
+                        </span>
                       )}
                     </h3>
                     <div className="space-y-4">

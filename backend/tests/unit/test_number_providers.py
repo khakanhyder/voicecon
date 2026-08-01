@@ -16,13 +16,19 @@ import pytest
 from app.services.integrations.credential_manager import get_credential_manager
 from app.services.telephony import provider_registry
 from app.services.telephony.provider_registry import (
+    CREDENTIAL_SOURCE_KEY,
     INTEGRATION_SOURCE,
+    PLATFORM_CONNECTION_NAME,
     PLATFORM_SOURCE,
     AmbiguousProviderError,
     NoTelephonyProviderError,
     ProviderOption,
     _connection_credentials,
+    credentials_for_number,
+    list_available_providers,
+    platform_connection_id,
     resolve_provider,
+    resolve_provider_for_number,
 )
 from app.services.telephony.providers import (
     NumberProviderError,
@@ -379,8 +385,19 @@ async def test_single_carrier_is_selected_automatically(stub_selection):
 
 
 @pytest.mark.asyncio
-async def test_two_carriers_require_an_explicit_choice(stub_selection):
+async def test_twilio_is_the_default_when_no_carrier_is_named(stub_selection):
+    """Twilio is the product default, so it wins over another connected carrier."""
     stub_selection([_option("twilio", "Twilio", "c1"), _option("telnyx", "Telnyx", "c2")])
+
+    resolved = await resolve_provider(db=None, user=None)
+
+    assert resolved.slug == "twilio"
+
+
+@pytest.mark.asyncio
+async def test_several_non_default_carriers_require_an_explicit_choice(stub_selection):
+    """With no Twilio to fall back on there is no sensible default."""
+    stub_selection([_option("telnyx", "Telnyx", "c1"), _option("vonage", "Vonage", "c2")])
 
     with pytest.raises(AmbiguousProviderError):
         await resolve_provider(db=None, user=None)
@@ -436,3 +453,192 @@ async def test_platform_credentials_are_usable_when_nothing_is_connected(stub_se
 
     assert resolved.slug == "twilio"
     assert resolved.connection_uuid is None
+
+
+# ── platform vs own Twilio ──────────────────────────────────────────────────
+
+
+def _platform_twilio_option():
+    return ProviderOption(
+        slug="twilio",
+        name="Twilio",
+        source=PLATFORM_SOURCE,
+        connection_id=platform_connection_id("twilio"),
+        connection_name=PLATFORM_CONNECTION_NAME,
+    )
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeDB:
+    """Minimal stand-in for an AsyncSession returning fixed connection rows."""
+
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    async def execute(self, *_args, **_kwargs):
+        return _FakeResult(self.rows)
+
+
+def _connection_row(connection_id, name, slug="twilio"):
+    connection = types.SimpleNamespace(id=connection_id, name=name)
+    connector = types.SimpleNamespace(slug=slug, name=slug.title())
+    return (connection, connector)
+
+
+@pytest.fixture
+def platform_twilio(monkeypatch):
+    """Configure server-level Twilio credentials."""
+    monkeypatch.setattr(provider_registry.settings, "TWILIO_ACCOUNT_SID", "AC_platform")
+    monkeypatch.setattr(provider_registry.settings, "TWILIO_AUTH_TOKEN", "platform_token")
+
+
+@pytest.mark.asyncio
+async def test_platform_and_own_twilio_are_both_offered(platform_twilio):
+    """
+    A user who connected their own Twilio can still buy on the shared account,
+    so both appear — their own first, since that is the better default for them.
+    """
+    db = _FakeDB([_connection_row("c1", "My Twilio")])
+    user = types.SimpleNamespace(id="u1")
+
+    options = await list_available_providers(db, user)
+
+    assert [(o.source, o.connection_id) for o in options] == [
+        (INTEGRATION_SOURCE, "c1"),
+        (PLATFORM_SOURCE, platform_connection_id("twilio")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_twilio_is_listed_before_other_carriers(platform_twilio):
+    """The picker's first entry is the default, and the default is Twilio."""
+    db = _FakeDB([_connection_row("c1", "My Telnyx", slug="telnyx")])
+    user = types.SimpleNamespace(id="u1")
+
+    options = await list_available_providers(db, user)
+
+    assert [o.slug for o in options] == ["twilio", "telnyx"]
+
+
+@pytest.mark.asyncio
+async def test_platform_twilio_is_hidden_without_server_credentials(monkeypatch):
+    monkeypatch.setattr(provider_registry.settings, "TWILIO_ACCOUNT_SID", None)
+    monkeypatch.setattr(provider_registry.settings, "TWILIO_AUTH_TOKEN", None)
+    db = _FakeDB([_connection_row("c1", "My Twilio")])
+
+    options = await list_available_providers(db, types.SimpleNamespace(id="u1"))
+
+    assert [o.source for o in options] == [INTEGRATION_SOURCE]
+
+
+@pytest.mark.asyncio
+async def test_carrier_slug_prefers_the_users_own_account(stub_selection):
+    """Asking for "Twilio" spends the user's own money, not the platform's."""
+    stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
+
+    resolved = await resolve_provider(db=None, user=None, slug="twilio")
+
+    assert resolved.option.source == INTEGRATION_SOURCE
+    assert resolved.option.connection_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_platform_account_is_selectable_by_its_connection_id(stub_selection):
+    """The synthetic id is what lets a user pick the shared account explicitly."""
+    stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
+
+    resolved = await resolve_provider(
+        db=None, user=None, slug="twilio", connection_id=platform_connection_id("twilio")
+    )
+
+    assert resolved.option.source == PLATFORM_SOURCE
+    # Nothing to write to `phone_numbers.integration_connection_id` — the
+    # synthetic id is not a real connection row.
+    assert resolved.connection_uuid is None
+
+
+# ── managing an existing number ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_platform_number_is_managed_on_the_platform_account(stub_selection):
+    """
+    Releasing a number bought on the shared account must not be aimed at the
+    user's own Twilio, which never owned it.
+    """
+    stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
+
+    resolved = await resolve_provider_for_number(
+        db=None,
+        user=None,
+        provider_slug="twilio",
+        connection_id=None,
+        provider_metadata={CREDENTIAL_SOURCE_KEY: PLATFORM_SOURCE},
+    )
+
+    assert resolved.option.source == PLATFORM_SOURCE
+
+
+@pytest.mark.asyncio
+async def test_own_number_is_managed_on_its_own_connection(stub_selection):
+    stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
+
+    resolved = await resolve_provider_for_number(
+        db=None,
+        user=None,
+        provider_slug="twilio",
+        connection_id="c1",
+        provider_metadata={CREDENTIAL_SOURCE_KEY: INTEGRATION_SOURCE},
+    )
+
+    assert resolved.option.connection_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_legacy_number_without_a_recorded_source_still_resolves(stub_selection):
+    """Rows predating the source marker fall back to any account for the carrier."""
+    stub_selection([_option("twilio", "My Twilio", "c1")])
+
+    resolved = await resolve_provider_for_number(
+        db=None, user=None, provider_slug="twilio", connection_id=None
+    )
+
+    assert resolved.option.connection_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_platform_number_errors_when_server_credentials_are_gone(stub_selection):
+    """Better a clear error than silently releasing from the wrong account."""
+    stub_selection([_option("twilio", "My Twilio", "c1")])
+
+    with pytest.raises(NoTelephonyProviderError):
+        await resolve_provider_for_number(
+            db=None,
+            user=None,
+            provider_slug="twilio",
+            connection_id=None,
+            provider_metadata={CREDENTIAL_SOURCE_KEY: PLATFORM_SOURCE},
+        )
+
+
+@pytest.mark.asyncio
+async def test_platform_number_credentials_come_from_the_server(platform_twilio):
+    """Webhook validation and outbound dialling need the owning account's token."""
+    credentials = await credentials_for_number(
+        db=_FakeDB(),
+        provider_slug="twilio",
+        connection_id=None,
+        provider_metadata={CREDENTIAL_SOURCE_KEY: PLATFORM_SOURCE},
+    )
+
+    assert credentials == {
+        "account_sid": "AC_platform",
+        "auth_token": "platform_token",
+    }

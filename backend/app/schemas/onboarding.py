@@ -42,6 +42,43 @@ class CompanyProfileResponse(BaseModel):
     updated_at: datetime
 
 
+class ClaimPhoneNumberRequest(BaseModel):
+    """Claim one of the numbers returned by ``/phone-numbers/search``."""
+
+    phone_number: str = Field(..., max_length=50, description="E.164 number to buy")
+    provider: Optional[str] = Field(
+        None, description="Carrier to buy from. Defaults to Twilio."
+    )
+    connection_id: Optional[str] = Field(
+        None,
+        description=(
+            "Account to buy on — a carrier connection id, or 'platform:twilio' "
+            "for Voicecon's shared account. Defaults to the user's own Twilio "
+            "when connected, otherwise the shared account."
+        ),
+    )
+    country_code: Optional[str] = Field(None, max_length=10)
+    area_code: Optional[str] = Field(None, max_length=10)
+    monthly_cost: Optional[float] = Field(None, ge=0)
+    # Taken from the on-screen form: the profile is not saved until the user
+    # presses Continue, so the assistant details are not in the database yet.
+    assistant_name: Optional[str] = Field(None, max_length=255)
+    assistant_instructions: Optional[str] = None
+
+
+class ClaimPhoneNumberResponse(BaseModel):
+    """The number that was bought and the agent that will answer it."""
+
+    phone_number_id: UUID
+    phone_number: str
+    provider: str
+    source: str = Field(description="'platform' (Voicecon's account) or 'integration'")
+    account_name: str
+    agent_id: UUID
+    agent_name: str
+    agent_created: bool
+
+
 class OnboardingStatusResponse(BaseModel):
     """Aggregate onboarding status for routing decisions."""
 

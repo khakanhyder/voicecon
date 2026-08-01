@@ -23,6 +23,39 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
+# ── TwiML builders ───────────────────────────────────────────────────────────
+# Free functions, not methods: answering a call has to work on any account —
+# including a user's own Twilio when the server holds no credentials of its own,
+# where `TwilioService` cannot be constructed at all.
+
+
+def build_twiml_for_websocket(
+    websocket_url: str,
+    agent_name: Optional[str] = None,
+) -> str:
+    """TwiML that bridges the call into the media-streaming WebSocket."""
+    response = VoiceResponse()
+
+    if agent_name:
+        response.say(f"Hello, connecting you with {agent_name}")
+
+    connect = Connect()
+    stream = Stream(url=websocket_url)
+    connect.append(stream)
+    response.append(connect)
+
+    return str(response)
+
+
+def build_twiml_error(message: str = "We're sorry, an error occurred") -> str:
+    """TwiML that reads an error message to the caller and hangs up."""
+    response = VoiceResponse()
+    response.say(message)
+    response.hangup()
+
+    return str(response)
+
+
 class TwilioService:
     """
     Twilio telephony service.
@@ -241,19 +274,7 @@ class TwilioService:
         Returns:
             TwiML XML string
         """
-        response = VoiceResponse()
-
-        # Optional greeting
-        if agent_name:
-            response.say(f"Hello, connecting you with {agent_name}")
-
-        # Start WebSocket stream
-        connect = Connect()
-        stream = Stream(url=websocket_url)
-        connect.append(stream)
-        response.append(connect)
-
-        return str(response)
+        return build_twiml_for_websocket(websocket_url, agent_name)
 
     def generate_twiml_error(self, message: str = "We're sorry, an error occurred") -> str:
         """
@@ -265,11 +286,7 @@ class TwilioService:
         Returns:
             TwiML XML string
         """
-        response = VoiceResponse()
-        response.say(message)
-        response.hangup()
-
-        return str(response)
+        return build_twiml_error(message)
 
     async def make_outbound_call(
         self,
@@ -549,6 +566,10 @@ def get_twilio_service() -> TwilioService:
     """
     Get global Twilio service instance (singleton).
 
+    Uses the platform credentials from settings. For work that has to happen on
+    a specific account — dialling out from a number the user bought on their own
+    Twilio — use `build_twilio_service` instead.
+
     Returns:
         TwilioService instance
     """
@@ -556,3 +577,69 @@ def get_twilio_service() -> TwilioService:
     if _twilio_service is None:
         _twilio_service = TwilioService()
     return _twilio_service
+
+
+async def get_twilio_service_for_number(
+    db: AsyncSession,
+    phone_number: Optional[str],
+) -> TwilioService:
+    """
+    Get a service bound to the account that owns `phone_number`.
+
+    Outbound calls are placed from a number that lives in exactly one Twilio
+    account — the platform's, or the user's own. Dialling from the wrong account
+    is rejected by Twilio, so the credentials follow the number. Unknown numbers
+    fall back to the platform account.
+
+    Args:
+        db: Database session
+        phone_number: E.164 number the call originates from
+
+    Returns:
+        TwilioService for that account
+    """
+    # Imported here: the registry pulls in provider clients that do not need to
+    # load for the many call sites that only want the platform service.
+    from app.services.telephony.provider_registry import credentials_for_number
+
+    if not phone_number:
+        return get_twilio_service()
+
+    result = await db.execute(
+        select(PhoneNumber).where(
+            PhoneNumber.phone_number == phone_number,
+            PhoneNumber.provider == "twilio",
+        )
+    )
+    number = result.scalars().first()
+    if not number:
+        return get_twilio_service()
+
+    credentials = await credentials_for_number(
+        db,
+        "twilio",
+        connection_id=number.integration_connection_id,
+        provider_metadata=number.provider_metadata or {},
+    )
+    return build_twilio_service(credentials)
+
+
+def build_twilio_service(credentials: Optional[Dict[str, Any]] = None) -> TwilioService:
+    """
+    Build a service bound to a specific Twilio account.
+
+    Args:
+        credentials: `account_sid`/`auth_token` for the account that owns the
+            number being used. Falls back to the platform singleton when empty.
+
+    Returns:
+        TwilioService instance for that account
+    """
+    credentials = credentials or {}
+    account_sid = credentials.get("account_sid")
+    auth_token = credentials.get("auth_token")
+
+    if not (account_sid and auth_token):
+        return get_twilio_service()
+
+    return TwilioService(account_sid=account_sid, auth_token=auth_token)

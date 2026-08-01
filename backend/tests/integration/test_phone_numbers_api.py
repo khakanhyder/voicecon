@@ -21,6 +21,7 @@ from httpx import ASGITransport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.core.security import get_password_hash
 from app.database import get_db
@@ -262,6 +263,27 @@ async def _connect_carrier(db_session, user: User, slug: str, name: str) -> Inte
     return connection
 
 
+@pytest.fixture(autouse=True)
+def no_platform_twilio(monkeypatch):
+    """
+    Default: the server holds no Twilio credentials of its own, and is reachable
+    at a public URL (without one, purchases are refused outright).
+
+    Pinned rather than inherited from the environment, so the suite behaves the
+    same on a machine that has real platform credentials in `.env`.
+    """
+    monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", None)
+    monkeypatch.setattr(settings, "TWILIO_AUTH_TOKEN", None)
+    monkeypatch.setattr(settings, "API_BASE_URL", "https://api.voicecon.test")
+
+
+@pytest.fixture
+def platform_twilio(monkeypatch):
+    """The deployment has its own Twilio account — Voicecon's shared account."""
+    monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "AC_platform_sid")
+    monkeypatch.setattr(settings, "TWILIO_AUTH_TOKEN", "platform_auth_token")
+
+
 @pytest_asyncio.fixture
 async def telnyx_connected(db_session, owner) -> IntegrationConnection:
     return await _connect_carrier(db_session, owner, "telnyx", "Telnyx")
@@ -309,9 +331,44 @@ def as_user(client, user: User):
 @pytest.mark.asyncio
 class TestProviderListing:
     async def test_nothing_connected_lists_no_providers(self, client, owner):
+        """With no platform account either, there is nowhere to buy from."""
         res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
         assert res.status_code == 200
         assert res.json() == []
+
+    async def test_platform_twilio_is_offered_without_connecting_anything(
+        self, client, owner, platform_twilio
+    ):
+        """The shared Twilio account is what makes buying work out of the box."""
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
+        assert res.status_code == 200
+        body = res.json()
+        assert [p["slug"] for p in body] == ["twilio"]
+        assert body[0]["source"] == "platform"
+        assert body[0]["connection_id"] == "platform:twilio"
+        assert body[0]["is_default"] is True
+
+    async def test_own_twilio_is_offered_alongside_the_platform_one(
+        self, client, owner, twilio_connected, platform_twilio
+    ):
+        """Connecting your own Twilio adds an account; it does not replace ours."""
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
+        body = res.json()
+
+        assert [(p["slug"], p["source"]) for p in body] == [
+            ("twilio", "integration"),
+            ("twilio", "platform"),
+        ]
+        # Your own account is the default once you have connected one.
+        assert body[0]["connection_id"] == str(twilio_connected.id)
+        assert body[0]["is_default"] is True
+        assert body[1]["is_default"] is False
+
+    async def test_twilio_is_listed_before_other_carriers(
+        self, client, owner, telnyx_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
+        assert [p["slug"] for p in res.json()] == ["twilio", "telnyx"]
 
     async def test_only_connected_carriers_are_listed(
         self, client, owner, telnyx_connected
@@ -362,12 +419,14 @@ class TestSearch:
         assert body[0]["monthly_cost"] == 1.0
         assert body[0]["capabilities"] == {"voice": True, "sms": True, "mms": False}
 
-    async def test_two_carriers_require_a_choice(
+    async def test_twilio_is_searched_by_default(
         self, client, owner, telnyx_connected, twilio_connected
     ):
+        """Twilio is the default carrier, so it is used when none is named."""
         res = await as_user(client, owner).get("/api/v1/phone-numbers/search")
-        assert res.status_code == 400
-        assert "Choose which one" in res.json()["detail"]
+        assert res.status_code == 200
+        assert res.json()[0]["provider"] == "twilio"
+        assert not calls_for("telnyx")
 
     async def test_explicit_provider_selects_that_carrier(
         self, client, owner, telnyx_connected, twilio_connected
@@ -387,8 +446,38 @@ class TestSearch:
             "/api/v1/phone-numbers/search?provider=twilio"
         )
         assert res.status_code == 400
-        assert "not connected" in res.json()["detail"]
+        assert "not available" in res.json()["detail"]
         assert not calls_for("twilio")
+
+    async def test_platform_account_searches_on_server_credentials(
+        self, client, owner, platform_twilio
+    ):
+        """No integration connected — the shared account still finds numbers."""
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/search?area_code=415"
+        )
+        assert res.status_code == 200
+        assert res.json()[0]["phone_number"] == "+14155550100"
+        # The request went to the platform account, not a user's.
+        assert "AC_platform_sid" in calls_for("twilio", "GET")[0]["path"]
+
+    async def test_own_twilio_wins_over_the_platform_account(
+        self, client, owner, twilio_connected, platform_twilio
+    ):
+        """Asking for Twilio spends the user's own credit, not Voicecon's."""
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/search?provider=twilio")
+        assert res.status_code == 200
+        assert "ACfakesid" in calls_for("twilio", "GET")[0]["path"]
+
+    async def test_platform_account_can_be_chosen_explicitly(
+        self, client, owner, twilio_connected, platform_twilio
+    ):
+        """Both accounts are offered, so the user must be able to pick ours."""
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/search?provider=twilio&connection_id=platform:twilio"
+        )
+        assert res.status_code == 200
+        assert "AC_platform_sid" in calls_for("twilio", "GET")[0]["path"]
 
 
 # ---------- purchase ----------
@@ -476,6 +565,90 @@ class TestPurchase:
         ).scalar_one()
         assert row.provider_sid == "PN_purchased"
 
+    async def test_purchase_on_the_platform_account_records_no_connection(
+        self, client, owner, agent, platform_twilio, db_session
+    ):
+        """
+        A number bought on the shared account belongs to no user connection —
+        but which account it came from has to survive, or a later release would
+        be aimed at the wrong Twilio.
+        """
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": "+14155550100",
+                "agent_id": str(agent.id),
+                "provider": "twilio",
+                "connection_id": "platform:twilio",
+            },
+        )
+        assert res.status_code == 201, res.text
+
+        bought = calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]
+        assert "AC_platform_sid" in bought["path"]
+
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+14155550100")
+            )
+        ).scalar_one()
+        assert row.integration_connection_id is None
+        assert row.provider_metadata["credential_source"] == "platform"
+        assert row.user_id == owner.id
+
+    async def test_purchase_on_own_twilio_records_the_connection(
+        self, client, owner, agent, twilio_connected, platform_twilio, db_session
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": "+14155550100",
+                "agent_id": str(agent.id),
+                "provider": "twilio",
+                "connection_id": str(twilio_connected.id),
+            },
+        )
+        assert res.status_code == 201, res.text
+
+        bought = calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]
+        assert "ACfakesid" in bought["path"]
+
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+14155550100")
+            )
+        ).scalar_one()
+        assert row.integration_connection_id == twilio_connected.id
+        assert row.provider_metadata["credential_source"] == "integration"
+
+    async def test_platform_number_is_released_from_the_platform_account(
+        self, client, owner, agent, twilio_connected, platform_twilio
+    ):
+        """
+        The dangerous case: the user has since connected their own Twilio. The
+        release must still go to the account that actually owns the number.
+        """
+        bought = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": "+14155550100",
+                "agent_id": str(agent.id),
+                "provider": "twilio",
+                "connection_id": "platform:twilio",
+            },
+        )
+        assert bought.status_code == 201, bought.text
+        CARRIER_CALLS.clear()
+
+        res = await as_user(client, owner).delete(
+            f"/api/v1/phone-numbers/{bought.json()['id']}"
+        )
+        assert res.status_code == 204
+
+        released = calls_for("twilio", "DELETE")
+        assert released, "number should be released at Twilio"
+        assert "AC_platform_sid" in released[0]["path"]
+
     async def test_purchase_routes_to_the_chosen_carrier_only(
         self, client, owner, agent, telnyx_connected, twilio_connected
     ):
@@ -491,14 +664,16 @@ class TestPurchase:
         assert res.status_code == 201
         assert not calls_for("twilio")
 
-    async def test_purchase_without_choosing_is_refused_when_both_connected(
+    async def test_purchase_without_choosing_uses_twilio(
         self, client, owner, agent, telnyx_connected, twilio_connected
     ):
+        """Twilio is the default carrier, so an unqualified purchase lands there."""
         res = await as_user(client, owner).post(
             "/api/v1/phone-numbers/provision",
-            json={"phone_number": "+13015550100", "agent_id": str(agent.id)},
+            json={"phone_number": "+14155550100", "agent_id": str(agent.id)},
         )
-        assert res.status_code == 400
+        assert res.status_code == 201, res.text
+        assert res.json()["provider"] == "twilio"
         assert not calls_for("telnyx", "POST", "/v2/number_orders")
 
     async def test_duplicate_number_is_rejected_before_any_carrier_call(
@@ -788,3 +963,117 @@ class TestConnectingACarrier:
         assert res.status_code == 201, res.text
         assert carrier_auth_probe["params"] == {"api_key": "vonage_key"}
         assert "Authorization" not in carrier_auth_probe["headers"]
+
+
+# ---------- onboarding: claiming a number before you have an agent ----------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestOnboardingClaim:
+    """
+    The company step of onboarding can buy a number on the shared Twilio.
+
+    A number is only reachable through an agent, and a user in onboarding has
+    none yet — so the assistant they are describing on screen is created and the
+    number is pointed at it.
+    """
+
+    async def test_claim_buys_on_the_shared_account_and_creates_the_assistant(
+        self, client, owner, platform_twilio, db_session
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number",
+            json={
+                "phone_number": "+14155550100",
+                "country_code": "US",
+                "area_code": "415",
+                "assistant_name": "Aria",
+                "assistant_instructions": "Answer calls and book appointments.",
+            },
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+
+        assert body["phone_number"] == "+14155550100"
+        assert body["source"] == "platform"
+        assert body["agent_name"] == "Aria"
+        assert body["agent_created"] is True
+
+        bought = calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]
+        assert "AC_platform_sid" in bought["path"]
+        # The number answers as that assistant from the first call.
+        assert bought["form"]["VoiceUrl"].endswith(
+            f"/api/v1/telephony/twilio/voice/{body['agent_id']}"
+        )
+
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+14155550100")
+            )
+        ).scalar_one()
+        assert row.agent_id == uuid.UUID(body["agent_id"])
+        assert row.provider_metadata["credential_source"] == "platform"
+        assert row.user_id == owner.id
+
+    async def test_claim_uses_the_users_own_twilio_when_connected(
+        self, client, owner, twilio_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number",
+            json={"phone_number": "+14155550100", "assistant_name": "Aria"},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["source"] == "integration"
+        assert "ACfakesid" in calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]["path"]
+
+    async def test_claim_reuses_an_existing_agent(
+        self, client, owner, agent, platform_twilio
+    ):
+        """Re-running onboarding must not accumulate duplicate assistants."""
+        res = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number",
+            json={"phone_number": "+14155550100", "assistant_name": "Ignored"},
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+
+        assert body["agent_id"] == str(agent.id)
+        assert body["agent_created"] is False
+
+    async def test_claim_is_refused_when_no_account_is_available(self, client, owner):
+        """Nothing configured, nothing connected — say so instead of failing oddly."""
+        res = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number",
+            json={"phone_number": "+14155550100"},
+        )
+        assert res.status_code == 400
+        assert "Integrations" in res.json()["detail"]
+        assert not calls_for("twilio", "POST")
+
+    async def test_claimed_number_shows_up_on_the_phone_numbers_page(
+        self, client, owner, platform_twilio
+    ):
+        await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number",
+            json={"phone_number": "+14155550100", "assistant_name": "Aria"},
+        )
+
+        listed = await as_user(client, owner).get("/api/v1/phone-numbers")
+        assert listed.status_code == 200
+        assert [n["phone_number"] for n in listed.json()] == ["+14155550100"]
+
+    async def test_claiming_a_number_twice_is_refused(
+        self, client, owner, platform_twilio
+    ):
+        payload = {"phone_number": "+14155550100", "assistant_name": "Aria"}
+        first = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number", json=payload
+        )
+        assert first.status_code == 200
+
+        second = await as_user(client, owner).post(
+            "/api/v1/onboarding/phone-number", json=payload
+        )
+        assert second.status_code == 400
+        assert "already provisioned" in second.json()["detail"]
