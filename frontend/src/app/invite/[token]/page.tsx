@@ -8,6 +8,7 @@ import { Check, X, Mail, ShieldAlert, PartyPopper } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { authService } from '@/lib/auth'
+import { setActiveWorkspaceId } from '@/lib/workspace'
 import { VoiceconLogo } from '@/lib/icons'
 
 interface PublicInvitation {
@@ -69,6 +70,9 @@ function InviteContent() {
       const { data } = await apiClient.post(API_ENDPOINTS.INVITATION_ACCEPT(token))
       setDone('accepted')
       toast.success(data?.message || 'Invitation accepted')
+      // Pin the workspace they just joined so the dashboard opens inside it
+      // rather than in whichever workspace they were last using.
+      if (data?.organization_id) setActiveWorkspaceId(data.organization_id)
       setTimeout(() => router.push('/dashboard'), 1200)
     } catch (e) {
       toast.error(getErrorMessage(e))

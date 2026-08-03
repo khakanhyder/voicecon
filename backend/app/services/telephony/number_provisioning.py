@@ -98,7 +98,7 @@ async def purchase_number_for_agent(
         NumberNotRecordedError: bought, but the local row could not be written.
     """
     resolved = await resolve_provider(
-        db, user, slug=provider, connection_id=connection_id
+        db, agent.organization_id, slug=provider, connection_id=connection_id
     )
 
     purchased = await resolved.provider.purchase_number(

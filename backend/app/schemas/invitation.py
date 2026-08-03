@@ -40,3 +40,7 @@ class InvitationActionResponse(BaseModel):
     status: str
     message: str
     organization_name: Optional[str] = None
+    # Set on accept so the client can switch straight into the workspace the
+    # user just joined instead of guessing which one it was.
+    organization_id: Optional[uuid.UUID] = None
+    role: Optional[str] = None

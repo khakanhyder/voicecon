@@ -76,6 +76,13 @@ export const API_ENDPOINTS = {
   USERS_ME: `${API_BASE}/api/v1/users/me`,
   USERS_ME_PASSWORD: `${API_BASE}/api/v1/users/me/change-password`,
 
+  // Workspaces (multi-workspace switching)
+  WORKSPACES: `${API_BASE}/api/v1/workspaces`,
+  WORKSPACE_CURRENT: `${API_BASE}/api/v1/workspaces/current`,
+  WORKSPACE_SWITCH: (id: string) => `${API_BASE}/api/v1/workspaces/${id}/switch`,
+  WORKSPACE_TRANSFER_OWNERSHIP: `${API_BASE}/api/v1/workspaces/current/transfer-ownership`,
+  WORKSPACE_LEAVE: `${API_BASE}/api/v1/workspaces/current/leave`,
+
   // Team
   TEAM_MEMBERS: `${API_BASE}/api/v1/team/members`,
   TEAM_INVITE: `${API_BASE}/api/v1/team/invite`,

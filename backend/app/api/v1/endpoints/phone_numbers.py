@@ -41,7 +41,7 @@ from app.services.telephony.provider_registry import (
     resolve_provider_for_number,
 )
 from app.services.telephony.providers import NumberProviderError
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, get_current_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,7 @@ def _provider_http_error(e: Exception) -> HTTPException:
 @router.get("/providers", response_model=List[TelephonyProviderResponse])
 async def list_phone_number_providers(
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -169,7 +170,7 @@ async def list_phone_number_providers(
     user has connected nothing.
     """
     try:
-        options = await list_available_providers(db, current_user)
+        options = await list_available_providers(db, org_id)
         return [
             TelephonyProviderResponse(**option.as_dict(), is_default=(index == 0))
             for index, option in enumerate(options)
@@ -196,6 +197,7 @@ async def search_phone_numbers(
         default=None, description="Specific carrier connection to search on"
     ),
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -206,7 +208,7 @@ async def search_phone_numbers(
     """
     try:
         resolved = await resolve_provider(
-            db, current_user, slug=provider, connection_id=connection_id
+            db, org_id, slug=provider, connection_id=connection_id
         )
     except (NoTelephonyProviderError, AmbiguousProviderError, NumberProviderError) as e:
         raise _provider_http_error(e)
@@ -235,6 +237,7 @@ async def search_phone_numbers(
 async def provision_phone_number(
     provision_request: PhoneNumberProvision,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -244,7 +247,7 @@ async def provision_phone_number(
     agent_result = await db.execute(
         select(Agent).where(
             Agent.id == provision_request.agent_id,
-            Agent.user_id == current_user.id,
+            Agent.organization_id == org_id,
         )
     )
     agent = agent_result.scalar_one_or_none()
@@ -303,6 +306,7 @@ async def list_phone_numbers(
     agent_id: Optional[UUID] = Query(default=None, description="Filter by agent ID"),
     status: Optional[str] = Query(default=None, description="Filter by status"),
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -320,7 +324,7 @@ async def list_phone_numbers(
     try:
         # Build query
         query = select(PhoneNumber).where(
-            PhoneNumber.user_id == current_user.id
+            PhoneNumber.organization_id == org_id
         )
 
         if agent_id:
@@ -347,6 +351,7 @@ async def list_phone_numbers(
 async def get_phone_number(
     phone_number_id: UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -364,7 +369,7 @@ async def get_phone_number(
         result = await db.execute(
             select(PhoneNumber).where(
                 PhoneNumber.id == phone_number_id,
-                PhoneNumber.user_id == current_user.id,
+                PhoneNumber.organization_id == org_id,
             )
         )
         phone_number = result.scalar_one_or_none()
@@ -392,6 +397,7 @@ async def update_phone_number(
     phone_number_id: UUID,
     update_request: PhoneNumberUpdate,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -403,7 +409,7 @@ async def update_phone_number(
     result = await db.execute(
         select(PhoneNumber).where(
             PhoneNumber.id == phone_number_id,
-            PhoneNumber.user_id == current_user.id,
+            PhoneNumber.organization_id == org_id,
         )
     )
     phone_number = result.scalar_one_or_none()
@@ -421,7 +427,7 @@ async def update_phone_number(
             agent_result = await db.execute(
                 select(Agent).where(
                     Agent.id == update_request.agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
             agent = agent_result.scalar_one_or_none()
@@ -435,7 +441,7 @@ async def update_phone_number(
             try:
                 resolved = await resolve_provider_for_number(
                     db,
-                    current_user,
+                    org_id,
                     provider_slug=phone_number.provider,
                     connection_id=phone_number.integration_connection_id,
                     provider_metadata=phone_number.provider_metadata or {},
@@ -487,6 +493,7 @@ async def update_phone_number(
 async def release_phone_number(
     phone_number_id: UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -495,7 +502,7 @@ async def release_phone_number(
     result = await db.execute(
         select(PhoneNumber).where(
             PhoneNumber.id == phone_number_id,
-            PhoneNumber.user_id == current_user.id,
+            PhoneNumber.organization_id == org_id,
         )
     )
     phone_number = result.scalar_one_or_none()
@@ -509,7 +516,7 @@ async def release_phone_number(
     try:
         resolved = await resolve_provider_for_number(
             db,
-            current_user,
+            org_id,
             provider_slug=phone_number.provider,
             connection_id=phone_number.integration_connection_id,
             provider_metadata=phone_number.provider_metadata or {},

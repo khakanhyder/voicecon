@@ -24,6 +24,12 @@ from app.models.integration import Workflow
 
 router = APIRouter()
 
+#: Routes that must stay reachable without a workspace context — carrier and
+#: payment-provider webhooks, and the public embed surfaces. They live on their
+#: own router so the authenticated router can carry a blanket permission guard
+#: (see app.api.v1.api) without accidentally locking these out.
+public_router = APIRouter()
+
 
 # ==================== Schemas ====================
 
@@ -147,7 +153,7 @@ class InstallationResponse(BaseModel):
 # ==================== Agent Templates ====================
 
 
-@router.get("/templates/agents", response_model=List[AgentTemplateResponse])
+@public_router.get("/templates/agents", response_model=List[AgentTemplateResponse])
 async def list_agent_templates(
     category: Optional[str] = None,
     tag: Optional[str] = None,
@@ -461,7 +467,7 @@ async def install_agent_template(
 # ==================== Workflow Templates ====================
 
 
-@router.get("/templates/workflows", response_model=List[WorkflowTemplateResponse])
+@public_router.get("/templates/workflows", response_model=List[WorkflowTemplateResponse])
 async def list_workflow_templates(
     category: Optional[str] = None,
     tag: Optional[str] = None,
@@ -536,7 +542,7 @@ async def list_workflow_templates(
 # ==================== Reviews ====================
 
 
-@router.get("/templates/agents/{slug}/reviews", response_model=List[TemplateReviewResponse])
+@public_router.get("/templates/agents/{slug}/reviews", response_model=List[TemplateReviewResponse])
 async def get_agent_template_reviews(
     slug: str,
     limit: int = Query(10, ge=1, le=50),
@@ -779,7 +785,7 @@ async def get_my_installations(
 # ==================== Categories ====================
 
 
-@router.get("/categories")
+@public_router.get("/categories")
 async def get_categories():
     """Get available template categories."""
     return {

@@ -18,7 +18,7 @@ from sqlalchemy import select, and_, or_, func
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
 from app.models.agent import Agent, AgentFunction
 from app.schemas.agent import (
@@ -46,6 +46,7 @@ router = APIRouter()
 async def create_agent(
     agent_data: AgentCreate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -60,26 +61,13 @@ async def create_agent(
         Created agent
     """
     try:
-        # Get user's organization
-        org_result = await db.execute(
-            select(OrganizationMember)
-            .where(OrganizationMember.user_id == current_user.id)
-            .limit(1)
-        )
-        org_member = org_result.scalar_one_or_none()
-
-        if not org_member:
-            raise HTTPException(
-                status_code=400,
-                detail="User is not associated with any organization"
-            )
-
         agent_service = get_agent_service()
 
+        # The agent belongs to the *workspace*; user_id only records who made it.
         agent = await agent_service.create_agent(
             agent_data=agent_data,
             user_id=current_user.id,
-            organization_id=org_member.organization_id,
+            organization_id=org_id,
             db=db,
         )
 
@@ -103,6 +91,7 @@ async def list_agents(
     tags: Optional[List[str]] = Query(default=None, description="Filter by tags"),
     is_active: Optional[bool] = Query(default=None, description="Filter by active status"),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -124,7 +113,7 @@ async def list_agents(
         # Build query
         query = select(Agent).where(
             and_(
-                Agent.user_id == current_user.id,
+                Agent.organization_id == org_id,
                 Agent.deleted_at.is_(None),
             )
         )
@@ -172,6 +161,7 @@ async def list_agents(
 async def get_agent(
     agent_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -190,7 +180,7 @@ async def get_agent(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                     Agent.deleted_at.is_(None),
                 )
             )
@@ -220,6 +210,7 @@ async def update_agent(
     agent_id: uuid.UUID,
     agent_data: AgentUpdate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -240,7 +231,7 @@ async def update_agent(
         agent = await agent_service.update_agent(
             agent_id=agent_id,
             agent_data=agent_data,
-            user_id=current_user.id,
+            organization_id=org_id,
             db=db,
         )
 
@@ -266,6 +257,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -281,7 +273,7 @@ async def delete_agent(
 
         deleted = await agent_service.delete_agent(
             agent_id=agent_id,
-            user_id=current_user.id,
+            organization_id=org_id,
             db=db,
             soft_delete=True,
         )
@@ -307,6 +299,7 @@ async def clone_agent(
     agent_id: uuid.UUID,
     clone_request: AgentCloneRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -328,7 +321,7 @@ async def clone_agent(
             agent_id=agent_id,
             new_name=clone_request.name,
             user_id=current_user.id,
-            organization_id=current_user.organizations[0].id,
+            organization_id=org_id,
             db=db,
             include_functions=clone_request.include_functions,
         )
@@ -356,6 +349,7 @@ async def test_agent(
     agent_id: uuid.UUID,
     test_request: AgentTestRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -376,7 +370,7 @@ async def test_agent(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
         )
@@ -476,6 +470,7 @@ async def agent_speak(
     agent_id: uuid.UUID,
     request: SpeakRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -485,7 +480,7 @@ async def agent_speak(
     try:
         result = await db.execute(
             select(Agent).where(
-                and_(Agent.id == agent_id, Agent.user_id == current_user.id)
+                and_(Agent.id == agent_id, Agent.organization_id == org_id)
             )
         )
         agent = result.scalar_one_or_none()
@@ -524,6 +519,7 @@ async def agent_respond(
     agent_id: uuid.UUID,
     request: RespondRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -532,7 +528,7 @@ async def agent_respond(
     Sentences are synthesized as they arrive from the LLM — no waiting for full response.
     """
     result = await db.execute(
-        select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == current_user.id))
+        select(Agent).where(and_(Agent.id == agent_id, Agent.organization_id == org_id))
     )
     agent = result.scalar_one_or_none()
     if not agent:
@@ -807,6 +803,7 @@ async def log_agent_session(
     agent_id: uuid.UUID,
     request: SessionLogRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -817,7 +814,7 @@ async def log_agent_session(
     from sqlalchemy import select, and_
 
     result = await db.execute(
-        select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == current_user.id))
+        select(Agent).where(and_(Agent.id == agent_id, Agent.organization_id == org_id))
     )
     agent = result.scalar_one_or_none()
     if not agent:
@@ -869,6 +866,7 @@ async def upload_call_recording(
     call_id: uuid.UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Save a browser-recorded audio file for a test call."""
@@ -878,7 +876,7 @@ async def upload_call_recording(
     result = await db.execute(
         select(Call).where(and_(
             Call.id == call_id,
-            Call.user_id == current_user.id,
+            Call.organization_id == org_id,
             Call.agent_id == agent_id,
         ))
     )
@@ -935,8 +933,21 @@ async def agent_stt_websocket(
             await websocket.close(code=4001)
             return
 
+        # A browser WebSocket can't send the X-Organization-Id header, so scope
+        # to every workspace this user belongs to rather than to the agent's
+        # creator — a teammate must be able to test a shared agent.
+        member_orgs = (
+            await db.execute(
+                select(OrganizationMember.organization_id).where(
+                    OrganizationMember.user_id == user.id
+                )
+            )
+        ).scalars().all()
+
         result = await db.execute(
-            select(Agent).where(and_(Agent.id == agent_id, Agent.user_id == user.id))
+            select(Agent).where(
+                and_(Agent.id == agent_id, Agent.organization_id.in_(member_orgs))
+            )
         )
         agent = result.scalar_one_or_none()
         if not agent:
@@ -1028,6 +1039,7 @@ async def agent_transcribe(
     agent_id: uuid.UUID,
     audio: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1037,7 +1049,7 @@ async def agent_transcribe(
     try:
         result = await db.execute(
             select(Agent).where(
-                and_(Agent.id == agent_id, Agent.user_id == current_user.id)
+                and_(Agent.id == agent_id, Agent.organization_id == org_id)
             )
         )
         agent = result.scalar_one_or_none()
@@ -1097,6 +1109,7 @@ async def agent_transcribe(
 @router.get("/templates/list")
 async def list_templates(
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List available agent templates.
@@ -1129,6 +1142,7 @@ async def create_from_template(
     template_id: str,
     custom_name: Optional[str] = Query(default=None),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1149,7 +1163,7 @@ async def create_from_template(
         agent = await agent_service.create_from_template(
             template_id=template_id,
             user_id=current_user.id,
-            organization_id=current_user.organizations[0].id,
+            organization_id=org_id,
             db=db,
             custom_name=custom_name,
         )
@@ -1180,6 +1194,7 @@ async def create_agent_function(
     agent_id: uuid.UUID,
     function_data: AgentFunctionCreate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1200,7 +1215,7 @@ async def create_agent_function(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
         )
@@ -1241,6 +1256,7 @@ async def create_agent_function(
 async def list_agent_functions(
     agent_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1260,7 +1276,7 @@ async def list_agent_functions(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
         )
@@ -1291,6 +1307,7 @@ async def delete_agent_function(
     agent_id: uuid.UUID,
     function_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1308,7 +1325,7 @@ async def delete_agent_function(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
         )
@@ -1363,6 +1380,7 @@ async def test_function(
     function_id: str,
     test_request: FunctionTestRequest,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1384,7 +1402,7 @@ async def test_function(
             select(Agent).where(
                 and_(
                     Agent.id == agent_id,
-                    Agent.user_id == current_user.id,
+                    Agent.organization_id == org_id,
                 )
             )
         )

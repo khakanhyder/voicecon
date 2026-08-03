@@ -91,8 +91,9 @@ async def accept_invitation(
         )
 
     org_name = await _org_name(db, invitation.organization_id)
+    org_id = invitation.organization_id
     try:
-        await invitation_service.accept_invitation(db, invitation, current_user)
+        membership = await invitation_service.accept_invitation(db, invitation, current_user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -100,6 +101,8 @@ async def accept_invitation(
         status="accepted",
         message=f"You've joined {org_name}.",
         organization_name=org_name,
+        organization_id=org_id,
+        role=membership.role,
     )
 
 

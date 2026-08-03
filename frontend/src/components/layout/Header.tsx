@@ -6,15 +6,30 @@ import { Button } from '@/components/ui/button'
 import { Menu, Search, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { NotificationBell } from '@/components/layout/NotificationBell'
+import { WorkspaceBadge } from '@/components/layout/WorkspaceSwitcher'
+import { useWorkspaceStore } from '@/store/workspaceStore'
+import { PERMISSIONS } from '@/lib/workspace'
 
-const pageTitles: Record<string, { title: string; description: string; action?: { label: string; href: string } }> = {
+/**
+ * `action.permission` names the write capability the button would exercise, so
+ * a viewer isn't offered a "New Agent" button the API would reject. The API
+ * enforces the same permission regardless of what is rendered here.
+ */
+const pageTitles: Record<
+  string,
+  {
+    title: string
+    description: string
+    action?: { label: string; href: string; permission?: string }
+  }
+> = {
   '/dashboard': { title: 'Dashboard', description: 'Overview of your voice AI platform' },
-  '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new' } },
+  '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new' , permission: PERMISSIONS.agentsWrite } },
   '/dashboard/calls': { title: 'Call History', description: 'View and manage all calls' },
-  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Purchase Number', href: '/dashboard/phone-numbers?tab=search' } },
+  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Purchase Number', href: '/dashboard/phone-numbers?tab=search' , permission: PERMISSIONS.phoneNumbersWrite } },
   '/dashboard/tools': { title: 'Tools', description: 'Manage integration tools' },
-  '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new' } },
-  '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new' } },
+  '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new' , permission: PERMISSIONS.knowledgeWrite } },
+  '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new' , permission: PERMISSIONS.workflowsWrite } },
   '/dashboard/integrations': { title: 'Integrations', description: 'Connect your apps and services' },
   '/dashboard/analytics': { title: 'Analytics', description: 'Insights and performance metrics' },
   '/dashboard/marketplace': { title: 'Marketplace', description: 'Templates and pre-built agents' },
@@ -32,6 +47,8 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const { user } = useAuth()
   const pathname = usePathname()
+  const workspace = useWorkspaceStore((s) => s.current)
+  const can = useWorkspaceStore((s) => s.can)
 
   const getPageInfo = (path: string) => {
     // Exact match first
@@ -78,6 +95,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               <p className="hidden truncate text-xs text-slate-500 sm:block">{pageInfo.description}</p>
             )}
           </div>
+          {/* Whose data is on screen — essential once a user is in two workspaces */}
+          <div className="hidden lg:block">
+            <WorkspaceBadge />
+          </div>
         </div>
 
         {/* Right cluster — every control is a 40px pill so they read as one set */}
@@ -90,7 +111,10 @@ export function Header({ onMenuClick }: HeaderProps) {
           </button>
 
           {/* Primary action */}
-          {pageInfo.action && (
+          {pageInfo.action &&
+            // Until the workspace loads we don't know the role — showing the
+            // action and letting the API decide beats flashing it away.
+            (!pageInfo.action.permission || !workspace || can(pageInfo.action.permission)) && (
             <Link href={pageInfo.action.href}>
               <Button
                 size="sm"

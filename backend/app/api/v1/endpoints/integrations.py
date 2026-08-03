@@ -12,21 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, desc
 
 from app.database import get_db
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
 
 
-async def _resolve_org_id(user: User, db: AsyncSession) -> str:
-    """Resolve the user's organization id (hex).
-
-    User has no organization_id column; membership lives in
-    organization_members. Fall back to the user id so solo users still work.
-    """
-    result = await db.execute(
-        select(OrganizationMember).where(OrganizationMember.user_id == user.id).limit(1)
-    )
-    member = result.scalar_one_or_none()
-    return member.organization_id.hex if member else user.id.hex
 from app.models.integration import (
     IntegrationConnector,
     IntegrationConnection,
@@ -69,11 +58,12 @@ async def list_integrations(
     limit: int = Query(500, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """List connected integrations for the current user (alias for /connections)."""
     result = await db.execute(
         select(IntegrationConnection).where(
-            IntegrationConnection.user_id == current_user.id
+            IntegrationConnection.organization_id == org_id
         ).limit(limit)
     )
     connections = result.scalars().all()
@@ -102,6 +92,7 @@ async def list_connectors(
     page_size: int = Query(50, ge=1, le=100, description="Page size"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List available integration connectors.
@@ -177,6 +168,7 @@ async def get_connector(
     connector_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get a specific integration connector by ID.
@@ -237,6 +229,7 @@ async def initiate_oauth_flow(
     request_data: OAuth2AuthorizationRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Initiate OAuth2 authorization flow.
@@ -317,6 +310,7 @@ async def handle_oauth_callback(
     connection_name: Optional[str] = Query(None, description="Optional connection name"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Handle OAuth2 callback and create connection.
@@ -358,7 +352,6 @@ async def handle_oauth_callback(
 
         # Complete OAuth flow
         manager = get_integration_manager()
-        org_id = await _resolve_org_id(current_user, db)
         connection = await manager.complete_oauth_flow(
             connector=connector,
             code=callback_data.code,
@@ -398,6 +391,7 @@ async def refresh_oauth_token(
     refresh_request: OAuth2TokenRefreshRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Manually refresh OAuth2 access token.
@@ -426,7 +420,7 @@ async def refresh_oauth_token(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -494,6 +488,7 @@ async def create_connection(
     connection_data: IntegrationConnectionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Create a new integration connection.
@@ -540,7 +535,6 @@ async def create_connection(
             )
 
         manager = get_integration_manager()
-        org_id = await _resolve_org_id(current_user, db)
 
         # Handle based on auth type
         if connector.auth_type == "oauth2":
@@ -622,6 +616,7 @@ async def list_connections(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List user's integration connections.
@@ -639,7 +634,7 @@ async def list_connections(
     try:
         # Build query
         query = select(IntegrationConnection).where(
-            IntegrationConnection.user_id == current_user.id
+            IntegrationConnection.organization_id == org_id
         )
 
         # Apply filters
@@ -694,6 +689,7 @@ async def get_connection(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get a specific integration connection.
@@ -723,7 +719,7 @@ async def get_connection(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -756,6 +752,7 @@ async def update_connection(
     update_data: IntegrationConnectionUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Update an integration connection.
@@ -785,7 +782,7 @@ async def update_connection(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -827,6 +824,7 @@ async def disconnect_integration(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Disconnect an integration connection.
@@ -852,7 +850,7 @@ async def disconnect_integration(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -885,6 +883,7 @@ async def test_connection(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Test an integration connection.
@@ -913,7 +912,7 @@ async def test_connection(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -967,6 +966,7 @@ async def get_connection_stats(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get statistics for a specific connection.
@@ -995,7 +995,7 @@ async def get_connection_stats(
         query = select(IntegrationConnection).where(
             and_(
                 IntegrationConnection.id == connection_uuid,
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -1080,6 +1080,7 @@ async def get_connection_stats(
 async def get_integration_usage(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get overall integration usage statistics for current user.
@@ -1096,7 +1097,7 @@ async def get_integration_usage(
 
         # Total connections
         total_query = select(func.count()).where(
-            IntegrationConnection.user_id == current_user.id
+            IntegrationConnection.organization_id == org_id
         )
         total_result = await db.execute(total_query)
         total_connections = total_result.scalar_one()
@@ -1104,7 +1105,7 @@ async def get_integration_usage(
         # Active connections
         active_query = select(func.count()).where(
             and_(
-                IntegrationConnection.user_id == current_user.id,
+                IntegrationConnection.organization_id == org_id,
                 IntegrationConnection.is_active == True,
                 IntegrationConnection.status == "active",
             )
@@ -1114,7 +1115,7 @@ async def get_integration_usage(
 
         # Get user's connection IDs
         connection_ids_query = select(IntegrationConnection.id).where(
-            IntegrationConnection.user_id == current_user.id
+            IntegrationConnection.organization_id == org_id
         )
         connection_ids_result = await db.execute(connection_ids_query)
         connection_ids = [row[0] for row in connection_ids_result.all()]
@@ -1149,7 +1150,7 @@ async def get_integration_usage(
                 func.count(IntegrationConnection.id).label("connection_count"),
             )
             .join(IntegrationConnection, IntegrationConnection.connector_id == IntegrationConnector.id)
-            .where(IntegrationConnection.user_id == current_user.id)
+            .where(IntegrationConnection.organization_id == org_id)
             .group_by(IntegrationConnector.id, IntegrationConnector.name, IntegrationConnector.slug)
             .order_by(desc("connection_count"))
             .limit(5)
@@ -1186,6 +1187,7 @@ async def list_connection_actions(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List available AI-callable actions for a connected integration.
@@ -1202,7 +1204,7 @@ async def list_connection_actions(
     result = await db.execute(
         select(IntegrationConnection).where(
             IntegrationConnection.id == conn_uuid,
-            IntegrationConnection.user_id == current_user.id,
+            IntegrationConnection.organization_id == org_id,
         )
     )
     connection = result.scalar_one_or_none()
@@ -1231,6 +1233,7 @@ async def list_connection_actions(
 async def list_connections_for_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List all connected integrations that have available AI actions.
@@ -1242,7 +1245,7 @@ async def list_connections_for_tools(
         select(IntegrationConnection, IntegrationConnector)
         .join(IntegrationConnector, IntegrationConnector.id == IntegrationConnection.connector_id)
         .where(
-            IntegrationConnection.user_id == current_user.id,
+            IntegrationConnection.organization_id == org_id,
             IntegrationConnection.is_active == True,
             IntegrationConnector.slug.in_(list(INTEGRATION_ACTIONS.keys())),
         )
@@ -1274,6 +1277,7 @@ from pydantic import BaseModel as _BaseModel
 async def _store_validated_connection(
     db: AsyncSession,
     user: User,
+    org_id: uuid.UUID,
     connector: IntegrationConnector,
     api_key: str,
     additional_fields: Optional[Dict[str, str]],
@@ -1290,7 +1294,6 @@ async def _store_validated_connection(
     from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
 
     cm = get_credential_manager()
-    org_id = await _resolve_org_id(user, db)
 
     connection = IntegrationConnection(
         user_id=user.id,
@@ -1345,6 +1348,7 @@ async def _load_connector(db: AsyncSession, connector_id: str) -> IntegrationCon
 async def trello_authorize_url(
     redirect_uri: str = Query(..., description="Frontend callback URL"),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Return the Trello authorization URL. Trello returns the user token in the
@@ -1382,11 +1386,12 @@ async def trello_connect(
     body: _TrelloConnectRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """Store a Trello per-user token (obtained via the authorize flow) as a connection."""
     connector = await _load_connector(db, body.connector_id)
     return await _store_validated_connection(
-        db=db, user=current_user, connector=connector,
+        db=db, user=current_user, org_id=org_id, connector=connector,
         api_key=body.token, additional_fields=None, name=body.name,
     )
 
@@ -1403,6 +1408,7 @@ async def whatsapp_connect(
     body: _WhatsAppConnectRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Store a customer's WhatsApp Business Cloud API credentials (their own access
@@ -1410,7 +1416,7 @@ async def whatsapp_connect(
     """
     connector = await _load_connector(db, body.connector_id)
     return await _store_validated_connection(
-        db=db, user=current_user, connector=connector,
+        db=db, user=current_user, org_id=org_id, connector=connector,
         api_key=body.access_token,
         additional_fields={"phone_number_id": body.phone_number_id},
         name=body.name,

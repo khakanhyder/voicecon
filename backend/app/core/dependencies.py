@@ -3,7 +3,7 @@ FastAPI dependencies for authentication, authorization, and common operations.
 """
 from typing import Optional, Generator
 import uuid as _uuid
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,6 +13,13 @@ from app.database import get_db
 from app.core.config import settings
 from app.core.security import decode_token
 from app.core.exceptions import credentials_exception
+from app.core import permissions as perms
+from app.core.workspace import (
+    ORG_HEADER,
+    WorkspaceContext,
+    parse_org_header,
+    resolve_workspace,
+)
 
 # OAuth2 scheme for JWT tokens
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
@@ -107,120 +114,119 @@ async def get_current_verified_user(
     return current_user
 
 
-async def get_current_user_organization(
+# ---- Workspace (organization) context ----
+# Every organization-scoped endpoint hangs off ``get_workspace``. The resolution
+# rules (header override → active workspace → deterministic default) live in
+# app.core.workspace; this is just the FastAPI wiring.
+
+
+async def get_workspace(
+    x_organization_id: Optional[str] = Header(default=None, alias=ORG_HEADER),
     current_user = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get current user's organization.
-
-    Returns:
-        Organization model instance
-
-    Raises:
-        HTTPException: If user has no organization
-    """
-    from app.models.user import Organization, OrganizationMember
-    from sqlalchemy.orm import selectinload
-
-    # Get user's organization membership
-    result = await db.execute(
-        select(OrganizationMember)
-        .options(selectinload(OrganizationMember.organization))
-        .where(OrganizationMember.user_id == current_user.id)
-        .limit(1)
+    db: AsyncSession = Depends(get_db),
+) -> WorkspaceContext:
+    """Resolve the workspace this request acts inside, plus the caller's role in it."""
+    return await resolve_workspace(
+        db, current_user, parse_org_header(x_organization_id)
     )
-    membership = result.scalar_one_or_none()
 
-    if membership is None or membership.organization is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User has no organization"
-        )
 
-    return membership.organization
+async def get_current_user_organization(
+    workspace: WorkspaceContext = Depends(get_workspace),
+):
+    """The Organization the request is acting inside."""
+    return workspace.organization
 
 
 async def get_current_org_id(
-    current_user = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    workspace: WorkspaceContext = Depends(get_workspace),
 ) -> _uuid.UUID:
+    """The id of the organization the request is acting inside.
+
+    This is the workspace the user has switched to — not merely "some org they
+    belong to" — so an invited member's calls land in the shared workspace
+    rather than their own.
     """
-    Resolve the current user's organization ID.
+    return workspace.organization_id
 
-    Returns the organization the user belongs to (owner or member). Mirrors the
-    membership-lookup pattern used across the agents/calls endpoints.
 
-    Raises:
-        HTTPException: If the user has no organization.
+async def get_current_membership(
+    workspace: WorkspaceContext = Depends(get_workspace),
+):
+    """The caller's OrganizationMember row in the current workspace."""
+    return workspace.membership
+
+
+def require_permission(permission: str):
+    """Dependency factory: 403 unless the caller's role grants ``permission``.
+
+    Returns the :class:`WorkspaceContext`, so an endpoint gets the authorization
+    check and the resolved organization id from a single dependency.
     """
-    from app.models.user import OrganizationMember
 
-    result = await db.execute(
-        select(OrganizationMember)
-        .where(OrganizationMember.user_id == current_user.id)
-        .limit(1)
-    )
-    membership = result.scalar_one_or_none()
+    async def permission_checker(
+        workspace: WorkspaceContext = Depends(get_workspace),
+    ) -> WorkspaceContext:
+        workspace.require(permission)
+        return workspace
 
-    if membership is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User has no organization"
+    return permission_checker
+
+
+#: HTTP methods that only read. Everything else mutates and needs write rights.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def workspace_guard(read_permission: str, write_permission: str):
+    """Router-level guard: reads need ``read_permission``, writes ``write_permission``.
+
+    Attached once per router in ``app.api.v1.api`` so authorization can't be
+    forgotten on a newly added endpoint — the default for any route in a
+    guarded router is "protected", not "open". Endpoints needing something
+    finer (billing, team) still add their own :func:`require_permission`.
+    """
+
+    async def guard(
+        request: Request,
+        workspace: WorkspaceContext = Depends(get_workspace),
+    ) -> WorkspaceContext:
+        required = (
+            read_permission if request.method in SAFE_METHODS else write_permission
         )
+        workspace.require(required)
+        return workspace
 
-    return membership.organization_id
+    return guard
+
+
+def require_workspace_role(minimum_role: str):
+    """Dependency factory requiring a minimum role in the *current* workspace."""
+
+    async def role_checker(
+        workspace: WorkspaceContext = Depends(get_workspace),
+    ) -> WorkspaceContext:
+        if perms.role_rank(workspace.role) < perms.role_rank(minimum_role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires {minimum_role} role or higher",
+            )
+        return workspace
+
+    return role_checker
 
 
 def require_role(required_role: str):
-    """
-    Dependency factory to require a specific organization role.
+    """Legacy alias: require a minimum role, returning the *user*.
 
-    Usage:
-        @app.get("/admin")
-        async def admin_endpoint(
-            current_user = Depends(require_role("admin"))
-        ):
-            ...
+    Kept so existing call sites keep working; new code should depend on
+    :func:`require_permission` instead, which is explicit about the capability
+    rather than the rank.
     """
+
     async def role_checker(
-        current_user = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+        workspace: WorkspaceContext = Depends(require_workspace_role(required_role)),
     ):
-        from app.models.user import OrganizationMember
-
-        # Check user's role in organization
-        result = await db.execute(
-            select(OrganizationMember)
-            .where(OrganizationMember.user_id == current_user.id)
-            .limit(1)
-        )
-        membership = result.scalar_one_or_none()
-
-        if membership is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User has no organization membership"
-            )
-
-        # Define role hierarchy
-        role_hierarchy = {
-            "viewer": 0,
-            "member": 1,
-            "admin": 2,
-            "owner": 3
-        }
-
-        user_role_level = role_hierarchy.get(membership.role, 0)
-        required_role_level = role_hierarchy.get(required_role, 0)
-
-        if user_role_level < required_role_level:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires {required_role} role or higher"
-            )
-
-        return current_user
+        return workspace.user
 
     return role_checker
 

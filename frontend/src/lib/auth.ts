@@ -60,6 +60,9 @@ export const authService = {
   async login(credentials: LoginCredentials) {
     const { data } = await apiClient.post('/api/v1/auth/login', credentials)
     if (data.access_token) {
+      // A workspace pinned by the previous session belongs to a different
+      // user; let the server resolve this one's from scratch.
+      localStorage.removeItem('active_organization_id')
       localStorage.setItem('access_token', data.access_token)
       if (data.refresh_token) {
         localStorage.setItem('refresh_token', data.refresh_token)
@@ -110,6 +113,8 @@ export const authService = {
   // Persist the session returned by any auth endpoint (login / google / apple).
   persistSession(data: any) {
     if (typeof window === 'undefined' || !data?.access_token) return data
+    // New session, new workspace resolution — see login().
+    localStorage.removeItem('active_organization_id')
     localStorage.setItem('access_token', data.access_token)
     if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token)
     if (data.user) localStorage.setItem('user', JSON.stringify(data.user))
@@ -152,6 +157,7 @@ export const authService = {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user')
+    localStorage.removeItem('active_organization_id')
   },
 
   async logout() {
@@ -161,6 +167,7 @@ export const authService = {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user')
+    localStorage.removeItem('active_organization_id')
   },
 
   getCurrentUser(): User | null {

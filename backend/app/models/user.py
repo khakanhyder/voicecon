@@ -40,6 +40,21 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # The workspace this user is currently working inside. A user may belong to
+    # several organizations; this is the one their API calls resolve to until
+    # they switch (see app.core.workspace).
+    #
+    # Deliberately *not* a database foreign key. organizations.owner_id already
+    # points at users, so an FK here would close a users ↔ organizations cycle,
+    # which forces create/drop to go through ALTER TABLE and turns teardown into
+    # a lock fight. It buys nothing either: this is a soft pointer, and every
+    # request re-checks it against organization_members — a stronger guarantee
+    # than referential integrity, since it also catches a revoked membership.
+    # A stale or dangling value simply falls back to the default workspace.
+    active_organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True), nullable=True, index=True
+    )
+
     # Timestamps
     email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

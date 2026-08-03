@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: Routes that must stay reachable without a workspace context — carrier and
+#: payment-provider webhooks, and the public embed surfaces. They live on their
+#: own router so the authenticated router can carry a blanket permission guard
+#: (see app.api.v1.api) without accidentally locking these out.
+public_router = APIRouter()
+
 
 DEFAULT_WIDGET_CONFIG = {
     "title": "Chat with us",
@@ -60,7 +66,7 @@ async def _load_enabled_widget(db: AsyncSession, public_key: str) -> ChatWidget:
     return widget
 
 
-@router.get("/public/{public_key}/config")
+@public_router.get("/public/{public_key}/config")
 async def get_widget_config(public_key: str, db: AsyncSession = Depends(get_db)):
     """Branding the embed script needs to render itself. No auth."""
     widget = await _load_enabled_widget(db, public_key)
@@ -68,7 +74,7 @@ async def get_widget_config(public_key: str, db: AsyncSession = Depends(get_db))
     return {"public_key": public_key, "config": config}
 
 
-@router.post("/public/{public_key}/message")
+@public_router.post("/public/{public_key}/message")
 async def send_widget_message(
     public_key: str,
     payload: dict,
@@ -195,9 +201,10 @@ async def get_agent_widget(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """Return the agent's widget (config + embed), or 404 if not set up."""
-    agent = await _owned_agent(db, agent_id, current_user)
+    agent = await _owned_agent(db, agent_id, current_user, org_id)
 
     widget = (
         await db.execute(select(ChatWidget).where(ChatWidget.agent_id == agent.id))
@@ -222,10 +229,10 @@ async def upsert_agent_widget(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
-    organization_id: uuid.UUID = Depends(get_current_org_id),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """Create or update the agent's widget (enable + branding)."""
-    agent = await _owned_agent(db, agent_id, current_user)
+    agent = await _owned_agent(db, agent_id, current_user, org_id)
 
     widget = (
         await db.execute(select(ChatWidget).where(ChatWidget.agent_id == agent.id))
@@ -237,7 +244,7 @@ async def upsert_agent_widget(
     if widget is None:
         widget = ChatWidget(
             agent_id=agent.id,
-            organization_id=organization_id,
+            organization_id=org_id,
             public_key=secrets.token_urlsafe(24),
             enabled=bool(enabled),
             config=incoming_config,
@@ -266,9 +273,10 @@ async def list_chat_sessions(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """Chat sessions for reporting — the text-channel equivalent of calls."""
-    agent = await _owned_agent(db, agent_id, current_user)
+    agent = await _owned_agent(db, agent_id, current_user, org_id)
 
     base = select(ChatSession).where(ChatSession.agent_id == agent.id)
     total = (
@@ -307,6 +315,7 @@ async def get_session_messages(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """Full transcript of one chat session (for reporting drill-down)."""
     try:
@@ -321,7 +330,7 @@ async def get_session_messages(
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Ownership: the session's agent must belong to the caller.
-    await _owned_agent(db, str(session.agent_id), current_user)
+    await _owned_agent(db, str(session.agent_id), current_user, org_id)
 
     rows = (
         await db.execute(
@@ -350,7 +359,7 @@ async def get_session_messages(
 # ============================================================================
 
 
-@router.get("/widget.js")
+@public_router.get("/widget.js")
 async def widget_script(request: Request):
     """
     The embeddable loader.
@@ -371,7 +380,14 @@ async def widget_script(request: Request):
     )
 
 
-async def _owned_agent(db: AsyncSession, agent_id: str, user: User) -> Agent:
+async def _owned_agent(
+    db: AsyncSession, agent_id: str, user: User, org_id: uuid.UUID
+) -> Agent:
+    """The agent, if it belongs to the caller's current workspace.
+
+    Scoped to the workspace rather than the creator so a teammate can manage
+    the chat widget of an agent they didn't personally create.
+    """
     try:
         agent_uuid = uuid.UUID(agent_id)
     except ValueError:
@@ -380,7 +396,7 @@ async def _owned_agent(db: AsyncSession, agent_id: str, user: User) -> Agent:
     agent = (
         await db.execute(
             select(Agent).where(
-                and_(Agent.id == agent_uuid, Agent.user_id == user.id)
+                and_(Agent.id == agent_uuid, Agent.organization_id == org_id)
             )
         )
     ).scalar_one_or_none()

@@ -5,6 +5,7 @@ import { Bell, Check, X, CheckCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNotifications, type AppNotification } from '@/hooks/useNotifications'
 import { getErrorMessage } from '@/lib/api'
+import { setActiveWorkspaceId } from '@/lib/workspace'
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -50,8 +51,15 @@ export function NotificationBell() {
 
   const handleAccept = async (n: AppNotification) => {
     try {
-      await acceptInvite.mutateAsync(n.data.invitation_token)
+      const { data } = await acceptInvite.mutateAsync(n.data.invitation_token)
       toast.success(`You've joined ${n.data.organization_name ?? 'the team'}.`)
+      // Drop the user straight into the workspace they just joined — otherwise
+      // the page keeps showing their previous workspace and the invitation
+      // looks like it did nothing. A reload re-scopes every list on screen.
+      if (data?.organization_id) {
+        setActiveWorkspaceId(data.organization_id)
+        setTimeout(() => window.location.reload(), 600)
+      }
     } catch (e) {
       toast.error(getErrorMessage(e))
     }

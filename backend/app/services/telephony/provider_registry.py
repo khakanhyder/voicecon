@@ -140,13 +140,14 @@ def _platform_options() -> List[ProviderOption]:
     ]
 
 
-async def list_available_providers(db: AsyncSession, user: User) -> List[ProviderOption]:
+async def list_available_providers(db: AsyncSession, org_id: UUID) -> List[ProviderOption]:
     """
-    List the accounts this user can currently buy numbers from.
+    List the accounts this workspace can currently buy numbers from.
 
-    Returns the user's own connected carriers *and* the platform Twilio account
-    (when the server has credentials), so a user who connected their own Twilio
-    can still choose between the two.
+    Returns the workspace's connected carriers *and* the platform Twilio account
+    (when the server has credentials), so a team who connected their own Twilio
+    can still choose between the two. Scoped to the workspace, not the
+    individual, so a carrier one teammate connected is usable by the whole team.
 
     Ordered so the first entry is the sensible default: the user's own Twilio if
     they connected one, otherwise the platform Twilio, with other carriers last.
@@ -158,7 +159,7 @@ async def list_available_providers(db: AsyncSession, user: User) -> List[Provide
             IntegrationConnector.id == IntegrationConnection.connector_id,
         )
         .where(
-            IntegrationConnection.user_id == user.id,
+            IntegrationConnection.organization_id == org_id,
             IntegrationConnection.is_active.is_(True),
             IntegrationConnection.status == "active",
             IntegrationConnector.slug.in_(TELEPHONY_PROVIDER_SLUGS),
@@ -186,7 +187,7 @@ async def list_available_providers(db: AsyncSession, user: User) -> List[Provide
 
 async def resolve_provider(
     db: AsyncSession,
-    user: User,
+    org_id: UUID,
     slug: Optional[str] = None,
     connection_id: Optional[str] = None,
 ) -> ResolvedProvider:
@@ -204,7 +205,7 @@ async def resolve_provider(
         AmbiguousProviderError: several carriers available, none of them the
             default, and none chosen.
     """
-    options = await list_available_providers(db, user)
+    options = await list_available_providers(db, org_id)
 
     if not options:
         raise NoTelephonyProviderError(
@@ -247,7 +248,7 @@ async def resolve_provider(
 
 async def resolve_provider_for_number(
     db: AsyncSession,
-    user: User,
+    org_id: UUID,
     provider_slug: str,
     connection_id: Optional[UUID] = None,
     provider_metadata: Optional[Dict[str, Any]] = None,
@@ -265,7 +266,7 @@ async def resolve_provider_for_number(
     3. otherwise any account for the same carrier, which covers numbers bought
        before the source was recorded.
     """
-    options = await list_available_providers(db, user)
+    options = await list_available_providers(db, org_id)
 
     match = None
     if connection_id:

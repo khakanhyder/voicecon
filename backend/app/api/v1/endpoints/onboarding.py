@@ -15,7 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user, get_current_org_id, get_db
+from app.core import permissions as perms
+from app.core.dependencies import (
+    get_current_active_user,
+    get_current_org_id,
+    get_db,
+    require_permission,
+)
 from app.models.agent import Agent
 from app.models.user import User, Organization
 from app.models.call import PhoneNumber
@@ -81,7 +87,11 @@ async def get_onboarding_status(
     )
 
 
-@router.post("/company", response_model=CompanyProfileResponse)
+@router.post(
+    "/company",
+    response_model=CompanyProfileResponse,
+    dependencies=[Depends(require_permission(perms.WORKSPACE_MANAGE))],
+)
 async def save_company_profile(
     payload: CompanyProfileRequest,
     current_user: User = Depends(get_current_active_user),
@@ -155,7 +165,7 @@ async def _assistant_agent(
     """
     existing = await db.execute(
         select(Agent)
-        .where(Agent.user_id == user.id, Agent.is_active.is_(True))
+        .where(Agent.organization_id == org_id, Agent.is_active.is_(True))
         .order_by(Agent.created_at.asc())
         .limit(1)
     )
@@ -194,7 +204,11 @@ async def _assistant_agent(
     return agent, True
 
 
-@router.post("/phone-number", response_model=ClaimPhoneNumberResponse)
+@router.post(
+    "/phone-number",
+    response_model=ClaimPhoneNumberResponse,
+    dependencies=[Depends(require_permission(perms.PHONE_NUMBERS_WRITE))],
+)
 async def claim_phone_number(
     payload: ClaimPhoneNumberRequest,
     current_user: User = Depends(get_current_active_user),

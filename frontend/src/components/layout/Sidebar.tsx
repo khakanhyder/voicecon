@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
+import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
+import { useWorkspaceStore } from '@/store/workspaceStore'
+import { PERMISSIONS } from '@/lib/workspace'
 import {
   LayoutDashboard,
   Bot,
@@ -55,17 +58,34 @@ const navigation = [
   // { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
 ]
 
-/** Settings renders as an expandable group, matching the design. */
+/**
+ * Settings renders as an expandable group, matching the design.
+ *
+ * `permission` hides an entry the current role can't use at all — Billing is
+ * admin-and-up, API Keys need at least contributor rights. Entries without one
+ * are visible to every role. This only tidies the nav; the API refuses the same
+ * requests regardless.
+ */
 const settingsNav = {
   name: 'Settings',
   href: '/dashboard/settings',
   icon: Settings,
   children: [
     { name: 'Profile', href: '/dashboard/settings/profile', icon: User },
-    { name: 'Billing', href: '/dashboard/settings/billing', icon: CreditCard },
+    {
+      name: 'Billing',
+      href: '/dashboard/settings/billing',
+      icon: CreditCard,
+      permission: PERMISSIONS.billingRead,
+    },
     { name: 'Team', href: '/dashboard/settings/team', icon: Users },
-    { name: 'API Keys', href: '/dashboard/settings/api-keys', icon: Key },
-  ],
+    {
+      name: 'API Keys',
+      href: '/dashboard/settings/api-keys',
+      icon: Key,
+      permission: PERMISSIONS.apiKeysManage,
+    },
+  ] as { name: string; href: string; icon: typeof User; permission?: string }[],
 }
 
 interface SidebarProps {
@@ -76,6 +96,8 @@ interface SidebarProps {
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
+  const can = useWorkspaceStore((s) => s.can)
+  const currentWorkspace = useWorkspaceStore((s) => s.current)
   const [collapsed, setCollapsed] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(
@@ -198,6 +220,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               General
             </Link>
             {settingsNav.children.map((child) => {
+              // Wait for the workspace before hiding anything, so a slow load
+              // doesn't flash a stripped-down nav at an owner.
+              if (child.permission && currentWorkspace && !can(child.permission)) {
+                return null
+              }
               const childActive = isActive(child.href)
               const ChildIcon = child.icon
               return (
@@ -299,6 +326,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Workspace switcher — which team's data is on screen, and how to change it */}
+      <div className="mt-2 flex-shrink-0">
+        <WorkspaceSwitcher collapsed={collapsed} panelBackground={SIDEBAR.panel} />
       </div>
 
       <div className="pt-4">

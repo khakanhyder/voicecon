@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: Routes that must stay reachable without a workspace context — carrier and
+#: payment-provider webhooks, and the public embed surfaces. They live on their
+#: own router so the authenticated router can carry a blanket permission guard
+#: (see app.api.v1.api) without accidentally locking these out.
+public_router = APIRouter()
+
 
 def _prepare_trigger_config(trigger_type, trigger_config: Optional[dict]) -> dict:
     """
@@ -89,6 +95,7 @@ def _prepare_trigger_config(trigger_type, trigger_config: Optional[dict]) -> dic
 async def create_workflow(
     workflow_data: WorkflowCreate,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -106,20 +113,6 @@ async def create_workflow(
         HTTPException: If creation fails
     """
     try:
-        # Get user's organization
-        org_result = await db.execute(
-            select(OrganizationMember)
-            .where(OrganizationMember.user_id == current_user.id)
-            .limit(1)
-        )
-        org_member = org_result.scalar_one_or_none()
-
-        if not org_member:
-            raise HTTPException(
-                status_code=400,
-                detail="User is not associated with any organization"
-            )
-
         # Validate the trigger configuration. TriggerValidator existed but was
         # never called, so invalid cron expressions and short webhook keys were
         # stored and only failed silently later, inside the scheduler loop.
@@ -139,7 +132,7 @@ async def create_workflow(
         # Create workflow
         workflow = Workflow(
             user_id=current_user.id,
-            organization_id=org_member.organization_id,
+            organization_id=org_id,
             name=workflow_data.name,
             description=workflow_data.description,
             trigger_type=workflow_data.trigger_type,
@@ -180,6 +173,7 @@ async def list_workflows(
     page_size: int = Query(50, ge=1, le=100, description="Page size"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List user's workflows.
@@ -200,7 +194,7 @@ async def list_workflows(
         # Build query
         query = select(Workflow).where(
             and_(
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -256,6 +250,7 @@ async def get_workflow(
     workflow_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get a specific workflow by ID.
@@ -283,7 +278,7 @@ async def get_workflow(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -314,6 +309,7 @@ async def update_workflow(
     update_data: WorkflowUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Update a workflow.
@@ -342,7 +338,7 @@ async def update_workflow(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -406,6 +402,7 @@ async def delete_workflow(
     workflow_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Delete (soft delete) a workflow.
@@ -430,7 +427,7 @@ async def delete_workflow(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -472,6 +469,7 @@ async def execute_workflow(
     execute_request: WorkflowExecuteRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Execute a workflow.
@@ -501,7 +499,7 @@ async def execute_workflow(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -546,6 +544,7 @@ async def list_workflow_executions(
     page_size: int = Query(50, ge=1, le=100, description="Page size"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List workflow executions.
@@ -574,7 +573,7 @@ async def list_workflow_executions(
         workflow_query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
             )
         )
         workflow_result = await db.execute(workflow_query)
@@ -630,6 +629,7 @@ async def get_workflow_execution(
     execution_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get a specific workflow execution.
@@ -660,7 +660,7 @@ async def get_workflow_execution(
         workflow_query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
             )
         )
         workflow_result = await db.execute(workflow_query)
@@ -710,6 +710,7 @@ async def get_workflow_stats(
     workflow_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get workflow statistics.
@@ -737,7 +738,7 @@ async def get_workflow_stats(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -842,6 +843,7 @@ async def test_workflow_trigger(
     workflow_id: str,
     test_data: dict,
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -867,7 +869,7 @@ async def test_workflow_trigger(
         query = select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
             )
         )
         result = await db.execute(query)
@@ -944,12 +946,23 @@ async def stream_workflow_execution(
         return
 
     async with AsyncSessionLocal() as db:
+        # A browser WebSocket can't send X-Organization-Id, so authorize against
+        # every workspace this user belongs to — a teammate must be able to run
+        # a workflow they didn't personally create.
+        member_orgs = (
+            await db.execute(
+                select(OrganizationMember.organization_id).where(
+                    OrganizationMember.user_id == user_uuid
+                )
+            )
+        ).scalars().all()
+
         workflow = (
             await db.execute(
                 select(Workflow).where(
                     and_(
                         Workflow.id == workflow_uuid,
-                        Workflow.user_id == user_uuid,
+                        Workflow.organization_id.in_(member_orgs),
                         Workflow.deleted_at.is_(None),
                     )
                 )
@@ -1030,6 +1043,7 @@ async def validate_workflow_graph(
     payload: Optional[dict] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Validate a workflow graph without saving it.
@@ -1059,7 +1073,7 @@ async def validate_workflow_graph(
         select(Workflow).where(
             and_(
                 Workflow.id == workflow_uuid,
-                Workflow.user_id == current_user.id,
+                Workflow.organization_id == org_id,
                 Workflow.deleted_at.is_(None),
             )
         )
@@ -1084,7 +1098,7 @@ async def validate_workflow_graph(
     }
 
 
-@router.post("/webhook/{webhook_key}")
+@public_router.post("/webhook/{webhook_key}")
 async def trigger_webhook(
     webhook_key: str,
     payload: dict,

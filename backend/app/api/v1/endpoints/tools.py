@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 
 from app.database import get_db
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
+from app.models.agent import Agent
 from app.models.tool import Tool, AgentToolAssignment
 from app.schemas.tool import (
     ToolCreate, ToolUpdate, ToolResponse, ToolListResponse,
@@ -58,14 +59,8 @@ async def create_tool(
     data: ToolCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    # Get user's org; fall back to user_id so solo users can still create tools
-    org_result = await db.execute(
-        select(OrganizationMember).where(OrganizationMember.user_id == current_user.id).limit(1)
-    )
-    org_member = org_result.scalar_one_or_none()
-    org_id = org_member.organization_id.hex if org_member else current_user.id.hex
-
     # A workflow tool is only useful once it names a workflow — reject early
     # rather than let the agent call a tool that can never do anything.
     if data.tool_type == "workflow" and not (data.config or {}).get("workflow_id"):
@@ -102,8 +97,9 @@ async def list_tools(
     is_active: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    q = select(Tool).where(Tool.user_id == current_user.id.hex)
+    q = select(Tool).where(Tool.organization_id == org_id)
     if category:
         q = q.where(Tool.category == category)
     if tool_type:
@@ -127,8 +123,9 @@ async def get_tool(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    tool = await _get_tool_or_404(tool_id, current_user, db)
+    tool = await _get_tool_or_404(tool_id, org_id, db)
     return tool
 
 
@@ -138,8 +135,9 @@ async def update_tool(
     data: ToolUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    tool = await _get_tool_or_404(tool_id, current_user, db)
+    tool = await _get_tool_or_404(tool_id, org_id, db)
     update = data.model_dump(exclude_unset=True)
     for k, v in update.items():
         setattr(tool, k, v)
@@ -154,8 +152,9 @@ async def delete_tool(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    tool = await _get_tool_or_404(tool_id, current_user, db)
+    tool = await _get_tool_or_404(tool_id, org_id, db)
     await db.delete(tool)
     await db.commit()
 
@@ -168,8 +167,9 @@ async def test_tool(
     body: ToolTestRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    tool = await _get_tool_or_404(tool_id, current_user, db)
+    tool = await _get_tool_or_404(tool_id, org_id, db)
     start = time.time()
 
     try:
@@ -188,7 +188,9 @@ async def list_agent_tools(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
+    await _get_agent_or_404(agent_id, org_id, db)
     q = select(AgentToolAssignment).where(AgentToolAssignment.agent_id == agent_id)
     result = await db.execute(q)
     assignments = result.scalars().all()
@@ -203,9 +205,11 @@ async def assign_tool_to_agent(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    # verify tool belongs to user
-    await _get_tool_or_404(tool_id, current_user, db)
+    # Both sides must live in the caller's workspace.
+    await _get_agent_or_404(agent_id, org_id, db)
+    await _get_tool_or_404(tool_id, org_id, db)
 
     # check existing
     existing = await db.execute(
@@ -234,7 +238,9 @@ async def remove_tool_from_agent(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
+    await _get_agent_or_404(agent_id, org_id, db)
     q = select(AgentToolAssignment).where(
         and_(AgentToolAssignment.agent_id == agent_id, AgentToolAssignment.tool_id == tool_id)
     )
@@ -248,14 +254,29 @@ async def remove_tool_from_agent(
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 
-async def _get_tool_or_404(tool_id: str, current_user: User, db: AsyncSession) -> Tool:
+async def _get_tool_or_404(tool_id: str, org_id: uuid.UUID, db: AsyncSession) -> Tool:
     result = await db.execute(
-        select(Tool).where(and_(Tool.id == tool_id, Tool.user_id == current_user.id.hex))
+        select(Tool).where(and_(Tool.id == tool_id, Tool.organization_id == org_id))
     )
     tool = result.scalar_one_or_none()
     if not tool:
         raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
     return tool
+
+
+async def _get_agent_or_404(agent_id: str, org_id: uuid.UUID, db: AsyncSession) -> Agent:
+    """Agent lookup scoped to the workspace.
+
+    The assignment endpoints previously took the agent id on trust, so any
+    signed-in user could read or rewrite another tenant's agent-tool wiring.
+    """
+    result = await db.execute(
+        select(Agent).where(and_(Agent.id == agent_id, Agent.organization_id == org_id))
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    return agent
 
 
 async def _execute_tool(tool: Tool, params: dict) -> dict:

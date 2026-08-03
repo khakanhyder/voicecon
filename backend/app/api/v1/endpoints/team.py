@@ -22,7 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.core.dependencies import get_current_user, get_current_org_id
+from app.core import permissions as perms
+from app.core.dependencies import (
+    get_current_user,
+    get_current_org_id,
+    get_workspace,
+    require_permission,
+)
+from app.core.workspace import WorkspaceContext
 from app.models.user import User, OrganizationMember, Organization
 from app.models.invitation import Invitation
 from app.schemas.invitation import InviteRequest, InvitationResponse
@@ -30,8 +37,11 @@ from app.services.team import invitation_service
 
 router = APIRouter()
 
-ROLE_HIERARCHY = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
-ASSIGNABLE_ROLES = {"admin", "member", "viewer"}  # "owner" is not assignable via invite/patch
+ROLE_HIERARCHY = perms.ROLE_HIERARCHY
+#: "owner" is never assignable through an invite or a role change — ownership
+#: moves only via POST /workspaces/current/transfer-ownership, which is
+#: owner-only. This is what stops an admin from promoting themselves.
+ASSIGNABLE_ROLES = perms.ASSIGNABLE_ROLES
 
 
 # ---- Schemas ----
@@ -73,6 +83,26 @@ def _require_min_role(membership: OrganizationMember, minimum: str) -> None:
         )
 
 
+def _require_can_act_on(actor: OrganizationMember, target: OrganizationMember) -> None:
+    """Guard every action that changes another member's standing.
+
+    Rank decides: you may only act on someone strictly below you, and acting on
+    an admin or the owner additionally needs ``team:manage_admins``, which only
+    the owner has. So an admin can manage members and viewers, but cannot
+    demote, remove, or otherwise touch a fellow admin or the owner.
+    """
+    if perms.can_act_on(actor.role, target.role):
+        return
+
+    if target.role == perms.ROLE_OWNER:
+        detail = "Only the workspace owner can change the owner's membership."
+    elif target.role == actor.role:
+        detail = f"You cannot manage another {target.role}."
+    else:
+        detail = f"Only the owner can manage a {target.role}."
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
 def _status_for(user: User, membership: OrganizationMember) -> str:
     if not user.is_active:
         return "Inactive"
@@ -96,11 +126,11 @@ def _to_response(member: OrganizationMember) -> TeamMemberResponse:
 # ---- Endpoints ----
 @router.get("/members", response_model=List[TeamMemberResponse])
 async def list_members(
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_READ)),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all members of the current user's organization."""
+    """List every member of the current workspace. Any member may look."""
+    org_id = workspace.organization_id
     result = await db.execute(
         select(OrganizationMember)
         .options(selectinload(OrganizationMember.user))
@@ -126,26 +156,38 @@ def _invitation_response(inv: Invitation, inviter: Optional[User]) -> Invitation
 @router.post("/invite", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
 async def invite_member(
     payload: InviteRequest,
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Invite someone to the organization by email (owner/admin only).
+    """Invite someone to the current workspace by email (owner/admin only).
 
     Creates a pending invitation, emails the invitee Accept/Reject links, and —
     if they already have an account — drops an in-app notification. No membership
     is created until they accept.
-    """
-    membership = await _require_membership(db, current_user.id, org_id)
-    _require_min_role(membership, "admin")
 
-    org = (
-        await db.execute(select(Organization).where(Organization.id == org_id))
-    ).scalar_one()
+    Inviting *as an admin* is itself an owner-level act: an admin who could mint
+    admins could manufacture allies, so the role being handed out is checked
+    against the inviter's own rank.
+    """
+    org_id = workspace.organization_id
+    role = (payload.role or perms.ROLE_MEMBER).lower()
+    if role not in ASSIGNABLE_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+    if perms.role_rank(role) >= perms.role_rank(perms.ROLE_ADMIN) and not workspace.has(
+        perms.TEAM_MANAGE_ADMINS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the workspace owner can invite an admin.",
+        )
 
     try:
         invitation = await invitation_service.create_invitation(
-            db, organization=org, inviter=current_user, email=payload.email, role=payload.role
+            db,
+            organization=workspace.organization,
+            inviter=workspace.user,
+            email=payload.email,
+            role=role,
         )
     except ValueError as exc:
         code = getattr(exc, "code", "")
@@ -156,19 +198,16 @@ async def invite_member(
         )
         raise HTTPException(status_code=http_status, detail=str(exc))
 
-    return _invitation_response(invitation, current_user)
+    return _invitation_response(invitation, workspace.user)
 
 
 @router.get("/invitations", response_model=List[InvitationResponse])
 async def list_invitations(
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
-    """List pending invitations for the organization (owner/admin only)."""
-    membership = await _require_membership(db, current_user.id, org_id)
-    _require_min_role(membership, "admin")
-
+    """List pending invitations for the workspace (owner/admin only)."""
+    org_id = workspace.organization_id
     result = await db.execute(
         select(Invitation)
         .options(selectinload(Invitation.inviter))
@@ -182,14 +221,11 @@ async def list_invitations(
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_invitation(
     invitation_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     """Cancel a pending invitation (owner/admin only)."""
-    membership = await _require_membership(db, current_user.id, org_id)
-    _require_min_role(membership, "admin")
-
+    org_id = workspace.organization_id
     result = await db.execute(
         select(Invitation).where(
             Invitation.id == invitation_id, Invitation.organization_id == org_id
@@ -206,17 +242,29 @@ async def cancel_invitation(
 async def update_member_role(
     member_id: uuid.UUID,
     payload: UpdateMemberRequest,
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Change a member's role (owner/admin only). The owner's role is immutable."""
-    membership = await _require_membership(db, current_user.id, org_id)
-    _require_min_role(membership, "admin")
+    """Change a member's role (owner/admin only).
 
+    Three separate guards, each closing a different escalation:
+      * "owner" is not an assignable role — ownership moves only by transfer;
+      * you cannot act on a peer or a superior, so an admin cannot demote the
+        owner or another admin;
+      * promoting someone *to* admin needs owner rank, so an admin cannot
+        manufacture a peer.
+    """
+    org_id = workspace.organization_id
     role = payload.role.lower()
     if role not in ASSIGNABLE_ROLES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Ownership can only be moved with a workspace ownership transfer."
+                if role == perms.ROLE_OWNER
+                else "Invalid role"
+            ),
+        )
 
     result = await db.execute(
         select(OrganizationMember)
@@ -230,8 +278,20 @@ async def update_member_role(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    if target.role == "owner":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot change the owner's role")
+    if target.id == workspace.membership.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot change your own role"
+        )
+
+    _require_can_act_on(workspace.membership, target)
+
+    if perms.role_rank(role) >= perms.role_rank(perms.ROLE_ADMIN) and not workspace.has(
+        perms.TEAM_MANAGE_ADMINS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the workspace owner can promote someone to admin.",
+        )
 
     target.role = role
     await db.commit()
@@ -242,16 +302,19 @@ async def update_member_role(
 @router.delete("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member(
     member_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove a member from the organization (owner/admin only). The owner cannot be removed."""
-    membership = await _require_membership(db, current_user.id, org_id)
-    _require_min_role(membership, "admin")
+    """Remove a member from the workspace (owner/admin only).
 
+    The owner can never be removed — not by an admin, and not by themselves.
+    An admin also cannot remove a fellow admin; that is the owner's call.
+    """
+    org_id = workspace.organization_id
     result = await db.execute(
-        select(OrganizationMember).where(
+        select(OrganizationMember)
+        .options(selectinload(OrganizationMember.user))
+        .where(
             OrganizationMember.id == member_id,
             OrganizationMember.organization_id == org_id,
         )
@@ -260,8 +323,25 @@ async def remove_member(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    if target.role == "owner":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the organization owner")
+    if target.role == perms.ROLE_OWNER:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The workspace owner cannot be removed. Transfer ownership first.",
+        )
+
+    if target.id == workspace.membership.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use POST /workspaces/current/leave to remove yourself.",
+        )
+
+    _require_can_act_on(workspace.membership, target)
+
+    # Anyone whose active workspace was this one gets re-resolved on their next
+    # request; clearing it here avoids a dangling pointer in the meantime.
+    removed_user = target.user
+    if removed_user is not None and removed_user.active_organization_id == org_id:
+        removed_user.active_organization_id = None
 
     await db.delete(target)
     await db.commit()

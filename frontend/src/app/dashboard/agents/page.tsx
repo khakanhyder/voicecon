@@ -7,6 +7,8 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { ConfirmModal } from '@/components/ui/confirm-modal'
+import { useWorkspaceStore } from '@/store/workspaceStore'
+import { PERMISSIONS } from '@/lib/workspace'
 import {
   Bot, Plus, Search, MoreHorizontal, Phone, Mic, Cpu,
   ArrowRight, Activity, Clock, ToggleLeft, ToggleRight, Trash2, Pencil,
@@ -52,7 +54,7 @@ function Waveform() {
   )
 }
 
-function AgentCard({ agent, index, viewMode, onClick, onDelete }: { agent: Agent; index: number; viewMode: 'grid' | 'list'; onClick: () => void; onDelete: () => void }) {
+function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDelete }: { agent: Agent; index: number; viewMode: 'grid' | 'list'; onClick: () => void; onDelete: () => void; canWrite: boolean; canDelete: boolean }) {
   const style = cardStyles[index % cardStyles.length]
   const IconComponent = style.Icon
 
@@ -113,17 +115,21 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete }: { agent: Agent
           </div>
 
           <div className="flex items-center gap-2">
-            <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
-              <button className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                <Pencil className="h-4 w-4" /> Edit
+            {canWrite && (
+              <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
+                <button className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                  <Pencil className="h-4 w-4" /> Edit
+                </button>
+              </Link>
+            )}
+            {canDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
               </button>
-            </Link>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            )}
           </div>
         </div>
       </div>
@@ -213,12 +219,14 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete }: { agent: Agent
         >
           View <ArrowRight className="h-4 w-4" />
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="text-slate-400 hover:text-red-500 transition-colors"
-        >
-          <Trash2 className="w-5 h-5" />
-        </button>
+        {canDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="text-slate-400 hover:text-red-500 transition-colors"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -226,6 +234,11 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete }: { agent: Agent
 
 export default function AgentsPage() {
   const router = useRouter()
+  // Agents belong to the workspace, so what you may do to them depends on your
+  // role in it, not on who created them. A viewer gets a read-only list.
+  const workspace = useWorkspaceStore((s) => s.current)
+  const canWrite = workspace?.permissions.includes(PERMISSIONS.agentsWrite) ?? false
+  const canDelete = workspace?.permissions.includes(PERMISSIONS.agentsDelete) ?? false
   const [agents, setAgents] = useState<Agent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -378,14 +391,18 @@ export default function AgentsPage() {
             <>
               <h3 className="text-lg font-semibold text-slate-800">No agents yet</h3>
               <p className="text-slate-500 text-sm mt-1.5 max-w-xs">
-                Create your first AI voice agent to start handling calls automatically
+                {canWrite
+                  ? 'Create your first AI voice agent to start handling calls automatically'
+                  : 'Nobody on this team has created an agent yet. Your role is read-only.'}
               </p>
-              <Link href="/dashboard/agents/new">
-                <button className="mt-6 flex items-center gap-2 rounded-lg bg-[#0F6A59] hover:bg-[#0d5a4c] px-5 py-2.5 text-sm font-semibold text-white transition-all shadow-sm">
-                  <Plus className="h-4 w-4" />
-                  Create your first agent
-                </button>
-              </Link>
+              {canWrite && (
+                <Link href="/dashboard/agents/new">
+                  <button className="mt-6 flex items-center gap-2 rounded-lg bg-[#0F6A59] hover:bg-[#0d5a4c] px-5 py-2.5 text-sm font-semibold text-white transition-all shadow-sm">
+                    <Plus className="h-4 w-4" />
+                    Create your first agent
+                  </button>
+                </Link>
+              )}
             </>
           )}
         </div>
@@ -399,10 +416,13 @@ export default function AgentsPage() {
               viewMode={viewMode}
               onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
               onDelete={() => setAgentToDelete(agent)}
+              canWrite={canWrite}
+              canDelete={canDelete}
             />
           ))}
 
-          {/* Add another card */}
+          {/* Add another card — creation affordance, so contributors only */}
+          {canWrite && (
           <Link href="/dashboard/agents/new">
             <div className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer ${viewMode === 'list' ? 'h-[162px]' : 'h-full min-h-[340px]'
               }`}>
@@ -422,6 +442,7 @@ export default function AgentsPage() {
               </button>
             </div>
           </Link>
+          )}
         </div>
       )}
 

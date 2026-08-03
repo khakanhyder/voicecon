@@ -8,6 +8,7 @@ Handles:
 """
 import logging
 from typing import Dict, Any, List, Optional
+from uuid import UUID
 from urllib.parse import urljoin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
@@ -25,12 +26,18 @@ from app.services.telephony.twilio_service import (
     build_twiml_for_websocket,
     get_twilio_service_for_number,
 )
-from app.core.dependencies import get_current_user, get_current_active_user
+from app.core.dependencies import get_current_user, get_current_active_user, get_current_org_id
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+#: Routes that must stay reachable without a workspace context — carrier and
+#: payment-provider webhooks, and the public embed surfaces. They live on their
+#: own router so the authenticated router can carry a blanket permission guard
+#: (see app.api.v1.api) without accidentally locking these out.
+public_router = APIRouter()
 
 
 def _public_webhook_url(request: Request) -> str:
@@ -130,7 +137,7 @@ async def validate_twilio_request(request: Request, form_data, db: AsyncSession)
     return False
 
 
-@router.post("/twilio/voice/{agent_id}")
+@public_router.post("/twilio/voice/{agent_id}")
 async def handle_inbound_call(
     agent_id: str,
     request: Request,
@@ -246,7 +253,7 @@ async def handle_inbound_call(
         return Response(content=twiml, media_type="application/xml")
 
 
-@router.post("/twilio/status")
+@public_router.post("/twilio/status")
 async def handle_call_status(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -363,6 +370,7 @@ async def initiate_outbound_call(
     agent_id: str,
     from_number: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -383,7 +391,7 @@ async def initiate_outbound_call(
         agent_result = await db.execute(
             select(Agent).where(
                 Agent.id == agent_id,
-                Agent.user_id == current_user.id,
+                Agent.organization_id == org_id,
             )
         )
         agent = agent_result.scalar_one_or_none()
@@ -470,6 +478,7 @@ async def initiate_outbound_call(
 async def get_call_details(
     call_sid: str,
     current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -488,7 +497,7 @@ async def get_call_details(
         call_result = await db.execute(
             select(Call).where(
                 Call.provider_call_sid == call_sid,
-                Call.user_id == current_user.id,
+                Call.organization_id == org_id,
             )
         )
         call = call_result.scalar_one_or_none()
@@ -526,7 +535,7 @@ async def get_call_details(
 # ============================================================================
 
 
-@router.post("/telnyx/voice/{agent_id}")
+@public_router.post("/telnyx/voice/{agent_id}")
 async def handle_telnyx_inbound_call(
     agent_id: str,
     request: Request,
@@ -623,7 +632,7 @@ async def handle_telnyx_inbound_call(
         )
 
 
-@router.post("/telnyx/status")
+@public_router.post("/telnyx/status")
 async def handle_telnyx_call_status(
     request: Request,
     db: AsyncSession = Depends(get_db),

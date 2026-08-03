@@ -6,10 +6,13 @@ Handles Twilio Media Stream WebSocket connections for real-time voice processing
 import logging
 import json
 from typing import Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import uuid
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.dependencies import get_current_org_id
 from app.database import get_db
 from app.models.call import Call
 from app.models.agent import Agent
@@ -142,16 +145,31 @@ async def voice_stream_websocket(
         logger.info(f"Voice stream cleanup complete: call_id={call_id}")
 
 
-@router.get("/sessions/active")
-async def get_active_sessions():
+def _in_workspace(session: VoiceSession, org_id: uuid.UUID) -> bool:
+    """Whether a live session belongs to the caller's workspace.
+
+    The session registry is process-global and holds every tenant's live calls,
+    so it must be filtered before anything is returned.
     """
-    Get active voice sessions.
+    agent = getattr(session, "agent", None)
+    return agent is not None and getattr(agent, "organization_id", None) == org_id
+
+
+@router.get("/sessions/active")
+async def get_active_sessions(org_id: uuid.UUID = Depends(get_current_org_id)):
+    """
+    Get the workspace's active voice sessions.
 
     Returns:
         List of active session info
     """
+    visible = {
+        call_id: session
+        for call_id, session in _active_sessions.items()
+        if _in_workspace(session, org_id)
+    }
     return {
-        "active_sessions": len(_active_sessions),
+        "active_sessions": len(visible),
         "sessions": [
             {
                 "call_id": call_id,
@@ -161,15 +179,17 @@ async def get_active_sessions():
                 "agent": session.agent.name,
                 "metrics": session.metrics,
             }
-            for call_id, session in _active_sessions.items()
+            for call_id, session in visible.items()
         ]
     }
 
 
 @router.get("/sessions/{call_id}")
-async def get_session_info(call_id: str):
+async def get_session_info(
+    call_id: str, org_id: uuid.UUID = Depends(get_current_org_id)
+):
     """
-    Get info for a specific session.
+    Get info for a specific session in the caller's workspace.
 
     Args:
         call_id: Call identifier
@@ -179,8 +199,12 @@ async def get_session_info(call_id: str):
     """
     session = _active_sessions.get(call_id)
 
-    if not session:
-        return {"error": "Session not found"}, 404
+    # Same 404 whether it doesn't exist or belongs to another workspace, so a
+    # call id can't be probed for existence.
+    if not session or not _in_workspace(session, org_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
 
     return {
         "call_id": call_id,

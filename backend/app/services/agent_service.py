@@ -331,7 +331,7 @@ class AgentService:
         self,
         agent_id: uuid.UUID,
         agent_data: AgentUpdate,
-        user_id: uuid.UUID,
+        organization_id: uuid.UUID,
         db: AsyncSession,
     ) -> Optional[Agent]:
         """
@@ -340,19 +340,20 @@ class AgentService:
         Args:
             agent_id: Agent ID
             agent_data: Update data
-            user_id: User ID
+            organization_id: Workspace the agent must belong to
             db: Database session
 
         Returns:
             Updated agent or None
         """
         try:
-            # Get agent
+            # Agents are workspace-owned: any teammate with write access may
+            # edit one, and nobody outside the workspace can.
             result = await db.execute(
                 select(Agent).where(
                     and_(
                         Agent.id == agent_id,
-                        Agent.user_id == user_id,
+                        Agent.organization_id == organization_id,
                     )
                 )
             )
@@ -438,7 +439,7 @@ class AgentService:
     async def delete_agent(
         self,
         agent_id: uuid.UUID,
-        user_id: uuid.UUID,
+        organization_id: uuid.UUID,
         db: AsyncSession,
         soft_delete: bool = True,
     ) -> bool:
@@ -447,7 +448,7 @@ class AgentService:
 
         Args:
             agent_id: Agent ID
-            user_id: User ID
+            organization_id: Workspace the agent must belong to
             db: Database session
             soft_delete: Use soft delete (set deleted_at)
 
@@ -459,7 +460,7 @@ class AgentService:
                 select(Agent).where(
                     and_(
                         Agent.id == agent_id,
-                        Agent.user_id == user_id,
+                        Agent.organization_id == organization_id,
                     )
                 )
             )
@@ -509,9 +510,15 @@ class AgentService:
             Cloned agent or None
         """
         try:
-            # Get source agent
+            # Source must live in the same workspace as the clone — otherwise a
+            # bare agent id from anywhere would be copyable into this workspace.
             result = await db.execute(
-                select(Agent).where(Agent.id == agent_id)
+                select(Agent).where(
+                    and_(
+                        Agent.id == agent_id,
+                        Agent.organization_id == organization_id,
+                    )
+                )
             )
             source = result.scalar_one_or_none()
 

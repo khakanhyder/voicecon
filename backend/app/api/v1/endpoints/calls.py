@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case, desc
 
 from app.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_org_id
 from app.models.user import User
 from app.models.call import Call, PhoneNumber
 from app.models.agent import Agent
@@ -113,6 +113,7 @@ async def create_call(
     call_data: CallCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Create a new outbound call.
@@ -124,7 +125,7 @@ async def create_call(
         select(Agent).where(
             and_(
                 Agent.id == call_data.agent_id,
-                Agent.user_id == current_user.id,
+                Agent.organization_id == org_id,
                 Agent.is_active == True
             )
         )
@@ -143,7 +144,7 @@ async def create_call(
             select(PhoneNumber).where(
                 and_(
                     PhoneNumber.id == call_data.from_number_id,
-                    PhoneNumber.user_id == current_user.id
+                    PhoneNumber.organization_id == org_id
                 )
             )
         )
@@ -221,13 +222,14 @@ async def list_calls(
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List calls for the current user.
 
     Supports filtering by agent and status.
     """
-    query = select(Call).where(Call.user_id == current_user.id)
+    query = select(Call).where(Call.organization_id == org_id)
 
     # Apply filters
     if agent_id:
@@ -239,7 +241,7 @@ async def list_calls(
     query = query.order_by(Call.started_at.desc())
 
     # Get total count
-    count_query = select(Call).where(Call.user_id == current_user.id)
+    count_query = select(Call).where(Call.organization_id == org_id)
     if agent_id:
         count_query = count_query.where(Call.agent_id == agent_id)
     if status:
@@ -265,6 +267,7 @@ async def list_calls(
 async def get_call_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get call statistics for the current user.
@@ -272,14 +275,14 @@ async def get_call_stats(
     from sqlalchemy import func
 
     total_calls_result = await db.execute(
-        select(func.count(Call.id)).where(Call.user_id == current_user.id)
+        select(func.count(Call.id)).where(Call.organization_id == org_id)
     )
     total_calls = total_calls_result.scalar()
 
     completed_calls_result = await db.execute(
         select(func.count(Call.id)).where(
             and_(
-                Call.user_id == current_user.id,
+                Call.organization_id == org_id,
                 Call.status == "completed"
             )
         )
@@ -287,12 +290,12 @@ async def get_call_stats(
     completed_calls = completed_calls_result.scalar()
 
     duration_result = await db.execute(
-        select(func.sum(Call.duration_seconds)).where(Call.user_id == current_user.id)
+        select(func.sum(Call.duration_seconds)).where(Call.organization_id == org_id)
     )
     total_duration = duration_result.scalar() or 0
 
     cost_result = await db.execute(
-        select(func.sum(Call.cost_total)).where(Call.user_id == current_user.id)
+        select(func.sum(Call.cost_total)).where(Call.organization_id == org_id)
     )
     total_cost = cost_result.scalar() or 0
 
@@ -318,6 +321,7 @@ async def create_phone_number(
     phone_data: PhoneNumberCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Register a new phone number.
@@ -337,7 +341,7 @@ async def create_phone_number(
 
     phone_number = PhoneNumber(
         user_id=current_user.id,
-        organization_id=current_user.organizations[0].id if current_user.organizations else None,
+        organization_id=org_id,
         phone_number=phone_data.phone_number,
         provider="twilio",
         capabilities={"voice": True, "sms": True},
@@ -357,6 +361,7 @@ async def create_phone_number(
 async def list_phone_numbers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List all phone numbers for the current user.
@@ -364,7 +369,7 @@ async def list_phone_numbers(
     result = await db.execute(
         select(PhoneNumber).where(
             and_(
-                PhoneNumber.user_id == current_user.id,
+                PhoneNumber.organization_id == org_id,
                 PhoneNumber.status == "active"
             )
         ).order_by(PhoneNumber.created_at.desc())
@@ -392,6 +397,7 @@ def _contact_expr():
 async def list_call_contacts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List distinct callers (contacts) with aggregated call history.
@@ -411,7 +417,7 @@ async def list_call_contacts(
             func.avg(Call.sentiment_score).label("avg_sentiment"),
             func.max(Call.started_at).label("last_call_at"),
         )
-        .where(Call.user_id == current_user.id)
+        .where(Call.organization_id == org_id)
         .group_by(contact)
         .order_by(desc(func.max(Call.started_at)))
     )
@@ -443,6 +449,7 @@ async def get_contact_calls(
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     List all calls for a specific caller (contact), most recent first.
@@ -450,7 +457,7 @@ async def get_contact_calls(
     contact = _contact_expr()
 
     base_filter = and_(
-        Call.user_id == current_user.id,
+        Call.organization_id == org_id,
         contact == contact_number,
     )
 
@@ -479,6 +486,7 @@ async def get_call(
     call_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Get a specific call by ID.
@@ -487,7 +495,7 @@ async def get_call(
         select(Call).where(
             and_(
                 Call.id == call_id,
-                Call.user_id == current_user.id
+                Call.organization_id == org_id
             )
         )
     )
@@ -507,6 +515,7 @@ async def delete_call(
     call_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
 ):
     """
     Delete a call record.
@@ -515,7 +524,7 @@ async def delete_call(
         select(Call).where(
             and_(
                 Call.id == call_id,
-                Call.user_id == current_user.id
+                Call.organization_id == org_id
             )
         )
     )

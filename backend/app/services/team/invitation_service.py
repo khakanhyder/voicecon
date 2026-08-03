@@ -23,8 +23,9 @@ from app.services.email import email_service
 
 logger = logging.getLogger(__name__)
 
+from app.core.permissions import ASSIGNABLE_ROLES
+
 INVITE_TTL_DAYS = 7
-ASSIGNABLE_ROLES = {"admin", "member", "viewer"}
 
 
 def _accept_url(token: str) -> str:
@@ -165,6 +166,10 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
     if not is_actionable(invitation):
         raise _err("not_actionable", "This invitation is no longer valid")
 
+    organization = await db.get(Organization, invitation.organization_id)
+    if organization is None or not organization.is_active:
+        raise _err("org_inactive", "That workspace is no longer available")
+
     # Create membership if not already present.
     if not await _is_member(db, invitation.organization_id, user.id):
         db.add(
@@ -175,6 +180,11 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
                 invited_by=invitation.invited_by,
             )
         )
+
+    # Land them *inside* the workspace they just joined. Without this the next
+    # request resolves to their own workspace and the invitation looks like it
+    # did nothing — they can still switch back at any time.
+    user.active_organization_id = invitation.organization_id
 
     invitation.status = "accepted"
     invitation.responded_at = datetime.utcnow()

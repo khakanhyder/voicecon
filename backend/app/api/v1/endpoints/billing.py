@@ -25,6 +25,12 @@ from app.services.billing import StripeService, get_stripe_service
 
 router = APIRouter()
 
+#: Routes that must stay reachable without a workspace context — carrier and
+#: payment-provider webhooks, and the public embed surfaces. They live on their
+#: own router so the authenticated router can carry a blanket permission guard
+#: (see app.api.v1.api) without accidentally locking these out.
+public_router = APIRouter()
+
 
 async def _mark_onboarding_done(db: AsyncSession, organization_id: uuid.UUID) -> None:
     """Flag the organization's onboarding as completed once a plan/trial is active."""
@@ -135,7 +141,7 @@ class UsageLimitsResponse(BaseModel):
 # ==================== Endpoints ====================
 
 
-@router.get("/plans", response_model=List[SubscriptionPlanResponse])
+@public_router.get("/plans", response_model=List[SubscriptionPlanResponse])
 async def list_subscription_plans(
     db: AsyncSession = Depends(get_db),
     include_inactive: bool = False,
@@ -569,7 +575,7 @@ async def list_invoices(
     ]
 
 
-@router.post("/webhooks/stripe", status_code=status.HTTP_200_OK)
+@public_router.post("/webhooks/stripe", status_code=status.HTTP_200_OK)
 async def stripe_webhook(
     request: Request,
     stripe_signature: str = Header(None, alias="stripe-signature"),
@@ -645,7 +651,7 @@ class CheckoutRequest(BaseModel):
     billing_period: str = Field("monthly", description="monthly | yearly")
 
 
-@router.get("/config", response_model=BillingConfigResponse)
+@public_router.get("/config", response_model=BillingConfigResponse)
 async def get_billing_config():
     """Expose the Stripe publishable key so the frontend can init Stripe.js."""
     from app.core.config import settings

@@ -12,20 +12,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.core.dependencies import get_db, get_current_active_user
+from app.core import permissions as perms
+from app.core.dependencies import (
+    get_db,
+    get_current_active_user,
+    get_current_org_id,
+    require_permission,
+)
+from app.core.workspace import WorkspaceContext
 from app.models.user import User, OrganizationMember
-
-
-async def get_current_org_id(
-    user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> uuid.UUID:
-    """Resolve the user's organization id. User has no organization_id column;
-    membership lives in organization_members. Falls back to the user id."""
-    m = (await db.execute(
-        select(OrganizationMember).where(OrganizationMember.user_id == user.id).limit(1)
-    )).scalar_one_or_none()
-    return m.organization_id if m else user.id
 from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Document as DocumentModel
 from app.services.knowledge_base import RAGService
 from app.core.config import settings

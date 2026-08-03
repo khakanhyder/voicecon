@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
+import { useWorkspaceStore } from '@/store/workspaceStore'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 
@@ -14,6 +15,8 @@ export default function DashboardLayout({
   const router = useRouter()
   const pathname = usePathname()
   const { isAuthenticated, isLoading } = useAuthStore()
+  const loadWorkspace = useWorkspaceStore((s) => s.load)
+  const resetWorkspace = useWorkspaceStore((s) => s.reset)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // The workflow canvas manages its own scrolling and needs the full width;
@@ -25,6 +28,17 @@ export default function DashboardLayout({
       router.push('/login')
     }
   }, [isAuthenticated, isLoading, router])
+
+  // Resolve which workspace this session is working inside, and with what role.
+  // Everything under /dashboard is workspace-scoped, so this loads once here
+  // rather than in each page.
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadWorkspace()
+    } else {
+      resetWorkspace()
+    }
+  }, [isAuthenticated, loadWorkspace, resetWorkspace])
 
   if (isLoading) {
     return (
