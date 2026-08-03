@@ -38,6 +38,22 @@ export interface RegisterData {
   password: string
   full_name?: string
   phone_number?: string
+  /** Proof from verifyEmailCode that the address was confirmed. */
+  email_verification_token?: string
+}
+
+export interface SendCodeResult {
+  message: string
+  expires_in_minutes: number
+  /** Present only in local dev with no mail transport configured. */
+  debug_code?: string | null
+}
+
+export interface VerifyCodeResult {
+  verified: boolean
+  email: string
+  email_verification_token: string
+  expires_in_minutes: number
 }
 
 export const authService = {
@@ -58,6 +74,37 @@ export const authService = {
   async register(data: RegisterData) {
     const { data: res } = await apiClient.post('/api/v1/auth/register', data)
     return res
+  },
+
+  // ── Email verification (sign-up) ──────────────────────────────────────────
+
+  /** Email a one-time code to confirm an address before registering. */
+  async sendEmailCode(email: string): Promise<SendCodeResult> {
+    const { data } = await apiClient.post('/api/v1/auth/email/send-code', {
+      email,
+      purpose: 'signup',
+    })
+    return data
+  },
+
+  /** Exchange a correct code for the token that /register requires. */
+  async verifyEmailCode(email: string, code: string): Promise<VerifyCodeResult> {
+    const { data } = await apiClient.post('/api/v1/auth/email/verify-code', { email, code })
+    return data
+  },
+
+  // ── Forgotten password ────────────────────────────────────────────────────
+
+  /** Always resolves, whether or not the address has an account. */
+  async forgotPassword(email: string): Promise<SendCodeResult> {
+    const { data } = await apiClient.post('/api/v1/auth/password/forgot', { email })
+    return data
+  },
+
+  /** Sets the new password and signs the user in with the returned session. */
+  async resetPassword(params: { email: string; code: string; new_password: string }) {
+    const { data } = await apiClient.post('/api/v1/auth/password/reset', params)
+    return authService.persistSession(data)
   },
 
   // Persist the session returned by any auth endpoint (login / google / apple).

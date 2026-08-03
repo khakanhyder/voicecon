@@ -14,7 +14,10 @@ from typing import Optional
 from app.core.config import settings
 from app.services.email.base import EmailMessage, EmailProvider
 from app.services.email.providers import ConsoleProvider, SMTPProvider, SendGridProvider
-from app.services.email.templates import render_invitation_email
+from app.services.email.templates import (
+    render_invitation_email,
+    render_verification_code_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,39 @@ class EmailService:
             if raise_on_error:
                 raise
             return False
+
+    async def send_verification_code(
+        self,
+        *,
+        to_email: str,
+        code: str,
+        expires_minutes: int,
+        purpose: str = "signup",
+        recipient_name: Optional[str] = None,
+        raise_on_error: bool = False,
+    ) -> bool:
+        """
+        Send a one-time code for sign-up verification or password reset.
+
+        Unlike an invitation, the user is waiting on this email, so callers pass
+        ``raise_on_error=True`` to surface a dead mail server rather than
+        leaving them staring at a code that never arrives.
+        """
+        html, text, subject = render_verification_code_email(
+            brand=settings.APP_NAME,
+            code=code,
+            expires_minutes=expires_minutes,
+            purpose=purpose,
+            recipient_name=recipient_name,
+        )
+        message = EmailMessage(
+            to=to_email,
+            to_name=recipient_name,
+            subject=subject,
+            html=html,
+            text=text,
+        )
+        return await self.send(message, raise_on_error=raise_on_error)
 
     async def send_invitation(
         self,

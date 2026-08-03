@@ -60,14 +60,114 @@ INVITATION_BODY = """
 </p>
 """
 
+VERIFICATION_CODE_BODY = """
+<h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ heading }}</h1>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 24px;">
+  {{ intro }}
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+  <tr>
+    <td align="center" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:22px 16px;">
+      <p style="color:#64748b;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 10px;">
+        {{ code_label }}
+      </p>
+      <p style="color:#0f172a;font-size:34px;font-weight:700;letter-spacing:0.32em;margin:0;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">
+        {{ code }}
+      </p>
+    </td>
+  </tr>
+</table>
+<p style="color:#334155;font-size:14px;line-height:1.6;margin:0 0 8px;">
+  This code expires in <strong>{{ expires_minutes }} minutes</strong> and can only be used once.
+</p>
+<p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+  {{ disclaimer }}
+</p>
+"""
+
 _env = Environment(
-    loader=DictLoader({"base": BASE_LAYOUT, "invitation": INVITATION_BODY}),
+    loader=DictLoader(
+        {
+            "base": BASE_LAYOUT,
+            "invitation": INVITATION_BODY,
+            "verification_code": VERIFICATION_CODE_BODY,
+        }
+    ),
     autoescape=select_autoescape(["html", "xml"]),
 )
 
 
 def _wrap(body_html: str, footer: str, brand: str) -> str:
     return _env.get_template("base").render(body=body_html, footer=footer, brand=brand)
+
+
+def render_verification_code_email(
+    *,
+    brand: str,
+    code: str,
+    expires_minutes: int,
+    purpose: str,
+    recipient_name: str | None = None,
+) -> tuple[str, str, str]:
+    """
+    Return (html, text, subject) for a one-time code email.
+
+    `purpose` is "signup" or "password_reset"; it only changes the wording, so
+    the two emails stay visually identical and unmistakably from the same
+    product.
+    """
+    def opening(sentence: str) -> str:
+        """Prefix a greeting when we know the name, keeping the sentence readable."""
+        if recipient_name:
+            return f"Hi {recipient_name}, {sentence[0].lower()}{sentence[1:]}"
+        return sentence
+
+    if purpose == "password_reset":
+        subject = f"Your {brand} password reset code"
+        heading = "Reset your password"
+        intro = opening(
+            f"Use the code below to set a new password for your {brand} account."
+        )
+        code_label = "Password reset code"
+        disclaimer = (
+            "If you didn't ask to reset your password, you can ignore this "
+            "email — your password stays as it is."
+        )
+    else:
+        subject = f"Your {brand} verification code"
+        heading = "Verify your email address"
+        intro = opening(
+            f"Enter the code below to confirm this email address and finish "
+            f"creating your {brand} account."
+        )
+        code_label = "Verification code"
+        disclaimer = (
+            "If you didn't try to create an account, you can safely ignore "
+            "this email."
+        )
+
+    body = _env.get_template("verification_code").render(
+        heading=heading,
+        intro=intro,
+        code_label=code_label,
+        code=code,
+        expires_minutes=expires_minutes,
+    )
+    html = _wrap(
+        body,
+        footer=f"This is an automated message from {brand}. Never share this code with anyone — "
+        f"{brand} will never ask you for it.",
+        brand=brand,
+    )
+    text = (
+        f"{heading}\n\n"
+        f"{intro}\n\n"
+        f"{code_label}: {code}\n\n"
+        f"This code expires in {expires_minutes} minutes and can only be used once.\n\n"
+        f"{disclaimer}\n"
+        f"Never share this code with anyone — {brand} will never ask you for it."
+    )
+    return html, text, subject
 
 
 def render_invitation_email(

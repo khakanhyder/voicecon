@@ -29,9 +29,27 @@ Version 1.0.0 | Last Updated: December 19, 2025
 #### 1. Sign Up for Voicecon
 
 1. Visit [https://app.voicecon.com/register](https://app.voicecon.com/register)
-2. Enter your email, password, and company name
-3. Verify your email address
-4. Complete your profile
+2. Enter your name and email, then click **Verify** next to the email field
+3. We email you a 6-digit code — enter it to confirm the address. The code
+   expires in 10 minutes, and **Resend** is available after a minute if it
+   doesn't arrive (check spam first)
+4. Fill in your phone number and password, then **Sign up Now**
+
+The account can only be created once the code has been accepted, so an address
+you don't control can never be registered. Signing up with Google or Apple skips
+this step — those providers have already verified the address.
+
+#### Forgot your password?
+
+On the sign-in page, click **Forgot password?**:
+
+1. Enter your email — we send a 6-digit reset code
+2. Enter the code and choose a new password
+
+You're signed in automatically once the password is set. Codes are single-use,
+expire in 10 minutes, and stop working after five wrong attempts. For your
+security, the page shows the same confirmation whether or not the address has an
+account.
 
 #### 2. Company Information — and your first phone number
 

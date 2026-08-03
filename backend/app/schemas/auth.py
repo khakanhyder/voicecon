@@ -39,6 +39,63 @@ class RegisterRequest(BaseModel):
     full_name: Optional[str] = None
     company_name: Optional[str] = None
     phone_number: Optional[str] = None
+    email_verification_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Token returned by /auth/email/verify-code, proving the address was "
+            "confirmed. Required unless the server has email verification off."
+        ),
+    )
+
+
+class SendEmailCodeRequest(BaseModel):
+    """Ask for a one-time code to be emailed to an address."""
+
+    email: EmailStr
+    purpose: str = Field(
+        default="signup",
+        description="'signup' to verify a new address, 'password_reset' to reset a password",
+    )
+
+
+class SendEmailCodeResponse(BaseModel):
+    """Outcome of a code request."""
+
+    message: str
+    expires_in_minutes: int
+    #: Only populated in debug mode with no mail transport configured, so local
+    #: development does not require reading the server log.
+    debug_code: Optional[str] = None
+
+
+class VerifyEmailCodeRequest(BaseModel):
+    """Submit the code that was emailed."""
+
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=12)
+
+
+class VerifyEmailCodeResponse(BaseModel):
+    """Proof that an address was verified, to be passed to /auth/register."""
+
+    verified: bool
+    email: EmailStr
+    email_verification_token: str
+    expires_in_minutes: int
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Start a password reset."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Finish a password reset with the emailed code."""
+
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=12)
+    new_password: str = Field(..., min_length=8)
 
 
 class RegisterResponse(BaseModel):

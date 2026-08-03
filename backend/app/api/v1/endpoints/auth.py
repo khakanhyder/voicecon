@@ -1,7 +1,13 @@
 """
 Authentication endpoints for user login, registration, and token management.
+
+Sign-up is two steps: the address is proved with a one-time code emailed to it
+(`/auth/email/send-code` then `/auth/email/verify-code`), and the resulting
+token is handed back on `/auth/register`. The same code machinery backs the
+forgotten-password flow.
 """
 from datetime import datetime
+import logging
 import uuid as _uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,25 +16,47 @@ from sqlalchemy import select
 from app.database import get_db
 from app.core.config import settings
 from app.core.security import (
+    EMAIL_VERIFICATION_TOKEN_MINUTES,
     verify_password,
     get_password_hash,
     create_access_token,
+    create_email_verification_token,
     create_refresh_token,
     decode_token,
+    verify_email_verification_token,
 )
 from app.core.exceptions import credentials_exception, bad_request_exception
 from app.models.user import User, Organization, OrganizationMember
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
     RefreshTokenRequest,
+    ResetPasswordRequest,
     GoogleAuthRequest,
     AppleAuthRequest,
+    SendEmailCodeRequest,
+    SendEmailCodeResponse,
+    VerifyEmailCodeRequest,
+    VerifyEmailCodeResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.auth import get_oauth_service, OAuthError
+from app.services.auth.verification import (
+    CODE_TTL_MINUTES,
+    PURPOSE_EMAIL_VERIFICATION,
+    PURPOSE_PASSWORD_RESET,
+    RateLimited,
+    VerificationError,
+    confirm_code,
+    issue_code,
+    normalize_email,
+)
+from app.services.email.service import email_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -51,6 +79,191 @@ def _login_response_for(user: User, is_new: bool = False) -> LoginResponse:
     )
 
 
+async def _email_is_registered(db: AsyncSession, email: str) -> bool:
+    result = await db.execute(select(User).where(User.email == normalize_email(email)))
+    return result.scalar_one_or_none() is not None
+
+
+def _code_delivery_response(code: str, message: str) -> SendEmailCodeResponse:
+    """
+    Build the response for a code that was just sent.
+
+    Locally, with no mail transport configured, the code comes back in the body
+    so the flow is usable without digging through the server log. This only
+    happens with DEBUG on *and* no real provider — never in a deployment that
+    can actually send mail.
+    """
+    expose = settings.DEBUG and not email_service.delivery_enabled
+    return SendEmailCodeResponse(
+        message=message,
+        expires_in_minutes=CODE_TTL_MINUTES,
+        debug_code=code if expose else None,
+    )
+
+
+@router.post("/email/send-code", response_model=SendEmailCodeResponse)
+async def send_email_code(
+    payload: SendEmailCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Email a one-time code to confirm an address before sign-up.
+
+    Rejects addresses that are already registered — the caller is about to
+    create an account, and `/auth/register` would refuse anyway, so failing here
+    is the same disclosure with a clearer message.
+    """
+    email = normalize_email(payload.email)
+
+    if payload.purpose == "password_reset":
+        # Password reset has its own endpoint precisely because it must not
+        # disclose whether an address exists.
+        raise bad_request_exception(
+            "Use /auth/password/forgot to reset a password."
+        )
+
+    if await _email_is_registered(db, email):
+        raise bad_request_exception(
+            "That email is already registered. Try signing in instead."
+        )
+
+    try:
+        code, _ = await issue_code(db, email, PURPOSE_EMAIL_VERIFICATION)
+    except RateLimited as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+            headers={"Retry-After": str(e.retry_after_seconds)},
+        )
+    except VerificationError as e:
+        raise bad_request_exception(str(e))
+
+    sent = await email_service.send_verification_code(
+        to_email=email,
+        code=code,
+        expires_minutes=CODE_TTL_MINUTES,
+        purpose="signup",
+    )
+    if not sent and email_service.delivery_enabled:
+        # A configured mail server that failed is a real outage: say so rather
+        # than leaving the user waiting for an email that will never arrive.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't send the verification email. Please try again.",
+        )
+
+    return _code_delivery_response(code, f"We sent a code to {email}.")
+
+
+@router.post("/email/verify-code", response_model=VerifyEmailCodeResponse)
+async def verify_email_code(
+    payload: VerifyEmailCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Check the code emailed to an address.
+
+    On success returns a short-lived token that `/auth/register` requires, so
+    an account can only be created for an address the caller has proved.
+    """
+    email = normalize_email(payload.email)
+
+    try:
+        await confirm_code(db, email, PURPOSE_EMAIL_VERIFICATION, payload.code)
+    except VerificationError as e:
+        raise bad_request_exception(str(e))
+
+    return VerifyEmailCodeResponse(
+        verified=True,
+        email=email,
+        email_verification_token=create_email_verification_token(email),
+        expires_in_minutes=EMAIL_VERIFICATION_TOKEN_MINUTES,
+    )
+
+
+@router.post("/password/forgot", response_model=SendEmailCodeResponse)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Email a code for resetting a forgotten password.
+
+    Always reports success, whether or not the address has an account: the
+    response must not tell an attacker which emails are registered.
+    """
+    email = normalize_email(payload.email)
+    generic = "If that email has an account, we've sent a reset code to it."
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        logger.info(f"Password reset requested for unknown address {email}")
+        return SendEmailCodeResponse(message=generic, expires_in_minutes=CODE_TTL_MINUTES)
+
+    try:
+        code, _ = await issue_code(db, email, PURPOSE_PASSWORD_RESET)
+    except RateLimited as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+            headers={"Retry-After": str(e.retry_after_seconds)},
+        )
+    except VerificationError as e:
+        raise bad_request_exception(str(e))
+
+    await email_service.send_verification_code(
+        to_email=email,
+        code=code,
+        expires_minutes=CODE_TTL_MINUTES,
+        purpose="password_reset",
+        recipient_name=user.full_name,
+    )
+
+    return _code_delivery_response(code, generic)
+
+
+@router.post("/password/reset", response_model=LoginResponse)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Set a new password using the emailed code, and sign the user in.
+
+    Signing in immediately is the point of the flow — the user has just proved
+    they control the address and chosen a password, so sending them back to the
+    login form to type it again adds nothing.
+    """
+    email = normalize_email(payload.email)
+
+    try:
+        await confirm_code(db, email, PURPOSE_PASSWORD_RESET, payload.code)
+    except VerificationError as e:
+        raise bad_request_exception(str(e))
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        # Only reachable if the account was deleted between request and reset.
+        raise bad_request_exception("That code is not valid. Request a new one.")
+
+    user.hashed_password = get_password_hash(payload.new_password)
+    # Resetting through the emailed code proves the address, so an account that
+    # never finished sign-up verification is verified now.
+    if not user.is_verified:
+        user.is_verified = True
+        user.email_verified_at = datetime.utcnow()
+    user.last_login_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info(f"Password reset completed for {email}")
+    return _login_response_for(user)
+
+
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: RegisterRequest,
@@ -59,29 +272,44 @@ async def register(
     """
     Register a new user account.
 
-    Creates a new user and their personal organization.
+    Creates a new user and their personal organization. The email must first be
+    confirmed through `/auth/email/verify-code`, whose token is passed here.
     """
+    email = normalize_email(user_data.email)
+
     # Check if user already exists
-    result = await db.execute(select(User).where(User.email == user_data.email))
+    result = await db.execute(select(User).where(User.email == email))
     existing_user = result.scalar_one_or_none()
 
     if existing_user:
         raise bad_request_exception("Email already registered")
 
+    email_verified = bool(
+        user_data.email_verification_token
+        and verify_email_verification_token(user_data.email_verification_token, email)
+    )
+
+    if settings.REQUIRE_EMAIL_VERIFICATION and not email_verified:
+        raise bad_request_exception(
+            "Please verify your email address before creating your account."
+        )
+
     # Create user
     user = User(
-        email=user_data.email,
+        email=email,
         hashed_password=get_password_hash(user_data.password),
         full_name=user_data.full_name,
         company_name=user_data.company_name,
         phone_number=user_data.phone_number,
+        is_verified=email_verified,
+        email_verified_at=datetime.utcnow() if email_verified else None,
     )
 
     db.add(user)
     await db.flush()  # Flush to get user.id
 
     # Create personal organization
-    org_slug = user_data.email.split("@")[0].lower().replace(".", "-")
+    org_slug = email.split("@")[0].replace(".", "-")
     organization = Organization(
         name=user_data.company_name or f"{user_data.full_name}'s Workspace",
         slug=org_slug,
@@ -103,11 +331,14 @@ async def register(
     await db.refresh(user)
 
     return RegisterResponse(
-        message="User registered successfully. Please verify your email.",
+        message="Account created successfully."
+        if email_verified
+        else "Account created. Please verify your email.",
         user={
             "id": str(user.id),
             "email": user.email,
             "full_name": user.full_name,
+            "is_verified": user.is_verified,
         }
     )
 

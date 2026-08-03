@@ -133,6 +133,41 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
+#: Minutes a proof-of-verified-email token stays usable. Long enough to finish
+#: filling in the sign-up form, short enough that a leaked token is not a
+#: standing permit to register that address.
+EMAIL_VERIFICATION_TOKEN_MINUTES = 30
+
+
+def create_email_verification_token(
+    email: str,
+    expires_minutes: int = EMAIL_VERIFICATION_TOKEN_MINUTES,
+) -> str:
+    """
+    Issue proof that `email` was confirmed by a one-time code.
+
+    Handed to the client after a correct code and handed back on register, so
+    the account can only be created for an address the user actually controls.
+    """
+    return jwt.encode(
+        {
+            "exp": datetime.utcnow() + timedelta(minutes=expires_minutes),
+            "sub": email.strip().lower(),
+            "type": "email_verification",
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+
+def verify_email_verification_token(token: str, email: str) -> bool:
+    """True when `token` is a live verification proof for `email`."""
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "email_verification":
+        return False
+    return payload.get("sub") == email.strip().lower()
+
+
 def generate_api_key() -> tuple[str, str]:
     """
     Generate an API key and its hash.

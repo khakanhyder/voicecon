@@ -14,7 +14,19 @@ from app.core.security import get_password_hash, create_access_token
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestAuthRegistration:
-    """Test user registration flow."""
+    """
+    Test user registration flow.
+
+    These cover the account/organization mechanics, so the email-code gate is
+    switched off here; the gate itself is covered end to end in
+    ``test_auth_verification_api.py``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_email_gate(self, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "REQUIRE_EMAIL_VERIFICATION", False)
 
     async def test_register_new_user(self, client, db_session):
         """Test successful user registration."""
@@ -30,7 +42,7 @@ class TestAuthRegistration:
         assert response.status_code == 201
         data = response.json()
 
-        assert data["message"] == "User registered successfully. Please verify your email."
+        assert "Account created" in data["message"]
         assert data["user"]["email"] == "newuser@example.com"
         assert data["user"]["full_name"] == "New User"
         assert "id" in data["user"]
@@ -307,7 +319,7 @@ class TestPasswordReset:
         """Test requesting password reset."""
         reset_data = {"email": test_user.email}
 
-        response = client.post("/api/v1/auth/forgot-password", json=reset_data)
+        response = client.post("/api/v1/auth/password/forgot", json=reset_data)
 
         assert response.status_code == 200
         data = response.json()
@@ -318,25 +330,22 @@ class TestPasswordReset:
         """Test requesting reset for non-existent email."""
         reset_data = {"email": "nonexistent@example.com"}
 
-        response = client.post("/api/v1/auth/forgot-password", json=reset_data)
+        response = client.post("/api/v1/auth/password/forgot", json=reset_data)
 
         # Should return 200 for security (don't reveal if email exists)
         assert response.status_code == 200
 
-    async def test_reset_password_with_token(self, client):
-        """Test resetting password with valid token."""
-        reset_token = "valid_reset_token_here"
-
+    async def test_reset_password_with_invalid_code(self, client):
+        """A code that was never issued must not reset anything."""
         reset_data = {
-            "token": reset_token,
+            "email": "nonexistent@example.com",
+            "code": "000000",
             "new_password": "NewSecurePassword123!",
         }
 
-        response = client.post("/api/v1/auth/reset-password", json=reset_data)
+        response = client.post("/api/v1/auth/password/reset", json=reset_data)
 
-        # This will fail without actual token generation
-        # In real implementation, you'd generate a valid token first
-        assert response.status_code in [200, 400, 401]
+        assert response.status_code == 400
 
 
 @pytest.mark.integration

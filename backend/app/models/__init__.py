@@ -28,6 +28,7 @@ from app.models.template import (
 from app.models.chat import ChatWidget, ChatSession, ChatMessage
 from app.models.invitation import Invitation
 from app.models.notification import Notification
+from app.models.verification import VerificationCode
 
 __all__ = [
     "Base",
@@ -85,4 +86,6 @@ __all__ = [
     "TemplateInstallation",
     "TemplateReview",
     "TemplateVersion",
+    # Auth
+    "VerificationCode",
 ]

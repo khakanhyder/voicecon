@@ -183,6 +183,13 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = Field(default="no-reply@voicecon.app", description="Default From address")
     EMAIL_FROM_NAME: str = Field(default="Voicecon", description="Default From display name")
 
+    # Sign-up requires confirming the email address with a one-time code. Turn
+    # off only for automated tests or a closed demo — with it off, anyone can
+    # register an address they do not own.
+    REQUIRE_EMAIL_VERIFICATION: bool = Field(
+        default=True, description="Require an emailed code before an account is created"
+    )
+
     @property
     def smtp_configured(self) -> bool:
         """SMTP is usable when at least a host is set."""
