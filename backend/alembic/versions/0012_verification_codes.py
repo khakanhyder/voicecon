@@ -1,7 +1,7 @@
 """one-time email codes for sign-up verification and password reset
 
 Revision ID: 0012_verification_codes
-Revises: 0011_number_provider
+Revises: 6ce97605fa4d
 Create Date: 2026-08-01
 
 Sign-up now proves the email address before the account is created, and
@@ -18,7 +18,10 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0012_verification_codes"
-down_revision = "0011_number_provider"
+# Chains off 6ce97605fa4d, not 0011: that revision already descends from 0011,
+# so branching from 0011 would leave two heads and `alembic upgrade head` would
+# abort with "Multiple head revisions" — taking the migration with it.
+down_revision = "6ce97605fa4d"
 branch_labels = None
 depends_on = None
 
