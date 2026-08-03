@@ -136,6 +136,27 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
 
 ALL_PERMISSIONS: FrozenSet[str] = _OWNER
 
+#: Never available to an API key, whatever role minted it. These are the
+#: capabilities that would let a leaked key entrench itself or lock the humans
+#: out — mint more keys, rewrite the member list, move the money, delete the
+#: workspace. Recovering from a stolen key must never require the key's
+#: cooperation, so these stay behind an interactive login.
+API_KEY_FORBIDDEN: FrozenSet[str] = frozenset(
+    {
+        API_KEYS_MANAGE,
+        TEAM_MANAGE,
+        TEAM_MANAGE_ADMINS,
+        BILLING_MANAGE,
+        WORKSPACE_DELETE,
+        WORKSPACE_TRANSFER_OWNERSHIP,
+    }
+)
+
+#: The scopes an API key may be granted — everything except the escalation set.
+#: This is what ``GET /api-keys/scopes`` publishes and what key creation
+#: validates against, so the UI can never offer a scope the API would reject.
+ASSIGNABLE_SCOPES: FrozenSet[str] = ALL_PERMISSIONS - API_KEY_FORBIDDEN
+
 
 def permissions_for(role: str) -> FrozenSet[str]:
     """Permissions granted by ``role``. Unknown roles get nothing."""

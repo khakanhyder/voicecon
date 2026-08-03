@@ -105,6 +105,7 @@ export const API_ENDPOINTS = {
   API_KEYS: `${API_BASE}/api/v1/api-keys`,
   API_KEY: (id: string) => `${API_BASE}/api/v1/api-keys/${id}`,
   API_KEY_REGENERATE: (id: string) => `${API_BASE}/api/v1/api-keys/${id}/regenerate`,
+  API_KEY_SCOPES: `${API_BASE}/api/v1/api-keys/scopes`,
 
   // Tools
   TOOLS: `${API_BASE}/api/v1/tools`,

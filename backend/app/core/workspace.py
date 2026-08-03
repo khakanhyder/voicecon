@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import permissions as perms
-from app.models.user import Organization, OrganizationMember, User
+from app.models.user import ApiKey, Organization, OrganizationMember, User
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,18 @@ ORG_HEADER = "X-Organization-Id"
 
 @dataclass(frozen=True)
 class WorkspaceContext:
-    """The workspace a request is acting inside, and the caller's standing in it."""
+    """The workspace a request is acting inside, and the caller's standing in it.
+
+    ``api_key`` is set when the request authenticated with an API key rather
+    than a login token. It narrows what the request may do — see
+    :meth:`permissions` — so every existing ``require()`` call site honours the
+    key's limits without needing to know a key was involved.
+    """
 
     user: User
     organization: Organization
     membership: OrganizationMember
+    api_key: Optional[ApiKey] = None
 
     @property
     def organization_id(self) -> _uuid.UUID:
@@ -60,7 +67,20 @@ class WorkspaceContext:
 
     @property
     def permissions(self) -> FrozenSet[str]:
-        return perms.permissions_for(self.role)
+        """What this request may actually do.
+
+        A login token gets everything the role grants. An API key gets that set
+        minus the capabilities that could escalate it (:data:`API_KEY_FORBIDDEN`),
+        then — if the key declares scopes — narrowed to those scopes. A key can
+        therefore never exceed the role of the user who minted it, and shrinking
+        that user's role immediately shrinks the key.
+        """
+        granted = perms.permissions_for(self.role)
+        if self.api_key is None:
+            return granted
+        granted = granted - perms.API_KEY_FORBIDDEN
+        scopes = frozenset(self.api_key.scopes or ())
+        return granted & scopes if scopes else granted
 
     @property
     def is_owner(self) -> bool:
@@ -70,15 +90,30 @@ class WorkspaceContext:
         return permission in self.permissions
 
     def require(self, permission: str) -> None:
-        """Raise 403 unless the caller's role grants ``permission``."""
-        if not self.has(permission):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Your role ({self.role}) does not permit this action "
-                    f"in {self.organization.name}."
-                ),
-            )
+        """Raise 403 unless this request is permitted to do ``permission``."""
+        if self.has(permission):
+            return
+        # Distinguish "your role can't" from "this key can't" — otherwise an
+        # integration owner sees a role error for what is really a scope
+        # problem and goes looking in the wrong place.
+        if self.api_key is not None and perms.has_permission(self.role, permission):
+            if permission in perms.API_KEY_FORBIDDEN:
+                detail = (
+                    f"API keys cannot perform '{permission}'. Use a signed-in "
+                    f"session for this action."
+                )
+            else:
+                detail = (
+                    f"This API key's scopes do not include '{permission}'."
+                )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Your role ({self.role}) does not permit this action "
+                f"in {self.organization.name}."
+            ),
+        )
 
 
 def parse_org_header(raw: Optional[str]) -> Optional[_uuid.UUID]:
@@ -179,6 +214,56 @@ async def resolve_workspace(
     membership = usable[0]
     await _remember(db, user, membership.organization_id)
     return WorkspaceContext(user=user, organization=membership.organization, membership=membership)
+
+
+async def resolve_api_key_workspace(
+    db: AsyncSession,
+    api_key: ApiKey,
+    requested_org_id: Optional[_uuid.UUID] = None,
+) -> WorkspaceContext:
+    """Workspace context for a request authenticated by an API key.
+
+    A key is minted inside one workspace and can never act outside it, so —
+    unlike a login token — there is nothing to resolve: the workspace is the
+    key's. ``X-Organization-Id`` is accepted only when it agrees, and never
+    updates ``active_organization_id``: a background integration must not move
+    the workspace the human's browser is sitting in.
+
+    The minting user's membership is re-read on every request, so revoking
+    their access (or demoting them) takes effect on the next call rather than
+    whenever the key happens to be rotated.
+    """
+    if requested_org_id is not None and requested_org_id != api_key.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This API key cannot act in the workspace named by {ORG_HEADER}",
+        )
+
+    membership = await get_membership(db, api_key.user_id, api_key.organization_id)
+    if membership is None or membership.organization is None:
+        # The key outlived its owner's membership. Nothing can be authorized.
+        logger.info(
+            "API key %s is orphaned: user %s is no longer a member of workspace %s",
+            api_key.id,
+            api_key.user_id,
+            api_key.organization_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This API key's owner no longer has access to its workspace",
+        )
+    if not membership.organization.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This workspace is no longer active",
+        )
+
+    return WorkspaceContext(
+        user=api_key.user,
+        organization=membership.organization,
+        membership=membership,
+        api_key=api_key,
+    )
 
 
 async def _remember(db: AsyncSession, user: User, org_id: _uuid.UUID) -> None:

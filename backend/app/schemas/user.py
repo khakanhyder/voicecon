@@ -140,7 +140,9 @@ class OrganizationMemberResponse(OrganizationMemberInDB):
 # API Key schemas
 class ApiKeyBase(BaseModel):
     """Base API key schema."""
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
+    #: Permissions this key may exercise. Empty means "everything the minting
+    #: user's role allows", minus the escalation set ``API_KEY_FORBIDDEN``.
     scopes: list[str] = []
 
 
@@ -150,10 +152,15 @@ class ApiKeyCreate(ApiKeyBase):
 
 
 class ApiKeyUpdate(BaseModel):
-    """Schema for updating an API key."""
-    name: Optional[str] = None
+    """Schema for updating an API key.
+
+    The secret is not updatable — rotating it is ``POST /{id}/regenerate``,
+    which is a different act with a different consequence for callers.
+    """
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     is_active: Optional[bool] = None
     scopes: Optional[list[str]] = None
+    expires_at: Optional[datetime] = None
 
 
 class ApiKeyInDB(ApiKeyBase):

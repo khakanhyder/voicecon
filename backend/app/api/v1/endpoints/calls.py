@@ -158,18 +158,40 @@ async def create_call(
 
         from_number = phone_number.phone_number
     else:
-        # Use agent's default number
-        from_number = "system"
+        # No number named: dial from any active number assigned to this agent,
+        # else any active number in the workspace. Something has to be dialled
+        # *from*, and the carrier rejects a number the account doesn't own.
+        result = await db.execute(
+            select(PhoneNumber)
+            .where(
+                and_(
+                    PhoneNumber.organization_id == org_id,
+                    PhoneNumber.status == "active",
+                )
+            )
+            .order_by(case((PhoneNumber.agent_id == agent.id, 0), else_=1))
+        )
+        phone_number = result.scalars().first()
+
+        if not phone_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No active phone number available to call from",
+            )
+
+        from_number = phone_number.phone_number
 
     # Create call record
     call = Call(
         agent_id=agent.id,
         user_id=current_user.id,
         organization_id=agent.organization_id,
+        phone_number_id=phone_number.id,
         from_number=from_number,
         to_number=call_data.to_number,
         direction="outbound",
         status="initiated",
+        provider="twilio",
         started_at=datetime.utcnow(),
     )
 
@@ -179,17 +201,19 @@ async def create_call(
 
     # Integrate with Twilio to initiate call
     try:
-        dial_from = from_number if from_number != "system" else phone_number.phone_number
         # Credentials follow the number: platform-bought numbers dial on the
         # platform account, numbers bought on a user's own Twilio dial on theirs.
-        twilio_service = await get_twilio_service_for_number(db, dial_from)
+        twilio_service = await get_twilio_service_for_number(db, from_number)
         webhook_base_url = settings.API_BASE_URL or f"https://{settings.SERVER_HOST}"
 
         call_details = await twilio_service.make_outbound_call(
             to_number=call_data.to_number,
-            from_number=dial_from,
+            from_number=from_number,
             agent_id=str(agent.id),
             webhook_base_url=webhook_base_url,
+            # Named on the answer URL so the webhook updates this row instead of
+            # inserting a second one for the same call.
+            call_id=str(call.id),
         )
 
         # Update call with Twilio details
@@ -204,8 +228,13 @@ async def create_call(
 
     except Exception as e:
         logger.error(f"Failed to initiate call via Twilio: {e}")
-        call.status = "failed"
-        await db.commit()
+        # The dial failed mid-transaction, so the session may be unusable; roll
+        # back before recording the failure or the status write is lost too.
+        await db.rollback()
+        call = await db.get(Call, call.id)
+        if call:
+            call.status = "failed"
+            await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to initiate call: {str(e)}",

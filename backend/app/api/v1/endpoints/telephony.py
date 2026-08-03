@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import case, select
 from twilio.request_validator import RequestValidator
 
 from app.core.config import settings
@@ -137,6 +137,129 @@ async def validate_twilio_request(request: Request, form_data, db: AsyncSession)
     return False
 
 
+def _record_status_metadata(call: Call, call_status: Optional[str]) -> None:
+    """
+    Note the latest carrier status on the call record.
+
+    Writes ``call_metadata`` — the model's actual column. ``call.metadata`` is
+    SQLAlchemy's own :class:`MetaData` on the declarative class, so reading it
+    raised ``AttributeError`` and writing it went nowhere.
+
+    A new dict is assigned rather than mutated in place: the column is a plain
+    ``JSON``, so SQLAlchemy only notices a change on reassignment.
+
+    Args:
+        call: Call record to update
+        call_status: Carrier-reported status for this callback
+    """
+    current = call.call_metadata or {}
+    call.call_metadata = {
+        **current,
+        "last_status": call_status,
+        "status_callback_count": current.get("status_callback_count", 0) + 1,
+    }
+
+
+async def _resolve_call_record(
+    db: AsyncSession,
+    *,
+    provider: str,
+    agent: Agent,
+    call_sid: Optional[str],
+    from_number: Optional[str],
+    to_number: Optional[str],
+    call_status: Optional[str],
+    call_id: Optional[str] = None,
+) -> Call:
+    """
+    Find the Call this answer webhook belongs to, or create one for an inbound call.
+
+    Only inbound calls are new here. An outbound call already has a row — written
+    when we asked the carrier to dial — and the carrier fetches this same answer
+    URL once the callee picks up. Inserting again would collide on the unique
+    ``provider_call_sid`` and drop the call, so an existing row is reused and
+    keeps its ``outbound`` direction.
+
+    The row is matched by ``call_id`` (which we put on the outbound answer URL)
+    first, falling back to the SID for carriers or paths that don't carry it.
+
+    Args:
+        db: Database session
+        provider: Carrier slug, e.g. "twilio" or "telnyx"
+        agent: Agent handling the call
+        call_sid: Carrier call identifier
+        from_number: Caller number
+        to_number: Called number
+        call_status: Carrier-reported status
+        call_id: Our own Call id, when the answer URL carried one
+
+    Returns:
+        The Call record the media stream should attach to
+    """
+    existing: Optional[Call] = None
+
+    if call_id:
+        existing = (
+            await db.execute(select(Call).where(Call.id == call_id))
+        ).scalar_one_or_none()
+        if existing is None:
+            logger.warning(f"Answer webhook named unknown call_id {call_id}")
+
+    if existing is None and call_sid:
+        existing = (
+            await db.execute(select(Call).where(Call.provider_call_sid == call_sid))
+        ).scalar_one_or_none()
+
+    if existing is not None:
+        # Bind the SID on first contact: for an outbound call this webhook may
+        # arrive before the dial response was committed.
+        if call_sid and not existing.provider_call_sid:
+            existing.provider_call_sid = call_sid
+        if call_status:
+            existing.status = call_status
+        await db.commit()
+        await db.refresh(existing)
+        logger.info(
+            f"Answer webhook matched existing {existing.direction} call {existing.id}"
+        )
+        return existing
+
+    phone_number = (
+        await db.execute(
+            select(PhoneNumber).where(
+                PhoneNumber.phone_number == to_number,
+                PhoneNumber.agent_id == agent.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    call = Call(
+        user_id=agent.user_id,
+        organization_id=agent.organization_id,
+        agent_id=agent.id,
+        phone_number_id=phone_number.id if phone_number else None,
+        direction="inbound",
+        from_number=from_number,
+        to_number=to_number,
+        status=call_status or "initiated",
+        provider=provider,
+        provider_call_sid=call_sid,
+        # `call_metadata`, not `metadata`: the latter is SQLAlchemy's own
+        # attribute, so assigning it silently discards the value.
+        call_metadata={
+            f"{provider}_call_sid": call_sid,
+            "call_status": call_status,
+        },
+    )
+
+    db.add(call)
+    await db.commit()
+    await db.refresh(call)
+
+    logger.info(f"Created inbound call record: {call.id}")
+    return call
+
+
 @public_router.post("/twilio/voice/{agent_id}")
 async def handle_inbound_call(
     agent_id: str,
@@ -144,10 +267,13 @@ async def handle_inbound_call(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Handle inbound call webhook from Twilio.
+    Handle the answer webhook from Twilio and return TwiML connecting the call
+    to the media-streaming WebSocket.
 
-    This endpoint receives the initial call webhook and returns TwiML
-    to connect the call to a WebSocket for media streaming.
+    Twilio fetches this URL for *both* directions: on an inbound call it is the
+    number's voice_url, and on an outbound one it is the answer URL we passed to
+    the dial request. Only the inbound case creates a Call row — see
+    :func:`_resolve_call_record`.
 
     Args:
         agent_id: Agent ID to handle the call
@@ -187,38 +313,18 @@ async def handle_inbound_call(
             twiml = build_twiml_error("We're sorry, the agent is not available.")
             return Response(content=twiml, media_type="application/xml")
 
-        # Get phone number record
-        phone_result = await db.execute(
-            select(PhoneNumber).where(
-                PhoneNumber.phone_number == to_number,
-                PhoneNumber.agent_id == agent_id,
-            )
-        )
-        phone_number = phone_result.scalar_one_or_none()
-
-        # Create call record
-        call = Call(
-            user_id=agent.user_id,
-            organization_id=agent.organization_id,
-            agent_id=agent.id,
-            phone_number_id=phone_number.id if phone_number else None,
-            direction="inbound",
+        # Reuse the row an outbound dial already created; create one only for a
+        # genuinely inbound call.
+        call = await _resolve_call_record(
+            db,
+            provider="twilio",
+            agent=agent,
+            call_sid=call_sid,
             from_number=from_number,
             to_number=to_number,
-            status=call_status or "initiated",
-            provider="twilio",
-            provider_call_sid=call_sid,
-            metadata={
-                "twilio_call_sid": call_sid,
-                "call_status": call_status,
-            },
+            call_status=call_status,
+            call_id=request.query_params.get("call_id"),
         )
-
-        db.add(call)
-        await db.commit()
-        await db.refresh(call)
-
-        logger.info(f"Created call record: {call.id}")
 
         # Generate WebSocket URL for media streaming
         # The WebSocket endpoint will be at /api/v1/voice/stream/{call_id}
@@ -229,10 +335,11 @@ async def handle_inbound_call(
 
         logger.info(f"WebSocket URL: {websocket_url}")
 
-        # Generate TwiML response
+        # "connecting you with X" only makes sense to someone who dialled us.
+        # On an outbound call the agent's own first_message does the greeting.
         twiml = build_twiml_for_websocket(
             websocket_url=websocket_url,
-            agent_name=agent.name,
+            agent_name=agent.name if call.direction == "inbound" else None,
         )
 
         logger.info(f"Generated TwiML for call: {call_sid}")
@@ -342,14 +449,7 @@ async def handle_call_status(
                     (call.cost_telephony or 0)
                 )
 
-        # Update metadata
-        if not call.metadata:
-            call.metadata = {}
-
-        call.metadata.update({
-            "last_status": call_status,
-            "status_callback_count": call.metadata.get("status_callback_count", 0) + 1,
-        })
+        _record_status_metadata(call, call_status)
 
         await db.commit()
 
@@ -402,23 +502,51 @@ async def initiate_outbound_call(
                 detail="Agent not found or access denied"
             )
 
-        # Get phone number if not specified
-        if not from_number:
-            phone_result = await db.execute(
-                select(PhoneNumber).where(
-                    PhoneNumber.agent_id == agent_id,
-                    PhoneNumber.status == "active",
-                )
+        # Resolve the number to dial from, always inside the caller's workspace:
+        # an unscoped lookup would let one tenant place calls from another's
+        # number. A named number is preferred, then one assigned to this agent.
+        number_query = select(PhoneNumber).where(
+            PhoneNumber.organization_id == org_id,
+            PhoneNumber.status == "active",
+        )
+        if from_number:
+            number_query = number_query.where(PhoneNumber.phone_number == from_number)
+        else:
+            number_query = number_query.order_by(
+                case((PhoneNumber.agent_id == agent.id, 0), else_=1)
             )
-            phone_number = phone_result.first()
 
-            if not phone_number:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No active phone number found for agent"
-                )
+        phone_number = (await db.execute(number_query)).scalars().first()
 
-            from_number = phone_number[0].phone_number
+        if not phone_number:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Phone number not found in this workspace"
+                    if from_number
+                    else "No active phone number available to call from"
+                ),
+            )
+
+        from_number = phone_number.phone_number
+
+        # The row is written before dialling so the answer webhook — which can
+        # fire the instant the callee picks up — has something to attach to.
+        call = Call(
+            user_id=agent.user_id,
+            organization_id=agent.organization_id,
+            agent_id=agent.id,
+            phone_number_id=phone_number.id,
+            direction="outbound",
+            from_number=from_number,
+            to_number=to_number,
+            status="initiated",
+            provider="twilio",
+        )
+
+        db.add(call)
+        await db.commit()
+        await db.refresh(call)
 
         # Dial out from the account that owns the number, not necessarily the
         # platform one.
@@ -426,33 +554,29 @@ async def initiate_outbound_call(
 
         webhook_base_url = settings.API_BASE_URL or f"https://{settings.SERVER_HOST}"
 
-        call_details = await twilio_service.make_outbound_call(
-            to_number=to_number,
-            from_number=from_number,
-            agent_id=str(agent_id),
-            webhook_base_url=webhook_base_url,
-        )
+        try:
+            call_details = await twilio_service.make_outbound_call(
+                to_number=to_number,
+                from_number=from_number,
+                agent_id=str(agent_id),
+                webhook_base_url=webhook_base_url,
+                call_id=str(call.id),
+            )
+        except Exception:
+            await db.rollback()
+            failed = await db.get(Call, call.id)
+            if failed:
+                failed.status = "failed"
+                await db.commit()
+            raise
 
-        # Create call record
-        call = Call(
-            user_id=agent.user_id,
-            organization_id=agent.organization_id,
-            agent_id=agent.id,
-            direction="outbound",
-            from_number=from_number,
-            to_number=to_number,
-            status=call_details["status"],
-            provider="twilio",
-            provider_call_sid=call_details["call_sid"],
-            metadata={
-                "twilio_call_sid": call_details["call_sid"],
-                "direction_type": call_details["direction"],
-            },
-        )
-
-        db.add(call)
+        call.provider_call_sid = call_details["call_sid"]
+        call.status = call_details["status"]
+        call.call_metadata = {
+            "twilio_call_sid": call_details["call_sid"],
+            "direction_type": call_details["direction"],
+        }
         await db.commit()
-        await db.refresh(call)
 
         logger.info(f"Initiated outbound call: {call.id}")
 
@@ -579,36 +703,16 @@ async def handle_telnyx_inbound_call(
                 media_type="application/xml",
             )
 
-        phone_result = await db.execute(
-            select(PhoneNumber).where(
-                PhoneNumber.phone_number == to_number,
-                PhoneNumber.agent_id == agent_id,
-            )
-        )
-        phone_number = phone_result.scalar_one_or_none()
-
-        call = Call(
-            user_id=agent.user_id,
-            organization_id=agent.organization_id,
-            agent_id=agent.id,
-            phone_number_id=phone_number.id if phone_number else None,
-            direction="inbound",
+        call = await _resolve_call_record(
+            db,
+            provider="telnyx",
+            agent=agent,
+            call_sid=call_sid,
             from_number=from_number,
             to_number=to_number,
-            status=call_status or "initiated",
-            provider="telnyx",
-            provider_call_sid=call_sid,
-            metadata={
-                "telnyx_call_sid": call_sid,
-                "call_status": call_status,
-            },
+            call_status=call_status,
+            call_id=request.query_params.get("call_id"),
         )
-
-        db.add(call)
-        await db.commit()
-        await db.refresh(call)
-
-        logger.info(f"Created call record: {call.id}")
 
         websocket_url = urljoin(
             settings.WEBSOCKET_URL or f"wss://{request.headers.get('host')}",
@@ -616,7 +720,10 @@ async def handle_telnyx_inbound_call(
         )
 
         return Response(
-            content=build_stream_response(websocket_url, agent.name),
+            content=build_stream_response(
+                websocket_url,
+                agent.name if call.direction == "inbound" else None,
+            ),
             media_type="application/xml",
         )
 
@@ -685,13 +792,7 @@ async def handle_telnyx_call_status(
                 call.duration_seconds = int(call_duration)
                 call.billable_duration_seconds = int(call_duration)
 
-        if not call.metadata:
-            call.metadata = {}
-
-        call.metadata.update({
-            "last_status": call_status,
-            "status_callback_count": call.metadata.get("status_callback_count", 0) + 1,
-        })
+        _record_status_metadata(call, call_status)
 
         await db.commit()
 

@@ -666,7 +666,11 @@ class VoiceSession:
         try:
             provider = self.agent.llm_provider or "openai"
             model = self.agent.llm_model or "gpt-4-turbo-preview"
-            temperature = self.agent.llm_temperature or 0.7
+            # float(), not the raw column value: llm_temperature is Numeric, so
+            # SQLAlchemy hands back a Decimal, which the provider SDKs cannot
+            # JSON-encode into the request body — every turn failed with
+            # "Object of type Decimal is not JSON serializable".
+            temperature = float(self.agent.llm_temperature or 0.7)
 
             messages = self.conversation.get_messages()
 

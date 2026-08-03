@@ -276,6 +276,13 @@ from app.api.v1.api import api_router
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 logger.info(f"Mounted {len(api_router.routes)} API routes at {settings.API_V1_PREFIX}")
 
+# Publish the auth schemes (login token + API key) in the OpenAPI document, so
+# /docs shows an Authorize box that actually matches what the API accepts.
+# Must run after the routers are mounted — it snapshots the finished route set.
+from app.core.openapi import setup_openapi
+
+setup_openapi(app)
+
 # Serve call recordings as static files
 try:
     _recordings_dir = os.path.join(os.path.dirname(__file__), '..', 'recordings')

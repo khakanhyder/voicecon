@@ -279,7 +279,9 @@ class CallSession:
             # Get LLM configuration from agent
             provider = self.agent.llm_provider or "openai"
             model = self.agent.llm_model or None  # Use default
-            temperature = self.agent.llm_temperature or 0.7
+            # float(): llm_temperature is a Numeric column, and a Decimal is not
+            # JSON-serializable into the LLM request body.
+            temperature = float(self.agent.llm_temperature or 0.7)
 
             logger.info(
                 f"Processing with LLM for call {self.call_id}: "

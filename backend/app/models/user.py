@@ -191,9 +191,13 @@ class ApiKey(Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # For display (e.g. "vcon_abc...") and as the indexed lookup hint during
+    # authentication. Not unique: 7 secret chars can collide, and the
+    # authenticator hash-checks every candidate, so a collision must not block
+    # key creation. See migration 0014_api_key_prefix_idx.
     key_prefix: Mapped[str] = mapped_column(
-        String(20), nullable=False
-    )  # For display (e.g., "vcon_abc...")
+        String(20), nullable=False, index=True
+    )
 
     # Permissions/scopes
     scopes: Mapped[List[str]] = mapped_column(JSON, default=list)

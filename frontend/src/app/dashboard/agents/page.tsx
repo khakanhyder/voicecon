@@ -163,7 +163,7 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           </div>
         </div>
 
-        <Waveform />
+        {/* <Waveform /> */}
 
         {/* Provider tags */}
         <div className="flex flex-wrap gap-2 mb-6">

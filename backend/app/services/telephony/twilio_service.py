@@ -294,6 +294,7 @@ class TwilioService:
         from_number: str,
         agent_id: str,
         webhook_base_url: str,
+        call_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Initiate an outbound call.
@@ -303,6 +304,9 @@ class TwilioService:
             from_number: Twilio number to call from
             agent_id: Agent ID handling the call
             webhook_base_url: Base URL for webhooks
+            call_id: Our own Call row id. Passed back on the answer webhook so
+                the call can be matched to the record we already created,
+                without depending on the SID having been persisted first.
 
         Returns:
             Call details dict
@@ -310,6 +314,11 @@ class TwilioService:
         try:
             # Generate TwiML URL for the call
             twiml_url = urljoin(webhook_base_url, f"/api/v1/telephony/twilio/voice/{agent_id}")
+            if call_id:
+                # The answer webhook fires as soon as the callee picks up, which
+                # can beat our own commit of the returned SID. Naming the call
+                # here makes the match deterministic instead of a race.
+                twiml_url = f"{twiml_url}?call_id={call_id}"
             status_callback_url = urljoin(webhook_base_url, "/api/v1/telephony/twilio/status")
 
             # Make call

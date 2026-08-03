@@ -6,6 +6,8 @@ Enhanced API documentation with examples, security schemes, and metadata.
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from app.core.api_keys import API_KEY_HEADER
+
 def custom_openapi(app: FastAPI):
     """
     Generate custom OpenAPI schema with enhanced documentation.
@@ -30,17 +32,45 @@ Voicecon is a comprehensive Voice AI platform that enables you to:
 
 ## Authentication
 
-The API uses JWT Bearer tokens for authentication. Include your token in the Authorization header:
+Two credentials are accepted, and every endpoint takes either one.
+
+### Login tokens (for the dashboard)
+
+Short-lived JWTs from `POST /api/v1/auth/login`:
 
 ```
 Authorization: Bearer YOUR_ACCESS_TOKEN
 ```
 
-### Getting Started
-
 1. **Register an account**: `POST /api/v1/auth/register`
 2. **Login**: `POST /api/v1/auth/login` - Returns access_token
 3. **Use token**: Include in Authorization header for all requests
+
+### API keys (for servers and integrations)
+
+Create one under **Settings → API Keys** (`POST /api/v1/api-keys`). The secret is
+shown exactly once — store it somewhere safe. Send it either way:
+
+```
+Authorization: Bearer vcon_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X-API-Key: vcon_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Keys differ from login tokens in three ways:
+
+- **Workspace-bound.** A key acts only in the workspace it was created in.
+  `X-Organization-Id` is rejected if it names any other workspace.
+- **Scoped.** A key with `scopes` may do only those things. An empty `scopes`
+  list means "everything the creating user's role allows". Either way a key can
+  never exceed its creator's role — demote them and the key narrows with them.
+- **Never able to escalate.** Minting keys, managing the team, changing billing,
+  and deleting or transferring the workspace always require an interactive
+  login, so a leaked key can't entrench itself or lock you out. `GET
+  /api/v1/api-keys/scopes` lists everything a key *can* be granted.
+
+Revoke a compromised key with `DELETE /api/v1/api-keys/{id}`, or disable it
+reversibly with `PATCH /api/v1/api-keys/{id}` `{"is_active": false}`. Either
+takes effect on the next request.
 
 ## Rate Limiting
 
@@ -161,19 +191,26 @@ Webhook payloads are signed with HMAC-SHA256 for security verification.
     )
 
     # Add security schemes
+    openapi_schema.setdefault("components", {})
     openapi_schema["components"]["securitySchemes"] = {
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
-            "bearerFormat": "JWT",
-            "description": "JWT token obtained from /auth/login"
+            "description": (
+                "A login token from POST /api/v1/auth/login, or an API key "
+                "(vcon_...) from Settings → API Keys. Both are sent as "
+                "`Authorization: Bearer <credential>`."
+            ),
         },
         "ApiKeyAuth": {
             "type": "apiKey",
             "in": "header",
-            "name": "X-API-Key",
-            "description": "API key for programmatic access"
-        }
+            "name": API_KEY_HEADER,
+            "description": (
+                "An API key (vcon_...), for clients that reserve the "
+                "Authorization header for something else."
+            ),
+        },
     }
 
     # Add global security requirement

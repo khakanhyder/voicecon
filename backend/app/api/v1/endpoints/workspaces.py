@@ -12,7 +12,7 @@ run the team but cannot seize or destroy the workspace.
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import FrozenSet, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -89,11 +89,24 @@ async def _member_count(db: AsyncSession, org_id: uuid.UUID) -> int:
 
 
 async def _detail(
-    db: AsyncSession, organization: Organization, membership: OrganizationMember
+    db: AsyncSession,
+    organization: Organization,
+    membership: OrganizationMember,
+    effective_permissions: Optional[FrozenSet[str]] = None,
 ) -> WorkspaceDetail:
+    """Render a workspace for the client.
+
+    ``effective_permissions`` is what the *current request* may do, which is
+    narrower than the role's grant when an API key made the call. Pass it
+    wherever a WorkspaceContext is in hand so the answer describes the caller,
+    not just their role; it falls back to the role's full grant for the
+    listing views, which describe workspaces the caller isn't acting in.
+    """
     owner_email = (
         await db.execute(select(User.email).where(User.id == organization.owner_id))
     ).scalar_one_or_none()
+    if effective_permissions is None:
+        effective_permissions = perms.permissions_for(membership.role)
     return WorkspaceDetail(
         id=organization.id,
         name=organization.name,
@@ -101,7 +114,7 @@ async def _detail(
         plan_type=organization.plan_type,
         role=membership.role,
         is_owner=membership.role == perms.ROLE_OWNER,
-        permissions=sorted(perms.permissions_for(membership.role)),
+        permissions=sorted(effective_permissions),
         member_count=await _member_count(db, organization.id),
         owner_email=owner_email,
         created_at=organization.created_at,
@@ -165,7 +178,9 @@ async def get_current_workspace(
     The frontend gates its UI on ``permissions``, so this is the single source
     of truth for both sides — there is no second copy of the matrix to drift.
     """
-    return await _detail(db, workspace.organization, workspace.membership)
+    return await _detail(
+        db, workspace.organization, workspace.membership, workspace.permissions
+    )
 
 
 @router.post("/{organization_id}/switch", response_model=SwitchResponse)
@@ -212,7 +227,9 @@ async def update_current_workspace(
     workspace.organization.name = payload.name.strip()
     await db.commit()
     await db.refresh(workspace.organization)
-    return await _detail(db, workspace.organization, workspace.membership)
+    return await _detail(
+        db, workspace.organization, workspace.membership, workspace.permissions
+    )
 
 
 @router.post("", response_model=WorkspaceDetail, status_code=status.HTTP_201_CREATED)
@@ -288,7 +305,9 @@ async def transfer_ownership(
     await db.refresh(workspace.organization)
     await db.refresh(workspace.membership)
 
-    return await _detail(db, workspace.organization, workspace.membership)
+    return await _detail(
+        db, workspace.organization, workspace.membership, workspace.permissions
+    )
 
 
 @router.post("/current/leave", status_code=status.HTTP_204_NO_CONTENT)

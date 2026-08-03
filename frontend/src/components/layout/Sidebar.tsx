@@ -83,7 +83,10 @@ const settingsNav = {
       name: 'API Keys',
       href: '/dashboard/settings/api-keys',
       icon: Key,
-      permission: PERMISSIONS.apiKeysManage,
+      // Read, not manage: members can see the workspace's keys but only
+      // admins can mint or revoke them. Gating the link on `manage` hid the
+      // page from people the API would have served.
+      permission: PERMISSIONS.apiKeysRead,
     },
   ] as { name: string; href: string; icon: typeof User; permission?: string }[],
 }

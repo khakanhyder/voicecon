@@ -51,6 +51,7 @@ export const PERMISSIONS = {
   teamManageAdmins: 'team:manage_admins',
   billingRead: 'billing:read',
   billingManage: 'billing:manage',
+  apiKeysRead: 'api_keys:read',
   apiKeysManage: 'api_keys:manage',
   workspaceManage: 'workspace:manage',
   workspaceDelete: 'workspace:delete',
