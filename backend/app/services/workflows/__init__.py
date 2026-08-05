@@ -5,6 +5,9 @@ Services for workflow execution and management.
 """
 from app.services.workflows.workflow_engine import (
     WorkflowEngine,
+    WorkflowEngineError,
+    WorkflowNotActiveError,
+    WorkflowNotFoundError,
     get_workflow_engine,
     reap_stranded_executions,
 )
@@ -25,6 +28,9 @@ from app.services.workflows.scheduler import WorkflowScheduler, get_scheduler
 
 __all__ = [
     "WorkflowEngine",
+    "WorkflowEngineError",
+    "WorkflowNotActiveError",
+    "WorkflowNotFoundError",
     "get_workflow_engine",
     "reap_stranded_executions",
     "WorkflowContext",

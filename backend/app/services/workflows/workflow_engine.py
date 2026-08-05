@@ -35,6 +35,21 @@ class WorkflowEngineError(Exception):
     pass
 
 
+class WorkflowNotFoundError(WorkflowEngineError):
+    """The workflow does not exist (or was deleted)."""
+    pass
+
+
+class WorkflowNotActiveError(WorkflowEngineError):
+    """The workflow exists but is switched off, so it will not run.
+
+    Distinct from the generic engine error so the API can answer 409 instead of
+    500: nothing is broken, the caller asked for something the current state
+    forbids, and retrying without changing anything will never succeed.
+    """
+    pass
+
+
 def _as_uuid(value: Any) -> Any:
     """
     Coerce an id to UUID, leaving anything unparseable alone.
@@ -114,10 +129,12 @@ class WorkflowEngine:
             workflow = result.scalar_one_or_none()
 
             if not workflow:
-                raise WorkflowEngineError(f"Workflow {workflow_id} not found")
+                raise WorkflowNotFoundError(f"Workflow {workflow_id} not found")
 
             if not workflow.is_active:
-                raise WorkflowEngineError(f"Workflow {workflow_id} is not active")
+                raise WorkflowNotActiveError(
+                    f"Workflow {workflow_id} is not active. Activate it before running it."
+                )
 
             # Create execution record
             execution = WorkflowExecution(
@@ -155,6 +172,11 @@ class WorkflowEngine:
 
             return execution
 
+        except WorkflowEngineError:
+            # Already a precise engine error (not found / not active). Re-wrapping
+            # it would collapse it into a generic failure and cost the API layer
+            # the ability to answer 404 or 409 instead of 500.
+            raise
         except Exception as e:
             logger.error(f"Failed to start workflow execution: {e}", exc_info=True)
             raise WorkflowEngineError(f"Failed to start workflow execution: {str(e)}")

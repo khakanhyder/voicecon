@@ -19,10 +19,43 @@ logger = logging.getLogger(__name__)
 # Matches an array access segment in a variable path, e.g. "results[0]".
 _ARRAY_ACCESS = re.compile(r"^(\w+)\[(-?\d+)\]$")
 
+# Any {{reference}} inside a larger string.
+_TEMPLATE = re.compile(r"\{\{([^}]+)\}\}")
+
+# A string that is *only* one reference, e.g. "{{trigger.amount}}" or
+# "  {{ trigger.amount }}  ". Surrounding whitespace is tolerated because a
+# builder field trivially collects it; anything else around the reference makes
+# it a mixed template whose result can only be text.
+_WHOLE_TEMPLATE = re.compile(r"^\s*\{\{([^}]+)\}\}\s*$")
+
 
 class StepExecutionError(Exception):
     """Raised when step execution fails."""
     pass
+
+
+def _as_text(value: Any) -> str:
+    """Render a resolved value for embedding in text.
+
+    ``str()`` is wrong for containers and booleans: it produces Python
+    spellings (``True``, single-quoted dict reprs) that are not valid JSON and
+    read as nonsense in a spoken prompt. Structures are rendered as JSON;
+    scalars keep their natural text form.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, default=str)
+        except (TypeError, ValueError):
+            return str(value)
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return str(value)
 
 
 def _normalize_var_name(raw: Any) -> str:
@@ -148,29 +181,53 @@ class WorkflowContext:
 
     def interpolate(self, value: Any) -> Any:
         """
-        Interpolate variables in strings.
+        Resolve ``{{variable.path}}`` references, preserving JSON types.
 
-        Supports {{variable.path}} syntax.
+        Two distinct cases, because they mean different things:
+
+        * **Whole-value** — the string is nothing but one reference, e.g.
+          ``"{{trigger.amount}}"``. The reference *is* the value, so the
+          resolved value is returned with its own type: ``42`` stays the number
+          42, ``True`` stays a boolean, an object stays an object. This is what
+          a builder field bound to a single variable produces, and it is by far
+          the common case.
+        * **Mixed** — the reference is embedded in surrounding text, e.g.
+          ``"Hello {{name}}, you owe {{amount}}"``. The result can only be a
+          string, so each reference is stringified and substituted.
+
+        Stringifying the whole-value case (which is what this used to do)
+        silently corrupted every integration that sends anything but text: a
+        webhook step posted ``"amount": "42"`` where the receiving API wanted
+        ``42``, ``"paid": "True"`` instead of JSON ``true``, and an object as
+        its Python ``repr`` — all while the run reported success.
+
+        An unresolved reference becomes ``None`` (whole-value) or an empty
+        string (mixed) rather than being left in place. Leaking a literal
+        ``"{{trigger.missing}}"`` into an outbound payload is never what the
+        caller meant, and it is impossible to distinguish downstream from a
+        real value.
 
         Args:
-            value: Value to interpolate
+            value: A string, or any structure containing strings
 
         Returns:
-            Interpolated value
+            The value with references resolved; strings only where the input
+            was genuinely text
         """
         if isinstance(value, str):
-            # Find all {{variable}} patterns
-            pattern = r'\{\{([^}]+)\}\}'
-            matches = re.findall(pattern, value)
+            whole = _WHOLE_TEMPLATE.match(value)
+            if whole:
+                return self.get_variable(whole.group(1).strip())
 
+            matches = _TEMPLATE.findall(value)
             if not matches:
                 return value
 
             result = value
             for match in matches:
                 var_value = self.get_variable(match.strip())
-                if var_value is not None:
-                    result = result.replace(f"{{{{{match}}}}}", str(var_value))
+                replacement = "" if var_value is None else _as_text(var_value)
+                result = result.replace(f"{{{{{match}}}}}", replacement)
 
             return result
 
@@ -182,6 +239,15 @@ class WorkflowContext:
 
         else:
             return value
+
+    def interpolate_text(self, value: Any) -> str:
+        """Interpolate and force the result to a string.
+
+        For sinks that can only accept text — HTTP header values, spoken
+        prompts — where a resolved object or number has to be rendered rather
+        than passed through.
+        """
+        return _as_text(self.interpolate(value))
 
 
 class BaseStepHandler:
@@ -372,7 +438,9 @@ class ConditionStepHandler(BaseStepHandler):
             if config.get("variable") is not None and config.get("operator"):
                 result = self._evaluate_structured(config, context)
             elif config.get("condition"):
-                condition_str = context.interpolate(config["condition"])
+                # An expression is parsed as text, so render rather than
+                # resolve: "{{flag}}" must arrive as "true", not a bool.
+                condition_str = context.interpolate_text(config["condition"])
                 result = self._evaluate_condition(condition_str, context)
             else:
                 raise StepExecutionError(
@@ -460,7 +528,7 @@ class ConditionStepHandler(BaseStepHandler):
         # Supports: ==, !=, <, >, <=, >=, contains, in
 
         # Replace common operators
-        condition = condition.strip()
+        condition = str(condition).strip()
 
         # Handle "contains" operator
         if " contains " in condition:
@@ -1171,8 +1239,16 @@ class WebhookStepHandler(BaseStepHandler):
                 raise StepExecutionError(f"Webhook url must be http(s): {url}")
 
             method = str(config.get("method", "POST")).upper()
-            headers = self._as_dict(config.get("headers"), "headers", context)
+            # A JSON body keeps its types — that is the whole point, so the
+            # receiving API gets 42 and not "42". Headers and query strings are
+            # text by definition and are rendered, since aiohttp rejects
+            # non-string values there.
+            headers = {
+                str(k): _as_text(v)
+                for k, v in self._as_dict(config.get("headers"), "headers", context).items()
+            }
             body = self._as_dict(config.get("body"), "body", context)
+            params = {str(k): _as_text(v) for k, v in body.items()} if body else None
             timeout = float(config.get("timeout", 30) or 30)
 
             import aiohttp
@@ -1185,7 +1261,7 @@ class WebhookStepHandler(BaseStepHandler):
                     url,
                     headers=headers or None,
                     json=body if method in ("POST", "PUT", "PATCH") and body else None,
-                    params=body if method == "GET" and body else None,
+                    params=params if method == "GET" else None,
                 ) as resp:
                     text = await resp.text()
                     try:

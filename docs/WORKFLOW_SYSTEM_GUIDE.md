@@ -392,6 +392,48 @@ Variables use double curly braces: `{{variable.path}}`
 }
 ```
 
+### Types are preserved
+
+A field whose value is **only** a reference resolves to that value with its own
+type. A reference embedded in **surrounding text** can only produce text, so it
+is rendered into the string.
+
+Given `trigger = {"amount": 42, "paid": true, "customer": {"id": 7}, "note": null}`:
+
+| Field value | Result | Type |
+|---|---|---|
+| `"{{trigger.amount}}"` | `42` | number |
+| `"{{trigger.paid}}"` | `true` | boolean |
+| `"{{trigger.customer}}"` | `{"id": 7}` | object |
+| `"{{trigger.note}}"` | `null` | null |
+| `"owes {{trigger.amount}}"` | `"owes 42"` | string |
+| `"paid: {{trigger.paid}}"` | `"paid: true"` | string |
+
+So a webhook step with this body:
+
+```json
+{"amount": "{{trigger.amount}}", "paid": "{{trigger.paid}}"}
+```
+
+sends `{"amount": 42, "paid": true}` — the types the receiving API expects.
+
+Two consequences worth knowing:
+
+- **An unresolved reference never survives into the output.** It becomes `null`
+  (whole-value) or an empty string (embedded). It is not passed through as the
+  literal text `{{trigger.note}}`.
+- **HTTP headers and query strings are always text**, because the protocol
+  requires it. `{{trigger.customer}}` in a header renders as JSON,
+  `{{trigger.paid}}` as `true`. Only the JSON body keeps real types.
+
+> **Changed behaviour.** Interpolation previously stringified everything, so
+> the body above went out as `{"amount": "42", "paid": "True"}` — a string and
+> a Python-spelled boolean — and a null reference leaked the literal template
+> text. Runs still reported success, so this failed silently at the receiving
+> API. If a workflow of yours *depended* on receiving a string (an ID that must
+> stay zero-padded, say), wrap it in text to force it: `"{{trigger.id}} "` is a
+> string, or better, keep the source value a string.
+
 ---
 
 ## API Reference

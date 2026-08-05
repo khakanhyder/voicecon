@@ -16,6 +16,12 @@ from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
+#: How often the loop wakes to look for due workflows. This is the resolution
+#: limit of every schedule: nothing can fire more precisely than this, and
+#: ``_check_interval_schedule`` uses it to decide how much slack to allow so
+#: intervals don't systematically slip a whole poll.
+POLL_INTERVAL_SECONDS = 30
+
 
 class WorkflowScheduler:
     """
@@ -98,8 +104,7 @@ class WorkflowScheduler:
             except Exception as e:
                 logger.error(f"Scheduler loop error: {e}", exc_info=True)
 
-            # Check every 30 seconds
-            await asyncio.sleep(30)
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     async def _check_scheduled_workflows(self, db: AsyncSession) -> None:
         """
@@ -280,10 +285,21 @@ class WorkflowScheduler:
             # Never executed, trigger now
             return True
 
-        # Check if interval has elapsed
         elapsed = (now - last_execution).total_seconds()
 
-        return elapsed >= interval_seconds
+        # Fire slightly early rather than a whole poll late.
+        #
+        # A loop that wakes every POLL_INTERVAL_SECONDS can only resolve an
+        # interval to that granularity. Demanding ``elapsed >= interval``
+        # exactly makes every near-miss wait for the *next* wake-up, so the
+        # error only ever rounds up: a 30s interval on a 30s poll fired every
+        # 60s, because each check landed a few milliseconds short.
+        #
+        # Allowing half a poll of slack centres the error instead of
+        # accumulating it, so the long-run average matches the configured
+        # interval. Intervals shorter than the poll simply fire every poll —
+        # the fastest the loop can go.
+        return elapsed >= interval_seconds - (POLL_INTERVAL_SECONDS / 2)
 
     async def _check_one_time_schedule(self, workflow, now: datetime) -> bool:
         """

@@ -35,7 +35,12 @@ from app.schemas.workflow import (
     WorkflowStatsResponse,
     WorkflowUsageResponse,
 )
-from app.services.workflows import get_workflow_engine, WorkflowEngine
+from app.services.workflows import (
+    get_workflow_engine,
+    WorkflowEngine,
+    WorkflowNotActiveError,
+    WorkflowNotFoundError,
+)
 from app.services.workflows.graph import load_graph, normalize_graph, validate_graph
 
 logger = logging.getLogger(__name__)
@@ -528,6 +533,13 @@ async def execute_workflow(
 
     except HTTPException:
         raise
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except WorkflowNotActiveError as e:
+        # 409, not 500: the request is well-formed and the server is healthy —
+        # the workflow is simply switched off. A 500 would tell an integration
+        # to retry something that can never succeed until a human acts.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to execute workflow: {e}", exc_info=True)
         raise HTTPException(
