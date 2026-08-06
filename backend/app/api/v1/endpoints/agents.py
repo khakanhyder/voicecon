@@ -521,6 +521,12 @@ class RespondRequest(BaseModel):
     history: list = []
 
 
+#: Conversation turns kept in the prompt for a live voice call. Five exchanges
+#: (the previous value of 10) is shorter than the collection phase of an
+#: ordinary support call, so the agent forgot answers it had already been given.
+VOICE_HISTORY_TURNS = 40
+
+
 @router.post("/{agent_id}/respond")
 async def agent_respond(
     agent_id: uuid.UUID,
@@ -569,7 +575,17 @@ async def agent_respond(
                     f"respond warmly and use one of these exact phrases to end: {phrases_str}."
                 )
             messages.append(ChatMessage(role="system", content=system_text))
-            for h in request.history[-10:]:
+            # How much of the call the agent can still remember.
+            #
+            # This was 10, which is five exchanges — shorter than any real call.
+            # An agent would collect a caller's name, spend a few turns pinning
+            # down an address, and then ask for the name again because the turn
+            # it was given had already fallen out of the window. It reads as the
+            # agent not listening, and callers react exactly as you would.
+            #
+            # Voice turns are short, so 40 of them is a small prompt and well
+            # within budget; the cap exists for latency, not correctness.
+            for h in request.history[-VOICE_HISTORY_TURNS:]:
                 raw_role = h.get("role", "user")
                 role = "assistant" if raw_role == "agent" else raw_role
                 messages.append(ChatMessage(role=role, content=h.get("text", "")))

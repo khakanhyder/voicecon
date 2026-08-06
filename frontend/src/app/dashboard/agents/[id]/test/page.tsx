@@ -361,7 +361,11 @@ export default function TestAgentPage() {
       const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ message: userText, history: historyRef.current.slice(-10) }),
+        // Send enough of the call for the agent to remember what it has already
+        // been told. At 10 the caller's name dropped out of the window while
+        // they were still spelling out their address, and the agent asked for
+        // it again — the server caps this too (VOICE_HISTORY_TURNS).
+        body: JSON.stringify({ message: userText, history: historyRef.current.slice(-40) }),
         signal: ctrl.signal,
       })
 
