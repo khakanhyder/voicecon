@@ -252,3 +252,39 @@ class TestProviderDeclarations:
     def test_a_connector_without_providers_is_empty_not_an_error(self):
         assert describe_kinds("stripe") == []
         assert get_spec("stripe", "anything") is None
+
+
+class TestDefaultsRespectTheActionSignature:
+    """A default must never be pushed into an action that cannot take it.
+
+    Regression guard: a Trello connection defaults both board_id and list_id.
+    Blindly merging those into every action sent them to add_comment, which
+    accepts card_id and text — raising "unexpected keyword argument" and
+    failing a step that had nothing to do with the default.
+    """
+
+    def test_only_accepted_keys_are_filled(self):
+        filled = apply_connection_defaults(
+            {"card_id": "C1", "text": "hello"},
+            {"defaults": {"board_id": "B1", "list_id": "L1"}},
+            accepted_keys={"card_id", "text"},
+        )
+
+        assert filled == {"card_id": "C1", "text": "hello"}
+
+    def test_accepted_keys_still_get_filled(self):
+        filled = apply_connection_defaults(
+            {"name": "New card"},
+            {"defaults": {"board_id": "B1", "list_id": "L1"}},
+            accepted_keys={"list_id", "name", "description"},
+        )
+
+        assert filled["list_id"] == "L1"
+        assert "board_id" not in filled
+
+    def test_omitting_accepted_keys_keeps_the_old_permissive_behaviour(self):
+        filled = apply_connection_defaults(
+            {"name": "x"}, {"defaults": {"list_id": "L1"}}
+        )
+
+        assert filled["list_id"] == "L1"

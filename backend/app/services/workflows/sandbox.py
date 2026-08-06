@@ -41,6 +41,17 @@ ALLOWED_MODULES = {
     "json", "math", "re", "datetime", "random", "statistics",
     "itertools", "functools", "collections", "string", "textwrap",
     "base64", "hashlib", "uuid", "decimal", "urllib.parse",
+    # `datetime` imports `time` internally, so listing datetime without this
+    # made it permanently unusable — `import datetime` failed with "import of
+    # 'time' is not allowed", which reads like a lie about what is permitted.
+    # `time` is safe to allow: no filesystem, no network, no environment. The
+    # CPU rlimit already bounds anything that tries to sleep.
+    #
+    # `os` is deliberately NOT here, and must not be added to make `uuid`
+    # work. It would hand every workflow author `os.environ` — the database
+    # URL, the Stripe secret, the credential encryption key — as a return
+    # value. If uuid is needed, pass a value in rather than opening that door.
+    "time",
 }
 
 

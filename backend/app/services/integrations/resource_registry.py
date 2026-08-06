@@ -366,13 +366,22 @@ def defaults_for_connector(connector_slug: str) -> List[Dict[str, str]]:
 
 
 def apply_connection_defaults(
-    parameters: Dict[str, Any], connection_config: Optional[Dict[str, Any]]
+    parameters: Dict[str, Any],
+    connection_config: Optional[Dict[str, Any]],
+    accepted_keys: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Fill in parameters the author left blank from the connection's defaults.
 
     Only ever *fills a gap*. An explicit value — including one that came from a
     ``{{template}}`` — always wins, because a default silently overriding what
     someone typed is far worse than a missing value they can see.
+
+    ``accepted_keys`` is the set of parameters the action actually takes, and
+    passing it matters: a Trello connection defaults both ``board_id`` and
+    ``list_id``, but ``add_comment`` accepts neither, and pushing them in
+    anyway raises ``TypeError: got an unexpected keyword argument`` — turning
+    a helpful default into a broken step. Without it, every default leaks into
+    every action on that connection.
     """
     if not connection_config:
         return parameters
@@ -383,10 +392,11 @@ def apply_connection_defaults(
 
     filled = dict(parameters or {})
     for key, value in defaults.items():
-        current = filled.get(key)
-        if value in (None, "") :
+        if value in (None, ""):
             continue
-        if current in (None, ""):
+        if accepted_keys is not None and key not in accepted_keys:
+            continue
+        if filled.get(key) in (None, ""):
             filled[key] = value
             logger.debug(f"Filled '{key}' from the connection default")
     return filled

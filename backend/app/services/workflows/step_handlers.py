@@ -395,13 +395,23 @@ class ActionStepHandler(BaseStepHandler):
                 # list" — so most workflows never have to name a list at all.
                 # An explicit value always wins; this only fills gaps.
                 from app.services.integrations.action_registry import (
+                    get_action_schema,
                     strip_ui_only_parameters,
                 )
                 from app.services.integrations.resource_registry import (
                     apply_connection_defaults,
                 )
 
-                parameters = apply_connection_defaults(parameters, connection.config)
+                # Only defaults this action actually accepts. A Trello
+                # connection defaults board_id and list_id; add_comment takes
+                # neither, and passing them raises TypeError.
+                schema = get_action_schema(connector.slug, action)
+                accepted = set(
+                    ((schema.get("parameters") or {}).get("properties") or {}).keys()
+                ) or None
+                parameters = apply_connection_defaults(
+                    parameters, connection.config, accepted_keys=accepted
+                )
                 # Fields that only exist to drive a picker are not real
                 # arguments; passing them raises TypeError.
                 parameters = strip_ui_only_parameters(
