@@ -280,12 +280,24 @@ class BaseConnector(ABC):
                 success=True,
             )
 
-            # Update connection usage (only for persisted connections — the
-            # connect flow validates a transient, not-yet-saved connection).
+            # Record that the connection was used. Best-effort bookkeeping:
+            # it must never be able to fail a request that already succeeded.
+            #
+            # It could, and did. This block wrote `usage_count` and
+            # `last_used_at`, neither of which exists on IntegrationConnection
+            # (they are ApiKey columns), so every call raised AttributeError
+            # *after* the provider had already answered. It stayed hidden
+            # because the guard below skips the connect flow, whose connection
+            # is still transient — so connecting worked and everything
+            # afterwards failed, which reads exactly like a bad credential.
             if getattr(self.connection, "id", None) is not None:
-                self.connection.usage_count = (self.connection.usage_count or 0) + 1
-                self.connection.last_used_at = datetime.utcnow()
-                await self.db.commit()
+                try:
+                    self.connection.last_sync_at = datetime.utcnow()
+                    await self.db.commit()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        f"Could not record use of connection {self.connection.id}: {exc}"
+                    )
 
             return response_data
 

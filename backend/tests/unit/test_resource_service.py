@@ -292,3 +292,37 @@ class TestErrorMessages:
         from app.services.integrations.resource_service import _safe_provider_message
 
         assert _safe_provider_message(TimeoutError()) == "TimeoutError"
+
+
+class TestConnectionBookkeeping:
+    """A successful provider call must not be undone by telemetry.
+
+    Regression guard: connector_base recorded usage into `usage_count` and
+    `last_used_at`, which exist on ApiKey but not on IntegrationConnection.
+    Every integration call raised AttributeError *after* the provider had
+    already answered. It hid for so long because the write is skipped while a
+    connection is still transient — so connecting an app worked and every use
+    afterwards failed, which looks exactly like an expired credential.
+    """
+
+    def test_the_model_has_the_field_the_base_connector_writes(self):
+        from app.models.integration import IntegrationConnection
+
+        assert hasattr(IntegrationConnection, "last_sync_at")
+
+    def test_the_model_does_not_have_the_fields_that_caused_the_bug(self):
+        """If these are ever added, revisit connector_base — but until then a
+        write to them is a crash, not a no-op."""
+        from app.models.integration import IntegrationConnection
+
+        assert not hasattr(IntegrationConnection, "usage_count")
+        assert not hasattr(IntegrationConnection, "last_used_at")
+
+    def test_base_connector_no_longer_references_the_missing_columns(self):
+        import inspect
+
+        from app.services.integrations import connector_base
+
+        source = inspect.getsource(connector_base)
+        assert "self.connection.usage_count" not in source
+        assert "self.connection.last_used_at" not in source
