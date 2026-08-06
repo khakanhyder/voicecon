@@ -10,6 +10,7 @@ being rate limited.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -39,6 +40,31 @@ class ResourceError(Exception):
     def __init__(self, message: str, *, code: str = "resource_error"):
         super().__init__(message)
         self.code = code
+
+
+#: Query parameters that carry a credential. Trello authenticates with
+#: ``?key=...&token=...``, so any error text containing a request URL contains
+#: a live token — and that text is on its way to a browser and a log file.
+_SECRET_PARAMS = ("token", "key", "api_key", "apikey", "access_token", "password", "secret")
+
+_SECRET_RE = re.compile(
+    r"(?i)\b(" + "|".join(_SECRET_PARAMS) + r")=([^&\s\"']+)"
+)
+
+
+def _safe_provider_message(exc: Exception, *, limit: int = 200) -> str:
+    """The provider's complaint, with credentials stripped out.
+
+    Surfacing the real error is worth a lot — "invalid token" is diagnosable,
+    "could not reach Trello" is not. But connectors that authenticate by query
+    string put the token in the URL, and the URL ends up in the exception, so
+    it has to be scrubbed before it reaches a browser or a log aggregator.
+    """
+    message = _SECRET_RE.sub(r"\1=***", str(exc) or exc.__class__.__name__)
+    message = message.strip()
+    if len(message) > limit:
+        message = message[: limit - 1].rstrip() + "…"
+    return message or "no details provided"
 
 
 #: (connection_id, kind, parent_id) -> (expires_at, resources)
@@ -170,8 +196,11 @@ async def list_resources(
             logger.warning(
                 f"Listing {kind} on {slug} connection {connection_id} failed: {exc}"
             )
+            # Pass the provider's own words through. "invalid token" tells the
+            # user (and us) exactly what is wrong; "could not reach Trello"
+            # sends everyone hunting for a network problem that isn't there.
             raise ResourceError(
-                f"Could not reach {connector.name}. It may need reconnecting.",
+                f"{connector.name} rejected the request: {_safe_provider_message(exc)}",
                 code="provider_error",
             )
     finally:

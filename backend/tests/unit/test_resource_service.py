@@ -257,3 +257,38 @@ class TestFailures:
         )
 
         assert len(result["resources"]) == 2
+
+
+class TestErrorMessages:
+    """The provider's own words reach the user — minus anything secret."""
+
+    def test_provider_message_is_surfaced(self):
+        from app.services.integrations.resource_service import _safe_provider_message
+
+        assert "invalid token" in _safe_provider_message(Exception("invalid token"))
+
+    def test_credentials_in_a_url_are_redacted(self):
+        """Trello authenticates by query string, so its errors carry a live
+        token — and that string is on its way to a browser and a log file."""
+        from app.services.integrations.resource_service import _safe_provider_message
+
+        exc = Exception(
+            "Client error '401' for url "
+            "'https://api.trello.com/1/members/me/boards?key=APPKEY123&token=USERTOKEN456'"
+        )
+        message = _safe_provider_message(exc)
+
+        assert "APPKEY123" not in message
+        assert "USERTOKEN456" not in message
+        assert "key=***" in message and "token=***" in message
+
+    def test_long_messages_are_truncated(self):
+        from app.services.integrations.resource_service import _safe_provider_message
+
+        assert len(_safe_provider_message(Exception("x" * 900))) <= 200
+
+    def test_an_empty_exception_still_says_something(self):
+        """A blank message would render as "Trello rejected the request: "."""
+        from app.services.integrations.resource_service import _safe_provider_message
+
+        assert _safe_provider_message(TimeoutError()) == "TimeoutError"
