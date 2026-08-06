@@ -12,6 +12,7 @@ import {
   type FieldDescriptor,
 } from '@/lib/workflow/nodeTypes'
 import type { FlowNode, NodeSettings } from '@/lib/workflow/graph'
+import { ActionParametersField } from './fields/ActionParametersField'
 import { ConnectionActionField, ConnectionField } from './fields/ConnectionFields'
 import { KeyValueField } from './fields/KeyValueField'
 import { RulesField } from './fields/RulesField'
@@ -154,6 +155,9 @@ export function NodeInspector({
                   dependsOnValue={
                     field.dependsOn ? config[field.dependsOn] : undefined
                   }
+                  // Action parameters need the connection *and* the action to
+                  // fetch their schema, which `dependsOn` alone cannot express.
+                  connectionId={config.connection_id as string | undefined}
                   dataPaths={dataPaths}
                   onChange={(value) => setField(field.name, value)}
                 />
@@ -331,12 +335,14 @@ function FieldControl({
   field,
   value,
   dependsOnValue,
+  connectionId,
   dataPaths,
   onChange,
 }: {
   field: FieldDescriptor
   value: unknown
   dependsOnValue?: unknown
+  connectionId?: string
   dataPaths: DataPath[]
   onChange: (value: unknown) => void
 }) {
@@ -360,6 +366,14 @@ function FieldControl({
           id={id}
           value={(value as string) ?? ''}
           connectionId={dependsOnValue as string | undefined}
+          onChange={onChange}
+        />
+      ) : field.type === 'actionParameters' ? (
+        <ActionParametersField
+          value={value as Record<string, any> | undefined}
+          connectionId={connectionId}
+          action={dependsOnValue as string | undefined}
+          dataPaths={dataPaths}
           onChange={onChange}
         />
       ) : field.type === 'keyValue' ? (

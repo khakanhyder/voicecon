@@ -390,6 +390,24 @@ class ActionStepHandler(BaseStepHandler):
                 if not hasattr(connector_instance, action):
                     raise StepExecutionError(f"Action {action} not found on connector")
 
+                # Anything the author left blank falls back to the choice made
+                # once when the integration was connected — "cards go to this
+                # list" — so most workflows never have to name a list at all.
+                # An explicit value always wins; this only fills gaps.
+                from app.services.integrations.action_registry import (
+                    strip_ui_only_parameters,
+                )
+                from app.services.integrations.resource_registry import (
+                    apply_connection_defaults,
+                )
+
+                parameters = apply_connection_defaults(parameters, connection.config)
+                # Fields that only exist to drive a picker are not real
+                # arguments; passing them raises TypeError.
+                parameters = strip_ui_only_parameters(
+                    connector.slug, action, parameters
+                )
+
                 action_method = getattr(connector_instance, action)
                 result = await action_method(**parameters)
 

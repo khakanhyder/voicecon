@@ -33,6 +33,15 @@ export const API_ENDPOINTS = {
   INTEGRATION_CONNECTION: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}`,
   INTEGRATION_CONNECTION_TEST: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/test`,
   INTEGRATION_CONNECTION_ACTIONS: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/actions`,
+  /** Things inside a connection an action can point at: lists, channels, calendars. */
+  INTEGRATION_CONNECTION_RESOURCES: (id: string, kind: string) =>
+    `${API_BASE}/api/v1/integrations/connections/${id}/resources/${kind}`,
+  /** Turns a link the user pasted into the id the action needs. */
+  INTEGRATION_CONNECTION_RESOURCE_FROM_URL: (id: string, kind: string) =>
+    `${API_BASE}/api/v1/integrations/connections/${id}/resources/${kind}/from-url`,
+  /** Where this connection sends things when a workflow leaves the field blank. */
+  INTEGRATION_CONNECTION_DEFAULTS: (id: string) =>
+    `${API_BASE}/api/v1/integrations/connections/${id}/defaults`,
   INTEGRATIONS_AVAILABLE_FOR_TOOLS: `${API_BASE}/api/v1/integrations/available-for-tools`,
 
   // Workflows

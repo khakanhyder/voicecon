@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConnectionDefaults } from '@/components/integrations/ConnectionDefaults'
 import { IntegrationSetup } from '@/components/integrations/IntegrationSetup'
 import { getIconUrl } from '@/components/integrations/IntegrationCard'
 import { apiClient } from '@/lib/api'
@@ -528,6 +529,14 @@ export default function IntegrationDetailPage() {
         onDisconnected={() => setExistingConnectionId(undefined)}
         onConnected={(id) => setExistingConnectionId(id)}
       />
+
+      {/* Asked once, here, so no workflow ever has to. Only shown after the
+          integration is connected — there is nothing to list before that. */}
+      {existingConnectionId && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+          <ConnectionDefaults connectionId={existingConnectionId} />
+        </div>
+      )}
     </div>
   )
 }

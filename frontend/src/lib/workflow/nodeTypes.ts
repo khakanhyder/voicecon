@@ -19,6 +19,11 @@ export type FieldType =
   | 'connectionAction'
   /** Editable list of key -> value assignments. */
   | 'keyValue'
+  /**
+   * An integration action's parameters, rendered from its schema — resource
+   * pickers where the backend declares one, expression inputs elsewhere.
+   */
+  | 'actionParameters'
   /** Ordered rule list that drives a switch node's outputs. */
   | 'rules'
   /** Declares the workflow's input parameters, on the trigger node. */
@@ -519,8 +524,9 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
       {
         name: 'parameters',
         label: 'Parameters',
-        type: 'keyValue',
+        type: 'actionParameters',
         default: {},
+        dependsOn: 'action',
         help: 'Values may reference earlier steps, e.g. {{steps.ask.answer}}.',
       },
     ],

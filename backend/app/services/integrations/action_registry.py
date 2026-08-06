@@ -30,7 +30,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "parent_page_id": {"type": "string", "description": "Parent page ID"},
+                    "parent_page_id": {"type": "string", "description": "Parent page ID",
+                                       "title": "Parent page", "x-resource": "pages"},
                     "title": {"type": "string", "description": "Page title"},
                     "content": {"type": "string", "description": "Body text"},
                 },
@@ -44,7 +45,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "block_id": {"type": "string", "description": "Page or block ID"},
+                    "block_id": {"type": "string", "description": "Page or block ID",
+                                 "title": "Page", "x-resource": "pages"},
                     "text": {"type": "string", "description": "Text to append"},
                 },
                 "required": ["block_id", "text"],
@@ -60,7 +62,12 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "list_id": {"type": "string", "description": "Target list ID"},
+                    # No picker: listing ClickUp lists needs a space id, and the
+                    # connector has no get_spaces to populate a space picker
+                    # from. The URL mode still resolves it, so the field is
+                    # usable — it just cannot offer a dropdown yet.
+                    "list_id": {"type": "string", "description": "Target list ID",
+                                "title": "List"},
                     "name": {"type": "string", "description": "Task name"},
                     "description": {"type": "string", "description": "Task description"},
                 },
@@ -73,7 +80,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "description": "List tasks in a ClickUp list",
             "parameters": {
                 "type": "object",
-                "properties": {"list_id": {"type": "string", "description": "List ID"}},
+                "properties": {"list_id": {"type": "string", "description": "List ID",
+                                           "title": "List"}},
                 "required": ["list_id"],
             },
         },
@@ -84,7 +92,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "task_id": {"type": "string", "description": "Task ID"},
+                    "task_id": {"type": "string", "description": "Task ID",
+                                "title": "Task", "x-runtime": True},
                     "comment_text": {"type": "string", "description": "Comment text"},
                 },
                 "required": ["task_id", "comment_text"],
@@ -100,7 +109,18 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "list_id": {"type": "string", "description": "Target list ID"},
+                    # Two-step picker: choosing a board populates the lists on
+                    # it. Both are filled from the connection's defaults when
+                    # left blank, so the common case needs neither.
+                    # UI-only: it exists so the List picker knows which board to
+                    # read, and is stripped before the connector is called —
+                    # TrelloConnector.create_card takes no board_id.
+                    "board_id": {"type": "string", "description": "Board the list belongs to",
+                                 "title": "Board", "x-resource": "boards",
+                                 "x-ui-only": True},
+                    "list_id": {"type": "string", "description": "Target list ID",
+                                "title": "List", "x-resource": "lists",
+                                "x-depends-on": "board_id"},
                     "name": {"type": "string", "description": "Card title"},
                     "description": {"type": "string", "description": "Card description"},
                 },
@@ -114,7 +134,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "card_id": {"type": "string", "description": "Card ID"},
+                    "card_id": {"type": "string", "description": "Card ID",
+                                "title": "Card", "x-runtime": True},
                     "text": {"type": "string", "description": "Comment text"},
                 },
                 "required": ["card_id", "text"],
@@ -203,7 +224,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "contact_id": {"type": "string", "description": "HubSpot contact ID"},
+                    "contact_id": {"type": "string", "description": "HubSpot contact ID",
+                                   "title": "Contact", "x-runtime": True},
                     "phone": {"type": "string", "description": "New phone number"},
                     "company": {"type": "string", "description": "New company name"},
                     "additional_properties": {"type": "object", "description": "Additional properties to update"},
@@ -271,7 +293,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "properties": {
                     "start_time": {"type": "string", "description": "Start time in ISO 8601 format (e.g. 2024-01-15T09:00:00)"},
                     "end_time": {"type": "string", "description": "End time in ISO 8601 format (e.g. 2024-01-15T17:00:00)"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)",
+                                    "title": "Calendar", "x-resource": "calendars"},
                 },
                 "required": ["start_time", "end_time"],
             },
@@ -285,7 +308,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "properties": {
                     "date": {"type": "string", "description": "Date to check in YYYY-MM-DD format"},
                     "duration_minutes": {"type": "integer", "description": "Duration of the meeting in minutes"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)",
+                                    "title": "Calendar", "x-resource": "calendars"},
                 },
                 "required": ["date", "duration_minutes"],
             },
@@ -302,7 +326,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "end_time": {"type": "string", "description": "End time in ISO 8601 format"},
                     "attendee_email": {"type": "string", "description": "Attendee email address"},
                     "description": {"type": "string", "description": "Meeting description or notes"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)",
+                                    "title": "Calendar", "x-resource": "calendars"},
                 },
                 "required": ["title", "start_time", "end_time"],
             },
@@ -331,7 +356,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "channel": {"type": "string", "description": "Channel name or ID (e.g. #sales, #support)"},
+                    "channel": {"type": "string", "description": "Channel name or ID (e.g. #sales, #support)",
+                                "title": "Channel", "x-resource": "channels"},
                     "message": {"type": "string", "description": "Message text to send"},
                     "thread_ts": {"type": "string", "description": "Thread timestamp to reply in a thread (optional)"},
                 },
@@ -442,7 +468,8 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet ID"},
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet ID",
+                                       "title": "Spreadsheet", "x-resource": "spreadsheets"},
                     "range_name": {"type": "string", "description": "Range (e.g. Sheet1!A:B)"},
                     "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
                 },
@@ -576,3 +603,37 @@ def get_action_schema(connector_slug: str, action: str) -> Dict[str, Any]:
         if a["action"] == action:
             return a
     return {}
+
+
+def strip_ui_only_parameters(
+    connector_slug: str, action: str, parameters: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Drop parameters that exist only to drive the builder's UI.
+
+    Some fields are there so a picker knows what to list — Trello's ``board_id``
+    tells the List dropdown which board to read — but the connector method has
+    no such argument, and passing it raises ``TypeError`` at run time. They are
+    marked ``x-ui-only`` in the schema and removed here, at the one point every
+    action execution passes through.
+    """
+    schema = get_action_schema(connector_slug, action)
+    properties = (schema.get("parameters") or {}).get("properties") or {}
+    ui_only = {
+        name
+        for name, spec in properties.items()
+        if isinstance(spec, dict) and spec.get("x-ui-only")
+    }
+    if not ui_only:
+        return parameters
+    return {k: v for k, v in (parameters or {}).items() if k not in ui_only}
+
+
+def resource_fields(connector_slug: str, action: str) -> Dict[str, Dict[str, Any]]:
+    """The pickable fields on an action, for the builder to render."""
+    schema = get_action_schema(connector_slug, action)
+    properties = (schema.get("parameters") or {}).get("properties") or {}
+    return {
+        name: spec
+        for name, spec in properties.items()
+        if isinstance(spec, dict) and spec.get("x-resource")
+    }

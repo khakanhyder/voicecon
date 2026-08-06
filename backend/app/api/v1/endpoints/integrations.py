@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, desc
 
+from pydantic import BaseModel as _BaseModelResource, Field as _FieldResource
+
 from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
@@ -1227,6 +1229,252 @@ async def list_connection_actions(
         "connector_name": connector.name,
         "actions": actions,
     }
+
+
+@router.get("/connections/{connection_id}/resources/{kind}")
+async def list_connection_resources(
+    connection_id: str,
+    kind: str,
+    parent: Optional[str] = None,
+    q: Optional[str] = None,
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """
+    List the things inside a connection that an action can be pointed at —
+    Trello lists, Slack channels, Google calendars.
+
+    This is what lets the builder show a dropdown of names where it previously
+    showed an empty box demanding an internal id. Names are for the human; the
+    id is what gets stored.
+
+    ``parent`` selects the container for nested kinds (a Trello list belongs to
+    a board). ``q`` filters by name. ``refresh`` bypasses the short cache, for
+    the "I just created that list" case.
+    """
+    import uuid as _uuid
+
+    from app.services.integrations.resource_service import ResourceError, list_resources
+
+    try:
+        conn_uuid = _uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    try:
+        payload = await list_resources(
+            db,
+            org_id,
+            conn_uuid,
+            kind,
+            parent=parent,
+            query=q,
+            refresh=refresh,
+        )
+    except ResourceError as exc:
+        # 404 only for things that genuinely are not there. A disconnected
+        # integration is a 409 so the frontend can offer "Reconnect" instead of
+        # rendering an empty list, which reads as "you have no channels".
+        status_map = {
+            "not_found": status.HTTP_404_NOT_FOUND,
+            "unsupported_kind": status.HTTP_400_BAD_REQUEST,
+            "unsupported_connector": status.HTTP_400_BAD_REQUEST,
+            "disconnected": status.HTTP_409_CONFLICT,
+            "provider_error": status.HTTP_502_BAD_GATEWAY,
+        }
+        raise HTTPException(
+            status_code=status_map.get(exc.code, status.HTTP_400_BAD_REQUEST),
+            detail={"detail": str(exc), "code": exc.code},
+        )
+
+    return {"connection_id": connection_id, "kind": kind, **payload}
+
+
+class ResourceUrlRequest(_BaseModelResource):
+    """Resolve a pasted link into a resource id."""
+
+    url: str = _FieldResource(..., description="A link copied from the provider")
+
+
+@router.post("/connections/{connection_id}/resources/{kind}/from-url")
+async def resolve_resource_url(
+    connection_id: str,
+    kind: str,
+    request: ResourceUrlRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """
+    Turn a link the user pasted into the id the action needs.
+
+    Usually faster than the dropdown: the board is already open in another tab,
+    so copying the address bar beats waiting on an API round trip and scrolling
+    a list. A link of the wrong kind is rejected explicitly rather than stored
+    as a value that fails later at runtime.
+    """
+    import uuid as _uuid
+
+    from app.services.integrations.resource_registry import parse_resource_url
+
+    try:
+        conn_uuid = _uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.id == conn_uuid,
+            IntegrationConnection.organization_id == org_id,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    conn_result = await db.execute(
+        select(IntegrationConnector).where(
+            IntegrationConnector.id == connection.connector_id
+        )
+    )
+    connector = conn_result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    resource_id = parse_resource_url(connector.slug, kind, request.url)
+    if not resource_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "detail": (
+                    f"That does not look like a {connector.name} link for this field. "
+                    "Copy the address from your browser's address bar."
+                ),
+                "code": "url_not_recognised",
+            },
+        )
+
+    return {"id": resource_id, "kind": kind, "connector_slug": connector.slug}
+
+
+@router.get("/connections/{connection_id}/defaults")
+async def get_connection_defaults(
+    connection_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """
+    The defaults chosen for this connection, plus what it can be asked about.
+
+    Defaults are what make the picker disappear for most people: someone with
+    one Trello board answers "where should cards go?" once, and no workflow
+    they build afterwards ever asks again.
+    """
+    import uuid as _uuid
+
+    from app.services.integrations.resource_registry import (
+        defaults_for_connector,
+        describe_kinds,
+    )
+
+    try:
+        conn_uuid = _uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.id == conn_uuid,
+            IntegrationConnection.organization_id == org_id,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    conn_result = await db.execute(
+        select(IntegrationConnector).where(
+            IntegrationConnector.id == connection.connector_id
+        )
+    )
+    connector = conn_result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    stored = ((connection.config or {}).get("defaults")) or {}
+    return {
+        "connection_id": connection_id,
+        "connector_slug": connector.slug,
+        "connector_name": connector.name,
+        "defaults": stored,
+        "asks": defaults_for_connector(connector.slug),
+        "kinds": describe_kinds(connector.slug),
+    }
+
+
+class ConnectionDefaultsRequest(_BaseModelResource):
+    """Set the connection-wide defaults."""
+
+    defaults: Dict[str, Any] = _FieldResource(
+        default_factory=dict,
+        description="Parameter name -> resource id, e.g. {'list_id': '66f0...'}",
+    )
+
+
+@router.put("/connections/{connection_id}/defaults")
+async def set_connection_defaults(
+    connection_id: str,
+    request: ConnectionDefaultsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """
+    Save the defaults an action falls back to when a parameter is left blank.
+
+    Stored on the connection rather than copied into each workflow, so moving a
+    team's cards to a different list is one change here instead of an edit to
+    every workflow that ever created one.
+    """
+    import uuid as _uuid
+
+    from app.services.integrations.resource_service import invalidate_connection
+
+    try:
+        conn_uuid = _uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.id == conn_uuid,
+            IntegrationConnection.organization_id == org_id,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    cleaned = {
+        key: str(value)
+        for key, value in (request.defaults or {}).items()
+        if value not in (None, "")
+    }
+
+    # ``config`` is a JSON column: reassign rather than mutate, or SQLAlchemy
+    # will not notice the change and the write is silently dropped.
+    config = dict(connection.config or {})
+    config["defaults"] = cleaned
+    connection.config = config
+
+    await db.commit()
+    await db.refresh(connection)
+    invalidate_connection(conn_uuid)
+
+    return {"connection_id": connection_id, "defaults": cleaned}
 
 
 @router.get("/available-for-tools")
