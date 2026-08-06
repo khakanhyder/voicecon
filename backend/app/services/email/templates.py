@@ -85,12 +85,35 @@ VERIFICATION_CODE_BODY = """
 </p>
 """
 
+BILLING_NOTICE_BODY = """
+<h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ heading }}</h1>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 20px;">
+  {{ intro }}
+</p>
+{% if bullets %}
+<ul style="color:#334155;font-size:14px;line-height:1.7;margin:0 0 22px;padding-left:20px;">
+  {% for bullet in bullets %}<li>{{ bullet }}</li>{% endfor %}
+</ul>
+{% endif %}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+  <tr><td>
+    <a href="{{ action_url }}" style="display:inline-block;background:#1168d4;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
+      {{ action_label }}
+    </a>
+  </td></tr>
+</table>
+<p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+  {{ closing }}
+</p>
+"""
+
 _env = Environment(
     loader=DictLoader(
         {
             "base": BASE_LAYOUT,
             "invitation": INVITATION_BODY,
             "verification_code": VERIFICATION_CODE_BODY,
+            "billing_notice": BILLING_NOTICE_BODY,
         }
     ),
     autoescape=select_autoescape(["html", "xml"]),
@@ -168,6 +191,45 @@ def render_verification_code_email(
         f"Never share this code with anyone — {brand} will never ask you for it."
     )
     return html, text, subject
+
+
+def render_billing_notice_email(
+    *,
+    brand: str,
+    heading: str,
+    intro: str,
+    action_url: str,
+    action_label: str,
+    bullets: list[str] | None = None,
+    closing: str = "",
+) -> tuple[str, str]:
+    """Return (html, text) for a trial or subscription lifecycle notice.
+
+    One template for the whole lifecycle — trial reminders, expiry, grace,
+    payment failure — so the sequence reads as one conversation rather than
+    five differently-designed emails.
+    """
+    bullets = bullets or []
+    body = _env.get_template("billing_notice").render(
+        heading=heading,
+        intro=intro,
+        bullets=bullets,
+        action_url=action_url,
+        action_label=action_label,
+        closing=closing,
+    )
+    html = _wrap(
+        body,
+        footer=f"This is an automated message about your {brand} subscription.",
+        brand=brand,
+    )
+    bullet_text = "".join(f"  - {bullet}\n" for bullet in bullets)
+    text = (
+        f"{heading}\n\n{intro}\n\n"
+        f"{bullet_text}"
+        f"\n{action_label}: {action_url}\n\n{closing}\n"
+    )
+    return html, text
 
 
 def render_invitation_email(

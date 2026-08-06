@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.core.api_keys import KEY_PREFIX_LEN
 from app.core.dependencies import get_current_user, get_current_org_id
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 from app.core import permissions as perms
 from app.core.security import generate_api_key
 from app.models.user import User, ApiKey
@@ -111,7 +113,18 @@ async def list_api_keys(
     return result.scalars().all()
 
 
-@router.post("", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.API_ACCESS, limit=catalog.LIMIT_API_KEYS
+            )
+        )
+    ],
+)
 async def create_api_key(
     payload: ApiKeyCreate,
     current_user: User = Depends(get_current_user),

@@ -179,7 +179,7 @@ export default function CallsPage() {
             </div>
 
             {isLoading ? (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-[#E2E8F0]">
                 {[1, 2, 3, 4].map(i => (
                   <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
                     <div className="h-4 w-4 bg-slate-200 rounded-[4px] flex-shrink-0" />
@@ -218,14 +218,14 @@ export default function CallsPage() {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-black/10">
+              <div className="divide-y divide-[#E2E8F0]">
                 {filtered.map((call) => {
                   const endReason = call.call_metadata?.disconnection_reason || call.status
                   const assistantPhone = call.direction === 'outbound' ? call.from_number : call.direction === 'inbound' ? call.to_number : 'Web Test'
                   const customerPhone = call.direction === 'inbound' ? call.from_number : call.direction === 'outbound' ? call.to_number : 'Web Test'
 
                   return (
-                    <Link key={call.id} href={`/dashboard/calls/${call.id}`}>
+                    <Link key={call.id} href={`/dashboard/calls/${call.id}`} className="block">
                       <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
                         <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                           <input type="checkbox" title="Select call" className="rounded-[4px] border border-black/20 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />

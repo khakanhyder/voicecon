@@ -21,8 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
 
+from app.core.entitlement_guard import require_entitlement
 from app.database import get_db
 from app.models.call import PhoneNumber
+from app.services.billing import catalog
 from app.models.agent import Agent
 from app.models.user import User
 from app.services.telephony.number_provisioning import (
@@ -233,7 +235,14 @@ async def search_phone_numbers(
         )
 
 
-@router.post("/provision", response_model=PhoneNumberResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/provision",
+    response_model=PhoneNumberResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS))
+    ],
+)
 async def provision_phone_number(
     provision_request: PhoneNumberProvision,
     current_user: User = Depends(get_current_active_user),

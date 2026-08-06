@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 
 from app.core import permissions as perms
 from app.core.dependencies import workspace_guard
+from app.core.entitlement_guard import entitlement_guard
 from app.api.v1.endpoints import (
     agents,
     analytics,
@@ -44,7 +45,18 @@ api_router = APIRouter()
 
 
 def _guard(read_permission: str, write_permission: str):
-    return [Depends(workspace_guard(read_permission, write_permission))]
+    """Two orthogonal gates every workspace-scoped router carries.
+
+    ``workspace_guard`` answers *may this caller do it* (403 if not);
+    ``entitlement_guard`` answers *did this organization buy it* (402 if not).
+    Reads pass the second gate unconditionally — an organization whose trial has
+    ended keeps full read access to everything it built, and can always export
+    it and pay us. Only writes and runtime are withheld.
+    """
+    return [
+        Depends(workspace_guard(read_permission, write_permission)),
+        Depends(entitlement_guard()),
+    ]
 
 
 # ---- No workspace context: auth, the personal account, public surfaces ----

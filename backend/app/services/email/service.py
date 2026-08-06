@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.services.email.base import EmailMessage, EmailProvider
 from app.services.email.providers import ConsoleProvider, SMTPProvider, SendGridProvider
 from app.services.email.templates import (
+    render_billing_notice_email,
     render_invitation_email,
     render_verification_code_email,
 )
@@ -123,6 +124,35 @@ class EmailService:
             text=text,
         )
         return await self.send(message, raise_on_error=raise_on_error)
+
+    async def send_billing_notice(
+        self,
+        *,
+        to_email: str,
+        subject: str,
+        heading: str,
+        intro: str,
+        action_url: str,
+        action_label: str = "Choose a plan",
+        bullets: Optional[list[str]] = None,
+        closing: str = "",
+    ) -> bool:
+        """Send a trial or subscription lifecycle notice.
+
+        Never raises: the reconciler that calls this is mid-transition, and a
+        dead mail server must not roll back a subscription state change.
+        """
+        html, text = render_billing_notice_email(
+            brand=settings.APP_NAME,
+            heading=heading,
+            intro=intro,
+            action_url=action_url,
+            action_label=action_label,
+            bullets=bullets,
+            closing=closing,
+        )
+        message = EmailMessage(to=to_email, subject=subject, html=html, text=text)
+        return await self.send(message)
 
 
 # Process-wide singleton.

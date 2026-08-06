@@ -22,11 +22,12 @@ from app.core.dependencies import (
     get_db,
     require_permission,
 )
+from app.core.entitlement_guard import require_entitlement
 from app.models.agent import Agent
 from app.models.user import User, Organization
 from app.models.call import PhoneNumber
 from app.models.company import CompanyProfile
-from app.models.subscription import Subscription
+from app.models.subscription import LIVE_STATUSES, Subscription
 from app.schemas.onboarding import (
     ClaimPhoneNumberRequest,
     ClaimPhoneNumberResponse,
@@ -43,6 +44,7 @@ from app.services.telephony.provider_registry import (
     AmbiguousProviderError,
     NoTelephonyProviderError,
 )
+from app.services.billing import catalog
 from app.services.telephony.providers import NumberProviderError
 
 logger = logging.getLogger(__name__)
@@ -66,7 +68,7 @@ async def get_onboarding_status(
         select(Subscription).where(
             and_(
                 Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing", "past_due"]),
+                Subscription.status.in_(LIVE_STATUSES),
             )
         )
     )
@@ -207,7 +209,13 @@ async def _assistant_agent(
 @router.post(
     "/phone-number",
     response_model=ClaimPhoneNumberResponse,
-    dependencies=[Depends(require_permission(perms.PHONE_NUMBERS_WRITE))],
+    dependencies=[
+        Depends(require_permission(perms.PHONE_NUMBERS_WRITE)),
+        # Buying a number costs real money at the carrier, and this endpoint is
+        # reachable before onboarding finishes — without a plan or trial behind
+        # it, anyone who signs up could provision numbers on our account.
+        Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS)),
+    ],
 )
 async def claim_phone_number(
     payload: ClaimPhoneNumberRequest,

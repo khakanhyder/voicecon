@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   Elements,
@@ -17,6 +17,7 @@ import { VoiceconLogo } from '@/lib/icons'
 import { BrandPanel } from '@/components/auth/BrandPanel'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
 import { onboardingService } from '@/lib/onboarding'
+import { entitlementService } from '@/lib/entitlements'
 import { useOnboardingStore } from '@/store/onboardingStore'
 
 const COUNTRIES = [
@@ -91,6 +92,18 @@ function CheckoutForm() {
   const [authorize, setAuthorize] = useState(false)
   const [agree, setAgree] = useState(false)
   const configured = isStripeConfigured()
+
+  // A free trial is once per account. Ask the server rather than assuming, so a
+  // returning user is told up front instead of discovering it through a 409 on
+  // a button we should not have offered. If the lookup fails we leave the button
+  // enabled — the server refuses anyway, and a failed read is no reason to
+  // withhold a trial from someone genuinely entitled to one.
+  const { data: entitlements } = useQuery({
+    queryKey: ['entitlements', 'onboarding'],
+    queryFn: () => entitlementService.get(true),
+    retry: false,
+  })
+  const trialUsed = entitlements?.trial_used ?? false
 
   const price = selectedPlan
     ? priceFor(billingPeriod, selectedPlan.price_monthly, selectedPlan.price_yearly)
@@ -278,10 +291,15 @@ function CheckoutForm() {
         <button
           type="button"
           onClick={() => trialMutation.mutate()}
-          disabled={busy}
-          className="flex-1 rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
+          disabled={busy || trialUsed}
+          title={trialUsed ? 'Your free trial has already been used' : undefined}
+          className="flex-1 rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {trialMutation.isPending ? 'Starting…' : 'Try voicecon for 7 days'}
+          {trialUsed
+            ? 'Free trial already used'
+            : trialMutation.isPending
+            ? 'Starting…'
+            : 'Try voicecon for 7 days'}
         </button>
         <button
           type="button"
@@ -293,8 +311,9 @@ function CheckoutForm() {
         </button>
       </div>
       <p className="mt-3 text-[11px] text-slate-400">
-        The trial will be converted to the selected subscription unless canceled before the end of
-        the trial period.
+        {trialUsed
+          ? 'Your free trial has already been used — a free trial is available once per account. Choose a plan to continue.'
+          : 'The trial will be converted to the selected subscription unless canceled before the end of the trial period.'}
       </p>
     </div>
   )

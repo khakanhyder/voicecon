@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_org_id
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 from app.models.user import User, OrganizationMember
 from app.models.agent import Agent, AgentFunction
 from app.schemas.agent import (
@@ -42,7 +44,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=AgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_entitlement(limit=catalog.LIMIT_AGENTS))],
+)
 async def create_agent(
     agent_data: AgentCreate,
     current_user: User = Depends(get_current_active_user),

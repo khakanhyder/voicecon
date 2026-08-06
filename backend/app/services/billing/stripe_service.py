@@ -11,6 +11,7 @@ import logging
 
 import stripe
 from sqlalchemy import select, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.subscription import (
@@ -747,27 +748,56 @@ class StripeService:
             logger.error(f"Invalid webhook signature: {e}")
             raise ValueError("Invalid signature")
 
+    async def _already_processed(
+        self, db: AsyncSession, event_id: Optional[str], event_type: str
+    ) -> bool:
+        """Claim this Stripe event id, or report that it is a re-delivery.
+
+        Stripe retries deliveries, so without this a repeated ``invoice.paid``
+        applies its effect twice. The claim is committed before the handler
+        runs: two workers racing on the same delivery means one of them loses
+        the insert and skips, which is exactly the intended outcome.
+        """
+        from app.models.subscription import ProcessedStripeEvent
+
+        if not event_id:
+            # Unsigned/synthetic events (tests, manual replays) carry no id and
+            # cannot be deduplicated. Let them through rather than dropping them.
+            return False
+
+        existing = await db.get(ProcessedStripeEvent, event_id)
+        if existing is not None:
+            return True
+
+        db.add(ProcessedStripeEvent(stripe_event_id=event_id, event_type=event_type))
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return True
+        return False
+
     async def handle_webhook_event(
         self, db: AsyncSession, event: Dict[str, Any]
     ) -> bool:
         """
-        Handle Stripe webhook event.
-
-        Args:
-            db: Database session
-            event: Stripe event
-
-        Returns:
-            True if handled successfully
+        Handle a Stripe webhook event. Idempotent: a re-delivered event is a
+        no-op rather than a second application of the same effect.
         """
         event_type = event["type"]
         data = event["data"]["object"]
+        event_id = event.get("id")
 
-        logger.info(f"Handling webhook event: {event_type}")
+        if await self._already_processed(db, event_id, event_type):
+            logger.info(f"Skipping already-processed Stripe event {event_id}")
+            return True
+
+        logger.info(f"Handling webhook event: {event_type} ({event_id})")
 
         try:
             if event_type == "invoice.paid":
                 await self.sync_invoice(db, data["id"])
+                await self._on_invoice_paid(db, data, event_id)
 
             elif event_type == "invoice.payment_failed":
                 invoice = await self.sync_invoice(db, data["id"])
@@ -780,43 +810,216 @@ class StripeService:
                             "message", "Payment failed"
                         ),
                     )
+                await self._on_payment_failed(db, data, event_id)
+
+            elif event_type == "customer.subscription.trial_will_end":
+                # Only fires for Stripe-managed trials (a card-on-file trial).
+                # Our own card-free trials are noticed by the reconciler.
+                await self._on_trial_will_end(db, data, event_id)
 
             elif event_type == "customer.subscription.updated":
-                # Update subscription status
-                result = await db.execute(
-                    select(Subscription).where(
-                        Subscription.stripe_subscription_id == data["id"]
-                    )
-                )
-                subscription = result.scalar_one_or_none()
-                if subscription:
-                    subscription.status = data["status"]
-                    subscription.current_period_start = datetime.fromtimestamp(
-                        data["current_period_start"]
-                    )
-                    subscription.current_period_end = datetime.fromtimestamp(
-                        data["current_period_end"]
-                    )
-                    await db.commit()
+                await self._on_subscription_updated(db, data, event_id)
 
             elif event_type == "customer.subscription.deleted":
-                # Mark subscription as canceled
-                result = await db.execute(
-                    select(Subscription).where(
-                        Subscription.stripe_subscription_id == data["id"]
-                    )
-                )
-                subscription = result.scalar_one_or_none()
-                if subscription:
-                    subscription.status = "canceled"
-                    subscription.ended_at = datetime.utcnow()
-                    await db.commit()
+                await self._on_subscription_deleted(db, data, event_id)
 
             return True
 
         except Exception as e:
-            logger.error(f"Error handling webhook event {event_type}: {e}")
+            logger.error(f"Error handling webhook event {event_type}: {e}", exc_info=True)
             return False
+
+    # ---- Individual webhook effects ----
+
+    async def _subscription_by_stripe_id(
+        self, db: AsyncSession, stripe_id: Optional[str]
+    ) -> Optional[Subscription]:
+        if not stripe_id:
+            return None
+        result = await db.execute(
+            select(Subscription).where(
+                Subscription.stripe_subscription_id == stripe_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def _on_invoice_paid(
+        self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
+    ) -> None:
+        """A paid invoice starts a new billing period — roll the usage counters.
+
+        Resetting here rather than on a calendar cron is what keeps the counters
+        aligned with the period the customer is actually being billed for.
+        """
+        from app.services.billing import events as billing_events
+        from app.services.billing.entitlements import invalidate_entitlements
+
+        subscription = await self._subscription_by_stripe_id(
+            db, data.get("subscription")
+        )
+        if subscription is None:
+            return
+
+        previous_status = subscription.status
+        subscription.status = "active"
+        subscription.grace_period_end = None
+        subscription.expired_at = None
+        subscription.current_period_minutes = 0
+        subscription.current_period_calls = 0
+        subscription.current_period_sms = 0
+        subscription.current_period_emails = 0
+
+        period_start = data.get("period_start")
+        period_end = data.get("period_end")
+        if period_start:
+            subscription.current_period_start = datetime.fromtimestamp(period_start)
+        if period_end:
+            subscription.current_period_end = datetime.fromtimestamp(period_end)
+
+        await billing_events.record_event(
+            db,
+            organization_id=subscription.organization_id,
+            event_type=billing_events.RENEWED,
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            actor_type=billing_events.ACTOR_STRIPE,
+            stripe_event_id=event_id,
+        )
+        await db.commit()
+        invalidate_entitlements(subscription.organization_id)
+
+    async def _on_payment_failed(
+        self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
+    ) -> None:
+        """Start the dunning clock. Access continues while Stripe retries.
+
+        Stripe retries roughly four times over two weeks and most failures
+        resolve themselves, so cutting the customer off at the first decline
+        would churn accounts that were never going to leave.
+        """
+        from app.services.billing import events as billing_events
+        from app.services.billing.entitlements import (
+            PAYMENT_GRACE_DAYS,
+            invalidate_entitlements,
+        )
+
+        subscription = await self._subscription_by_stripe_id(
+            db, data.get("subscription")
+        )
+        if subscription is None:
+            return
+
+        previous_status = subscription.status
+        subscription.status = "past_due"
+        if subscription.grace_period_end is None:
+            subscription.grace_period_end = datetime.utcnow() + timedelta(
+                days=PAYMENT_GRACE_DAYS
+            )
+
+        await billing_events.record_event(
+            db,
+            organization_id=subscription.organization_id,
+            event_type=billing_events.PAST_DUE,
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            actor_type=billing_events.ACTOR_STRIPE,
+            stripe_event_id=event_id,
+            payload={"grace_period_end": subscription.grace_period_end.isoformat()},
+        )
+        await db.commit()
+        invalidate_entitlements(subscription.organization_id)
+
+    async def _on_trial_will_end(
+        self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
+    ) -> None:
+        from app.services.billing import events as billing_events
+
+        subscription = await self._subscription_by_stripe_id(db, data.get("id"))
+        if subscription is None:
+            return
+        await billing_events.record_event(
+            db,
+            organization_id=subscription.organization_id,
+            event_type=billing_events.TRIAL_EXPIRING,
+            subscription=subscription,
+            actor_type=billing_events.ACTOR_STRIPE,
+            stripe_event_id=event_id,
+        )
+        await db.commit()
+
+    async def _on_subscription_updated(
+        self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
+    ) -> None:
+        from app.services.billing import events as billing_events
+        from app.services.billing.entitlements import invalidate_entitlements
+
+        subscription = await self._subscription_by_stripe_id(db, data.get("id"))
+        if subscription is None:
+            return
+
+        previous_status = subscription.status
+        subscription.status = data["status"]
+        subscription.current_period_start = datetime.fromtimestamp(
+            data["current_period_start"]
+        )
+        subscription.current_period_end = datetime.fromtimestamp(
+            data["current_period_end"]
+        )
+        subscription.cancel_at_period_end = bool(data.get("cancel_at_period_end", False))
+        if subscription.status == "active":
+            subscription.grace_period_end = None
+            subscription.expired_at = None
+
+        if previous_status != subscription.status:
+            await billing_events.record_event(
+                db,
+                organization_id=subscription.organization_id,
+                event_type=billing_events.ACTIVATED
+                if subscription.status == "active"
+                else billing_events.PAST_DUE,
+                subscription=subscription,
+                from_status=previous_status,
+                to_status=subscription.status,
+                actor_type=billing_events.ACTOR_STRIPE,
+                stripe_event_id=event_id,
+            )
+        await db.commit()
+        invalidate_entitlements(subscription.organization_id)
+
+    async def _on_subscription_deleted(
+        self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
+    ) -> None:
+        """Cancelled at Stripe. Access persists until the paid period runs out.
+
+        The reconciler moves it to ``expired`` once ``current_period_end``
+        passes — this only records that it will.
+        """
+        from app.services.billing import events as billing_events
+        from app.services.billing.entitlements import invalidate_entitlements
+
+        subscription = await self._subscription_by_stripe_id(db, data.get("id"))
+        if subscription is None:
+            return
+
+        previous_status = subscription.status
+        subscription.status = "canceled"
+        subscription.ended_at = datetime.utcnow()
+        subscription.canceled_at = subscription.canceled_at or datetime.utcnow()
+
+        await billing_events.record_event(
+            db,
+            organization_id=subscription.organization_id,
+            event_type=billing_events.CANCELED,
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            actor_type=billing_events.ACTOR_STRIPE,
+            stripe_event_id=event_id,
+        )
+        await db.commit()
+        invalidate_entitlements(subscription.organization_id)
 
 
     # ==================== Pricing helpers ====================

@@ -7,6 +7,7 @@ import {
   Download,
   AlertCircle,
   CheckCircle,
+  XCircle,
   Clock,
   Phone,
 } from 'lucide-react';
@@ -15,9 +16,13 @@ import { Button } from '@/components/ui/button';
 import { apiClient, getErrorMessage } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutModal';
+import { entitlementService, FEATURE_LABELS } from '@/lib/entitlements';
+import { useEntitlementStore } from '@/store/entitlementStore';
 
 interface SubscriptionPlan {
   id: string;
+  slug: string | null;
+  tier: number;
   name: string;
   description: string;
   price_monthly: number;
@@ -29,7 +34,13 @@ interface SubscriptionPlan {
   max_knowledge_bases: number;
   overage_rate_per_minute: number;
   overage_rate_per_call: number;
-  features: Record<string, boolean>;
+  features: Record<string, any>;
+  entitlements: {
+    features?: Record<string, boolean>;
+    limits?: Record<string, number>;
+  };
+  trial_days: number;
+  is_trialable: boolean;
   is_active: boolean;
   is_public: boolean;
 }
@@ -87,6 +98,9 @@ export default function BillingPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
 
+  const entitlements = useEntitlementStore((s) => s.entitlements);
+  const refreshEntitlements = useEntitlementStore((s) => s.refresh);
+
   const fetchAll = async () => {
     setLoading(true);
     const [plansRes, subRes, usageRes, invRes] = await Promise.allSettled([
@@ -94,6 +108,7 @@ export default function BillingPage() {
       apiClient.get<Subscription | null>(API_ENDPOINTS.BILLING_SUBSCRIPTION),
       apiClient.get<Usage>(API_ENDPOINTS.BILLING_USAGE),
       apiClient.get<Invoice[]>(API_ENDPOINTS.BILLING_INVOICES),
+      refreshEntitlements(),
     ]);
 
     if (plansRes.status === 'fulfilled') setPlans(plansRes.value.data);
@@ -105,17 +120,40 @@ export default function BillingPage() {
 
   useEffect(() => {
     fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Switch an existing subscription to a different plan (no new card needed).
+  /**
+   * Move an existing *paid* subscription to a different plan.
+   *
+   * Upgrades apply immediately; downgrades are scheduled for the end of the
+   * period the customer already paid for. A downgrade the workspace doesn't fit
+   * comes back as a 409 listing what's over the limit — we surface that rather
+   * than deleting anything to make it fit.
+   */
   const switchPlan = async (planId: string) => {
     setActionBusy(true);
     try {
-      await apiClient.put(API_ENDPOINTS.BILLING_SUBSCRIPTION, { plan_id: planId, prorate: true });
-      toast.success('Plan updated');
+      const updated = await entitlementService.changePlan(planId);
+      const target = plans.find((p) => p.id === planId);
+      const isUpgrade = (target?.tier ?? 0) >= (currentPlan?.tier ?? 0);
+      toast.success(
+        isUpgrade
+          ? 'Plan upgraded — the new limits are active now'
+          : `Downgrade scheduled for ${formatDate(updated.current_period_end)}`
+      );
       await fetchAll();
-    } catch (err) {
-      toast.error(getErrorMessage(err));
+    } catch (err: any) {
+      const body = err?.response?.data;
+      if (body?.code === 'downgrade_blocked' || body?.detail?.code === 'downgrade_blocked') {
+        const payload = body.code ? body : body.detail;
+        const lines = (payload.conflicts ?? [])
+          .map((c: any) => `${c.current} ${c.label} (max ${c.allowed})`)
+          .join(', ');
+        toast.error(`${payload.detail} You have ${lines}.`, { duration: 8000 });
+      } else {
+        toast.error(getErrorMessage(err));
+      }
     } finally {
       setActionBusy(false);
     }
@@ -125,8 +163,8 @@ export default function BillingPage() {
     if (!confirm('Cancel your subscription at the end of the current period?')) return;
     setActionBusy(true);
     try {
-      await apiClient.delete(API_ENDPOINTS.BILLING_SUBSCRIPTION);
-      toast.success('Subscription canceled');
+      await entitlementService.cancel();
+      toast.success('Subscription cancelled — you keep access until the period ends');
       await fetchAll();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -135,18 +173,40 @@ export default function BillingPage() {
     }
   };
 
-  // Choosing a plan: switch in place if subscribed, otherwise open checkout.
-  const choosePlan = (plan: SubscriptionPlan) => {
-    if (subscription) {
-      switchPlan(plan.id);
-    } else {
-      setCheckoutPlan({
-        id: plan.id,
-        name: plan.name,
-        price_monthly: plan.price_monthly,
-        price_yearly: plan.price_yearly,
-      });
+  const reactivateSubscription = async () => {
+    setActionBusy(true);
+    try {
+      await entitlementService.reactivate();
+      toast.success('Subscription reactivated');
+      await fetchAll();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionBusy(false);
     }
+  };
+
+  /**
+   * Choosing a plan.
+   *
+   * A workspace on a *paid* plan switches in place — the card is already on
+   * file. A trial, a lapsed trial or an expired subscription has no card, so it
+   * goes through checkout; the backend converts the existing subscription
+   * rather than creating a second one.
+   */
+  const needsCheckout = !subscription || entitlements?.source !== 'stripe';
+
+  const choosePlan = (plan: SubscriptionPlan) => {
+    if (!needsCheckout) {
+      switchPlan(plan.id);
+      return;
+    }
+    setCheckoutPlan({
+      id: plan.id,
+      name: plan.name,
+      price_monthly: plan.price_monthly,
+      price_yearly: plan.price_yearly,
+    });
   };
 
   const scrollToPlans = () =>
@@ -160,12 +220,24 @@ export default function BillingPage() {
       case 'trialing':
         return 'text-blue-600 bg-blue-100';
       case 'past_due':
+      case 'grace':
+        return 'text-amber-700 bg-amber-100';
+      case 'expired':
         return 'text-red-600 bg-red-100';
       case 'canceled':
         return 'text-gray-600 bg-gray-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
+  };
+
+  const STATUS_LABELS: Record<string, string> = {
+    trialing: 'FREE TRIAL',
+    active: 'ACTIVE',
+    past_due: 'PAYMENT FAILED',
+    grace: 'TRIAL ENDED',
+    expired: 'EXPIRED',
+    canceled: 'CANCELLED',
   };
 
   const formatDate = (dateString: string) =>
@@ -191,13 +263,15 @@ export default function BillingPage() {
             </div>
             {loading ? (
               <Skeleton className="w-20 h-7" />
-            ) : subscription ? (
+            ) : entitlements?.has_subscription ? (
+              // The *effective* status, which accounts for a trial that has
+              // ended since the row was last written.
               <span
                 className={`px-3 py-1 text-sm font-semibold rounded ${getStatusColor(
-                  subscription.status
+                  entitlements.status
                 )}`}
               >
-                {subscription.status.toUpperCase()}
+                {STATUS_LABELS[entitlements.status] ?? entitlements.status.toUpperCase()}
               </span>
             ) : null}
           </div>
@@ -224,14 +298,24 @@ export default function BillingPage() {
                 )}
               </div>
               <div>
-                <div className="text-[14px] font-poppins text-black/60 mb-1">Current Period</div>
+                <div className="text-[14px] font-poppins text-black/60 mb-1">
+                  {entitlements?.is_trial ? 'Trial period' : 'Current Period'}
+                </div>
                 <div className="text-[14px] font-medium font-poppins text-[#000000]">
                   {formatDate(subscription.current_period_start)} -{' '}
                   {formatDate(subscription.current_period_end)}
                 </div>
                 <div className="text-[12px] font-poppins text-black/50 mt-1 flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
-                  Renews {formatDate(subscription.current_period_end)}
+                  {entitlements?.is_trial
+                    ? `${entitlements.days_remaining ?? 0} ${
+                        entitlements.days_remaining === 1 ? 'day' : 'days'
+                      } left`
+                    : entitlements?.status === 'expired'
+                      ? 'Ended'
+                      : entitlements?.cancel_at_period_end
+                        ? `Ends ${formatDate(subscription.current_period_end)}`
+                        : `Renews ${formatDate(subscription.current_period_end)}`}
                 </div>
               </div>
               <div>
@@ -256,19 +340,44 @@ export default function BillingPage() {
             </div>
           )}
 
-          {subscription && !subscription.canceled_at && (
-            <div className="flex gap-3">
+          {subscription && (
+            <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={scrollToPlans} disabled={actionBusy}>
-                Change Plan
+                {needsCheckout ? 'Choose a plan' : 'Change Plan'}
               </Button>
-              <Button
-                variant="outline"
-                className="text-red-600 border-red-200 hover:bg-red-50"
-                onClick={cancelSubscription}
-                disabled={actionBusy}
-              >
-                Cancel Subscription
-              </Button>
+
+              {entitlements?.cancel_at_period_end ? (
+                <Button onClick={reactivateSubscription} disabled={actionBusy}>
+                  Reactivate subscription
+                </Button>
+              ) : (
+                entitlements?.is_live && (
+                  <Button
+                    variant="outline"
+                    className="text-red-600 border-red-200 hover:bg-red-50"
+                    onClick={cancelSubscription}
+                    disabled={actionBusy}
+                  >
+                    {entitlements.is_trial ? 'End trial' : 'Cancel Subscription'}
+                  </Button>
+                )
+              )}
+            </div>
+          )}
+
+          {/* Read-only accounts keep every screen — this explains why nothing
+              can be changed, instead of leaving buttons that silently fail. */}
+          {entitlements?.is_read_only && entitlements.has_subscription && (
+            <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+              <div className="text-sm text-red-900">
+                <p className="font-semibold">This workspace is read-only</p>
+                <p className="mt-1 text-red-800">
+                  Your agents are paused and calls aren&apos;t being answered. Everything
+                  you built is kept and stays exportable — choose a plan below to switch
+                  it back on.
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -495,22 +604,39 @@ export default function BillingPage() {
                         <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
                         <span>Up to <strong className="font-semibold">{plan.max_phone_numbers}</strong> phone numbers</span>
                       </div>
-                      {Object.entries(plan.features || {}).map(([feature, enabled]) =>
-                        enabled ? (
+                      {/* Marketing bullets from the plan's `features` copy. */}
+                      {(plan.features?.highlights ?? []).map((highlight: string) => (
+                        <div
+                          key={highlight}
+                          className="flex items-start gap-2.5 text-[14px] text-gray-700 font-poppins"
+                        >
+                          <CheckCircle className="w-[18px] h-[18px] text-[#106959] mt-0.5" />
+                          <span className="leading-tight">{highlight}</span>
+                        </div>
+                      ))}
+
+                      {/* Capabilities this plan does NOT include, shown greyed
+                          out rather than hidden — a feature nobody can see is a
+                          feature nobody upgrades for. */}
+                      {Object.entries(plan.entitlements?.features ?? {})
+                        .filter(([, enabled]) => !enabled)
+                        .filter(([key]) => FEATURE_LABELS[key])
+                        .map(([key]) => (
                           <div
-                            key={feature}
-                            className="flex items-start gap-2.5 text-[14px] text-gray-700 font-poppins"
+                            key={key}
+                            className="flex items-start gap-2.5 text-[14px] text-gray-400 font-poppins"
                           >
-                            <CheckCircle className="w-[18px] h-[18px] text-[#106959] mt-0.5" />
-                            <span className="leading-tight">{feature}</span>
+                            <XCircle className="w-[18px] h-[18px] text-gray-300 mt-0.5" />
+                            <span className="leading-tight line-through decoration-gray-300">
+                              {FEATURE_LABELS[key]}
+                            </span>
                           </div>
-                        ) : null
-                      )}
+                        ))}
                     </div>
 
-                    {plan.id === subscription?.plan_id ? (
+                    {plan.id === subscription?.plan_id && entitlements?.is_live ? (
                       <Button disabled className="w-full h-[45px] font-poppins text-sm rounded-[8px]">
-                        Current Plan
+                        {entitlements.is_trial ? 'Currently trialling' : 'Current Plan'}
                       </Button>
                     ) : (
                       <Button
@@ -518,8 +644,21 @@ export default function BillingPage() {
                         onClick={() => choosePlan(plan)}
                         disabled={actionBusy}
                       >
-                        {subscription ? 'Switch Plan' : 'Get Started'}
+                        {needsCheckout
+                          ? entitlements?.is_trial
+                            ? `Upgrade to ${plan.name}`
+                            : 'Get Started'
+                          : (plan.tier ?? 0) >= (currentPlan?.tier ?? 0)
+                            ? 'Upgrade'
+                            : 'Downgrade'}
                       </Button>
+                    )}
+
+                    {plan.id === subscription?.plan_id && entitlements?.is_trial && (
+                      <p className="mt-2 text-center text-[12px] text-black/50 font-poppins">
+                        Your trial includes every feature — usage is capped until you
+                        upgrade.
+                      </p>
                     )}
 
                     <div className="mt-5 pt-4 border-t border-black/5 text-[12px] text-gray-500 font-poppins flex flex-col gap-1">

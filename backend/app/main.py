@@ -15,6 +15,7 @@ import logging
 
 from app.core.config import settings
 from app.database import init_db, close_db
+from app.core.entitlement_guard import EntitlementError
 from app.core.exceptions import VoiceconException
 from app.services.analytics.scheduler import start_scheduler, stop_scheduler
 
@@ -83,10 +84,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start workflow scheduler: {e}")
 
+    # Expire lapsed trials and subscriptions, and fire their side effects.
+    # Access control does not depend on this — entitlements derive expiry per
+    # request — but the emails, audit trail and resource release do.
+    try:
+        from app.services.billing.scheduler import start_billing_scheduler
+
+        await start_billing_scheduler()
+        logger.info("Billing scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start billing scheduler: {e}")
+
     yield
 
     # Shutdown
     logger.info("Shutting down Voicecon API...")
+
+    # Stop billing scheduler
+    try:
+        from app.services.billing.scheduler import stop_billing_scheduler
+
+        await stop_billing_scheduler()
+        logger.info("Billing scheduler stopped")
+    except Exception as e:
+        logger.error(f"Failed to stop billing scheduler: {e}")
 
     # Stop workflow scheduler
     try:
@@ -191,6 +212,17 @@ async def public_chat_cors(request: Request, call_next):
 
 
 # Exception handlers
+@app.exception_handler(EntitlementError)
+async def entitlement_exception_handler(request: Request, exc: EntitlementError):
+    """Render a 402 with its structured payload at the top level.
+
+    The frontend switches on ``reason`` to decide between an upgrade dialog and
+    a quota warning, so those fields must sit beside ``detail`` rather than
+    nested inside it.
+    """
+    return JSONResponse(status_code=exc.status_code, content=exc.payload)
+
+
 @app.exception_handler(VoiceconException)
 async def voicecon_exception_handler(request: Request, exc: VoiceconException):
     """

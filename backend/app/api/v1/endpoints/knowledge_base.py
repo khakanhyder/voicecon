@@ -19,7 +19,9 @@ from app.core.dependencies import (
     get_current_org_id,
     require_permission,
 )
+from app.core.entitlement_guard import require_entitlement
 from app.core.workspace import WorkspaceContext
+from app.services.billing import catalog
 from app.models.user import User, OrganizationMember
 from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Document as DocumentModel
 from app.services.knowledge_base import RAGService
@@ -204,7 +206,18 @@ def get_rag_service(db: AsyncSession = Depends(get_db)) -> RAGService:
 
 # Knowledge Base Endpoints
 
-@router.post("/knowledge-bases", response_model=KnowledgeBaseResponse, status_code=201)
+@router.post(
+    "/knowledge-bases",
+    response_model=KnowledgeBaseResponse,
+    status_code=201,
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.KNOWLEDGE_BASE, limit=catalog.LIMIT_KNOWLEDGE_BASES
+            )
+        )
+    ],
+)
 async def create_knowledge_base(
     kb_create: KnowledgeBaseCreate,
     current_user: User = Depends(get_current_active_user),

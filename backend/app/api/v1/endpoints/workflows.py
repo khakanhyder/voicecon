@@ -22,6 +22,8 @@ from sqlalchemy import select, and_, or_, func, desc
 
 from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_org_id
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 from app.models.user import User, OrganizationMember
 from app.models.integration import Workflow, WorkflowExecution
 from app.schemas.workflow import (
@@ -96,7 +98,18 @@ def _prepare_trigger_config(trigger_type, trigger_config: Optional[dict]) -> dic
 # ============================================================================
 
 
-@router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.WORKFLOWS, limit=catalog.LIMIT_WORKFLOWS
+            )
+        )
+    ],
+)
 async def create_workflow(
     workflow_data: WorkflowCreate,
     current_user: User = Depends(get_current_active_user),

@@ -1,7 +1,16 @@
 """
 Billing and subscription management endpoints.
+
+Covers the whole lifecycle: pick a plan or start a card-free trial, convert that
+trial into a paid subscription, move between plans, cancel and reactivate — plus
+the read surface (``/entitlements``, ``/events``) the dashboard gates its UI on.
+
+The endpoints here are deliberately exempt from the entitlement guard (see
+``app.core.entitlement_guard.EXEMPT_PREFIXES``): an organization that has
+stopped paying must always be able to reach the page where it can start again.
 """
 
+import logging
 from datetime import datetime
 from typing import List, Optional
 import uuid
@@ -9,19 +18,34 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, get_current_org_id, get_db
 from app.models.user import User
 from app.models.company import CompanyProfile
 from app.models.subscription import (
+    LIVE_STATUSES,
+    SOURCE_STRIPE,
+    SOURCE_TRIAL,
+    STATUS_ACTIVE,
+    STATUS_CANCELED,
+    STATUS_TRIALING,
     SubscriptionPlan,
     Subscription,
+    SubscriptionEvent,
+    TrialGrant,
     UsageRecord,
     Invoice,
     PaymentFailure,
 )
-from app.services.billing import StripeService, get_stripe_service
+from app.services.billing import StripeService, catalog, get_stripe_service, events
+from app.services.billing.entitlements import (
+    get_entitlement_service,
+    invalidate_entitlements,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -53,6 +77,8 @@ class SubscriptionPlanResponse(BaseModel):
     """Subscription plan response."""
 
     id: uuid.UUID
+    slug: Optional[str]
+    tier: int
     name: str
     description: Optional[str]
     price_monthly: float
@@ -64,7 +90,13 @@ class SubscriptionPlanResponse(BaseModel):
     max_knowledge_bases: int
     overage_rate_per_minute: float
     overage_rate_per_call: float
+    #: Marketing copy for the pricing card.
     features: dict
+    #: Machine-readable capabilities, so the UI can show exactly which features
+    #: an upgrade would unlock instead of guessing from the bullet list.
+    entitlements: dict
+    trial_days: int
+    is_trialable: bool
     is_active: bool
     is_public: bool
 
@@ -119,7 +151,14 @@ class CreateSubscriptionRequest(BaseModel):
 
     plan_id: uuid.UUID = Field(..., description="Subscription plan ID")
     payment_method_id: str = Field(..., description="Stripe payment method ID")
-    trial_days: int = Field(0, ge=0, le=30, description="Trial period in days")
+    #: Kept only so older clients still parse. **Ignored** — the length of a
+    #: trial is not the client's decision, and a client-chosen
+    #: ``trial_period_days`` here was a way around the one-trial-per-account
+    #: rule that ``POST /billing/trial`` enforces. Anything non-zero is refused
+    #: rather than silently dropped, so a caller relying on it finds out.
+    trial_days: int = Field(
+        0, ge=0, le=30, deprecated=True, description="Deprecated — use POST /billing/trial"
+    )
 
 
 class UpdateSubscriptionRequest(BaseModel):
@@ -168,6 +207,8 @@ async def list_subscription_plans(
     return [
         SubscriptionPlanResponse(
             id=plan.id,
+            slug=plan.slug,
+            tier=plan.tier or 0,
             name=plan.name,
             description=plan.description,
             price_monthly=float(plan.price_monthly),
@@ -179,7 +220,10 @@ async def list_subscription_plans(
             max_knowledge_bases=plan.max_knowledge_bases,
             overage_rate_per_minute=float(plan.overage_rate_per_minute),
             overage_rate_per_call=float(plan.overage_rate_per_call),
-            features=plan.features,
+            features=plan.features or {},
+            entitlements=plan.entitlements or catalog.entitlements_for_plan(plan.slug),
+            trial_days=plan.trial_days or 7,
+            is_trialable=bool(plan.is_trialable),
             is_active=plan.is_active,
             is_public=plan.is_public,
         )
@@ -208,7 +252,7 @@ async def get_current_subscription(
         .where(
             and_(
                 Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing", "past_due"]),
+                Subscription.status.in_(LIVE_STATUSES),
             )
         )
         .order_by(Subscription.created_at.desc())
@@ -261,12 +305,25 @@ async def create_subscription(
     Returns:
         Created subscription
     """
+    # Free trials are granted by POST /billing/trial and nowhere else, because
+    # that is where the once-per-account rule lives. Honouring a client-supplied
+    # trial length here would hand a fresh Stripe-side trial to an account whose
+    # free trial has already run out — with no grant recorded to stop the next one.
+    if request.trial_days:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "trial_days is no longer accepted here. Start a free trial with "
+                "POST /billing/trial, which enforces one trial per account."
+            ),
+        )
+
     # Check if user already has an active subscription
     result = await db.execute(
         select(Subscription).where(
             and_(
                 Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
+                Subscription.status.in_(LIVE_STATUSES),
             )
         )
     )
@@ -300,13 +357,12 @@ async def create_subscription(
         invoice_settings={"default_payment_method": request.payment_method_id},
     )
 
-    # Create subscription
+    # Create subscription. No trial: see the check at the top of this endpoint.
     subscription = await stripe_service.create_subscription(
         db=db,
         organization_id=org_id,
         plan_id=request.plan_id,
         stripe_customer_id=stripe_customer_id,
-        trial_days=request.trial_days,
     )
 
     await _mark_onboarding_done(db, org_id)
@@ -358,7 +414,7 @@ async def update_subscription(
         select(Subscription).where(
             and_(
                 Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
+                Subscription.status.in_(LIVE_STATUSES),
             )
         )
     )
@@ -409,34 +465,53 @@ async def cancel_subscription(
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
-    Cancel current subscription.
+    Cancel the current subscription.
 
-    Args:
-        immediate: Cancel immediately vs at period end
-        current_user: Current authenticated user
-        db: Database session
-        stripe_service: Stripe service
+    Defaults to cancelling **at the end of the paid period** — the customer paid
+    for that period and should keep it. ``immediate=true`` ends it now, which is
+    also what a trial cancellation does since there is nothing paid to run out.
     """
-    # Get current subscription
-    result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
-            )
-        )
-    )
-    subscription = result.scalar_one_or_none()
+    subscription = await _existing_live_subscription(db, org_id)
     if not subscription:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active subscription found",
         )
 
-    # Cancel subscription
-    await stripe_service.cancel_subscription(
-        db=db, subscription_id=subscription.id, immediate=immediate
+    now = datetime.utcnow()
+    previous_status = subscription.status
+    trial_without_stripe = subscription.stripe_subscription_id is None
+
+    if trial_without_stripe:
+        # No Stripe object to cancel. A trial the user walks away from ends now.
+        subscription.status = STATUS_CANCELED
+        subscription.canceled_at = now
+        subscription.ended_at = now
+        subscription.current_period_end = min(subscription.current_period_end, now)
+    else:
+        await stripe_service.cancel_subscription(
+            db=db, subscription_id=subscription.id, immediate=immediate
+        )
+        await db.refresh(subscription)
+        subscription.canceled_at = subscription.canceled_at or now
+        subscription.cancel_at_period_end = not immediate
+
+    await events.record_event(
+        db,
+        organization_id=org_id,
+        event_type=events.CANCELED,
+        subscription=subscription,
+        from_status=previous_status,
+        to_status=subscription.status,
+        actor_type=events.ACTOR_USER,
+        actor_id=current_user.id,
+        payload={
+            "immediate": immediate or trial_without_stripe,
+            "access_until": subscription.current_period_end.isoformat(),
+        },
     )
+    await db.commit()
+    invalidate_entitlements(org_id)
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -462,7 +537,7 @@ async def get_current_usage(
         select(Subscription).where(
             and_(
                 Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
+                Subscription.status.in_(LIVE_STATUSES),
             )
         )
     )
@@ -634,13 +709,12 @@ class BillingConfigResponse(BaseModel):
 
 
 class StartTrialRequest(BaseModel):
-    """Start a 7-day free trial (no card required)."""
+    """Start a free trial (no card required)."""
 
     plan_id: Optional[uuid.UUID] = Field(
-        None, description="Optional plan to trial; defaults to the first public plan"
+        None, description="Optional plan to trial; defaults to the trialable plan"
     )
     billing_period: str = Field("monthly", description="monthly | yearly")
-    trial_days: int = Field(7, ge=1, le=30)
 
 
 class CheckoutRequest(BaseModel):
@@ -649,6 +723,63 @@ class CheckoutRequest(BaseModel):
     plan_id: uuid.UUID = Field(..., description="Selected subscription plan")
     payment_method_id: str = Field(..., description="Stripe PaymentMethod id (pm_…)")
     billing_period: str = Field("monthly", description="monthly | yearly")
+
+
+class ChangePlanRequest(BaseModel):
+    """Move between paid plans."""
+
+    plan_id: uuid.UUID = Field(..., description="Plan to move to")
+
+
+class EntitlementsResponse(BaseModel):
+    """Everything the dashboard needs to render the current billing state."""
+
+    status: str
+    plan_id: Optional[uuid.UUID]
+    plan_slug: Optional[str]
+    plan_name: Optional[str]
+    plan_tier: int
+    source: Optional[str]
+    billing_period: Optional[str]
+
+    is_live: bool
+    is_read_only: bool
+    is_trial: bool
+    in_grace: bool
+    has_subscription: bool
+
+    trial_end: Optional[datetime]
+    days_remaining: Optional[int]
+    trial_expiring_soon: bool
+    grace_period_end: Optional[datetime]
+    grace_days_remaining: Optional[int]
+    current_period_end: Optional[datetime]
+    cancel_at_period_end: bool
+
+    features: List[str]
+    limits: dict
+    usage: dict
+    overage_allowed: bool
+
+    #: May this caller still start a free trial? Presentation only — the server
+    #: re-checks on ``POST /billing/trial`` — but without it the UI offers a
+    #: button whose only possible outcome is a 409.
+    trial_available: bool = False
+    #: The trial has been used up (by this workspace or this person). Distinct
+    #: from ``not trial_available``, which is also false while a trial is *running*.
+    trial_used: bool = False
+
+
+class SubscriptionEventResponse(BaseModel):
+    """One entry from the subscription history."""
+
+    id: uuid.UUID
+    event_type: str
+    from_status: Optional[str]
+    to_status: Optional[str]
+    actor_type: str
+    created_at: datetime
+    payload: dict
 
 
 @public_router.get("/config", response_model=BillingConfigResponse)
@@ -662,22 +793,143 @@ async def get_billing_config():
     )
 
 
+@router.get("/entitlements", response_model=EntitlementsResponse)
+async def get_entitlements(
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+    refresh: bool = False,
+):
+    """What this organization may do right now, plus how much of it is left.
+
+    The dashboard hydrates from this once and gates its UI on the result. The
+    server enforces the same entitlements independently — this is presentation
+    data, never the security boundary.
+
+    Pass ``refresh=true`` immediately after a checkout, so the caller does not
+    land on the dashboard still rendering the pre-upgrade state.
+    """
+    service = get_entitlement_service()
+    ent = await service.resolve(db, org_id, fresh=refresh)
+    ent = ent.with_usage(await service.usage_snapshot(db, org_id))
+
+    # Only worth asking when there is nothing live to lose: an organization
+    # that is running does not need a trial, so the common case costs no extra
+    # queries at all.
+    trial_used = False
+    if not ent.is_live:
+        trial_used = await _trial_already_used(db, current_user, org_id) is not None
+
+    return EntitlementsResponse(
+        status=ent.status,
+        plan_id=ent.plan_id,
+        plan_slug=ent.plan_slug,
+        plan_name=ent.plan_name,
+        plan_tier=ent.plan_tier,
+        source=ent.source,
+        billing_period=ent.billing_period,
+        is_live=ent.is_live,
+        is_read_only=ent.is_read_only,
+        is_trial=ent.is_trial,
+        in_grace=ent.in_grace,
+        has_subscription=ent.has_subscription,
+        trial_end=ent.trial_end,
+        days_remaining=ent.days_remaining,
+        trial_expiring_soon=ent.trial_expiring_soon,
+        grace_period_end=ent.grace_period_end,
+        grace_days_remaining=ent.grace_days_remaining,
+        current_period_end=ent.current_period_end,
+        cancel_at_period_end=ent.cancel_at_period_end,
+        features=sorted(ent.features),
+        limits=dict(ent.limits),
+        usage=dict(ent.usage),
+        overage_allowed=ent.overage_allowed,
+        trial_available=not ent.is_live and not trial_used,
+        trial_used=trial_used,
+    )
+
+
+@router.get("/events", response_model=List[SubscriptionEventResponse])
+async def list_subscription_events(
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+):
+    """The subscription history for this organization, newest first.
+
+    Support and finance use this to answer "why is this account in this state?";
+    it is append-only, so it is the one record that cannot have been overwritten
+    by a later transition.
+    """
+    result = await db.execute(
+        select(SubscriptionEvent)
+        .where(SubscriptionEvent.organization_id == org_id)
+        .order_by(SubscriptionEvent.created_at.desc())
+        .limit(min(limit, 200))
+    )
+    return [
+        SubscriptionEventResponse(
+            id=event.id,
+            event_type=event.event_type,
+            from_status=event.from_status,
+            to_status=event.to_status,
+            actor_type=event.actor_type,
+            created_at=event.created_at,
+            payload=event.payload or {},
+        )
+        for event in result.scalars().all()
+    ]
+
+
 async def _get_trial_plan(
     db: AsyncSession, plan_id: Optional[uuid.UUID]
 ) -> SubscriptionPlan:
-    """Resolve the plan to attach a trial to (explicit, else first public plan)."""
+    """The plan a free trial is attached to.
+
+    Defaults to the *highest* trialable tier, not the cheapest plan. Trials
+    convert on feature discovery: someone who never sees lead scoring or
+    campaigns has no reason to choose the expensive plan, so trialling the cheap
+    one caps our own conversion. Consumption is what actually costs us money,
+    and ``catalog.TRIAL_ENTITLEMENTS`` caps that hard regardless of plan.
+    """
     if plan_id is not None:
         result = await db.execute(
             select(SubscriptionPlan).where(SubscriptionPlan.id == plan_id)
         )
         plan = result.scalar_one_or_none()
-        if plan:
+        # A plan the operator marked non-trialable (or retired) is not something
+        # a client gets to trial by naming its id. Fall through to the default
+        # rather than erroring — the customer asked for a trial, and there is a
+        # perfectly good plan to give them.
+        if plan and plan.is_active and plan.is_trialable:
             return plan
+        if plan is not None:
+            logger.info(
+                "Ignoring requested trial plan %s (active=%s, trialable=%s)",
+                plan_id,
+                plan.is_active,
+                plan.is_trialable,
+            )
 
     result = await db.execute(
         select(SubscriptionPlan)
-        .where(SubscriptionPlan.is_active == True)
-        .order_by(SubscriptionPlan.sort_order, SubscriptionPlan.price_monthly)
+        .where(
+            SubscriptionPlan.is_active == True,  # noqa: E712 — SQL expression
+            SubscriptionPlan.is_trialable == True,  # noqa: E712
+        )
+        .order_by(SubscriptionPlan.tier.desc(), SubscriptionPlan.price_monthly.desc())
+        .limit(1)
+    )
+    plan = result.scalar_one_or_none()
+    if plan:
+        return plan
+
+    # No plan is flagged trialable (a database seeded before that column
+    # existed). Fall back to the highest tier rather than refusing the trial.
+    result = await db.execute(
+        select(SubscriptionPlan)
+        .where(SubscriptionPlan.is_active == True)  # noqa: E712
+        .order_by(SubscriptionPlan.tier.desc(), SubscriptionPlan.price_monthly.desc())
         .limit(1)
     )
     plan = result.scalar_one_or_none()
@@ -689,67 +941,127 @@ async def _get_trial_plan(
     return plan
 
 
-@router.post(
-    "/trial", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
-)
-async def start_free_trial(
-    request: StartTrialRequest,
-    current_user: User = Depends(get_current_active_user),
-    org_id: uuid.UUID = Depends(get_current_org_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Start a 7-day free trial without requiring payment details.
+async def _existing_live_subscription(
+    db: AsyncSession, org_id: uuid.UUID
+) -> Optional[Subscription]:
+    return await get_entitlement_service().live_subscription(db, org_id)
 
-    Records a local ``trialing`` subscription so the trial start/end dates and
-    status are persisted, marks onboarding complete, and lets the user reach the
-    dashboard. Works even when Stripe is not configured.
-    """
-    from datetime import timedelta
 
-    # Block duplicate active/trial subscriptions
+def _email_domain(email: str) -> str:
+    return (email or "").split("@")[-1].strip().lower()
+
+
+#: Refuse a trial when another account at the same email domain has already had
+#: one. Off by default, and deliberately so: a second team signing up at a large
+#: company is a real and common case, and refusing them turns an anti-abuse
+#: measure into lost revenue. Domain collisions are logged instead, so the
+#: decision to tighten this can be made from evidence rather than a guess.
+BLOCK_REPEAT_TRIALS_BY_DOMAIN = False
+
+
+async def _trial_already_used(
+    db: AsyncSession, user: User, organization_id: uuid.UUID
+) -> Optional[str]:
+    """Why this caller may not start a free trial, or ``None`` if they may.
+
+    A free trial is once, and "once" has to be pinned to more than one thing —
+    each arm below closes a different way of asking for a second one:
+
+    * **This workspace has had one.** The trial belongs to the organization, not
+      to whoever clicked the button. Without this arm a second owner or admin
+      simply starts the trial again the day the first one's expires, forever.
+    * **This person has had one**, in any workspace. Otherwise deleting the
+      workspace and creating a new one resets the clock.
+    * **This email domain has had one** — advisory only, because it cannot tell
+      "the same person came back with a new address" apart from "a different
+      team at the same company signed up". See
+      :data:`BLOCK_REPEAT_TRIALS_BY_DOMAIN`.
+
+    Returns a short machine-ish reason for the log; the caller turns it into a
+    409. Cheap: every arm is a single indexed lookup with ``LIMIT 1``.
+    """
     result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
-            )
-        )
+        select(TrialGrant.id)
+        .where(TrialGrant.organization_id == organization_id)
+        .limit(1)
     )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization already has an active subscription or trial",
+    if result.scalar_one_or_none() is not None:
+        return "organization_already_trialed"
+
+    # Belt and braces for rows the grant ledger never saw: a trial created
+    # before ``trial_grants`` existed and missed by the backfill, or one whose
+    # grant insert was rolled back. The subscription row itself is then the only
+    # evidence the workspace has already had its trial, and it is enough.
+    result = await db.execute(
+        select(Subscription.id)
+        .where(
+            Subscription.organization_id == organization_id,
+            Subscription.source == SOURCE_TRIAL,
         )
-
-    plan = await _get_trial_plan(db, request.plan_id)
-
-    now = datetime.utcnow()
-    trial_end = now + timedelta(days=request.trial_days)
-
-    subscription = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        stripe_subscription_id=f"local_trial_{uuid.uuid4()}",
-        stripe_customer_id="",
-        status="trialing",
-        billing_period=request.billing_period,
-        current_period_start=now,
-        current_period_end=trial_end,
-        trial_start=now,
-        trial_end=trial_end,
-        stripe_metadata={"source": "free_trial", "local": True},
+        .limit(1)
     )
-    db.add(subscription)
+    if result.scalar_one_or_none() is not None:
+        return "organization_has_prior_trial_subscription"
 
-    await _mark_onboarding_done(db, org_id)
-    await db.commit()
-    await db.refresh(subscription)
+    result = await db.execute(
+        select(TrialGrant.id).where(TrialGrant.user_id == user.id).limit(1)
+    )
+    if result.scalar_one_or_none() is not None:
+        return "user_already_trialed"
 
+    domain = _email_domain(user.email)
+    if not domain or domain in _CONSUMER_EMAIL_DOMAINS:
+        # A shared consumer domain says nothing about who the company is, so
+        # matching on it would refuse every second gmail.com signup.
+        return None
+
+    result = await db.execute(
+        select(TrialGrant).where(TrialGrant.email_domain == domain).limit(1)
+    )
+    domain_grant = result.scalar_one_or_none()
+    if domain_grant is None:
+        return None
+
+    logger.info(
+        "Trial domain collision: %s shares a domain with an earlier trial "
+        "(grant %s, org %s). %s",
+        user.email,
+        domain_grant.id,
+        domain_grant.organization_id,
+        "Refusing." if BLOCK_REPEAT_TRIALS_BY_DOMAIN else "Allowing — see BLOCK_REPEAT_TRIALS_BY_DOMAIN.",
+    )
+    return "domain_already_trialed" if BLOCK_REPEAT_TRIALS_BY_DOMAIN else None
+
+
+#: Domains where a shared suffix implies nothing about a shared company.
+_CONSUMER_EMAIL_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "icloud.com",
+        "me.com",
+        "proton.me",
+        "protonmail.com",
+        "aol.com",
+        "gmx.com",
+        "mail.com",
+        "yandex.com",
+        "zoho.com",
+    }
+)
+
+
+def _subscription_response(
+    subscription: Subscription, plan: Optional[SubscriptionPlan]
+) -> SubscriptionResponse:
     return SubscriptionResponse(
         id=subscription.id,
         plan_id=subscription.plan_id,
-        plan_name=plan.name,
+        plan_name=plan.name if plan else "Unknown",
         status=subscription.status,
         billing_period=subscription.billing_period,
         current_period_start=subscription.current_period_start,
@@ -759,6 +1071,119 @@ async def start_free_trial(
         current_period_minutes=subscription.current_period_minutes,
         current_period_calls=subscription.current_period_calls,
     )
+
+
+@router.post(
+    "/trial", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
+)
+async def start_free_trial(
+    request: StartTrialRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Start a free trial without requiring payment details.
+
+    Records a ``trialing`` subscription with a real end date, marks onboarding
+    complete, and lets the user reach the dashboard. Works with Stripe entirely
+    unconfigured — a card-free trial has no Stripe object, which is why
+    ``stripe_subscription_id`` is nullable rather than being given a fake id.
+
+    The trial genuinely ends: the entitlement resolver compares ``trial_end`` to
+    the clock on every request, and the reconciler moves the row through grace
+    to expired and sends the notices.
+    """
+    from datetime import timedelta
+
+    if await _existing_live_subscription(db, org_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This workspace already has an active subscription or trial",
+        )
+
+    reason = await _trial_already_used(db, current_user, org_id)
+    if reason is not None:
+        # Logged and refused. If this turns out to catch legitimate second teams
+        # at the same company, the domain arm of the check is what to relax —
+        # the per-user and per-organization arms should stay.
+        logger.info(
+            "Refused a second trial for user %s in org %s (%s)",
+            current_user.id,
+            org_id,
+            reason,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "A free trial has already been used for this account. "
+                "Choose a plan to continue."
+            ),
+        )
+
+    plan = await _get_trial_plan(db, request.plan_id)
+    trial_days = plan.trial_days or 7
+
+    now = datetime.utcnow()
+    trial_end = now + timedelta(days=trial_days)
+
+    subscription = Subscription(
+        organization_id=org_id,
+        plan_id=plan.id,
+        stripe_subscription_id=None,
+        stripe_customer_id=None,
+        status=STATUS_TRIALING,
+        source=SOURCE_TRIAL,
+        billing_period=request.billing_period,
+        current_period_start=now,
+        current_period_end=trial_end,
+        trial_start=now,
+        trial_end=trial_end,
+        stripe_metadata={"source": "free_trial"},
+    )
+    db.add(subscription)
+    await db.flush()
+
+    db.add(
+        TrialGrant(
+            organization_id=org_id,
+            user_id=current_user.id,
+            email_domain=_email_domain(current_user.email),
+            signup_ip=http_request.client.host if http_request.client else None,
+            granted_at=now,
+            expires_at=trial_end,
+        )
+    )
+    await events.record_event(
+        db,
+        organization_id=org_id,
+        event_type=events.TRIAL_STARTED,
+        subscription=subscription,
+        to_status=STATUS_TRIALING,
+        to_plan_id=plan.id,
+        actor_type=events.ACTOR_USER,
+        actor_id=current_user.id,
+        payload={"trial_days": trial_days, "trial_end": trial_end.isoformat()},
+    )
+
+    await _mark_onboarding_done(db, org_id)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # The partial unique index caught a concurrent trial start. Whichever
+        # request won, the caller now has exactly one trial.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This workspace already has an active subscription or trial",
+        )
+
+    await db.refresh(subscription)
+    invalidate_entitlements(org_id)
+
+    return _subscription_response(subscription, plan)
 
 
 @router.post(
@@ -772,27 +1197,16 @@ async def checkout(
     stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
-    Activate a paid subscription using a Stripe PaymentMethod created on the
-    billing page. Persists the subscription (plan, Stripe customer/subscription
-    ids, status, billing cycle, period dates) and completes onboarding.
+    Activate a paid subscription, or convert a free trial into one.
+
+    Handles both entry points, because they are the same act from the customer's
+    side. A trialing, grace or expired trial is converted **in place** — the same
+    row gains the Stripe ids and flips to ``active`` — rather than inserting a
+    second subscription. That keeps the one-live-subscription constraint
+    satisfied and preserves the trial→paid link that conversion reporting needs.
     """
     import asyncio
     import stripe
-
-    # Block duplicate active/trial subscriptions
-    result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.organization_id == org_id,
-                Subscription.status.in_(["active", "trialing"]),
-            )
-        )
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization already has an active subscription",
-        )
 
     result = await db.execute(
         select(SubscriptionPlan).where(SubscriptionPlan.id == request.plan_id)
@@ -801,6 +1215,26 @@ async def checkout(
     if not plan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
+        )
+
+    # The row we may be converting: a live trial, or the most recent lapsed one.
+    existing = await _existing_live_subscription(db, org_id)
+    if existing is None:
+        result = await db.execute(
+            select(Subscription)
+            .where(Subscription.organization_id == org_id)
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
+        )
+        existing = result.scalar_one_or_none()
+
+    if existing is not None and existing.status == STATUS_ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This workspace already has an active subscription. "
+                "Use change-plan to move between plans."
+            ),
         )
 
     # 1. Customer
@@ -822,51 +1256,282 @@ async def checkout(
         invoice_settings={"default_payment_method": request.payment_method_id},
     )
 
-    # 3. Resolve a price for the chosen interval
+    # 3. Resolve a price for the chosen interval. Never trust a client-supplied
+    #    amount — the price is looked up from the plan, server-side.
     price_id = await stripe_service.ensure_stripe_price(
         db=db, plan=plan, billing_period=request.billing_period
     )
 
-    # 4. Create the Stripe subscription
+    # 4. Create the Stripe subscription. No ``trial_period_days``: any trial the
+    #    customer had was ours, ran on our clock, and has already been used.
     stripe_subscription = await asyncio.to_thread(
         stripe.Subscription.create,
         customer=stripe_customer_id,
         items=[{"price": price_id}],
         expand=["latest_invoice.payment_intent"],
         metadata={"organization_id": str(org_id), "plan_id": str(plan.id)},
+        idempotency_key=f"checkout:{org_id}:{plan.id}:{request.payment_method_id}",
     )
 
-    # 5. Persist
-    subscription = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        stripe_subscription_id=stripe_subscription.id,
-        stripe_customer_id=stripe_customer_id,
-        status=stripe_subscription.status,
-        billing_period=request.billing_period,
-        current_period_start=datetime.fromtimestamp(
-            stripe_subscription.current_period_start
-        ),
-        current_period_end=datetime.fromtimestamp(
-            stripe_subscription.current_period_end
-        ),
-    )
-    db.add(subscription)
+    now = datetime.utcnow()
+    period_start = datetime.fromtimestamp(stripe_subscription.current_period_start)
+    period_end = datetime.fromtimestamp(stripe_subscription.current_period_end)
+    converting_trial = existing is not None and existing.source == SOURCE_TRIAL
+
+    if existing is not None:
+        # 5a. Convert in place.
+        previous_status = existing.status
+        existing.plan_id = plan.id
+        existing.stripe_subscription_id = stripe_subscription.id
+        existing.stripe_customer_id = stripe_customer_id
+        existing.status = stripe_subscription.status
+        existing.source = SOURCE_STRIPE
+        existing.billing_period = request.billing_period
+        existing.current_period_start = period_start
+        existing.current_period_end = period_end
+        existing.cancel_at_period_end = False
+        existing.canceled_at = None
+        existing.expired_at = None
+        existing.grace_period_end = None
+        if converting_trial and existing.trial_converted_at is None:
+            existing.trial_converted_at = now
+        # A converted trial starts its paid allowance clean rather than
+        # inheriting the trial's consumption.
+        existing.current_period_minutes = 0
+        existing.current_period_calls = 0
+        existing.current_period_sms = 0
+        existing.current_period_emails = 0
+        subscription = existing
+
+        await events.record_event(
+            db,
+            organization_id=org_id,
+            event_type=events.TRIAL_CONVERTED if converting_trial else events.ACTIVATED,
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            to_plan_id=plan.id,
+            actor_type=events.ACTOR_USER,
+            actor_id=current_user.id,
+        )
+
+        if converting_trial:
+            grants = await db.execute(
+                select(TrialGrant).where(TrialGrant.organization_id == org_id)
+            )
+            for grant in grants.scalars().all():
+                grant.converted = True
+    else:
+        # 5b. First subscription for this workspace.
+        subscription = Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            stripe_subscription_id=stripe_subscription.id,
+            stripe_customer_id=stripe_customer_id,
+            status=stripe_subscription.status,
+            source=SOURCE_STRIPE,
+            billing_period=request.billing_period,
+            current_period_start=period_start,
+            current_period_end=period_end,
+        )
+        db.add(subscription)
+        await db.flush()
+        await events.record_event(
+            db,
+            organization_id=org_id,
+            event_type=events.ACTIVATED,
+            subscription=subscription,
+            to_status=subscription.status,
+            to_plan_id=plan.id,
+            actor_type=events.ACTOR_USER,
+            actor_id=current_user.id,
+        )
 
     await _mark_onboarding_done(db, org_id)
     await db.commit()
     await db.refresh(subscription)
+    invalidate_entitlements(org_id)
 
-    return SubscriptionResponse(
-        id=subscription.id,
-        plan_id=subscription.plan_id,
-        plan_name=plan.name,
-        status=subscription.status,
-        billing_period=subscription.billing_period,
-        current_period_start=subscription.current_period_start,
-        current_period_end=subscription.current_period_end,
-        trial_end=subscription.trial_end,
-        canceled_at=subscription.canceled_at,
-        current_period_minutes=subscription.current_period_minutes,
-        current_period_calls=subscription.current_period_calls,
+    return _subscription_response(subscription, plan)
+
+
+@router.post("/subscription/change-plan", response_model=SubscriptionResponse)
+async def change_plan(
+    request: ChangePlanRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+    stripe_service: StripeService = Depends(get_stripe_service),
+):
+    """
+    Move between paid plans.
+
+    **Upgrades apply immediately** and Stripe prorates the difference — the
+    customer is paying more, so they should get the capacity at once.
+
+    **Downgrades take effect at the end of the paid period**, because the
+    customer already paid for the capacity they currently have. Before accepting
+    one we check the workspace actually *fits* the smaller plan and refuse with
+    an explicit list of what is over the limit. Silently deleting a customer's
+    agents to make a downgrade fit would be indefensible.
+    """
+    subscription = await _existing_live_subscription(db, org_id)
+    if subscription is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription found"
+        )
+
+    result = await db.execute(
+        select(SubscriptionPlan).where(SubscriptionPlan.id == request.plan_id)
     )
+    target = result.scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+
+    if target.id == subscription.plan_id and subscription.scheduled_plan_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You're already on {target.name}",
+        )
+
+    result = await db.execute(
+        select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
+    )
+    current_plan = result.scalar_one_or_none()
+    is_upgrade = target.tier >= (current_plan.tier if current_plan else 0)
+
+    if not is_upgrade:
+        conflicts = await _downgrade_conflicts(db, org_id, target)
+        if conflicts:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "detail": (
+                        f"Your workspace uses more than {target.name} allows. "
+                        "Remove the items listed before downgrading."
+                    ),
+                    "code": "downgrade_blocked",
+                    "conflicts": conflicts,
+                },
+            )
+
+    previous_plan_id = subscription.plan_id
+
+    if is_upgrade:
+        if subscription.stripe_subscription_id:
+            await stripe_service.update_subscription_plan(
+                db=db,
+                subscription_id=subscription.id,
+                new_plan_id=target.id,
+                prorate=True,
+            )
+            await db.refresh(subscription)
+        else:
+            # A trial has no Stripe object to prorate against; switching the
+            # plan it trials is just a column change.
+            subscription.plan_id = target.id
+        subscription.scheduled_plan_id = None
+        event_type = events.PLAN_CHANGED
+    else:
+        subscription.scheduled_plan_id = target.id
+        event_type = events.PLAN_CHANGE_SCHEDULED
+
+    await events.record_event(
+        db,
+        organization_id=org_id,
+        event_type=event_type,
+        subscription=subscription,
+        from_plan_id=previous_plan_id,
+        to_plan_id=target.id,
+        actor_type=events.ACTOR_USER,
+        actor_id=current_user.id,
+        payload={
+            "direction": "upgrade" if is_upgrade else "downgrade",
+            "effective": "immediately"
+            if is_upgrade
+            else subscription.current_period_end.isoformat(),
+        },
+    )
+
+    await db.commit()
+    await db.refresh(subscription)
+    invalidate_entitlements(org_id)
+
+    effective_plan = target if is_upgrade else current_plan
+    return _subscription_response(subscription, effective_plan)
+
+
+async def _downgrade_conflicts(
+    db: AsyncSession, org_id: uuid.UUID, target: SubscriptionPlan
+) -> List[dict]:
+    """What the workspace would have to give up to fit ``target``."""
+    document = target.entitlements or catalog.entitlements_for_plan(target.slug)
+    limits = document.get("limits") or {}
+    counts = await get_entitlement_service().usage_snapshot(db, org_id)
+
+    conflicts = []
+    for key in catalog.RESOURCE_LIMITS:
+        cap = int(limits.get(key, 0))
+        if cap == -1:
+            continue
+        current = counts.get(key, 0)
+        if current > cap:
+            conflicts.append(
+                {
+                    "resource": key,
+                    "label": catalog.LIMIT_LABELS.get(key, key),
+                    "current": current,
+                    "allowed": cap,
+                }
+            )
+    return conflicts
+
+
+@router.post("/subscription/reactivate", response_model=SubscriptionResponse)
+async def reactivate_subscription(
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+    stripe_service: StripeService = Depends(get_stripe_service),
+):
+    """Undo a pending cancellation, before the paid period runs out."""
+    subscription = await _existing_live_subscription(db, org_id)
+    if subscription is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No subscription to reactivate"
+        )
+    if not subscription.cancel_at_period_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This subscription is not scheduled to cancel",
+        )
+
+    if subscription.stripe_subscription_id:
+        import asyncio
+        import stripe
+
+        await asyncio.to_thread(
+            stripe.Subscription.modify,
+            subscription.stripe_subscription_id,
+            cancel_at_period_end=False,
+        )
+
+    subscription.cancel_at_period_end = False
+    subscription.canceled_at = None
+    await events.record_event(
+        db,
+        organization_id=org_id,
+        event_type=events.REACTIVATED,
+        subscription=subscription,
+        to_status=subscription.status,
+        actor_type=events.ACTOR_USER,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(subscription)
+    invalidate_entitlements(org_id)
+
+    result = await db.execute(
+        select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
+    )
+    return _subscription_response(subscription, result.scalar_one_or_none())

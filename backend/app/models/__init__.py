@@ -19,7 +19,8 @@ from app.models.knowledge_base import (
 )
 from app.models.subscription import (
     SubscriptionPlan, Subscription, UsageRecord,
-    Invoice, PaymentFailure
+    Invoice, PaymentFailure, SubscriptionEvent, ProcessedStripeEvent,
+    TrialGrant, OrganizationEntitlementOverride
 )
 from app.models.template import (
     AgentTemplate, WorkflowTemplate, TemplateInstallation,
@@ -80,6 +81,10 @@ __all__ = [
     "UsageRecord",
     "Invoice",
     "PaymentFailure",
+    "SubscriptionEvent",
+    "ProcessedStripeEvent",
+    "TrialGrant",
+    "OrganizationEntitlementOverride",
     # Template models
     "AgentTemplate",
     "WorkflowTemplate",

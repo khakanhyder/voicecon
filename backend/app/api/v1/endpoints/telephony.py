@@ -27,7 +27,10 @@ from app.services.telephony.twilio_service import (
     get_twilio_service_for_number,
 )
 from app.core.dependencies import get_current_user, get_current_active_user, get_current_org_id
+from app.core.entitlement_guard import require_entitlement
 from app.models.user import User
+from app.services.billing import catalog
+from app.services.billing.entitlements import runtime_allows
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +316,23 @@ async def handle_inbound_call(
             twiml = build_twiml_error("We're sorry, the agent is not available.")
             return Response(content=twiml, media_type="application/xml")
 
+        # An inbound call is the most expensive thing this product does — it
+        # spins up STT, an LLM and TTS on a live carrier leg — and it arrives on
+        # a webhook, so no HTTP dependency has gated it. Check here, before any
+        # of that starts, or an expired account keeps calling on our money.
+        allowed, reason = await runtime_allows(
+            db, agent.organization_id, catalog.INBOUND_CALLS
+        )
+        if not allowed:
+            logger.info(
+                f"Declining inbound call for org {agent.organization_id}: {reason}"
+            )
+            twiml = build_twiml_error(
+                "We're sorry, this number is not currently taking calls. "
+                "Please try again later."
+            )
+            return Response(content=twiml, media_type="application/xml")
+
         # Reuse the row an outbound dial already created; create one only for a
         # genuinely inbound call.
         call = await _resolve_call_record(
@@ -464,7 +484,16 @@ async def handle_call_status(
         return Response(status_code=200)  # Return 200 to avoid Twilio retries
 
 
-@router.post("/twilio/voice-outbound")
+@router.post(
+    "/twilio/voice-outbound",
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.OUTBOUND_CALLS, limit=catalog.LIMIT_CALLS
+            )
+        )
+    ],
+)
 async def initiate_outbound_call(
     to_number: str,
     agent_id: str,
@@ -700,6 +729,23 @@ async def handle_telnyx_inbound_call(
             logger.error(f"Agent not found: {agent_id}")
             return Response(
                 content=build_error_response("We're sorry, the agent is not available."),
+                media_type="application/xml",
+            )
+
+        # Same gate as the Twilio path: stop before the agent runtime starts, or
+        # a lapsed account keeps burning carrier and model spend on our account.
+        allowed, reason = await runtime_allows(
+            db, agent.organization_id, catalog.INBOUND_CALLS
+        )
+        if not allowed:
+            logger.info(
+                f"Declining inbound Telnyx call for org {agent.organization_id}: {reason}"
+            )
+            return Response(
+                content=build_error_response(
+                    "We're sorry, this number is not currently taking calls. "
+                    "Please try again later."
+                ),
                 media_type="application/xml",
             )
 

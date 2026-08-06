@@ -57,6 +57,21 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // 402 Payment Required — the org's plan doesn't cover this action. Hand it
+    // to the upgrade dialog rather than letting a raw error toast surface, and
+    // keep rejecting so the calling component still knows the request failed.
+    //
+    // This is distinct from a 403: 403 means "ask your admin", 402 means
+    // "upgrade your plan", and the two need different UI.
+    if (error.response?.status === 402 && typeof window !== 'undefined') {
+      const body = error.response.data as any
+      if (body?.code === 'entitlement_required') {
+        window.dispatchEvent(
+          new CustomEvent('voicecon:entitlement-required', { detail: body })
+        )
+      }
+    }
+
     // The stored workspace no longer exists, or access to it was revoked while
     // this tab was open. Drop the pin and retry once so the server picks a
     // workspace the user still belongs to, instead of leaving the tab stuck

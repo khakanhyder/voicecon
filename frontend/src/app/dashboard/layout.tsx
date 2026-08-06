@@ -4,8 +4,11 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import { useWorkspaceStore } from '@/store/workspaceStore'
+import { useEntitlementStore } from '@/store/entitlementStore'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { BillingBanner } from '@/components/billing/BillingBanner'
+import { UpgradeDialog } from '@/components/billing/UpgradeDialog'
 
 export default function DashboardLayout({
   children,
@@ -17,6 +20,10 @@ export default function DashboardLayout({
   const { isAuthenticated, isLoading } = useAuthStore()
   const loadWorkspace = useWorkspaceStore((s) => s.load)
   const resetWorkspace = useWorkspaceStore((s) => s.reset)
+  const currentWorkspaceId = useWorkspaceStore((s) => s.current?.id)
+  const loadEntitlements = useEntitlementStore((s) => s.load)
+  const refreshEntitlements = useEntitlementStore((s) => s.refresh)
+  const resetEntitlements = useEntitlementStore((s) => s.reset)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // The workflow canvas manages its own scrolling and needs the full width;
@@ -35,10 +42,27 @@ export default function DashboardLayout({
   useEffect(() => {
     if (isAuthenticated) {
       loadWorkspace()
+      loadEntitlements()
     } else {
       resetWorkspace()
+      resetEntitlements()
     }
-  }, [isAuthenticated, loadWorkspace, resetWorkspace])
+  }, [
+    isAuthenticated,
+    loadWorkspace,
+    resetWorkspace,
+    loadEntitlements,
+    resetEntitlements,
+  ])
+
+  // Plans are per-workspace, so switching workspaces has to re-resolve them —
+  // otherwise the user carries their old workspace's plan into the new one and
+  // sees features unlocked that this workspace has not paid for.
+  useEffect(() => {
+    if (isAuthenticated && currentWorkspaceId) {
+      refreshEntitlements()
+    }
+  }, [isAuthenticated, currentWorkspaceId, refreshEntitlements])
 
   if (isLoading) {
     return (
@@ -60,6 +84,12 @@ export default function DashboardLayout({
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header onMenuClick={() => setMobileOpen(true)} />
+        {/* One banner, chosen by severity — trial countdown, payment failure,
+            or "your access has ended". Renders nothing when all is well. */}
+        <BillingBanner />
+        {/* Every 402 anywhere in the product opens this, so no page has to
+            handle billing errors itself. */}
+        <UpgradeDialog />
         <main
           className={
             isFullBleed ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'

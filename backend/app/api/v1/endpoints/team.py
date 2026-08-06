@@ -23,6 +23,8 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.core import permissions as perms
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 from app.core.dependencies import (
     get_current_user,
     get_current_org_id,
@@ -153,7 +155,14 @@ def _invitation_response(inv: Invitation, inviter: Optional[User]) -> Invitation
     )
 
 
-@router.post("/invite", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/invite",
+    response_model=InvitationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(require_entitlement(limit=catalog.LIMIT_TEAM_MEMBERS))
+    ],
+)
 async def invite_member(
     payload: InviteRequest,
     workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),

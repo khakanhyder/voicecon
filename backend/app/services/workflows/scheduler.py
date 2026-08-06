@@ -143,6 +143,9 @@ class WorkflowScheduler:
                 elif schedule_type == "one_time":
                     should_trigger = await self._check_one_time_schedule(workflow, now)
 
+                if should_trigger and not await self._entitled(db, workflow):
+                    continue
+
                 if should_trigger:
                     # Claim the slot before dispatching. Writing
                     # last_executed_at after the run started meant a slow start
@@ -165,6 +168,38 @@ class WorkflowScheduler:
 
             except Exception as e:
                 logger.error(f"Error checking workflow {workflow.id}: {e}", exc_info=True)
+
+    async def _entitled(self, db: AsyncSession, workflow) -> bool:
+        """May this organization still run scheduled workflows?
+
+        A scheduled workflow fires from a background loop, so no HTTP dependency
+        has checked anything — and a workflow can place calls and send messages,
+        which costs real money. An expired account whose schedules kept firing
+        would go on spending indefinitely.
+
+        Failures here fail *open*: a bug in the entitlement lookup must not
+        silently stop a paying customer's automation.
+        """
+        from app.services.billing import catalog
+        from app.services.billing.entitlements import runtime_allows
+
+        try:
+            allowed, reason = await runtime_allows(
+                db, workflow.organization_id, catalog.WORKFLOW_SCHEDULING
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                f"Entitlement check failed for workflow {workflow.id}, "
+                f"allowing the run: {exc}"
+            )
+            return True
+
+        if not allowed:
+            logger.info(
+                f"Skipping scheduled workflow {workflow.id} for org "
+                f"{workflow.organization_id}: {reason}"
+            )
+        return allowed
 
     async def _claim(
         self,

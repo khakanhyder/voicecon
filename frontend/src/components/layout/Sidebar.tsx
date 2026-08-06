@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
+import { UsageMeter as SidebarUsageMeter } from '@/components/billing/UsageMeter'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import { PERMISSIONS } from '@/lib/workspace'
 import {
@@ -357,6 +358,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         </div>
       </nav>
 
+      {/* Trial allowance, and a warning once a paid plan nears its limits.
+          Renders nothing when there is nothing to act on. */}
+      <SidebarUsageMeter collapsed={collapsed} />
     </div>
   )
 
