@@ -25,6 +25,7 @@ from app.services.integrations.resource_registry import (
     get_spec,
     normalize_resources,
     search_resources,
+    supports_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ async def list_resources(
             "resources": [],
             "label": spec.label,
             "needs_parent": spec.parent_kind,
+            "supports_url": supports_url(slug, kind),
             "cached": False,
         }
 
@@ -159,6 +161,7 @@ async def list_resources(
                 "resources": search_resources(cached[1], query),
                 "label": spec.label,
                 "empty_hint": spec.empty_hint,
+                "supports_url": supports_url(slug, kind),
                 "cached": True,
             }
 
@@ -216,6 +219,10 @@ async def list_resources(
         "resources": search_resources(resources, query),
         "label": spec.label,
         "empty_hint": spec.empty_hint,
+        # Whether "paste a link" can work for this kind. Trello lists and Google
+        # calendars have no addressable URL, so offering the tab there gives the
+        # user a mode that can only ever fail.
+        "supports_url": supports_url(slug, kind),
         "cached": False,
     }
 

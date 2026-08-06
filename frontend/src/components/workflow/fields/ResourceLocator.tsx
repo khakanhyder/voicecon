@@ -38,6 +38,7 @@ interface ResourceResponse {
   label?: string
   empty_hint?: string
   needs_parent?: string
+  supports_url?: boolean
 }
 
 const INPUT_CLASS =
@@ -50,7 +51,8 @@ export function ResourceLocator({
   kind,
   parentValue,
   parentLabel,
-  supportsUrl = true,
+  supportsUrl,
+  isDefaultEditor = false,
   placeholder,
   onChange,
 }: {
@@ -61,7 +63,17 @@ export function ResourceLocator({
   /** Id of the parent resource, for nested kinds (board -> list). */
   parentValue?: string
   parentLabel?: string
+  /**
+   * Whether "paste a link" can work here. Pass it when already known (the
+   * defaults screen has it up front), otherwise it is learned from the first
+   * listing response. Not every resource has an addressable URL — Trello lists
+   * and Google calendars do not — and offering the tab there gives the user a
+   * mode that can only ever fail.
+   */
   supportsUrl?: boolean
+  /** True when editing the connection default itself, so the "leave blank to
+   *  use the default" hint would be circular. */
+  isDefaultEditor?: boolean
   placeholder?: string
   onChange: (value: string) => void
 }) {
@@ -74,6 +86,10 @@ export function ResourceLocator({
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
   const [hint, setHint] = useState<string>('')
   const [needsParent, setNeedsParent] = useState<string | null>(null)
+  // Learned from the first listing response when not supplied by the caller.
+  const [urlModeAvailable, setUrlModeAvailable] = useState<boolean | undefined>(
+    supportsUrl,
+  )
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [urlDraft, setUrlDraft] = useState('')
@@ -97,6 +113,9 @@ export function ResourceLocator({
         setItems(res.data.resources ?? [])
         setHint(res.data.empty_hint ?? '')
         setNeedsParent(res.data.needs_parent ?? null)
+        if (supportsUrl === undefined && res.data.supports_url !== undefined) {
+          setUrlModeAvailable(res.data.supports_url)
+        }
       } catch (e: any) {
         const body = e?.response?.data?.detail
         setItems([])
@@ -169,7 +188,8 @@ export function ResourceLocator({
 
   const modes: { key: Mode; label: string }[] = [
     { key: 'list', label: 'From list' },
-    ...(supportsUrl ? [{ key: 'url' as Mode, label: 'From link' }] : []),
+    // Hidden until known to work, rather than shown and then vanishing.
+    ...(urlModeAvailable ? [{ key: 'url' as Mode, label: 'From link' }] : []),
     { key: 'id', label: 'By ID' },
   ]
 
@@ -339,9 +359,11 @@ export function ResourceLocator({
             placeholder="An ID, or an expression like {{steps.create.id}}"
             className={`${INPUT_CLASS} font-mono text-xs`}
           />
-          <p className="text-xs text-muted-foreground">
-            Leave blank to use this connection&apos;s default.
-          </p>
+          {!isDefaultEditor && (
+            <p className="text-xs text-muted-foreground">
+              Leave blank to use this connection&apos;s default.
+            </p>
+          )}
         </div>
       )}
     </div>

@@ -26,10 +26,17 @@ interface Ask {
   prompt: string
 }
 
+interface Kind {
+  kind: string
+  label: string
+  supports_url: boolean
+}
+
 interface DefaultsPayload {
   connector_name: string
   defaults: Record<string, string>
   asks: Ask[]
+  kinds: Kind[]
 }
 
 export function ConnectionDefaults({
@@ -123,6 +130,12 @@ export function ConnectionDefaults({
               value={draft[ask.key] ?? ''}
               parentValue={parentAsk ? draft[parentAsk.key] : undefined}
               parentLabel={parentAsk?.kind.replace(/s$/, '')}
+              // Known up front here, so the "From link" tab never appears and
+              // then disappears once the first listing comes back.
+              supportsUrl={
+                payload.kinds?.find((k) => k.kind === ask.kind)?.supports_url ?? false
+              }
+              isDefaultEditor
               onChange={(next) => setDraft((d) => ({ ...d, [ask.key]: next }))}
             />
           </div>

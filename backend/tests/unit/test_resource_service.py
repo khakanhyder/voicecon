@@ -326,3 +326,44 @@ class TestConnectionBookkeeping:
         source = inspect.getsource(connector_base)
         assert "self.connection.usage_count" not in source
         assert "self.connection.last_used_at" not in source
+
+
+class TestUrlModeAdvertising:
+    """The UI must not offer "paste a link" where no link exists.
+
+    Trello boards have an addressable URL; Trello *lists* do not, and neither
+    do Google calendars. Advertising the mode there hands the user a tab whose
+    only possible outcome is "that link was not recognised".
+    """
+
+    async def test_response_says_when_a_link_can_be_pasted(self, db, connection):
+        result = await list_resources(
+            db, connection.organization_id, connection.id, "boards"
+        )
+
+        assert result["supports_url"] is True
+
+    async def test_response_says_when_it_cannot(self, db, connection):
+        result = await list_resources(
+            db, connection.organization_id, connection.id, "lists", parent="b1"
+        )
+
+        assert result["supports_url"] is False
+
+    async def test_the_flag_survives_a_cache_hit(self, db, connection):
+        """Second render must not silently lose the tab."""
+        await list_resources(db, connection.organization_id, connection.id, "boards")
+        cached = await list_resources(
+            db, connection.organization_id, connection.id, "boards"
+        )
+
+        assert cached["cached"] is True
+        assert cached["supports_url"] is True
+
+    async def test_the_flag_is_present_before_a_parent_is_chosen(self, db, connection):
+        result = await list_resources(
+            db, connection.organization_id, connection.id, "lists"
+        )
+
+        assert result["needs_parent"] == "boards"
+        assert result["supports_url"] is False
