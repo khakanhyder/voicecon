@@ -320,6 +320,11 @@ class TwilioService:
                 # here makes the match deterministic instead of a race.
                 twiml_url = f"{twiml_url}?call_id={call_id}"
             status_callback_url = urljoin(webhook_base_url, "/api/v1/telephony/twilio/status")
+            if call_id:
+                # Same race as the answer webhook: `initiated`/`ringing` can fire
+                # before the SID returned below has been committed, and a status
+                # callback that matches nothing is dropped for good.
+                status_callback_url = f"{status_callback_url}?call_id={call_id}"
 
             # Make call
             call = self.client.calls.create(

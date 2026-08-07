@@ -6,8 +6,8 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import {
-  Phone, PhoneIncoming, PhoneOutgoing, Search,
-  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Monitor, Download
+  Phone, Search,
+  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Download
 } from 'lucide-react'
 
 interface Call {
@@ -18,18 +18,12 @@ interface Call {
   to_number: string
   duration_seconds: number | null
   cost_total: number | null
-  started_at: string
-  agent_id: string
+  started_at: string | null
+  created_at: string
+  agent_id: string | null
+  agent_name?: string | null
   sentiment_label?: string
   call_metadata?: Record<string, any>
-}
-
-const statusConfig: Record<string, { color: string; bg: string }> = {
-  completed: { color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
-  failed: { color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
-  missed: { color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
-  in_progress: { color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
-  initiated: { color: 'text-slate-700', bg: 'bg-slate-50 border-slate-200' },
 }
 
 function formatDuration(seconds: number | null) {
@@ -39,8 +33,10 @@ function formatDuration(seconds: number | null) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string | null | undefined) {
+  if (!dateStr) return '—'
   const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return '—'
   const now = new Date()
   const diff = now.getTime() - d.getTime()
   if (diff < 60_000) return 'Just now'
@@ -239,8 +235,11 @@ export default function CallsPage() {
                           <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#106959]/10">
                             <Bot className="h-3.5 w-3.5 text-[#106959]" />
                           </div>
-                          <span className="truncate text-[14px] font-poppins font-semibold text-[#000000]">
-                            {call.agent_id ? call.agent_id.slice(0, 8) + '...' : 'Unknown'}
+                          <span
+                            className="truncate text-[14px] font-poppins font-semibold text-[#000000]"
+                            title={call.agent_name || call.agent_id || undefined}
+                          >
+                            {call.agent_name || (call.agent_id ? `${call.agent_id.slice(0, 8)}…` : 'Unknown')}
                           </span>
                         </div>
 
@@ -272,7 +271,7 @@ export default function CallsPage() {
                         </div>
 
                         <div className="text-[13px] font-poppins text-black/70 truncate">
-                          {formatDate(call.started_at)}
+                          {formatDate(call.started_at || call.created_at)}
                         </div>
 
                         <div className="text-[13px] font-poppins text-black/70">

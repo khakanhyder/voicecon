@@ -195,7 +195,7 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Hero card ── */}
-        <div className="bg-white rounded-[10px] border border-[#000000] px-6 py-5 shadow-sm mb-4">
+        <div className="bg-white rounded-t-[10px] border border-b-0 border-[#000000] px-6 py-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             {/* Avatar + name */}
             <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -278,7 +278,7 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Tab bar ── */}
-        <div className="flex gap-0 border border-b-0 border-[#000000] bg-white rounded-t-[10px] mb-0 px-1">
+        <div className="flex gap-0 border-x border-t border-[#000000] bg-white px-1">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -296,7 +296,7 @@ export default function AgentDetailPage() {
         </div>
 
         {/* ── Tab content ── */}
-        <div className="bg-white rounded-b-[10px] border border-t-0 border-[#000000] p-6 shadow-sm">
+        <div className="bg-white rounded-b-[10px] border border-t-0 border-[#000000] p-6 shadow-sm mb-8">
 
           {/* OVERVIEW */}
           {activeTab === 'overview' && (

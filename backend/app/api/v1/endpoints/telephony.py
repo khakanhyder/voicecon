@@ -7,6 +7,7 @@ Handles:
 - WebSocket media stream handling
 """
 import logging
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from urllib.parse import urljoin
@@ -50,14 +51,23 @@ def _public_webhook_url(request: Request) -> str:
     Behind a TLS-terminating proxy the internal scheme/host differ from what
     Twilio called, and the signature is computed over the public URL. Prefer an
     explicitly configured public base URL; otherwise honour forwarded headers.
+
+    The query string is part of what Twilio signs, so it has to be kept: our
+    outbound answer and status callback URLs both carry a ``?call_id=``, and
+    dropping it made every one of those signatures fail to verify.
     """
+    # Path *and* query — see the note above.
+    target = request.url.path
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
     if settings.TWILIO_PUBLIC_BASE_URL:
         base = settings.TWILIO_PUBLIC_BASE_URL.rstrip("/")
-        return f"{base}{request.url.path}"
+        return f"{base}{target}"
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
     if host:
-        return f"{proto}://{host}{request.url.path}"
+        return f"{proto}://{host}{target}"
     return str(request.url)
 
 
@@ -140,6 +150,139 @@ async def validate_twilio_request(request: Request, form_data, db: AsyncSession)
     return False
 
 
+#: Carrier status strings mapped onto the canonical states the rest of the app
+#: queries on (see ``CallState`` in app.services.voice.call_manager). Twilio and
+#: Telnyx both report ``in-progress`` with a hyphen; stored raw it matched no
+#: filter, so "In Progress" on the calls page and the active-call analytics
+#: count were permanently empty.
+_PROVIDER_CALL_STATUS = {
+    "queued": "initiated",
+    "initiated": "initiated",
+    "ringing": "ringing",
+    "answered": "in_progress",
+    "in-progress": "in_progress",
+    "in_progress": "in_progress",
+    "completed": "completed",
+    "busy": "missed",
+    "no-answer": "missed",
+    "no_answer": "missed",
+    "failed": "failed",
+    "canceled": "failed",
+    "cancelled": "failed",
+}
+
+#: Per-minute carrier rates used when the provider does not price the call for us.
+_TELEPHONY_RATE_PER_MINUTE = {"inbound": 0.0085, "outbound": 0.0140}
+
+#: Ceiling on a duration reconstructed from timestamps. A late or duplicated
+#: final callback would otherwise measure "row created until now" and bill a
+#: multi-day call; past this the span is not a real conversation, so it is
+#: dropped rather than guessed at.
+_MAX_RECONSTRUCTED_DURATION_SECONDS = 24 * 60 * 60
+
+
+def normalize_call_status(call_status: Optional[str]) -> Optional[str]:
+    """
+    Translate a carrier status into the canonical value stored on ``Call.status``.
+
+    Unknown statuses are passed through lowercased rather than dropped, so a new
+    carrier state still lands somewhere visible instead of silently becoming the
+    previous value.
+
+    Args:
+        call_status: Carrier-reported status, e.g. Twilio's ``in-progress``
+
+    Returns:
+        Canonical status, or None when nothing was reported
+    """
+    if not call_status:
+        return None
+    key = call_status.strip().lower()
+    return _PROVIDER_CALL_STATUS.get(key, key)
+
+
+def _apply_telephony_cost(call: Call) -> None:
+    """
+    Price the carrier leg from the billable duration and refresh the total.
+
+    Args:
+        call: Call record to price
+    """
+    if not call.duration_seconds:
+        return
+
+    rate = _TELEPHONY_RATE_PER_MINUTE.get(call.direction, _TELEPHONY_RATE_PER_MINUTE["outbound"])
+    call.cost_telephony = round((call.duration_seconds / 60) * rate, 4)
+    call.cost_total = round(
+        float(call.cost_stt or 0)
+        + float(call.cost_llm or 0)
+        + float(call.cost_tts or 0)
+        + float(call.cost_telephony or 0),
+        4,
+    )
+
+
+def _apply_call_timing(
+    call: Call,
+    canonical_status: Optional[str],
+    call_duration: Optional[str] = None,
+) -> None:
+    """
+    Stamp the lifecycle timestamps a status callback implies.
+
+    ``started_at`` is filled on *any* callback that finds it missing, not only on
+    ``ringing``. Carriers do not guarantee that event — an inbound number is
+    subscribed to ``completed`` alone by default, and an early outbound callback
+    can arrive before the row carries its SID — and the previous if/elif chain
+    meant a missed ``ringing`` left the column NULL forever, which the UI then
+    rendered as the epoch (Jan 1, 1970).
+
+    Args:
+        call: Call record to update
+        canonical_status: Normalized status for this callback
+        call_duration: Carrier-reported duration in seconds, when present
+    """
+    now = datetime.utcnow()
+
+    # Any sign of life means the call had started by now at the latest.
+    if not call.started_at:
+        call.started_at = call.created_at or now
+
+    if canonical_status == "in_progress" and not call.answered_at:
+        call.answered_at = now
+
+    if canonical_status in ("completed", "failed", "missed"):
+        if not call.ended_at:
+            call.ended_at = now
+
+        if call_duration:
+            try:
+                call.duration_seconds = int(float(call_duration))
+            except (TypeError, ValueError):
+                logger.warning(f"Unparseable call duration from carrier: {call_duration!r}")
+
+        # Carriers occasionally omit the duration on the final callback; the
+        # timestamps we just stamped are enough to reconstruct it.
+        # Only for a call that actually connected. Reconstructing a span for a
+        # busy/no-answer call would turn ring time into billable duration.
+        if call.duration_seconds is None and canonical_status == "completed":
+            opened = call.answered_at or call.started_at
+            if opened and call.ended_at and call.ended_at > opened:
+                span = int((call.ended_at - opened).total_seconds())
+                if span <= _MAX_RECONSTRUCTED_DURATION_SECONDS:
+                    call.duration_seconds = span
+                else:
+                    logger.warning(
+                        f"Refusing to reconstruct a {span}s duration for call {call.id}; "
+                        "leaving it unset rather than billing a guess"
+                    )
+
+        if call.duration_seconds is not None and call.billable_duration_seconds is None:
+            call.billable_duration_seconds = call.duration_seconds
+
+        _apply_telephony_cost(call)
+
+
 def _record_status_metadata(call: Call, call_status: Optional[str]) -> None:
     """
     Note the latest carrier status on the call record.
@@ -161,6 +304,47 @@ def _record_status_metadata(call: Call, call_status: Optional[str]) -> None:
         "last_status": call_status,
         "status_callback_count": current.get("status_callback_count", 0) + 1,
     }
+
+
+async def _find_call_for_status(
+    db: AsyncSession,
+    *,
+    call_id: Optional[str],
+    call_sid: Optional[str],
+) -> Optional[Call]:
+    """
+    Find the Call a status callback belongs to.
+
+    Prefers our own id — carried on the status callback URL for calls we dialled
+    — because the carrier can fire ``initiated``/``ringing`` before the dial
+    response was committed, leaving ``provider_call_sid`` still empty.
+
+    Args:
+        db: Database session
+        call_id: Our own Call id, when the callback URL carried one
+        call_sid: Carrier call identifier
+
+    Returns:
+        The matching Call, or None
+    """
+    if call_id:
+        try:
+            found = (
+                await db.execute(select(Call).where(Call.id == UUID(call_id)))
+            ).scalar_one_or_none()
+        except ValueError:
+            logger.warning(f"Status callback carried a malformed call_id {call_id!r}")
+            found = None
+        if found is not None:
+            return found
+        logger.warning(f"Status callback named unknown call_id {call_id}")
+
+    if call_sid:
+        return (
+            await db.execute(select(Call).where(Call.provider_call_sid == call_sid))
+        ).scalar_one_or_none()
+
+    return None
 
 
 async def _resolve_call_record(
@@ -219,7 +403,9 @@ async def _resolve_call_record(
         if call_sid and not existing.provider_call_sid:
             existing.provider_call_sid = call_sid
         if call_status:
-            existing.status = call_status
+            existing.status = normalize_call_status(call_status) or existing.status
+        if not existing.started_at:
+            existing.started_at = existing.created_at or datetime.utcnow()
         await db.commit()
         await db.refresh(existing)
         logger.info(
@@ -244,7 +430,10 @@ async def _resolve_call_record(
         direction="inbound",
         from_number=from_number,
         to_number=to_number,
-        status=call_status or "initiated",
+        status=normalize_call_status(call_status) or "initiated",
+        # Stamped here rather than waiting on a `ringing` callback that a carrier
+        # may never send: by the time the answer webhook runs, the call is live.
+        started_at=datetime.utcnow(),
         provider=provider,
         provider_call_sid=call_sid,
         # `call_metadata`, not `metadata`: the latter is SQLAlchemy's own
@@ -420,55 +609,23 @@ async def handle_call_status(
             f"Duration={call_duration}"
         )
 
-        # Find call by provider_call_sid
-        call_result = await db.execute(
-            select(Call).where(Call.provider_call_sid == call_sid)
-        )
-        call = call_result.scalar_one_or_none()
+        # Match on our own id first. The early callbacks of an outbound call can
+        # land before the dial response committed the SID, and a SID-only lookup
+        # dropped them — which is how a call ended up with no start time at all.
+        call = await _find_call_for_status(db, call_id=request.query_params.get("call_id"), call_sid=call_sid)
 
         if not call:
             logger.warning(f"Call not found: {call_sid}")
             return Response(status_code=200)
 
-        # Update call status
-        call.status = call_status
+        if call_sid and not call.provider_call_sid:
+            call.provider_call_sid = call_sid
 
-        # Update timing based on status
-        if call_status == "ringing" and not call.started_at:
-            from datetime import datetime
-            call.started_at = datetime.utcnow()
+        canonical_status = normalize_call_status(call_status)
+        if canonical_status:
+            call.status = canonical_status
 
-        elif call_status == "in-progress" and not call.answered_at:
-            from datetime import datetime
-            call.answered_at = datetime.utcnow()
-
-        elif call_status == "completed":
-            from datetime import datetime
-            call.ended_at = datetime.utcnow()
-
-            if call_duration:
-                call.duration_seconds = int(call_duration)
-                call.billable_duration_seconds = int(call_duration)
-
-            # Calculate telephony cost (Twilio pricing)
-            # Inbound: $0.0085/min, Outbound: $0.0140/min
-            if call.duration_seconds:
-                minutes = call.duration_seconds / 60
-                if call.direction == "inbound":
-                    cost = minutes * 0.0085
-                else:
-                    cost = minutes * 0.0140
-
-                call.cost_telephony = round(cost, 4)
-
-                # Update total cost
-                call.cost_total = (
-                    (call.cost_stt or 0) +
-                    (call.cost_llm or 0) +
-                    (call.cost_tts or 0) +
-                    (call.cost_telephony or 0)
-                )
-
+        _apply_call_timing(call, canonical_status, call_duration)
         _record_status_metadata(call, call_status)
 
         await db.commit()
@@ -571,6 +728,7 @@ async def initiate_outbound_call(
             to_number=to_number,
             status="initiated",
             provider="twilio",
+            started_at=datetime.utcnow(),
         )
 
         db.add(call)
@@ -600,7 +758,7 @@ async def initiate_outbound_call(
             raise
 
         call.provider_call_sid = call_details["call_sid"]
-        call.status = call_details["status"]
+        call.status = normalize_call_status(call_details["status"]) or call.status
         call.call_metadata = {
             "twilio_call_sid": call_details["call_sid"],
             "direction_type": call_details["direction"],
@@ -812,32 +970,20 @@ async def handle_telnyx_call_status(
             f"Duration={call_duration}"
         )
 
-        call_result = await db.execute(
-            select(Call).where(Call.provider_call_sid == call_sid)
-        )
-        call = call_result.scalar_one_or_none()
+        call = await _find_call_for_status(db, call_id=request.query_params.get("call_id"), call_sid=call_sid)
 
         if not call:
             logger.warning(f"Call not found: {call_sid}")
             return Response(status_code=200)
 
-        from datetime import datetime
+        if call_sid and not call.provider_call_sid:
+            call.provider_call_sid = call_sid
 
-        call.status = call_status
+        canonical_status = normalize_call_status(call_status)
+        if canonical_status:
+            call.status = canonical_status
 
-        if call_status == "ringing" and not call.started_at:
-            call.started_at = datetime.utcnow()
-
-        elif call_status == "in-progress" and not call.answered_at:
-            call.answered_at = datetime.utcnow()
-
-        elif call_status == "completed":
-            call.ended_at = datetime.utcnow()
-
-            if call_duration:
-                call.duration_seconds = int(call_duration)
-                call.billable_duration_seconds = int(call_duration)
-
+        _apply_call_timing(call, canonical_status, call_duration)
         _record_status_metadata(call, call_status)
 
         await db.commit()

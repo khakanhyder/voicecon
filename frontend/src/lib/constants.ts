@@ -9,6 +9,7 @@ export const API_ENDPOINTS = {
 
   // Agents
   AGENTS: `${API_BASE}/api/v1/agents`,
+  AGENT_STATS: `${API_BASE}/api/v1/agents/stats`,
   AGENT: (id: string) => `${API_BASE}/api/v1/agents/${id}`,
 
   // Calls

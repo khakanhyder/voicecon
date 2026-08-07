@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { apiClient, getErrorMessage } from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
+import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import {
   ArrowLeft, Phone, PhoneIncoming, PhoneOutgoing, DollarSign,
@@ -15,6 +15,7 @@ import {
 interface CallDetail {
   id: string
   agent_id: string | null
+  agent_name?: string | null
   direction: 'inbound' | 'outbound' | 'test'
   status: string
   from_number: string
@@ -94,11 +95,18 @@ function normalizeTranscript(
 }
 
 const statusConfig: Record<string, { color: string; bg: string }> = {
-  completed:   { color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
-  failed:      { color: 'text-red-700',     bg: 'bg-red-50 border-red-200' },
-  missed:      { color: 'text-amber-700',   bg: 'bg-amber-50 border-amber-200' },
-  in_progress: { color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
-  initiated:   { color: 'text-slate-600',   bg: 'bg-slate-50 border-slate-200' },
+  completed:     { color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+  failed:        { color: 'text-red-700',     bg: 'bg-red-50 border-red-200' },
+  missed:        { color: 'text-amber-700',   bg: 'bg-amber-50 border-amber-200' },
+  in_progress:   { color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
+  'in-progress': { color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
+  ringing:       { color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
+  initiated:     { color: 'text-slate-600',   bg: 'bg-slate-50 border-slate-200' },
+}
+
+/** `in_progress` reads as "In Progress", not "in_progress". */
+function statusLabel(status: string) {
+  return status.replace(/[_-]/g, ' ')
 }
 
 function fmtDur(s: number | null) {
@@ -258,11 +266,11 @@ export default function CallDetailPage() {
                 <span className="text-[18px] font-bold font-poppins text-[#000000]">{call.from_number || '—'}</span>
                 <span className="text-black/40 text-[14px] font-poppins">→</span>
                 <span className="text-[14px] font-poppins text-black/70">{call.to_number || '—'}</span>
-                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium font-poppins ${status.bg} ${status.color}`}>
-                  {call.status}
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium font-poppins capitalize ${status.bg} ${status.color}`}>
+                  {statusLabel(call.status)}
                 </span>
               </div>
-              <p className="text-[12px] font-poppins text-black/50 mt-0.5 capitalize">{call.direction} · {fmtDate(call.started_at)}</p>
+              <p className="text-[12px] font-poppins text-black/50 mt-0.5 capitalize">{call.direction} · {fmtDate(call.started_at || call.created_at)}</p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm flex-shrink-0">
@@ -311,7 +319,7 @@ export default function CallDetailPage() {
               </h3>
               <AudioPlayer url={
                 call.recording_url?.startsWith('/')
-                  ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${call.recording_url}`
+                  ? `${API_BASE}${call.recording_url}`
                   : call.recording_url
               } />
               {call.recording_duration && (
@@ -391,8 +399,8 @@ export default function CallDetailPage() {
             </h3>
             <InfoRow label="Direction" value={<span className="capitalize">{call.direction}</span>} />
             <InfoRow label="Status" value={
-              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium font-poppins ${status.bg} ${status.color}`}>
-                {call.status}
+              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium font-poppins capitalize ${status.bg} ${status.color}`}>
+                {statusLabel(call.status)}
               </span>
             } />
             <InfoRow label="Started" value={fmtDate(call.started_at)} />
@@ -400,9 +408,13 @@ export default function CallDetailPage() {
             <InfoRow label="Ended" value={fmtDate(call.ended_at)} />
             <InfoRow label="Duration" value={fmtDur(call.duration_seconds)} />
             {call.agent_id && (
-              <InfoRow label="Agent ID" value={
-                <Link href={`/dashboard/agents/${call.agent_id}`} className="font-mono text-[12px] font-poppins text-[#106959] hover:underline">
-                  {call.agent_id.slice(0, 8)}…
+              <InfoRow label="Agent" value={
+                <Link
+                  href={`/dashboard/agents/${call.agent_id}`}
+                  title={call.agent_id}
+                  className="text-[12px] font-poppins text-[#106959] hover:underline"
+                >
+                  {call.agent_name || `${call.agent_id.slice(0, 8)}…`}
                 </Link>
               } />
             )}

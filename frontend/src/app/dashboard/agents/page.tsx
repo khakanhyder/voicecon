@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '@/store/workspaceStore'
 import { PERMISSIONS } from '@/lib/workspace'
 import {
   Bot, Plus, Search, MoreHorizontal, Phone, Mic, Cpu,
-  ArrowRight, Activity, Clock, ToggleLeft, ToggleRight, Trash2, Pencil,
+  Activity, Clock, ToggleLeft, ToggleRight, Trash2, Pencil,
   Users, LayoutGrid, List, Headphones, User, ShoppingCart, Calendar, HelpCircle
 } from 'lucide-react'
 
@@ -25,6 +25,33 @@ interface Agent {
   stt_provider: string
   is_active: boolean
   created_at: string
+}
+
+interface AgentStats {
+  total_calls: number
+  completed_calls: number
+  total_duration_seconds: number
+  /** Null when the agent has never been called — there is no rate to report. */
+  success_rate: number | null
+  last_call_at: string | null
+}
+
+/** Zeroes for an agent the stats endpoint has no row for: it has taken no calls. */
+const EMPTY_STATS: AgentStats = {
+  total_calls: 0,
+  completed_calls: 0,
+  total_duration_seconds: 0,
+  success_rate: null,
+  last_call_at: null,
+}
+
+function formatTotalTime(seconds: number) {
+  if (!seconds) return '0m'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
+  if (m > 0) return `${m}m`
+  return `${seconds}s`
 }
 
 const cardStyles = [
@@ -54,9 +81,10 @@ function Waveform() {
   )
 }
 
-function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDelete }: { agent: Agent; index: number; viewMode: 'grid' | 'list'; onClick: () => void; onDelete: () => void; canWrite: boolean; canDelete: boolean }) {
+function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite, canDelete }: { agent: Agent; index: number; viewMode: 'grid' | 'list'; stats: AgentStats; onClick: () => void; onDelete: () => void; canWrite: boolean; canDelete: boolean }) {
   const style = cardStyles[index % cardStyles.length]
   const IconComponent = style.Icon
+  const successRate = stats.success_rate == null ? '—' : `${stats.success_rate}%`
 
   if (viewMode === 'list') {
     return (
@@ -81,7 +109,7 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Phone className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 500) + 50}
+              {stats.total_calls}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Calls</span>
           </div>
@@ -89,7 +117,7 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 5) + 1}h
+              {formatTotalTime(stats.total_duration_seconds)}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Time</span>
           </div>
@@ -97,7 +125,7 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Activity className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 10) + 90}%
+              {successRate}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Success rate</span>
           </div>
@@ -137,7 +165,13 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
   }
 
   return (
-    <div className={`group bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col justify-between shadow-sm hover:shadow-md transition-all overflow-hidden p-5 min-h-[340px]`}>
+    <div
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      className={`group cursor-pointer bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col justify-between shadow-sm hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40 transition-all overflow-hidden p-5`}
+    >
       <div>
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-start gap-4">
@@ -178,11 +212,11 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
         </div>
 
         {/* Stats Row */}
-        <div className="flex items-center justify-between border-t border-slate-100 pt-4 pb-4">
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Phone className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 500) + 50}
+              {stats.total_calls}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Calls</span>
           </div>
@@ -190,7 +224,7 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 5) + 1}h {Math.floor(Math.random() * 59)}m
+              {formatTotalTime(stats.total_duration_seconds)}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Total time</span>
           </div>
@@ -198,35 +232,11 @@ function AgentCard({ agent, index, viewMode, onClick, onDelete, canWrite, canDel
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 text-slate-900 font-bold text-sm">
               <Activity className="w-3.5 h-3.5 text-slate-400" />
-              {Math.floor(Math.random() * 10) + 90}%
+              {successRate}
             </div>
             <span className="text-xs text-slate-400 mt-0.5">Success rate</span>
           </div>
         </div>
-      </div>
-
-      {/* Card footer */}
-      <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
-        <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
-          <button className="flex items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
-            <Pencil className="h-4 w-4" />
-            Edit
-          </button>
-        </Link>
-        <button
-          onClick={(e) => { e.stopPropagation(); onClick() }}
-          className="flex items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors"
-        >
-          View <ArrowRight className="h-4 w-4" />
-        </button>
-        {canDelete && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="text-slate-400 hover:text-red-500 transition-colors"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
-        )}
       </div>
     </div>
   )
@@ -246,9 +256,11 @@ export default function AgentsPage() {
   const [sortBy, setSortBy] = useState('Newest')
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [stats, setStats] = useState<Record<string, AgentStats>>({})
 
   useEffect(() => {
     fetchAgents()
+    fetchStats()
   }, [])
 
   const fetchAgents = async () => {
@@ -260,6 +272,17 @@ export default function AgentsPage() {
       toast.error(getErrorMessage(error))
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Stats are supplementary: if this call fails the cards still render, just
+  // with zeroes, rather than taking the whole page down with a toast.
+  const fetchStats = async () => {
+    try {
+      const response = await apiClient.get<{ stats: Record<string, AgentStats> }>(API_ENDPOINTS.AGENT_STATS)
+      setStats(response.data.stats || {})
+    } catch (error) {
+      console.error('Failed to fetch agent stats:', error)
     }
   }
 
@@ -294,9 +317,9 @@ export default function AgentsPage() {
     return (
       <div className="space-y-6">
         <div className="flex h-20 bg-white rounded border border-slate-200 animate-pulse mb-6"></div>
-        <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 h-[340px] animate-pulse">
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 h-[260px] animate-pulse">
               <div className="flex gap-4 mb-4">
                 <div className="h-12 w-12 bg-slate-100 rounded-full shrink-0" />
                 <div className="flex-1">
@@ -407,13 +430,14 @@ export default function AgentsPage() {
           )}
         </div>
       ) : (
-        <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
           {filtered.map((agent, index) => (
             <AgentCard
               key={agent.id}
               agent={agent}
               index={index}
               viewMode={viewMode}
+              stats={stats[agent.id] ?? EMPTY_STATS}
               onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
               onDelete={() => setAgentToDelete(agent)}
               canWrite={canWrite}
@@ -424,7 +448,7 @@ export default function AgentsPage() {
           {/* Add another card — creation affordance, so contributors only */}
           {canWrite && (
           <Link href="/dashboard/agents/new">
-            <div className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer ${viewMode === 'list' ? 'h-[162px]' : 'h-full min-h-[340px]'
+            <div className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/5 transition-all group cursor-pointer ${viewMode === 'list' ? 'h-[162px]' : 'h-full min-h-[240px]'
               }`}>
               <div className={`flex items-center justify-center rounded-full bg-[#0F6A59]/10 transition-colors mb-4 ${viewMode === 'list' ? 'h-12 w-12' : 'h-16 w-16'
                 }`}>

@@ -258,31 +258,39 @@ async def list_calls(
 
     Supports filtering by agent and status.
     """
-    query = select(Call).where(Call.organization_id == org_id)
+    # Outer join: a call outlives the agent that handled it, and losing those
+    # rows from the log would be worse than showing one without a name.
+    query = (
+        select(Call, Agent.name)
+        .outerjoin(Agent, Agent.id == Call.agent_id)
+        .where(Call.organization_id == org_id)
+    )
+    count_query = select(func.count()).select_from(Call).where(
+        Call.organization_id == org_id
+    )
 
     # Apply filters
     if agent_id:
         query = query.where(Call.agent_id == agent_id)
-    if status:
-        query = query.where(Call.status == status)
-
-    # Order by most recent
-    query = query.order_by(Call.started_at.desc())
-
-    # Get total count
-    count_query = select(Call).where(Call.organization_id == org_id)
-    if agent_id:
         count_query = count_query.where(Call.agent_id == agent_id)
     if status:
+        query = query.where(Call.status == status)
         count_query = count_query.where(Call.status == status)
 
-    total_result = await db.execute(count_query)
-    total = len(total_result.all())
+    # Order by most recent. `nullslast` matters because Postgres sorts NULLs
+    # first on DESC, which floated calls with no start time to the top.
+    query = query.order_by(Call.started_at.desc().nullslast(), Call.created_at.desc())
+
+    total = (await db.execute(count_query)).scalar_one()
 
     # Get paginated results
     query = query.offset(skip).limit(limit)
-    result = await db.execute(query)
-    calls = result.scalars().all()
+    rows = (await db.execute(query)).all()
+
+    calls = []
+    for call, agent_name in rows:
+        call.agent_name = agent_name
+        calls.append(call)
 
     return {
         "calls": calls,
@@ -521,20 +529,25 @@ async def get_call(
     Get a specific call by ID.
     """
     result = await db.execute(
-        select(Call).where(
+        select(Call, Agent.name)
+        .outerjoin(Agent, Agent.id == Call.agent_id)
+        .where(
             and_(
                 Call.id == call_id,
                 Call.organization_id == org_id
             )
         )
     )
-    call = result.scalar_one_or_none()
+    row = result.first()
 
-    if not call:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Call not found",
         )
+
+    call, agent_name = row
+    call.agent_name = agent_name
 
     return call
 

@@ -52,6 +52,9 @@ class CallResponse(BaseModel):
     """Schema for call response."""
     id: uuid.UUID
     agent_id: Optional[uuid.UUID] = None
+    #: Resolved from the agent so the UI can name the assistant instead of
+    #: printing a truncated UUID. Absent when the agent has since been deleted.
+    agent_name: Optional[str] = None
     user_id: uuid.UUID
     organization_id: Optional[uuid.UUID] = None
     phone_number_id: Optional[uuid.UUID] = None

@@ -14,7 +14,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, case
 from pydantic import BaseModel, Field
 
 from app.database import get_db
@@ -23,6 +23,7 @@ from app.core.entitlement_guard import require_entitlement
 from app.services.billing import catalog
 from app.models.user import User, OrganizationMember
 from app.models.agent import Agent, AgentFunction
+from app.models.call import Call
 from app.schemas.agent import (
     AgentCreate,
     AgentUpdate,
@@ -161,6 +162,66 @@ async def list_agents(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list agents: {str(e)}"
+        )
+
+
+@router.get("/stats")
+async def get_agent_stats(
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Per-agent call statistics for the whole workspace.
+
+    Returned as one map keyed by agent id so the agents list can render real
+    figures from a single request instead of one lookup per card. Agents with no
+    calls are simply absent — the caller renders zeros for them, which is the
+    honest answer for an agent that has never been dialled.
+
+    Declared before ``/{agent_id}`` on purpose: FastAPI matches routes in
+    definition order, and the parameterised route would otherwise swallow
+    "stats" and fail to parse it as a UUID.
+    """
+    try:
+        result = await db.execute(
+            select(
+                Call.agent_id,
+                func.count(Call.id).label("total_calls"),
+                func.sum(
+                    case((Call.status == "completed", 1), else_=0)
+                ).label("completed_calls"),
+                func.sum(func.coalesce(Call.duration_seconds, 0)).label("total_duration"),
+                func.max(Call.started_at).label("last_call_at"),
+            )
+            .where(
+                Call.organization_id == org_id,
+                Call.agent_id.is_not(None),
+            )
+            .group_by(Call.agent_id)
+        )
+
+        stats: Dict[str, Dict[str, Any]] = {}
+        for row in result.all():
+            total = row.total_calls or 0
+            completed = row.completed_calls or 0
+            stats[str(row.agent_id)] = {
+                "total_calls": total,
+                "completed_calls": completed,
+                "total_duration_seconds": int(row.total_duration or 0),
+                # Share of calls that ran to completion. Undefined rather than
+                # 0% when nothing has been dialled yet, so the UI can say "—".
+                "success_rate": round(completed / total * 100) if total else None,
+                "last_call_at": row.last_call_at.isoformat() if row.last_call_at else None,
+            }
+
+        return {"stats": stats}
+
+    except Exception as e:
+        logger.error(f"Error building agent stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load agent stats: {str(e)}"
         )
 
 
