@@ -344,7 +344,13 @@ class TestCatalog:
 
     def test_plans_allowing_accounts_for_unlimited(self):
         assert "voice-ai" in catalog.plans_allowing(catalog.LIMIT_WORKFLOWS, 500)
-        assert "sales-chatbot" not in catalog.plans_allowing(catalog.LIMIT_AGENTS, 3)
+        # One past what the cheaper plan allows, read from the catalogue rather
+        # than written out — plan capacities are marketing decisions and get
+        # retuned, and that must not turn into a red test.
+        cap = catalog.PLAN_ENTITLEMENTS["sales-chatbot"]["limits"][catalog.LIMIT_AGENTS]
+        assert "sales-chatbot" not in catalog.plans_allowing(
+            catalog.LIMIT_AGENTS, cap + 1
+        )
 
     def test_unknown_slug_under_grants(self):
         """A typo in a slug must never hand out the expensive plan."""
@@ -360,7 +366,10 @@ class TestCatalog:
         assert merged["features"][catalog.LEAD_SCORING] is True
         # The rest of the plan survives the override.
         assert merged["features"][catalog.INBOUND_CALLS] is True
-        assert merged["limits"][catalog.LIMIT_AGENTS] == 1
+        assert (
+            merged["limits"][catalog.LIMIT_AGENTS]
+            == catalog.PLAN_ENTITLEMENTS["sales-chatbot"]["limits"][catalog.LIMIT_AGENTS]
+        )
 
 
 # ==================== The guard ====================

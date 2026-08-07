@@ -1186,6 +1186,80 @@ async def start_free_trial(
     return _subscription_response(subscription, plan)
 
 
+#: Stripe subscription statuses that mean the customer is paid up and running.
+#: Anything else back from ``Subscription.create`` means the money did not move —
+#: a card needing 3-D Secure comes back ``incomplete``, a declined one
+#: ``incomplete_expired``.
+STRIPE_LIVE_STATUSES = frozenset({"active", "trialing", "past_due"})
+
+
+def apply_paid_conversion(
+    subscription: Subscription,
+    plan: SubscriptionPlan,
+    *,
+    stripe_subscription_id: str,
+    stripe_customer_id: str,
+    stripe_status: str,
+    billing_period: str,
+    period_start: datetime,
+    period_end: datetime,
+    now: datetime,
+) -> bool:
+    """Turn a trial — or a lapsed subscription — into the paid plan, in place.
+
+    Returns ``True`` when what was converted was a trial.
+
+    The trial is *ended*, not merely overwritten. ``status`` and ``source`` both
+    leave their trial values, and ``trial_end`` is pulled back to ``now`` so no
+    code path anywhere can still see a trial running into the future. That last
+    part is what makes the switchover total: the entitlement resolver picks the
+    trial's restrictive limits purely on ``status == trialing``, so a paying
+    customer with a future-dated ``trial_end`` sitting in the row is one status
+    write away from being handed 1-agent trial limits again. Clearing it means
+    there is nothing left to go back to.
+
+    What the trial *would* have run to is kept in ``stripe_metadata`` — the
+    customer gave up those days by paying early, and conversion reporting should
+    be able to see that rather than having it silently overwritten.
+    """
+    converting_trial = subscription.source == SOURCE_TRIAL
+
+    subscription.plan_id = plan.id
+    subscription.stripe_subscription_id = stripe_subscription_id
+    subscription.stripe_customer_id = stripe_customer_id
+    subscription.status = stripe_status
+    subscription.source = SOURCE_STRIPE
+    subscription.billing_period = billing_period
+    subscription.current_period_start = period_start
+    subscription.current_period_end = period_end
+    subscription.cancel_at_period_end = False
+    subscription.canceled_at = None
+    subscription.expired_at = None
+    subscription.grace_period_end = None
+    #: Any downgrade the old subscription had queued is void — the customer has
+    #: just chosen a plan explicitly, and that choice wins.
+    subscription.scheduled_plan_id = None
+
+    if converting_trial:
+        if subscription.trial_converted_at is None:
+            subscription.trial_converted_at = now
+        scheduled_end = subscription.trial_end
+        if scheduled_end is not None and scheduled_end > now:
+            metadata = dict(subscription.stripe_metadata or {})
+            metadata["trial_end_forfeited"] = scheduled_end.isoformat()
+            subscription.stripe_metadata = metadata
+        subscription.trial_end = now
+
+    # A converted trial starts its paid allowance clean rather than inheriting
+    # the trial's consumption.
+    subscription.current_period_minutes = 0
+    subscription.current_period_calls = 0
+    subscription.current_period_sms = 0
+    subscription.current_period_emails = 0
+
+    return converting_trial
+
+
 @router.post(
     "/checkout", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
 )
@@ -1273,34 +1347,52 @@ async def checkout(
         idempotency_key=f"checkout:{org_id}:{plan.id}:{request.payment_method_id}",
     )
 
+    # 4a. Refuse to convert onto a subscription Stripe has not actually started.
+    #     A card needing 3-D Secure comes back ``incomplete``, and that status is
+    #     in neither LIVE_STATUSES nor RUNTIME_STATUSES — writing it onto the row
+    #     would resolve the workspace to EXPIRED entitlements: every feature off,
+    #     every limit zero, read-only. That is strictly worse than the trial the
+    #     customer walked in with, and the trial cannot be started again. So we
+    #     leave their subscription untouched, bin the unpaid Stripe object rather
+    #     than leaving it to linger, and tell them the payment did not go through.
+    if stripe_subscription.status not in STRIPE_LIVE_STATUSES:
+        try:
+            await asyncio.to_thread(stripe.Subscription.delete, stripe_subscription.id)
+        except Exception as exc:  # pragma: no cover - best effort cleanup
+            logger.warning(
+                f"Could not clean up unpaid Stripe subscription "
+                f"{stripe_subscription.id} for org {org_id}: {exc}"
+            )
+        logger.warning(
+            f"Checkout for org {org_id} left Stripe subscription in "
+            f"'{stripe_subscription.status}'; subscription unchanged."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Your card was not charged — the payment could not be completed. "
+                "Nothing has changed on your account. Try a different card."
+            ),
+        )
+
     now = datetime.utcnow()
     period_start = datetime.fromtimestamp(stripe_subscription.current_period_start)
     period_end = datetime.fromtimestamp(stripe_subscription.current_period_end)
-    converting_trial = existing is not None and existing.source == SOURCE_TRIAL
 
     if existing is not None:
-        # 5a. Convert in place.
+        # 5a. Convert in place: the trial ends here and the paid plan takes over.
         previous_status = existing.status
-        existing.plan_id = plan.id
-        existing.stripe_subscription_id = stripe_subscription.id
-        existing.stripe_customer_id = stripe_customer_id
-        existing.status = stripe_subscription.status
-        existing.source = SOURCE_STRIPE
-        existing.billing_period = request.billing_period
-        existing.current_period_start = period_start
-        existing.current_period_end = period_end
-        existing.cancel_at_period_end = False
-        existing.canceled_at = None
-        existing.expired_at = None
-        existing.grace_period_end = None
-        if converting_trial and existing.trial_converted_at is None:
-            existing.trial_converted_at = now
-        # A converted trial starts its paid allowance clean rather than
-        # inheriting the trial's consumption.
-        existing.current_period_minutes = 0
-        existing.current_period_calls = 0
-        existing.current_period_sms = 0
-        existing.current_period_emails = 0
+        converting_trial = apply_paid_conversion(
+            existing,
+            plan,
+            stripe_subscription_id=stripe_subscription.id,
+            stripe_customer_id=stripe_customer_id,
+            stripe_status=stripe_subscription.status,
+            billing_period=request.billing_period,
+            period_start=period_start,
+            period_end=period_end,
+            now=now,
+        )
         subscription = existing
 
         await events.record_event(

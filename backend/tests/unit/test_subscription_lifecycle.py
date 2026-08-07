@@ -35,7 +35,7 @@ from app.models.subscription import (
     TrialGrant,
 )
 from app.models.user import Organization, OrganizationMember, User
-from app.api.v1.endpoints.billing import _trial_already_used
+from app.api.v1.endpoints.billing import _trial_already_used, apply_paid_conversion
 from app.services.billing import catalog
 from app.services.billing.entitlements import (
     EntitlementService,
@@ -637,3 +637,173 @@ class TestOneTrialPerAccount:
         colleague_org = await _make_org(db, colleague)
 
         assert await _trial_already_used(db, colleague, colleague_org.id) is None
+
+
+# ==================== Upgrading mid-trial ====================
+
+
+class TestEarlyTrialConversion:
+    """Paying before the trial runs out.
+
+    The contract: the trial ends *there and then*, and the plan the customer
+    just bought takes over completely — its features, its limits, a clean
+    allowance. No half state where the row says ``active`` but something,
+    somewhere, still reads a trial that has days left on it.
+    """
+
+    @staticmethod
+    def _convert(subscription, plan, *, now=None, stripe_status=STATUS_ACTIVE):
+        """Run the conversion the checkout endpoint runs, without Stripe."""
+        now = now or datetime.utcnow()
+        return apply_paid_conversion(
+            subscription,
+            plan,
+            stripe_subscription_id=f"sub_{uuid.uuid4().hex[:10]}",
+            stripe_customer_id="cus_converted",
+            stripe_status=stripe_status,
+            billing_period="monthly",
+            period_start=now,
+            period_end=now + timedelta(days=30),
+            now=now,
+        )
+
+    async def test_trial_ends_immediately_and_the_paid_plan_takes_over(
+        self, db, org, plan
+    ):
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+
+        # Mid-trial, the trial's own limits apply — one agent, not the plan's five.
+        before = await EntitlementService().resolve(db, org.id, fresh=True)
+        assert before.is_trial
+        assert before.limit(catalog.LIMIT_AGENTS) == 1
+
+        assert self._convert(subscription, plan) is True
+        await db.commit()
+
+        after = await EntitlementService().resolve(db, org.id, fresh=True)
+
+        # The trial is over, by every measure the product asks about.
+        assert not after.is_trial
+        assert after.status == STATUS_ACTIVE
+        assert after.source == SOURCE_STRIPE
+        assert after.days_remaining is None
+        assert not after.trial_expiring_soon
+
+        # And the purchased plan is fully in force.
+        assert after.is_live
+        assert after.limit(catalog.LIMIT_AGENTS) == 5
+        assert after.is_unlimited(catalog.LIMIT_WORKFLOWS)
+        assert after.limit(catalog.LIMIT_MINUTES) == 3000
+        assert after.has(catalog.LEAD_SCORING)
+        assert after.has(catalog.API_ACCESS)
+        assert after.overage_allowed
+
+    async def test_no_future_trial_end_is_left_behind(self, db, org, plan):
+        """The row must not still describe a trial with days left on it."""
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+        scheduled_end = subscription.trial_end
+        assert scheduled_end > datetime.utcnow()  # four days still to run
+
+        now = datetime.utcnow()
+        self._convert(subscription, plan, now=now)
+        await db.commit()
+        await db.refresh(subscription)
+
+        assert subscription.trial_end <= now
+        assert subscription.trial_converted_at is not None
+        # The forfeited days are recorded rather than silently overwritten.
+        assert subscription.stripe_metadata["trial_end_forfeited"] == (
+            scheduled_end.isoformat()
+        )
+
+    async def test_agent_capacity_the_trial_blocked_is_available_after_paying(
+        self, db, org, plan
+    ):
+        """The concrete thing the customer was upgrading to get."""
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+        service = EntitlementService()
+
+        trialing = (await service.resolve(db, org.id, fresh=True)).with_usage(
+            {catalog.LIMIT_AGENTS: 2}
+        )
+        assert not trialing.within(catalog.LIMIT_AGENTS)  # 2 of 1 — blocked
+
+        self._convert(subscription, plan)
+        await db.commit()
+
+        paid = (await service.resolve(db, org.id, fresh=True)).with_usage(
+            {catalog.LIMIT_AGENTS: 2}
+        )
+        assert paid.within(catalog.LIMIT_AGENTS)  # 2 of 5 — room for three more
+
+    async def test_paid_allowance_starts_clean(self, db, org, plan):
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+        subscription.current_period_minutes = 55
+        subscription.current_period_calls = 20
+        subscription.current_period_sms = 11
+        subscription.current_period_emails = 90
+        await db.commit()
+
+        self._convert(subscription, plan)
+        await db.commit()
+
+        ent = await EntitlementService().resolve(db, org.id, fresh=True)
+        assert ent.used(catalog.LIMIT_MINUTES) == 0
+        assert ent.used(catalog.LIMIT_CALLS) == 0
+        assert ent.remaining(catalog.LIMIT_MINUTES) == 3000
+
+    async def test_conversion_is_recorded_and_the_trial_cannot_be_restarted(
+        self, db, org, plan
+    ):
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+        grant = TrialGrant(
+            organization_id=org.id,
+            user_id=org.owner_id,
+            email_domain="acme.test",
+            expires_at=subscription.trial_end,
+        )
+        db.add(grant)
+        await db.commit()
+
+        self._convert(subscription, plan)
+        grant.converted = True
+        await db.commit()
+
+        owner = await db.get(User, org.owner_id)
+        assert await _trial_already_used(db, owner, org.id) is not None
+
+    async def test_the_reconciler_leaves_a_converted_trial_alone(self, db, org, plan):
+        """A trial swept mid-conversion must not be dragged into grace."""
+        subscription = await make_trial(db, org, plan, started_days_ago=3)
+        self._convert(subscription, plan)
+        await db.commit()
+
+        report = await reconcile_subscriptions(db)
+        await db.refresh(subscription)
+
+        assert report.trials_to_grace == 0
+        assert subscription.status == STATUS_ACTIVE
+        assert (await EntitlementService().resolve(db, org.id, fresh=True)).is_live
+
+    async def test_converting_an_expired_subscription_is_not_a_trial_conversion(
+        self, db, org, plan
+    ):
+        """Same endpoint, but there is no trial to end — reporting must differ."""
+        subscription = Subscription(
+            organization_id=org.id,
+            plan_id=plan.id,
+            status=STATUS_EXPIRED,
+            source=SOURCE_STRIPE,
+            stripe_subscription_id=f"sub_{uuid.uuid4().hex[:10]}",
+            stripe_customer_id="cus_x",
+            billing_period="monthly",
+            current_period_start=datetime.utcnow() - timedelta(days=40),
+            current_period_end=datetime.utcnow() - timedelta(days=10),
+        )
+        db.add(subscription)
+        await db.commit()
+
+        assert self._convert(subscription, plan) is False
+        await db.commit()
+
+        assert (await EntitlementService().resolve(db, org.id, fresh=True)).is_live

@@ -19,6 +19,7 @@ import { getStripe, isStripeConfigured } from '@/lib/stripe'
 import { onboardingService } from '@/lib/onboarding'
 import { entitlementService } from '@/lib/entitlements'
 import { useOnboardingStore } from '@/store/onboardingStore'
+import { useEntitlementStore } from '@/store/entitlementStore'
 
 const COUNTRIES = [
   'United States of America',
@@ -129,8 +130,13 @@ function CheckoutForm() {
         billing_period: billingPeriod,
       })
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       reset()
+      // Re-read the plan before leaving. The entitlement store loads once per
+      // session, so a workspace that was trialling a moment ago would otherwise
+      // arrive at the dashboard still showing trial limits and the trial
+      // banner until the next full page load.
+      await useEntitlementStore.getState().refresh()
       toast.success('Subscription activated! Welcome to Voicecon.')
       router.push('/dashboard')
     },

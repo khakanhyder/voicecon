@@ -198,7 +198,7 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             }
         ),
         "limits": {
-            LIMIT_AGENTS: 1,
+            LIMIT_AGENTS: 3,
             LIMIT_PHONE_NUMBERS: 1,
             LIMIT_KNOWLEDGE_BASES: 1,
             LIMIT_TEAM_MEMBERS: 3,
