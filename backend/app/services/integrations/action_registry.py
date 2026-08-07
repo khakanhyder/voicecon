@@ -4,7 +4,11 @@ Integration Action Registry.
 Defines available actions per connector with their LLM-compatible parameter schemas.
 Vapi-style: each action becomes a tool the AI can call during a live conversation.
 """
+import inspect
+import logging
 from typing import Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 # Schema: connector_slug -> list of actions the AI can invoke
 INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
@@ -627,6 +631,64 @@ def strip_ui_only_parameters(
         return parameters
     return {k: v for k, v in (parameters or {}).items() if k not in ui_only}
 
+
+def drop_unsupported_arguments(
+    method: Any, parameters: Dict[str, Any], *, context: str = ""
+) -> Dict[str, Any]:
+    """Keep only the arguments ``method`` can actually accept.
+
+    Every dynamic action call ends in ``method(**parameters)``, and one key the
+    method does not declare is a hard ``TypeError`` that kills the whole step —
+    however correct the rest of the arguments were. Two real sources of stray
+    keys, neither of which is the caller doing anything unreasonable:
+
+    * **A saved node whose action was changed.** The builder writes parameters
+      into one object per step; switching "Create Trello Card" to "Comment on
+      Trello Card" leaves ``board_id`` and ``list_id`` behind, and the run dies
+      on ``add_comment() got an unexpected keyword argument 'board_id'``.
+    * **An agent calling an integration tool.** The arguments come out of an
+      LLM, so an extra plausible-looking key is a matter of time.
+
+    Filtering on the *signature* rather than on the registry schema is
+    deliberate: the signature is what actually raises, so this cannot drift from
+    the thing it protects. A method taking ``**kwargs`` is left alone — it has
+    said it will take anything.
+
+    Dropped keys are logged rather than silently swallowed: if a required
+    argument was misspelled, the call still fails on the missing argument, and
+    the log says which unknown key was thrown away.
+    """
+    try:
+        signature = inspect.signature(method)
+    except (TypeError, ValueError):  # pragma: no cover - builtins, C functions
+        return dict(parameters or {})
+
+    if any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()
+    ):
+        return dict(parameters or {})
+
+    allowed = {
+        name
+        for name, p in signature.parameters.items()
+        if name != "self"
+        and p.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+
+    supplied = dict(parameters or {})
+    kept = {k: v for k, v in supplied.items() if k in allowed}
+    dropped = sorted(set(supplied) - set(kept))
+    if dropped:
+        logger.warning(
+            "Dropped %s before calling %s%s — the action does not accept %s. "
+            "Usually a step whose action was changed after it was configured.",
+            ", ".join(repr(k) for k in dropped),
+            getattr(method, "__qualname__", str(method)),
+            f" ({context})" if context else "",
+            "them" if len(dropped) > 1 else "it",
+        )
+    return kept
 
 def resource_fields(connector_slug: str, action: str) -> Dict[str, Dict[str, Any]]:
     """The pickable fields on an action, for the builder to render."""

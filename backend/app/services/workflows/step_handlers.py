@@ -395,6 +395,7 @@ class ActionStepHandler(BaseStepHandler):
                 # list" — so most workflows never have to name a list at all.
                 # An explicit value always wins; this only fills gaps.
                 from app.services.integrations.action_registry import (
+                    drop_unsupported_arguments,
                     get_action_schema,
                     strip_ui_only_parameters,
                 )
@@ -419,6 +420,14 @@ class ActionStepHandler(BaseStepHandler):
                 )
 
                 action_method = getattr(connector_instance, action)
+                # Last line of defence before ``**parameters``: a step whose
+                # action was changed after it was configured still carries the
+                # old action's fields, and one unknown key is a TypeError that
+                # kills the run. The signature is the only thing that knows for
+                # certain what is safe to pass.
+                parameters = drop_unsupported_arguments(
+                    action_method, parameters, context=f"{connector.slug}.{action}"
+                )
                 result = await action_method(**parameters)
 
                 logger.info(f"Action {action} executed successfully")

@@ -90,6 +90,31 @@ export function ActionParametersField({
   const params = value ?? {}
   const set = (name: string, next: any) => onChange({ ...params, [name]: next })
 
+  // Changing a step's action leaves the previous action's fields behind in the
+  // same parameters object — switch "Create Trello Card" to "Comment on Trello
+  // Card" and `board_id` is still in there, invisible, because the form only
+  // renders the new action's fields. At run time the connector is called with
+  // every key, and one it does not declare is a hard TypeError. So once the
+  // schema for the *current* action is known, drop what it does not describe.
+  // Only when the schema is actually loaded: with no schema the generic
+  // key/value editor is in charge and every key is meaningful.
+  const stale = useMemo(() => {
+    const properties = schema?.parameters?.properties
+    if (!properties) return []
+    return Object.keys(params).filter((key) => !(key in properties))
+  }, [schema, params])
+
+  // Keyed on the names, not the array, so a fresh `params` object identity on
+  // every render cannot turn this into a render loop.
+  const staleKey = stale.join(',')
+  useEffect(() => {
+    if (!staleKey) return
+    const pruned = { ...params }
+    staleKey.split(',').forEach((key) => delete pruned[key])
+    onChange(pruned)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleKey])
+
   if (!action) {
     return <p className="text-xs text-muted-foreground">Choose an action first.</p>
   }

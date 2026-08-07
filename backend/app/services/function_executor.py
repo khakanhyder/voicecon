@@ -939,6 +939,16 @@ class FunctionExecutor:
             raise ValueError(f"Action '{action}' not found on {class_name}")
 
         method = getattr(instance, action)
+        # The arguments came from an LLM deciding how to call this tool, so an
+        # extra plausible-looking key is a matter of time. Drop what the action
+        # cannot accept rather than failing the whole tool call on it.
+        from app.services.integrations.action_registry import (
+            drop_unsupported_arguments,
+        )
+
+        parameters = drop_unsupported_arguments(
+            method, parameters, context=f"{slug}.{action}"
+        )
         result = await method(**parameters)
         return result if isinstance(result, dict) else {"result": result}
 
