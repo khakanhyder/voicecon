@@ -35,7 +35,11 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => {
+  ({ className, variant, size, asChild: _asChild, ...props }, ref) => {
+    // `asChild` is part of the public prop type but this button always renders
+    // a real <button>. Destructure it off so it is not spread onto the DOM,
+    // where React warns about an unknown attribute on every render.
+    void _asChild
     return (
       <button
         className={cn(buttonVariants({ variant, size, className }))}

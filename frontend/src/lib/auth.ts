@@ -160,14 +160,27 @@ export const authService = {
     localStorage.removeItem('active_organization_id')
   },
 
-  async logout() {
-    try {
-      await apiClient.post('/api/v1/auth/logout')
-    } catch {}
+  /**
+   * Drop every trace of the session from this browser.
+   *
+   * Separate from `logout()` so the caller can run it *again* after cancelling
+   * in-flight queries: `fetchMe` writes `user` back to localStorage whenever it
+   * resolves, so a request already on the wire can otherwise repopulate the
+   * profile microseconds after sign-out.
+   */
+  clearSession() {
+    if (typeof window === 'undefined') return
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user')
     localStorage.removeItem('active_organization_id')
+  },
+
+  async logout() {
+    try {
+      await apiClient.post('/api/v1/auth/logout')
+    } catch {}
+    authService.clearSession()
   },
 
   getCurrentUser(): User | null {

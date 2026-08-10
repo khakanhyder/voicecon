@@ -25,6 +25,7 @@ from app.core.dependencies import get_current_user, get_workspace, require_permi
 from app.core.workspace import WorkspaceContext, get_membership, list_memberships
 from app.database import get_db
 from app.models.user import Organization, OrganizationMember, User
+from app.schemas._types import NonBlankName
 
 router = APIRouter()
 
@@ -62,7 +63,11 @@ class WorkspaceDetail(BaseModel):
 
 
 class WorkspaceUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    # `min_length=1` counts characters, so a single space satisfied it and the
+    # handler's own `.strip()` then stored "" — leaving the switcher and every
+    # page header blank. NonBlankName trims first, so the check sees what will
+    # actually be saved.
+    name: NonBlankName
 
 
 class TransferOwnershipRequest(BaseModel):

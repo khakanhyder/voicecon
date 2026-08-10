@@ -13,6 +13,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
+from app.core.config import settings
+
+# Rate limiting is process-global and its buckets outlive a single test, so
+# leaving it on makes this suite order-dependent: a module that performs more
+# than the write allowance in a minute starts handing out 429s to whichever
+# tests happen to run next. Nothing here is testing the limiter — the
+# Playwright `api` project covers it against a live server — so it is off.
+settings.RATE_LIMIT_ENABLED = False
+
 from app.main import app
 from app.database import Base, get_db
 from app.models.user import User, Organization

@@ -7,12 +7,13 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, validator
+from app.schemas._types import NonBlankName
 
 
 # Connector Schemas
 class IntegrationConnectorBase(BaseModel):
     """Base integration connector schema."""
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(...)
     slug: str = Field(..., min_length=1, max_length=255)
     category: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
@@ -37,13 +38,16 @@ class IntegrationConnectorBase(BaseModel):
 
 
 class IntegrationConnectorCreate(IntegrationConnectorBase):
+    # Constrained here rather than on the base, which the response models
+    # inherit — see the note on ApiKeyBase in schemas/user.py.
+    name: NonBlankName = Field(...)
     """Create integration connector schema."""
     pass
 
 
 class IntegrationConnectorUpdate(BaseModel):
     """Update integration connector schema."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[NonBlankName] = Field(None)
     description: Optional[str] = None
     logo_url: Optional[str] = None
     auth_config: Optional[Dict[str, Any]] = None

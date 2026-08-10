@@ -9,6 +9,7 @@ import { authService, LoginCredentials, RegisterData } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
 import { QUERY_KEYS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { getErrorMessage } from '@/lib/api'
 
 export function useAuth() {
   const router = useRouter()
@@ -43,7 +44,7 @@ export function useAuth() {
       router.push(getRedirect() || '/dashboard')
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Login failed')
+      toast.error(getErrorMessage(error) || 'Login failed')
     },
   })
 
@@ -69,16 +70,22 @@ export function useAuth() {
       }
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Registration failed')
+      toast.error(getErrorMessage(error) || 'Registration failed')
     },
   })
 
   // Logout mutation
   const logoutMutation = useMutation({
     mutationFn: authService.logout,
-    onSuccess: () => {
-      storeLogout()
+    onSuccess: async () => {
+      // Order matters. `fetchMe` caches the profile in localStorage every time
+      // it resolves, so a /users/me request already in flight would write the
+      // signed-out user straight back. Stop the queries first, then clear the
+      // storage again to close the gap.
+      await queryClient.cancelQueries()
       queryClient.clear()
+      storeLogout()
+      authService.clearSession()
       toast.success('Logged out successfully')
       router.push('/login')
     },

@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.subscription import (
+    LIVE_STATUSES,
     SubscriptionPlan,
     Subscription,
     UsageRecord,
@@ -28,17 +29,23 @@ logger = logging.getLogger(__name__)
 class StripeService:
     """Service for handling Stripe billing operations."""
 
-    def __init__(self, api_key: str, webhook_secret: str):
+    def __init__(self, api_key: str, webhook_secret: str, configure_sdk: bool = True):
         """
         Initialize Stripe service.
 
         Args:
             api_key: Stripe secret API key
             webhook_secret: Stripe webhook signing secret
+            configure_sdk: Whether to point the Stripe SDK at `api_key`.
+                `stripe.api_key` is module-level global state shared by every
+                request in the process, so an instance built without real
+                credentials must not touch it — otherwise it would blank the
+                key out from under a paid request running concurrently.
         """
         self.api_key = api_key
         self.webhook_secret = webhook_secret
-        stripe.api_key = api_key
+        if configure_sdk:
+            stripe.api_key = api_key
 
     # ==================== Subscription Plans ====================
 
@@ -545,12 +552,16 @@ class StripeService:
         Returns:
             Dictionary with limit status
         """
-        # Get active subscription
+        # Every other query in the codebase treats a subscription as live when
+        # its status is in LIVE_STATUSES — which includes "trialing". Matching
+        # only "active" here meant a user on the free trial was reported as
+        # having no subscription and as being outside their limits, on the one
+        # plan the product hands out by default.
         result = await db.execute(
             select(Subscription).where(
                 and_(
                     Subscription.organization_id == organization_id,
-                    Subscription.status == "active",
+                    Subscription.status.in_(LIVE_STATUSES),
                 )
             )
         )
@@ -1128,3 +1139,20 @@ async def get_stripe_service() -> StripeService:
     webhook_secret = settings.STRIPE_WEBHOOK_SECRET or "not_configured"
 
     return StripeService(api_key=api_key, webhook_secret=webhook_secret)
+
+
+async def get_usage_reader() -> StripeService:
+    """
+    A service for endpoints that only read usage rows out of our own database.
+
+    `get_current_usage` and `check_usage_limits` never call Stripe — they read
+    the local Subscription and SubscriptionPlan and do arithmetic. Obtaining
+    them through `get_stripe_service` meant the *dependency* rejected the
+    request with 503 whenever Stripe was unconfigured, so a trial user on a
+    deployment with no card payments set up could not load the billing page at
+    all — despite that being exactly the case the trial exists to serve.
+
+    No credentials, and deliberately does not configure the SDK: this instance
+    must never be able to make a live call.
+    """
+    return StripeService(api_key="", webhook_secret="", configure_sdk=False)

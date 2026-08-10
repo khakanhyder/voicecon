@@ -503,7 +503,12 @@ export default function EditAgentPage() {
   useEffect(() => {
     if (!agentId) return
     apiClient.get<{ knowledge_base_id: string }[]>(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId))
-      .then(r => setForm(f => ({ ...f, knowledge_base_ids: (r.data || []).map(k => k.knowledge_base_id) })))
+      // `|| []` only covers null/undefined; any other non-array response reached
+      // `.map` and crashed the edit page with an unhandled TypeError.
+      .then(r => setForm(f => ({
+        ...f,
+        knowledge_base_ids: Array.isArray(r.data) ? r.data.map(k => k.knowledge_base_id) : [],
+      })))
       .catch(() => {/* picker just starts empty */})
   }, [agentId])
 

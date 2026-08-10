@@ -2,7 +2,10 @@
 Pydantic schemas for authentication.
 """
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
+
+from app.core.passwords import PasswordPolicyError, validate_password
+from app.schemas._types import NonBlankName, PersonName, PhoneNumberStr
 
 
 class Token(BaseModel):
@@ -33,12 +36,19 @@ class LoginResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    """Registration request schema."""
+    """
+    Registration request schema.
+
+    `full_name` is required. It used to be optional, and the sign-up form did
+    not mark it required either, so an account could be created with no name at
+    all — which then rendered as a blank entry in the account menu, the team
+    list and every invitation that account sent.
+    """
     email: EmailStr
-    password: str = Field(..., min_length=8)
-    full_name: Optional[str] = None
-    company_name: Optional[str] = None
-    phone_number: Optional[str] = None
+    password: str
+    full_name: PersonName
+    company_name: Optional[NonBlankName] = None
+    phone_number: Optional[PhoneNumberStr] = None
     email_verification_token: Optional[str] = Field(
         default=None,
         description=(
@@ -46,6 +56,24 @@ class RegisterRequest(BaseModel):
             "confirmed. Required unless the server has email verification off."
         ),
     )
+
+
+    @model_validator(mode="after")
+    def _check_password(self):
+        """
+        Apply the password policy.
+
+        Run as a model validator rather than a field one so it can see the
+        address and the name — a password that is simply the user's own email
+        local part is refused, and a field validator could not know that.
+        """
+        try:
+            validate_password(
+                self.password, email=str(self.email), full_name=self.full_name
+            )
+        except PasswordPolicyError as e:
+            raise ValueError(str(e)) from e
+        return self
 
 
 class SendEmailCodeRequest(BaseModel):
@@ -95,7 +123,16 @@ class ResetPasswordRequest(BaseModel):
 
     email: EmailStr
     code: str = Field(..., min_length=4, max_length=12)
-    new_password: str = Field(..., min_length=8)
+    new_password: str
+
+    @model_validator(mode="after")
+    def _check_password(self):
+        """The reset form must not be a way round the sign-up policy."""
+        try:
+            validate_password(self.new_password, email=str(self.email))
+        except PasswordPolicyError as e:
+            raise ValueError(str(e)) from e
+        return self
 
 
 class RegisterResponse(BaseModel):
@@ -136,7 +173,15 @@ class PasswordResetConfirm(BaseModel):
 class ChangePasswordRequest(BaseModel):
     """Change password request schema."""
     current_password: str
-    new_password: str = Field(..., min_length=8)
+    new_password: str
+
+    @model_validator(mode="after")
+    def _check_password(self):
+        try:
+            validate_password(self.new_password)
+        except PasswordPolicyError as e:
+            raise ValueError(str(e)) from e
+        return self
 
 
 class EmailVerificationRequest(BaseModel):

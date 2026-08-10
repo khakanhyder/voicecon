@@ -152,6 +152,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
             )}
             {canDelete && (
               <button
+                aria-label={`Delete ${agent.name}`}
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 className="flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
               >
@@ -371,10 +372,10 @@ export default function AgentsPage() {
 
         <div className="flex items-center gap-3 shrink-0">
           <div className="hidden sm:flex bg-slate-50 rounded-lg p-1 border border-slate-200 items-center">
-            <button onClick={() => setViewMode('grid')} className={`rounded p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+            <button aria-label="Grid view" aria-pressed={viewMode === 'grid'} onClick={() => setViewMode('grid')} className={`rounded p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
               <LayoutGrid className={`w-4 h-4 ${viewMode === 'grid' ? 'text-emerald-600' : 'text-slate-400'}`} />
             </button>
-            <button onClick={() => setViewMode('list')} className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+            <button aria-label="List view" aria-pressed={viewMode === 'list'} onClick={() => setViewMode('list')} className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
               <List className={`w-4 h-4 ${viewMode === 'list' ? 'text-emerald-600' : 'text-slate-400'}`} />
             </button>
           </div>

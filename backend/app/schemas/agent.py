@@ -6,6 +6,7 @@ from typing import Optional, List
 from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from uuid import UUID
+from app.schemas._types import NonBlankName, NonBlankText
 
 
 # LLM Configuration
@@ -60,7 +61,7 @@ class AdvancedFeatures(BaseModel):
 # Agent Create Schema
 class AgentCreate(BaseModel):
     """Schema for creating an agent."""
-    name: str = Field(..., min_length=1, max_length=255, description="Agent name")
+    name: NonBlankName = Field(..., description="Agent name")
     description: Optional[str] = Field(default=None, description="Agent description")
     type: str = Field(default="assistant", description="Agent type")
 
@@ -117,7 +118,7 @@ class AgentCreate(BaseModel):
 # Agent Update Schema
 class AgentUpdate(BaseModel):
     """Schema for updating an agent."""
-    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    name: Optional[NonBlankName] = Field(default=None)
     description: Optional[str] = None
     system_prompt: Optional[str] = None
     first_message: Optional[str] = None
@@ -202,8 +203,8 @@ class AgentListResponse(BaseModel):
 # Agent Function Schema
 class AgentFunctionCreate(BaseModel):
     """Schema for creating an agent function."""
-    name: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=1)
+    name: NonBlankName = Field(...)
+    description: NonBlankText = Field(...)
     parameters: dict = Field(..., description="JSON Schema for parameters")
 
     webhook_url: Optional[str] = None
@@ -284,6 +285,8 @@ class AgentTemplate(BaseModel):
 # Agent Clone Request
 class AgentCloneRequest(BaseModel):
     """Schema for cloning an agent."""
-    name: str = Field(..., description="Name for cloned agent")
+    # Constrained like every other agent name — this path had no constraint at
+    # all, so a clone was a way round the non-blank rule on AgentCreate.
+    name: NonBlankName = Field(..., description="Name for cloned agent")
     include_functions: bool = Field(default=True, description="Clone functions")
     include_knowledge_base: bool = Field(default=False, description="Clone knowledge base")

@@ -26,13 +26,14 @@ from app.models.user import User, OrganizationMember
 from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Document as DocumentModel
 from app.services.knowledge_base import RAGService
 from app.core.config import settings
+from app.schemas._types import NonBlankName
 
 router = APIRouter()
 
 
 # Pydantic Schemas
 class KnowledgeBaseCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: NonBlankName = Field(...)
     description: Optional[str] = None
     chunk_size: int = Field(default=1000, ge=100, le=4000)
     chunk_overlap: int = Field(default=200, ge=0, le=1000)

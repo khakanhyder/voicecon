@@ -54,6 +54,8 @@ from app.services.auth.verification import (
     issue_code,
     normalize_email,
 )
+from app.services.auth import login_throttle
+from app.services.auth.workspaces import unique_org_slug
 from app.services.email.service import email_service
 
 logger = logging.getLogger(__name__)
@@ -250,6 +252,13 @@ async def reset_password(
         raise bad_request_exception("That code is not valid. Request a new one.")
 
     user.hashed_password = get_password_hash(payload.new_password)
+    # Someone who forgot their password has very likely just failed to sign in
+    # five times, which is exactly what the lockout counts. Without this they
+    # complete the reset, are handed a session, and are then refused at the
+    # login form for another fifteen minutes — with a password they know is
+    # correct. Proving control of the address is a stronger signal than the
+    # failures that preceded it.
+    login_throttle.clear(email)
     # Resetting through the emailed code proves the address, so an account that
     # never finished sign-up verification is verified now.
     if not user.is_verified:
@@ -308,8 +317,11 @@ async def register(
     db.add(user)
     await db.flush()  # Flush to get user.id
 
-    # Create personal organization
-    org_slug = email.split("@")[0].replace(".", "-")
+    # Create personal organization. The slug column is UNIQUE and the local
+    # part of an address is not, so this has to be resolved against the table
+    # rather than assumed free — two alices at different domains previously
+    # collided here and the IntegrityError surfaced as a 500.
+    org_slug = await unique_org_slug(db, email)
     organization = Organization(
         name=user_data.company_name or f"{user_data.full_name}'s Workspace",
         slug=org_slug,
@@ -353,11 +365,29 @@ async def login(
 
     Returns access and refresh tokens.
     """
-    # Find user by email
-    result = await db.execute(select(User).where(User.email == credentials.email))
+    # Registration stores the normalized address, so login has to normalize
+    # too. Comparing the raw input meant anyone who typed a capital letter —
+    # or whose keyboard autocapitalised the first one — got 401 on the very
+    # address they had just signed up with.
+    email = normalize_email(credentials.email)
+
+    # Checked before the account is even looked up: a locked address must cost
+    # a guesser nothing to discover, and must not cost us a bcrypt comparison.
+    locked_for = login_throttle.seconds_until_unlocked(email)
+    if locked_for:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed sign-in attempts. Please try again shortly.",
+            headers={"Retry-After": str(locked_for)},
+        )
+
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if not user:
+        # Counted even for an address with no account, so the lockout cannot be
+        # used to tell registered addresses from unregistered ones.
+        login_throttle.record_failure(email)
         raise credentials_exception()
 
     # Social-only accounts (Google/Apple) have no local password.
@@ -370,6 +400,7 @@ async def login(
 
     # Verify password
     if not verify_password(credentials.password, user.hashed_password):
+        login_throttle.record_failure(email)
         raise credentials_exception()
 
     # Check if user is active
@@ -378,6 +409,10 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
+
+    # A correct password clears the record, so someone who mistypes twice and
+    # then succeeds is never locked out by their own typos.
+    login_throttle.clear(email)
 
     # Update last login
     user.last_login_at = datetime.utcnow()
@@ -419,8 +454,15 @@ async def refresh_token(
     if user_id is None or token_type != "refresh":
         raise credentials_exception()
 
-    # Verify user still exists and is active
-    result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id)))
+    # Verify user still exists and is active. A malformed `sub` means the
+    # token is not one we issued, which is a 401 — letting ValueError escape
+    # turned it into a 500.
+    try:
+        subject_id = _uuid.UUID(user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise credentials_exception()
+
+    result = await db.execute(select(User).where(User.id == subject_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_active:

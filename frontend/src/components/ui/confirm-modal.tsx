@@ -42,10 +42,15 @@ export function ConfirmModal({
       onClick={() => { if (!isLoading) onCancel() }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-title"
+        aria-describedby="confirm-modal-description"
         className="w-full max-w-md rounded-[10px] border border-[#000000] bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
+          aria-label="Close"
           onClick={onCancel}
           className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition-colors"
           disabled={isLoading}
@@ -56,8 +61,8 @@ export function ConfirmModal({
           <div className={`p-4 rounded-full ${isDestructive ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
             <AlertCircle className="w-8 h-8" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 font-poppins">{title}</h3>
-          <p className="text-sm text-gray-600">{description}</p>
+          <h3 id="confirm-modal-title" className="text-xl font-bold text-gray-900 font-poppins">{title}</h3>
+          <p id="confirm-modal-description" className="text-sm text-gray-600">{description}</p>
         </div>
         <div className="flex items-center gap-3 mt-8">
           <Button

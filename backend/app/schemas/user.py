@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from app.schemas._types import NonBlankName
 
 
 # Base schemas
@@ -26,7 +27,10 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     """Schema for updating user information."""
-    full_name: Optional[str] = None
+    #: Optional, so it may be omitted — but a name that is *sent* must have
+    #: something in it. A blank one leaves the account menu and every "signed
+    #: in as" line rendering nothing.
+    full_name: Optional[NonBlankName] = None
     company_name: Optional[str] = None
     phone_number: Optional[str] = None
     bio: Optional[str] = None
@@ -78,7 +82,11 @@ class OrganizationCreate(BaseModel):
 
 class OrganizationUpdate(BaseModel):
     """Schema for updating an organization."""
-    name: Optional[str] = None
+    #: The workspace switcher and every page header render this, so a blank
+    #: value leaves the user with an unnamed workspace they cannot tell apart
+    #: from another. Onboarding's company step was fixed for the same reason;
+    #: this is the other route to the same field.
+    name: Optional[NonBlankName] = None
     billing_email: Optional[str] = None
     settings: Optional[dict] = None
 
@@ -139,8 +147,17 @@ class OrganizationMemberResponse(OrganizationMemberInDB):
 
 # API Key schemas
 class ApiKeyBase(BaseModel):
-    """Base API key schema."""
-    name: str = Field(..., min_length=1, max_length=255)
+    """
+    Base API key schema.
+
+    `name` is a plain `str` here on purpose: the response models inherit this
+    class, and an *input* constraint on a response model is applied to rows
+    coming out of the database. A row that predates the constraint would then
+    fail validation on the way out and 500 the whole list endpoint — punishing
+    the reader for what the writer was allowed to store. The constraint belongs
+    on the create/update schemas below, which is where the writing happens.
+    """
+    name: str = Field(...)
     #: Permissions this key may exercise. Empty means "everything the minting
     #: user's role allows", minus the escalation set ``API_KEY_FORBIDDEN``.
     scopes: list[str] = []
@@ -148,6 +165,7 @@ class ApiKeyBase(BaseModel):
 
 class ApiKeyCreate(ApiKeyBase):
     """Schema for creating an API key."""
+    name: NonBlankName = Field(...)
     expires_at: Optional[datetime] = None
 
 
@@ -157,7 +175,7 @@ class ApiKeyUpdate(BaseModel):
     The secret is not updatable — rotating it is ``POST /{id}/regenerate``,
     which is a different act with a different consequence for callers.
     """
-    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    name: Optional[NonBlankName] = Field(default=None)
     is_active: Optional[bool] = None
     scopes: Optional[list[str]] = None
     expires_at: Optional[datetime] = None

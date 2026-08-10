@@ -45,8 +45,18 @@ apiClient.interceptors.response.use(
           const { data } = await axios.post(`${API_BASE}/api/v1/auth/refresh`, {
             refresh_token: refresh,
           })
-          localStorage.setItem('access_token', data.access_token)
-          original.headers.Authorization = `Bearer ${data.access_token}`
+          // A 2xx is not proof of a token. A proxy answering 200 with an empty
+          // body, or a half-deployed backend, used to land here and store the
+          // *string* "undefined" — after which every request carried
+          // `Authorization: Bearer undefined`, so the user looked signed in
+          // while the API rejected them forever. Treat a tokenless response as
+          // a failed refresh and fall through to the sign-out path below.
+          const token = data?.access_token
+          if (typeof token !== 'string' || !token) {
+            throw new Error('Refresh succeeded but returned no access token')
+          }
+          localStorage.setItem('access_token', token)
+          original.headers.Authorization = `Bearer ${token}`
           return apiClient(original)
         }
       } catch {
@@ -95,11 +105,34 @@ apiClient.interceptors.response.use(
   }
 )
 
+/**
+ * The first validation failure in a 422 body, phrased for a person.
+ *
+ * The API answers a rejected field with
+ * `{error, message: "Request validation failed", details: [{loc, msg}]}`.
+ * Reading only `detail`/`message` — as this used to — showed every one of them
+ * as "Request validation failed", so a user told to pick a different password
+ * saw nothing about passwords. `details[0].msg` carries the real sentence.
+ *
+ * Pydantic prefixes a message raised from a custom validator with
+ * "Value error, ", which is an implementation detail of the server and not
+ * something to put in front of a user.
+ */
+function firstValidationMessage(data: any): string | null {
+  const details = data?.details
+  if (!Array.isArray(details) || details.length === 0) return null
+  const raw = details[0]?.msg
+  if (typeof raw !== 'string' || !raw) return null
+  return raw.replace(/^Value error,\s*/, '')
+}
+
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    const data = error.response?.data
     return (
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
+      data?.detail ||
+      firstValidationMessage(data) ||
+      data?.message ||
       error.message ||
       'An unexpected error occurred'
     )

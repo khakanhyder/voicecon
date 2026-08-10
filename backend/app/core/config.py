@@ -232,6 +232,24 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
+    #: Master switch. The middleware exists but was never installed, so the API
+    #: shipped with no throttling at all; it is on by default now.
+    RATE_LIMIT_ENABLED: bool = True
+    #: Reads are per *user* once authenticated, and a single dashboard view
+    #: fans out to a dozen endpoints, so this ceiling is about stopping
+    #: scraping — not about pacing normal use.
+    RATE_LIMIT_READ_PER_MINUTE: int = 300
+    RATE_LIMIT_WRITE_PER_MINUTE: int = 60
+    #: Unauthenticated auth traffic is keyed by IP, and one IP is a whole
+    #: office, campus, mobile carrier NAT or CI runner — a 200-person company
+    #: signing in at 9am is a legitimate burst. This ceiling is therefore set
+    #: to stop a single host hammering the endpoint, not to stop password
+    #: guessing: that is the per-account lockout in the login endpoint, which
+    #: an attacker cannot dodge by changing IP.
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 300
+    #: Failed logins allowed for one account before it is locked out briefly.
+    RATE_LIMIT_LOGIN_ATTEMPTS: int = 5
+    RATE_LIMIT_LOGIN_LOCKOUT_SECONDS: int = 900
 
     # File Upload
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB

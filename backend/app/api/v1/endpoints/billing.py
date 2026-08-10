@@ -39,7 +39,7 @@ from app.models.subscription import (
     Invoice,
     PaymentFailure,
 )
-from app.services.billing import StripeService, catalog, get_stripe_service, events
+from app.services.billing import StripeService, catalog, get_stripe_service, get_usage_reader, events
 from app.services.billing.entitlements import (
     get_entitlement_service,
     invalidate_entitlements,
@@ -519,7 +519,9 @@ async def get_current_usage(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
+    # Reads local usage rows only, so it must not require Stripe to be
+    # configured — see get_usage_reader.
+    stripe_service: StripeService = Depends(get_usage_reader),
 ):
     """
     Get current billing period usage.
@@ -580,7 +582,9 @@ async def check_usage_limits(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
+    # Reads local usage rows only, so it must not require Stripe to be
+    # configured — see get_usage_reader.
+    stripe_service: StripeService = Depends(get_usage_reader),
 ):
     """
     Check if organization is within usage limits.

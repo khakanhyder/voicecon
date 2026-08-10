@@ -28,8 +28,14 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
 
+  /**
+   * Reset the in-memory session only.
+   *
+   * Deliberately does no network call: the caller that owns the sign-out flow
+   * (hooks/useAuth.ts) already posts /auth/logout, and having the store post it
+   * too sent the request twice on every sign-out.
+   */
   logout: async () => {
-    await authService.logout()
     set({
       user: null,
       isAuthenticated: false,

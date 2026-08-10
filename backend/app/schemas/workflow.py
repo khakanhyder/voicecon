@@ -8,6 +8,7 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, validator
 from enum import Enum
+from app.schemas._types import NonBlankName
 
 
 # Enums
@@ -152,7 +153,7 @@ class IntegrationEventTriggerConfig(TriggerConfigBase):
 # Workflow Schemas
 class WorkflowCreate(BaseModel):
     """Create workflow schema."""
-    name: str = Field(..., min_length=1, max_length=255, description="Workflow name")
+    name: NonBlankName = Field(..., description="Workflow name")
     description: Optional[str] = Field(None, description="Workflow description")
 
     trigger_type: TriggerType = Field(..., description="Trigger type")
@@ -189,7 +190,7 @@ class WorkflowCreate(BaseModel):
 
 class WorkflowUpdate(BaseModel):
     """Update workflow schema."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[NonBlankName] = Field(None)
     description: Optional[str] = None
     trigger_type: Optional[TriggerType] = None
     trigger_config: Optional[Dict[str, Any]] = None

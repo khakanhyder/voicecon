@@ -120,6 +120,14 @@ export default function RegisterPage() {
       setError('Please verify your email address before creating your account')
       return
     }
+    // Checked in the same order the fields are laid out, so the message always
+    // points at the first thing the eye lands on. The API enforces all of this
+    // again — these checks exist to answer immediately, not to be the gate.
+    const name = formData.full_name.trim()
+    if (name.length < 2 || ![...name].some((c) => c.toLowerCase() !== c.toUpperCase())) {
+      setError('Please enter your name')
+      return
+    }
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match')
       return
@@ -131,7 +139,7 @@ export default function RegisterPage() {
     register({
       email: formData.email.trim(),
       password: formData.password,
-      full_name: formData.full_name || undefined,
+      full_name: name,
       phone_number: formData.phone ? `${dialCode} ${formData.phone}`.trim() : undefined,
       email_verification_token: verificationToken,
     })
@@ -187,6 +195,7 @@ export default function RegisterPage() {
                 value={formData.full_name}
                 onChange={handleChange}
                 placeholder="John Doe"
+                required
                 disabled={isRegistering}
                 className={`${inputClass} pl-10`}
               />

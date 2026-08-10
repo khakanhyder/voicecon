@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { useAuthStore } from '@/store/authStore'
 
 export default function HomePage() {
@@ -36,11 +36,11 @@ export default function HomePage() {
             <div className="text-2xl font-bold text-primary">Voicecon</div>
           </div>
           <nav className="flex items-center gap-4">
-            <Link href="/login">
-              <Button variant="ghost">Login</Button>
+            <Link href="/login" className={buttonVariants({ variant: 'ghost' })}>
+              Login
             </Link>
-            <Link href="/register">
-              <Button>Get Started</Button>
+            <Link href="/register" className={buttonVariants()}>
+              Get Started
             </Link>
           </nav>
         </div>
@@ -57,13 +57,11 @@ export default function HomePage() {
             Build powerful workflows without code.
           </p>
           <div className="flex items-center justify-center gap-4">
-            <Link href="/register">
-              <Button size="lg">Start Building Free</Button>
+            <Link href="/register" className={buttonVariants({ size: 'lg' })}>
+              Start Building Free
             </Link>
-            <Link href="/login">
-              <Button size="lg" variant="outline">
-                View Demo
-              </Button>
+            <Link href="/login" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
+              View Demo
             </Link>
           </div>
         </section>

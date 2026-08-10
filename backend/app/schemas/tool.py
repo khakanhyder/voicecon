@@ -3,10 +3,11 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
+from app.schemas._types import NonBlankName
 
 
 class ToolCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+    name: NonBlankName = Field(...)
     description: Optional[str] = None
     tool_type: str = Field(..., description=(
         "phone_call: transfer_call | hang_up | leave_voicemail | dtmf | send_sms | sip_request | "
@@ -19,7 +20,7 @@ class ToolCreate(BaseModel):
 
 
 class ToolUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[NonBlankName] = Field(None)
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None

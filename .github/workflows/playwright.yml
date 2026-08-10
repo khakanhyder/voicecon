@@ -1,0 +1,118 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # Mocked-backend UI tests. No database, no Python — every /api/v1 call is
+  # intercepted, so this job is the fast signal on every push.
+  ui:
+    name: UI (mocked backend)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      # next dev reads this at serve time; these tests never reach a real backend.
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npx tsc --noEmit
+      - run: npx playwright install --with-deps
+      - run: npx playwright test --project=ui-chromium --project=ui-firefox --project=ui-webkit
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-ui
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 30
+
+  # Contract + real-browser tests against an actual FastAPI server and Postgres.
+  # These are what catch API drift; the mocked job above cannot.
+  integration:
+    name: API + E2E (real backend)
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: voicecon_user
+          POSTGRES_PASSWORD: voicecon_password_dev
+          POSTGRES_DB: voicecon
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://voicecon_user:voicecon_password_dev@localhost:5432/voicecon
+      ENVIRONMENT: development
+      # DEBUG on + the console mail transport is what makes /auth/email/send-code
+      # return `debug_code`. Without both, tests cannot read the verification
+      # code and every account-creating test fails — see tests/support/api.ts.
+      DEBUG: 'true'
+      EMAIL_PROVIDER: console
+      SECRET_KEY: ci-secret-key-not-used-anywhere-real
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      API_URL: http://localhost:8001
+      E2E: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Migrate and seed
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          python -m scripts.seed_data
+
+      - name: Start the API
+        working-directory: backend
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8001 > /tmp/backend.log 2>&1 &
+          # Fail loudly here rather than letting every test time out one by one.
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8001/health && exit 0
+            sleep 2
+          done
+          echo "backend never became healthy"; cat /tmp/backend.log; exit 1
+
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=api --project=e2e-setup --project=e2e
+
+      - name: Backend log
+        if: failure()
+        run: tail -200 /tmp/backend.log
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-integration
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 30

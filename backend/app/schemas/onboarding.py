@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CompanyProfileRequest(BaseModel):
@@ -19,6 +19,45 @@ class CompanyProfileRequest(BaseModel):
     preferred_language: str = Field("English", max_length=50)
     assistant_instructions: Optional[str] = None
     phone_number: Optional[str] = Field(None, max_length=50)
+
+    @field_validator("company_name")
+    @classmethod
+    def _company_name_is_not_blank(cls, value: str) -> str:
+        """
+        Reject a name that is only whitespace.
+
+        `min_length=1` counts characters, so a single space satisfied it. That
+        mattered more than it looks: this endpoint copies the value onto the
+        Organization, so a spacebar in the company field renamed the whole
+        workspace to nothing and left the switcher and page headers blank. The
+        form already trimmed before checking, so only a direct API call — or a
+        pasted value — could reach it.
+        """
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Company name cannot be blank.")
+        return cleaned
+
+    @field_validator(
+        "industry_type",
+        "company_size",
+        "company_url",
+        "assistant_name",
+        "phone_number",
+        mode="before",
+    )
+    @classmethod
+    def _blank_optional_is_none(cls, value):
+        """
+        Store an omitted optional field as NULL rather than "".
+
+        An untouched input posts an empty string, which otherwise reads back as
+        a value that is present but empty — so the UI shows a filled-in field
+        containing nothing instead of its placeholder.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value.strip() if isinstance(value, str) else value
 
 
 class CompanyProfileResponse(BaseModel):

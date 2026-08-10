@@ -9,6 +9,7 @@ from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 
 from app.models.agent import Agent, AgentFunction
 from app.schemas.agent import (
@@ -512,8 +513,16 @@ class AgentService:
         try:
             # Source must live in the same workspace as the clone — otherwise a
             # bare agent id from anywhere would be copyable into this workspace.
+            # `functions` is eager-loaded rather than left lazy: it is read
+            # further down, and a lazy load at that point raises
+            # "greenlet_spawn has not been called" — SQLAlchemy's async engine
+            # cannot issue IO from attribute access. Cloning with the default
+            # include_functions=True failed with a 500 for exactly this reason,
+            # which is every clone the UI sends.
             result = await db.execute(
-                select(Agent).where(
+                select(Agent)
+                .options(selectinload(Agent.functions))
+                .where(
                     and_(
                         Agent.id == agent_id,
                         Agent.organization_id == organization_id,
@@ -559,8 +568,12 @@ class AgentService:
             )
 
             db.add(clone)
-            await db.commit()
-            await db.refresh(clone)
+            # Flushed, not committed: the functions below need `clone.id`, but
+            # committing here would also expire `source` — re-triggering the
+            # lazy load this method just avoided — and would leave a committed,
+            # function-less agent behind if the copy below failed. One
+            # transaction means a clone either arrives complete or not at all.
+            await db.flush()
 
             # Clone functions if requested
             if include_functions:
@@ -580,7 +593,8 @@ class AgentService:
                     )
                     db.add(cloned_func)
 
-                await db.commit()
+            await db.commit()
+            await db.refresh(clone)
 
             logger.info(f"Cloned agent: {source.id} -> {clone.id}")
 

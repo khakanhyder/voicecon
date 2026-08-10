@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.auth.workspaces import unique_org_slug
 from app.models.user import User, Organization, OrganizationMember
 
 logger = logging.getLogger(__name__)
@@ -279,16 +280,8 @@ class OAuthService:
         return user
 
     async def _unique_slug(self, db: AsyncSession, email: str) -> str:
-        base = email.split("@")[0].lower().replace(".", "-") or "workspace"
-        slug = base
-        for _ in range(5):
-            exists = (
-                await db.execute(select(Organization).where(Organization.slug == slug))
-            ).scalar_one_or_none()
-            if not exists:
-                return slug
-            slug = f"{base}-{uuid.uuid4().hex[:6]}"
-        return f"{base}-{uuid.uuid4().hex[:10]}"
+        """Kept as a thin wrapper so existing call sites read unchanged."""
+        return await unique_org_slug(db, email)
 
 
 _oauth_service: Optional[OAuthService] = None

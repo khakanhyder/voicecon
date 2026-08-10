@@ -536,7 +536,10 @@ function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (
 
   useEffect(() => {
     apiClient.get<{ id: string; name: string }[]>(API_ENDPOINTS.KNOWLEDGE_BASES)
-      .then(r => setOptions(r.data || []))
+      // `|| []` only guards null/undefined. Anything else non-array — an error
+      // envelope, a gateway's HTML page — reached `options.filter` below and
+      // took the whole agent form down with an unhandled TypeError.
+      .then(r => setOptions(Array.isArray(r.data) ? r.data : []))
       .catch(() => setOptions([]))
       .finally(() => setLoading(false))
   }, [])

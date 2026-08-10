@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import time
 import logging
 
 from app.core.config import settings
+from app.middleware.rate_limit import init_rate_limit_middleware
 from app.database import init_db, close_db
 from app.core.entitlement_guard import EntitlementError
 from app.core.exceptions import VoiceconException
@@ -151,6 +153,15 @@ app = FastAPI(
 _PUBLIC_CHAT_PREFIXES = ("/api/v1/chat/public/", "/api/v1/chat/widget.js")
 
 
+# Rate limiting. Registered BEFORE CORSMiddleware so it ends up *inside* it:
+# Starlette builds the stack outermost-last, and a 429 returned from outside
+# CORS carries no CORS headers, which a browser reports to the user as an
+# opaque network error instead of "slow down".
+#
+# This module shipped uninstalled — nothing ever called it — so until now the
+# API had no throttling at all.
+init_rate_limit_middleware(app, settings.REDIS_URL)
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -243,14 +254,29 @@ async def voicecon_exception_handler(request: Request, exc: VoiceconException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
     Handle request validation errors.
+
+    `exc.errors()` is not always JSON-serializable. When a field validator
+    raises — `raise ValueError("Type must be one of: ...")` — Pydantic v2 puts
+    the exception *object itself* under `ctx["error"]`, and `JSONResponse` then
+    fails on it. The failure surfaced from inside the handler, so the response
+    was a 500 saying "an unexpected error occurred" when the truth was that the
+    client had sent a bad value. Every schema with a custom validator was
+    affected: agents (`type`), workflows, integrations and onboarding.
+
+    `jsonable_encoder` with a str fallback for exceptions keeps the detail —
+    the message is the useful part — while guaranteeing the body encodes.
     """
-    logger.error(f"Validation error: {exc.errors()}")
+    details = jsonable_encoder(
+        exc.errors(),
+        custom_encoder={Exception: str},
+    )
+    logger.warning(f"Validation error on {request.method} {request.url.path}: {details}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "ValidationError",
             "message": "Request validation failed",
-            "details": exc.errors(),
+            "details": details,
         },
     )
 
