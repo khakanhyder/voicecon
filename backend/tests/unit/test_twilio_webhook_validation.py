@@ -22,16 +22,25 @@ def _form(to_number="+14155550100"):
     return {"CallSid": "CA123", "From": "+14155559999", "To": to_number}
 
 
-def _request(signature):
-    """A stand-in for the FastAPI request the webhook arrives on."""
+def _request(signature, query=""):
+    """
+    A stand-in for the FastAPI request the webhook arrives on.
+
+    `query` matters: Twilio signs the full URL including the query string, and
+    our own answer/status callbacks carry a `?call_id=`.
+    """
     return types.SimpleNamespace(
         headers={"X-Twilio-Signature": signature} if signature else {},
-        url=types.SimpleNamespace(scheme="https", path="/api/v1/telephony/twilio/voice/agent-1"),
+        url=types.SimpleNamespace(
+            scheme="https",
+            path="/api/v1/telephony/twilio/voice/agent-1",
+            query=query,
+        ),
     )
 
 
-def _sign(token, form):
-    return RequestValidator(token).compute_signature(WEBHOOK_URL, form)
+def _sign(token, form, url=WEBHOOK_URL):
+    return RequestValidator(token).compute_signature(url, form)
 
 
 class _FakeResult:
@@ -159,3 +168,54 @@ async def test_validation_can_be_switched_off(monkeypatch):
     )
 
     assert valid is True
+
+
+@pytest.mark.asyncio
+async def test_query_string_is_part_of_the_signed_url(own_account_number):
+    """
+    Twilio signs the full URL. Our outbound answer and status callbacks carry a
+    `?call_id=`, and dropping it from the reconstructed URL made every one of
+    those signatures fail to verify.
+    """
+    form = _form()
+    signed_url = f"{WEBHOOK_URL}?call_id=abc123"
+
+    valid = await telephony.validate_twilio_request(
+        _request(_sign(OWN_TOKEN, form, signed_url), query="call_id=abc123"),
+        form,
+        own_account_number,
+    )
+
+    assert valid is True
+
+
+@pytest.mark.asyncio
+async def test_signature_over_a_different_query_string_is_rejected(own_account_number):
+    """Signing one call_id must not authorise a webhook naming another."""
+    form = _form()
+    signed_url = f"{WEBHOOK_URL}?call_id=abc123"
+
+    valid = await telephony.validate_twilio_request(
+        _request(_sign(OWN_TOKEN, form, signed_url), query="call_id=someone-elses"),
+        form,
+        own_account_number,
+    )
+
+    assert valid is False
+
+
+@pytest.mark.asyncio
+async def test_tampered_form_body_is_rejected(own_account_number):
+    """
+    The POST body is signed too, so rewriting the caller after signing must
+    invalidate the request.
+    """
+    signature = _sign(OWN_TOKEN, _form())
+    tampered = _form()
+    tampered["From"] = "+14155550000"
+
+    valid = await telephony.validate_twilio_request(
+        _request(signature), tampered, own_account_number
+    )
+
+    assert valid is False

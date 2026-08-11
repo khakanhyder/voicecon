@@ -164,7 +164,7 @@ class TestUsageTracker:
     """Test usage tracking functionality."""
 
     async def test_record_call_usage(
-        self, db_session, test_organization, test_agent
+        self, db_session, test_user, test_organization, test_agent
     ):
         """Test recording call usage."""
         # Create plan
@@ -202,13 +202,14 @@ class TestUsageTracker:
 
         # Create call
         call = Call(
+            user_id=test_user.id,
             organization_id=test_organization.id,
             agent_id=test_agent.id,
             from_number="+15551234567",
             to_number="+15559876543",
             direction="inbound",
             status="completed",
-            duration=180,  # 3 minutes = 180 seconds
+            duration_seconds=180,  # 3 minutes = 180 seconds
         )
         db_session.add(call)
         await db_session.commit()
@@ -230,7 +231,7 @@ class TestUsageTracker:
         assert subscription.current_period_calls == 1
 
     async def test_record_call_usage_with_overage(
-        self, db_session, test_organization, test_agent
+        self, db_session, test_user, test_organization, test_agent
     ):
         """Test recording usage that exceeds limits."""
         # Create plan with low limits
@@ -268,13 +269,14 @@ class TestUsageTracker:
 
         # Create call that will cause overage
         call = Call(
+            user_id=test_user.id,
             organization_id=test_organization.id,
             agent_id=test_agent.id,
             from_number="+15551234567",
             to_number="+15559876543",
             direction="inbound",
             status="completed",
-            duration=120,  # 2 minutes
+            duration_seconds=120,  # 2 minutes
         )
         db_session.add(call)
         await db_session.commit()
@@ -357,5 +359,8 @@ class TestUsageTracker:
         assert usage_record is not None
         assert usage_record.usage_type == "sms"
         assert usage_record.quantity == 5
-        assert usage_record.unit_price == 0.0075
+        # Compared as Decimal, not float: 0.0075 has no exact binary
+        # representation, so a float literal here would not equal the stored
+        # money value even when the billing is correct.
+        assert usage_record.unit_price == Decimal("0.0075")
         assert usage_record.total_amount == Decimal("0.0375")  # 5 * 0.0075

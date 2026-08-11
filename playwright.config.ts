@@ -17,6 +17,9 @@ const STORAGE_STATE = 'playwright/.auth/user.json'
 
 export default defineConfig({
   testDir: './tests',
+  /* Runs after webServer is up: compiles every route once so no test is the
+     one that pays for `next dev`'s first build of a page. See the file. */
+  globalSetup: './tests/support/warmup.ts',
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

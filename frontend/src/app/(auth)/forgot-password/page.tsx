@@ -8,6 +8,7 @@ import { ArrowLeft, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { authService } from '@/lib/auth'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { useAuthStore } from '@/store/authStore'
+import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#243275] focus:ring-3 focus:ring-[#243275]/15 disabled:opacity-50'
@@ -30,6 +31,12 @@ export default function ForgotPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  //: Per-field messages; `error` above stays for whole-form failures.
+  const [errors, setErrors] = useState<{
+    email?: string
+    password?: string
+    confirmPassword?: string
+  }>({})
   const [isSending, setIsSending] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
   const [resendIn, setResendIn] = useState(0)
@@ -42,7 +49,7 @@ export default function ForgotPasswordPage() {
 
   const sendCode = async () => {
     if (!email.trim()) {
-      setError('Enter your email address')
+      setErrors({ email: 'Enter your email address' })
       return
     }
     setError('')
@@ -70,11 +77,11 @@ export default function ForgotPasswordPage() {
       return
     }
     if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+      setErrors({ password: 'Password must be at least 8 characters' })
       return
     }
     if (password !== confirmPassword) {
-      setError('Passwords do not match')
+      setErrors({ confirmPassword: 'Passwords do not match' })
       return
     }
 
@@ -120,6 +127,9 @@ export default function ForgotPasswordPage() {
 
       {step === 'email' ? (
         <form
+          // Errors render under each field rather than in the browser's
+          // own bubble — see components/ui/field-error.tsx.
+          noValidate
           onSubmit={(e) => {
             e.preventDefault()
             sendCode()
@@ -133,6 +143,7 @@ export default function ForgotPasswordPage() {
             <div className="relative">
               <input
                 id="email"
+                {...fieldErrorProps('email', errors.email)}
                 type="email"
                 value={email}
                 onChange={(e) => {
@@ -142,10 +153,11 @@ export default function ForgotPasswordPage() {
                 placeholder="info@voicecon.com"
                 required
                 disabled={isSending}
-                className={`${inputClass} pr-10`}
+                className={`${inputClass} pr-10 ${errors.email ? errorInputClass : ''}`}
               />
               <Mail className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             </div>
+              <FieldError id="email-error" message={errors.email} />
           </div>
 
           <button
@@ -165,6 +177,9 @@ export default function ForgotPasswordPage() {
         </form>
       ) : (
         <form
+          // Errors render under each field rather than in the browser's
+          // own bubble — see components/ui/field-error.tsx.
+          noValidate
           onSubmit={(e) => {
             e.preventDefault()
             resetPassword()
@@ -194,10 +209,11 @@ export default function ForgotPasswordPage() {
               <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 id="password"
+                {...fieldErrorProps('password', errors.password)}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Choose a new password"
                 required
                 disabled={isResetting}
                 className={`${inputClass} pl-10 pr-10`}
@@ -210,6 +226,7 @@ export default function ForgotPasswordPage() {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
+              <FieldError id="password-error" message={errors.password} />
             <p className="text-xs text-slate-500">At least 8 characters.</p>
           </div>
 
@@ -224,15 +241,17 @@ export default function ForgotPasswordPage() {
               <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 id="confirmPassword"
+                {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Re-enter your new password"
                 required
                 disabled={isResetting}
                 className={`${inputClass} pl-10`}
               />
             </div>
+              <FieldError id="confirmPassword-error" message={errors.confirmPassword} />
           </div>
 
           <button

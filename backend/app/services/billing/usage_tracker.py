@@ -5,6 +5,7 @@ Usage tracking utility for automatic billing.
 import asyncio
 import logging
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from typing import Optional
 
@@ -59,12 +60,28 @@ class UsageTracker:
             result = await db.execute(select(Call).where(Call.id == call_id))
             call = result.scalar_one_or_none()
 
-            if not call or not call.duration:
-                logger.warning(f"Call {call_id} not found or has no duration")
+            if not call:
+                logger.warning(f"Call {call_id} not found")
+                return None
+
+            # `Call` has no `duration` column — it stores `duration_seconds`, and
+            # `billable_duration_seconds` when the carrier reports a billable
+            # figure that differs. Reading a `call.duration` that never existed
+            # raised AttributeError, which the broad `except` below turned into a
+            # silent `return None`: no usage row was written for ANY call, the
+            # period counters never advanced, and overage was never billed.
+            duration_seconds = (
+                call.billable_duration_seconds
+                if call.billable_duration_seconds is not None
+                else call.duration_seconds
+            )
+
+            if not duration_seconds:
+                logger.warning(f"Call {call_id} has no duration")
                 return None
 
             # Calculate minutes (round up)
-            minutes = (call.duration + 59) // 60  # Round up to nearest minute
+            minutes = (duration_seconds + 59) // 60  # Round up to nearest minute
 
             # Get plan for pricing
             from app.models.subscription import SubscriptionPlan
@@ -107,7 +124,7 @@ class UsageTracker:
                     period_start=subscription.current_period_start,
                     period_end=subscription.current_period_end,
                     stripe_metadata={
-                        "call_duration_seconds": call.duration,
+                        "call_duration_seconds": duration_seconds,
                         "from_number": call.from_number,
                         "to_number": call.to_number,
                     },
@@ -127,7 +144,7 @@ class UsageTracker:
                 period_start=subscription.current_period_start,
                 period_end=subscription.current_period_end,
                 stripe_metadata={
-                    "call_duration_seconds": call.duration,
+                    "call_duration_seconds": duration_seconds,
                     "from_number": call.from_number,
                     "to_number": call.to_number,
                 },
@@ -207,8 +224,12 @@ class UsageTracker:
                 logger.error(f"Plan not found for subscription {subscription.id}")
                 return None
 
-            # SMS typically charged at $0.0075 per message
-            sms_rate = 0.0075
+            # SMS typically charged at $0.0075 per message.
+            # Decimal, not float: these land in Numeric money columns, and every
+            # other usage path here already bills in Decimal. A binary float
+            # cannot represent 0.0075 exactly, so the rate drifted from the
+            # advertised price as the message count grew.
+            sms_rate = Decimal("0.0075")
 
             # Create usage record
             usage_record = UsageRecord(

@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { authService } from '@/lib/auth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { OtpInput } from '@/components/auth/OtpInput'
+import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { BadgeCheck, Eye, EyeOff, Loader2, Mail, Lock, Phone, User } from 'lucide-react'
 
 const COUNTRY_CODES = [
@@ -30,6 +31,14 @@ export default function RegisterPage() {
   const [dialCode, setDialCode] = useState('+1')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  //: Per-field messages, shown under the field they belong to. The form-level
+  //: `error` above stays for things that belong to the form as a whole (a
+  //: rejected verification code, a server refusal).
+  const [errors, setErrors] = useState<{
+    full_name?: string
+    password?: string
+    confirmPassword?: string
+  }>({})
 
   // ── Email verification ────────────────────────────────────────────────────
   // The account is only created for an address the user has proved they own, so
@@ -56,6 +65,7 @@ export default function RegisterPage() {
     const { name, value } = e.target
     setFormData({ ...formData, [name]: value })
     if (error) setError('')
+    setErrors((prev) => ({ ...prev, [e.target.name]: undefined }))
     // Editing the address invalidates the code that was sent to the old one.
     if (name === 'email') {
       setCodeSent(false)
@@ -120,20 +130,36 @@ export default function RegisterPage() {
       setError('Please verify your email address before creating your account')
       return
     }
-    // Checked in the same order the fields are laid out, so the message always
-    // points at the first thing the eye lands on. The API enforces all of this
-    // again — these checks exist to answer immediately, not to be the gate.
+    // Every field is checked, and every failure is reported at once under the
+    // field it belongs to. The API enforces all of this again — these checks
+    // exist to answer immediately, not to be the gate.
     const name = formData.full_name.trim()
-    if (name.length < 2 || ![...name].some((c) => c.toLowerCase() !== c.toUpperCase())) {
-      setError('Please enter your name')
-      return
+    const found: typeof errors = {}
+
+    if (!name) {
+      found.full_name = 'Enter your name'
+    } else if (name.length < 2 || ![...name].some((c) => c.toLowerCase() !== c.toUpperCase())) {
+      found.full_name = 'Enter your full name'
     }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match')
-      return
+
+    if (!formData.password) {
+      found.password = 'Choose a password'
+    } else if (formData.password.length < 8) {
+      found.password = 'Password must be at least 8 characters'
     }
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters')
+
+    if (!formData.confirmPassword) {
+      found.confirmPassword = 'Re-enter your password'
+    } else if (formData.password !== formData.confirmPassword) {
+      found.confirmPassword = 'Passwords do not match'
+    }
+
+    setErrors(found)
+    const firstInvalid = (['full_name', 'password', 'confirmPassword'] as const).find(
+      (field) => found[field],
+    )
+    if (firstInvalid) {
+      document.getElementById(firstInvalid)?.focus()
       return
     }
     register({
@@ -179,7 +205,9 @@ export default function RegisterPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {/* noValidate: errors are rendered under each field instead of
+          in the browser\'s own bubble — see components/ui/field-error.tsx. */}
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {/* Name + Email */}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div className="space-y-1.5">
@@ -197,9 +225,11 @@ export default function RegisterPage() {
                 placeholder="John Doe"
                 required
                 disabled={isRegistering}
-                className={`${inputClass} pl-10`}
+                {...fieldErrorProps('full_name', errors.full_name)}
+                className={`${inputClass} pl-10 ${errors.full_name ? errorInputClass : ''}`}
               />
             </div>
+            <FieldError id="full_name-error" message={errors.full_name} />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="email" className="block text-base font-semibold text-slate-800">
@@ -340,10 +370,11 @@ export default function RegisterPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={formData.password}
                 onChange={handleChange}
-                placeholder="••••••••"
+                placeholder="Choose a password"
                 required
                 disabled={isRegistering}
-                className={`${inputClass} pl-10 pr-10`}
+                {...fieldErrorProps('password', errors.password)}
+                className={`${inputClass} pl-10 pr-10 ${errors.password ? errorInputClass : ''}`}
               />
               <button
                 type="button"
@@ -353,6 +384,7 @@ export default function RegisterPage() {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
+            <FieldError id="password-error" message={errors.password} />
           </div>
           <div className="space-y-1.5">
             <label
@@ -369,12 +401,14 @@ export default function RegisterPage() {
                 type="password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                placeholder="••••••••"
+                placeholder="Re-enter your password"
                 required
                 disabled={isRegistering}
-                className={`${inputClass} pl-10`}
+                {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
+                className={`${inputClass} pl-10 ${errors.confirmPassword ? errorInputClass : ''}`}
               />
             </div>
+            <FieldError id="confirmPassword-error" message={errors.confirmPassword} />
           </div>
         </div>
 

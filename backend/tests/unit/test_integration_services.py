@@ -1,496 +1,413 @@
 """
-Unit tests for Integration Services.
+Unit tests for the integration plumbing: OAuth2 flow state, token exchange, and
+credential encryption.
 
-Tests integration management, OAuth handling, and workflow execution.
+These two modules are the security boundary for third-party integrations. The
+state store is the CSRF defence on the OAuth callback, and the credential
+manager is the only thing standing between the database and plaintext customer
+API keys — so the tests here lean on the failure paths, not just the happy one.
+
+No network: `_get_http_client` is replaced with a stub that returns canned
+responses.
 """
-import pytest
-import uuid
-from unittest.mock import AsyncMock, Mock, patch
+import json
 from datetime import datetime, timedelta
 
-from app.services.integrations.integration_manager import IntegrationManager
-from app.services.integrations.oauth_handler import OAuthHandler
-from app.services.integrations.credential_manager import CredentialManager
-from app.models.integration import Integration, IntegrationCredential
+import httpx
+import pytest
+
+from app.services.integrations.credential_manager import (
+    CredentialDecryptionError,
+    CredentialManager,
+    get_credential_manager,
+)
+from app.services.integrations.oauth_handler import (
+    OAuth2Error,
+    OAuth2Handler,
+    get_oauth_handler,
+)
 
 
-@pytest.mark.unit
-@pytest.mark.asyncio
-class TestIntegrationManager:
-    """Test integration manager functionality."""
+def _stub_token_endpoint(handler, *, json_body=None, status_code=200):
+    """
+    Point `handler` at a fake token endpoint.
 
-    async def test_list_available_integrations(self):
-        """Test listing available integration types."""
-        manager = IntegrationManager()
-        available = manager.list_available_integrations()
+    Records every POST on `handler.posts` so tests can assert on the form body
+    the handler actually sent (grant_type, client_secret, and so on).
+    """
+    handler.posts = []
 
-        assert len(available) > 0
-        assert any(i["slug"] == "salesforce" for i in available)
-        assert any(i["slug"] == "hubspot" for i in available)
-        assert any(i["slug"] == "slack" for i in available)
-
-        for integration in available:
-            assert "name" in integration
-            assert "slug" in integration
-            assert "category" in integration
-            assert "auth_type" in integration
-
-    async def test_get_integration_config(self):
-        """Test getting integration configuration."""
-        manager = IntegrationManager()
-        config = manager.get_integration_config("salesforce")
-
-        assert config is not None
-        assert config["slug"] == "salesforce"
-        assert config["name"] == "Salesforce"
-        assert config["auth_type"] == "oauth2"
-        assert "required_scopes" in config
-
-    async def test_get_integration_config_not_found(self):
-        """Test getting non-existent integration config."""
-        manager = IntegrationManager()
-        config = manager.get_integration_config("non_existent_integration")
-
-        assert config is None
-
-    async def test_validate_integration_config(self):
-        """Test validating integration configuration."""
-        manager = IntegrationManager()
-
-        valid_config = {
-            "api_key": "test_key",
-            "domain": "example.salesforce.com",
-        }
-
-        is_valid = manager.validate_config("salesforce", valid_config)
-        assert is_valid is True
-
-    async def test_validate_integration_config_missing_fields(self):
-        """Test validation with missing required fields."""
-        manager = IntegrationManager()
-
-        invalid_config = {
-            "api_key": "test_key",
-            # Missing domain
-        }
-
-        is_valid = manager.validate_config("salesforce", invalid_config)
-        assert is_valid is False
-
-    @patch("app.services.integrations.integration_manager.get_connector")
-    async def test_test_integration_connection(self, mock_get_connector, db_session):
-        """Test testing integration connection."""
-        manager = IntegrationManager()
-
-        # Mock connector
-        mock_connector = AsyncMock()
-        mock_connector.test_connection.return_value = True
-        mock_get_connector.return_value = mock_connector
-
-        integration = Integration(
-            id=uuid.uuid4(),
-            organization_id=uuid.uuid4(),
-            integration_type="salesforce",
-            name="Test Salesforce",
-            config={"domain": "test.salesforce.com"},
-            is_active=True,
+    async def fake_post(url, data=None, headers=None):
+        handler.posts.append({"url": url, "data": data, "headers": headers})
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            status_code, json=json_body if json_body is not None else {}, request=request
         )
 
-        result = await manager.test_connection(integration, db_session)
+    class _Client:
+        post = staticmethod(fake_post)
 
-        assert result is True
-        mock_connector.test_connection.assert_called_once()
+    async def fake_get_client():
+        return _Client()
 
-    @patch("app.services.integrations.integration_manager.get_connector")
-    async def test_execute_integration_action(self, mock_get_connector, db_session):
-        """Test executing an integration action."""
-        manager = IntegrationManager()
+    handler._get_http_client = fake_get_client
+    return handler
 
-        # Mock connector
-        mock_connector = AsyncMock()
-        mock_connector.execute_action.return_value = {
-            "success": True,
-            "lead_id": "00Q1234567890",
-        }
-        mock_get_connector.return_value = mock_connector
 
-        integration = Integration(
-            id=uuid.uuid4(),
-            organization_id=uuid.uuid4(),
-            integration_type="salesforce",
-            name="Test Salesforce",
-            config={"domain": "test.salesforce.com"},
-            is_active=True,
+# ── OAuth2 state (CSRF protection) ──────────────────────────────────────────
+
+
+class TestOAuth2State:
+    """The state token is what ties a callback back to the request that began it."""
+
+    def test_state_round_trips_its_metadata(self):
+        handler = OAuth2Handler()
+
+        state = handler.generate_state("connector-1", "user-1")
+        ok, data = handler.verify_state(state)
+
+        assert ok is True
+        assert data["connector_id"] == "connector-1"
+        assert data["user_id"] == "user-1"
+
+    def test_state_is_single_use(self):
+        """A replayed callback must not authorise a second connection."""
+        handler = OAuth2Handler()
+        state = handler.generate_state("connector-1", "user-1")
+
+        assert handler.verify_state(state)[0] is True
+        assert handler.verify_state(state) == (False, None)
+
+    def test_unknown_state_is_rejected(self):
+        """A state the server never issued is a forged callback."""
+        handler = OAuth2Handler()
+
+        assert handler.verify_state("never-issued") == (False, None)
+
+    def test_expired_state_is_rejected_and_discarded(self):
+        handler = OAuth2Handler()
+        state = handler.generate_state("connector-1", "user-1")
+        handler._state_store[state]["expires_at"] = 0  # already elapsed
+
+        assert handler.verify_state(state) == (False, None)
+        assert state not in handler._state_store
+
+    def test_states_are_unique_per_request(self):
+        """Two concurrent connect attempts must not collide."""
+        handler = OAuth2Handler()
+
+        states = {handler.generate_state("c", "u") for _ in range(50)}
+
+        assert len(states) == 50
+
+    def test_state_is_long_enough_to_be_unguessable(self):
+        handler = OAuth2Handler()
+
+        state = handler.generate_state("c", "u")
+
+        # token_urlsafe(32) → 43 chars of base64url, ~256 bits of entropy.
+        assert len(state) >= 40
+
+
+# ── Authorization URL ───────────────────────────────────────────────────────
+
+
+class TestAuthorizationUrl:
+    def test_url_carries_the_required_oauth2_params(self):
+        handler = OAuth2Handler()
+
+        url = handler.build_authorization_url(
+            authorize_url="https://provider.test/oauth/authorize",
+            client_id="client-abc",
+            redirect_uri="https://app.test/callback",
+            state="state-xyz",
         )
 
-        result = await manager.execute_action(
-            integration=integration,
-            action="create_lead",
-            params={"first_name": "John", "last_name": "Doe", "email": "john@example.com"},
-            db=db_session,
+        assert url.startswith("https://provider.test/oauth/authorize?")
+        assert "response_type=code" in url
+        assert "client_id=client-abc" in url
+        assert "state=state-xyz" in url
+        # The redirect URI must be percent-encoded, not pasted in raw.
+        assert "redirect_uri=https%3A%2F%2Fapp.test%2Fcallback" in url
+
+    def test_scopes_are_space_joined(self):
+        """OAuth2 specifies a space-delimited scope list, encoded as `+` or %20."""
+        handler = OAuth2Handler()
+
+        url = handler.build_authorization_url(
+            authorize_url="https://provider.test/authorize",
+            client_id="c",
+            redirect_uri="https://app.test/cb",
+            state="s",
+            scopes=["contacts.read", "contacts.write"],
         )
 
-        assert result["success"] is True
-        assert "lead_id" in result
+        assert "scope=contacts.read+contacts.write" in url
 
+    def test_additional_params_are_merged(self):
+        """Providers like Google need `access_type=offline` to return a refresh token."""
+        handler = OAuth2Handler()
 
-@pytest.mark.unit
-@pytest.mark.asyncio
-class TestOAuthHandler:
-    """Test OAuth authentication handling."""
-
-    async def test_generate_auth_url(self):
-        """Test generating OAuth authorization URL."""
-        handler = OAuthHandler()
-
-        auth_url = handler.generate_auth_url(
-            integration_type="salesforce",
-            redirect_uri="https://app.example.com/oauth/callback",
-            state="random_state_string",
+        url = handler.build_authorization_url(
+            authorize_url="https://provider.test/authorize",
+            client_id="c",
+            redirect_uri="https://app.test/cb",
+            state="s",
+            additional_params={"access_type": "offline", "prompt": "consent"},
         )
 
-        assert auth_url is not None
-        assert "oauth" in auth_url.lower() or "authorize" in auth_url.lower()
-        assert "state=random_state_string" in auth_url
-        assert "redirect_uri" in auth_url
+        assert "access_type=offline" in url
+        assert "prompt=consent" in url
 
-    async def test_generate_auth_url_with_scopes(self):
-        """Test generating OAuth URL with custom scopes."""
-        handler = OAuthHandler()
 
-        auth_url = handler.generate_auth_url(
-            integration_type="hubspot",
-            redirect_uri="https://app.example.com/oauth/callback",
-            state="test_state",
-            scopes=["contacts", "companies"],
+# ── Token exchange ──────────────────────────────────────────────────────────
+
+
+class TestTokenExchange:
+    async def test_code_is_exchanged_for_tokens(self):
+        handler = _stub_token_endpoint(
+            OAuth2Handler(),
+            json_body={
+                "access_token": "at-1",
+                "refresh_token": "rt-1",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            },
         )
-
-        assert auth_url is not None
-        assert "scope" in auth_url.lower()
-
-    @patch("app.services.integrations.oauth_handler.httpx.AsyncClient")
-    async def test_exchange_code_for_token(self, mock_http_client):
-        """Test exchanging authorization code for access token."""
-        handler = OAuthHandler()
-
-        # Mock HTTP response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "access_token": "access_token_value",
-            "refresh_token": "refresh_token_value",
-            "expires_in": 3600,
-            "token_type": "Bearer",
-        }
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_http_client.return_value.__aenter__.return_value = mock_client
 
         tokens = await handler.exchange_code_for_token(
-            integration_type="salesforce",
-            code="auth_code_123",
-            redirect_uri="https://app.example.com/oauth/callback",
+            token_url="https://provider.test/token",
+            client_id="client-abc",
+            client_secret="shhh",
+            code="auth-code-1",
+            redirect_uri="https://app.test/cb",
         )
 
-        assert tokens["access_token"] == "access_token_value"
-        assert tokens["refresh_token"] == "refresh_token_value"
-        assert tokens["expires_in"] == 3600
+        assert tokens["access_token"] == "at-1"
+        assert tokens["refresh_token"] == "rt-1"
 
-    @patch("app.services.integrations.oauth_handler.httpx.AsyncClient")
-    async def test_refresh_access_token(self, mock_http_client):
-        """Test refreshing an expired access token."""
-        handler = OAuthHandler()
+        sent = handler.posts[0]["data"]
+        assert sent["grant_type"] == "authorization_code"
+        assert sent["code"] == "auth-code-1"
+        # The redirect_uri must match the one used to authorize, or providers
+        # reject the exchange.
+        assert sent["redirect_uri"] == "https://app.test/cb"
 
-        # Mock HTTP response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "access_token": "new_access_token",
-            "expires_in": 3600,
-        }
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_http_client.return_value.__aenter__.return_value = mock_client
-
-        new_tokens = await handler.refresh_token(
-            integration_type="salesforce",
-            refresh_token="old_refresh_token",
+    async def test_response_without_an_access_token_is_an_error(self):
+        """A 200 with no token is a failed exchange, not a successful connection."""
+        handler = _stub_token_endpoint(
+            OAuth2Handler(), json_body={"error": "invalid_grant"}
         )
 
-        assert new_tokens["access_token"] == "new_access_token"
-        assert new_tokens["expires_in"] == 3600
+        with pytest.raises(OAuth2Error):
+            await handler.exchange_code_for_token(
+                token_url="https://provider.test/token",
+                client_id="c",
+                client_secret="s",
+                code="bad-code",
+                redirect_uri="https://app.test/cb",
+            )
 
-    async def test_parse_callback_params(self):
-        """Test parsing OAuth callback parameters."""
-        handler = OAuthHandler()
+    async def test_http_error_becomes_an_oauth_error(self):
+        """Callers catch OAuth2Error; a raw httpx error would escape as a 500."""
+        handler = _stub_token_endpoint(
+            OAuth2Handler(), json_body={"error": "server_error"}, status_code=500
+        )
 
-        callback_url = "https://app.example.com/oauth/callback?code=auth_code&state=test_state"
+        with pytest.raises(OAuth2Error):
+            await handler.exchange_code_for_token(
+                token_url="https://provider.test/token",
+                client_id="c",
+                client_secret="s",
+                code="code",
+                redirect_uri="https://app.test/cb",
+            )
 
-        params = handler.parse_callback_params(callback_url)
+    async def test_refresh_sends_the_refresh_grant(self):
+        handler = _stub_token_endpoint(
+            OAuth2Handler(), json_body={"access_token": "at-2", "expires_in": 3600}
+        )
 
-        assert params["code"] == "auth_code"
-        assert params["state"] == "test_state"
+        tokens = await handler.refresh_access_token(
+            token_url="https://provider.test/token",
+            client_id="c",
+            client_secret="s",
+            refresh_token="rt-1",
+        )
 
-    async def test_parse_callback_params_with_error(self):
-        """Test parsing OAuth callback with error."""
-        handler = OAuthHandler()
+        assert tokens["access_token"] == "at-2"
+        sent = handler.posts[0]["data"]
+        assert sent["grant_type"] == "refresh_token"
+        assert sent["refresh_token"] == "rt-1"
 
-        callback_url = "https://app.example.com/oauth/callback?error=access_denied&error_description=User+denied+access"
+    async def test_failed_refresh_raises(self):
+        handler = _stub_token_endpoint(OAuth2Handler(), json_body={})
 
-        params = handler.parse_callback_params(callback_url)
+        with pytest.raises(OAuth2Error):
+            await handler.refresh_access_token(
+                token_url="https://provider.test/token",
+                client_id="c",
+                client_secret="s",
+                refresh_token="expired",
+            )
 
-        assert "error" in params
-        assert params["error"] == "access_denied"
+
+class TestTokenExpiry:
+    def test_expiry_is_computed_with_a_refresh_buffer(self):
+        """
+        The stored expiry is deliberately early, so a refresh happens before the
+        provider starts rejecting the token mid-call.
+        """
+        handler = OAuth2Handler()
+
+        expiry = handler.calculate_token_expiry(3600)
+
+        expected = datetime.utcnow() + timedelta(seconds=3600 - 300)
+        assert abs((expiry - expected).total_seconds()) < 5
+
+    def test_short_lived_token_does_not_expire_in_the_past(self):
+        """A token shorter than the buffer must clamp to now, not go backwards."""
+        handler = OAuth2Handler()
+
+        expiry = handler.calculate_token_expiry(60)
+
+        assert expiry >= datetime.utcnow() - timedelta(seconds=5)
+
+    def test_missing_expiry_stays_missing(self):
+        """Some providers issue non-expiring tokens; that is not an expiry of now."""
+        handler = OAuth2Handler()
+
+        assert handler.calculate_token_expiry(None) is None
 
 
-@pytest.mark.unit
-@pytest.mark.asyncio
+# ── Credential encryption ───────────────────────────────────────────────────
+
+
 class TestCredentialManager:
-    """Test credential management."""
-
-    async def test_encrypt_credentials(self):
-        """Test encrypting integration credentials."""
+    def test_string_round_trips(self):
         manager = CredentialManager()
 
-        credentials = {
-            "api_key": "secret_api_key",
-            "api_secret": "secret_api_secret",
-        }
+        encrypted = manager.encrypt("super-secret-api-key")
 
-        encrypted = manager.encrypt_credentials(credentials)
+        assert encrypted != "super-secret-api-key"
+        assert manager.decrypt(encrypted) == "super-secret-api-key"
 
-        assert encrypted != credentials
-        assert isinstance(encrypted, str)
-
-    async def test_decrypt_credentials(self):
-        """Test decrypting integration credentials."""
+    def test_ciphertext_does_not_leak_the_plaintext(self):
         manager = CredentialManager()
 
-        original = {
-            "api_key": "secret_api_key",
-            "api_secret": "secret_api_secret",
-        }
+        encrypted = manager.encrypt("sk_live_1234567890")
 
-        encrypted = manager.encrypt_credentials(original)
-        decrypted = manager.decrypt_credentials(encrypted)
+        assert "sk_live" not in encrypted
 
-        assert decrypted == original
-
-    async def test_store_credentials(self, db_session, test_organization):
-        """Test storing integration credentials."""
+    def test_same_plaintext_encrypts_differently_each_time(self):
+        """
+        Fernet includes a random IV, so identical secrets must not produce
+        identical ciphertext — otherwise the database leaks which tenants share
+        a key.
+        """
         manager = CredentialManager()
 
-        integration_id = uuid.uuid4()
-        credentials = {
-            "access_token": "test_token",
-            "refresh_token": "test_refresh",
-        }
+        assert manager.encrypt("same") != manager.encrypt("same")
 
-        stored = await manager.store_credentials(
-            integration_id=integration_id,
-            credentials=credentials,
-            db=db_session,
-        )
-
-        assert stored is not None
-        assert stored.integration_id == integration_id
-        assert stored.encrypted_credentials is not None
-
-    async def test_retrieve_credentials(self, db_session, test_organization):
-        """Test retrieving stored credentials."""
+    def test_empty_values_pass_through(self):
+        """Optional credentials are stored as "", and must not blow up."""
         manager = CredentialManager()
 
-        integration_id = uuid.uuid4()
-        original_credentials = {
-            "access_token": "test_token",
-            "refresh_token": "test_refresh",
-        }
+        assert manager.encrypt("") == ""
+        assert manager.decrypt("") == ""
 
-        # Store credentials
-        await manager.store_credentials(
-            integration_id=integration_id,
-            credentials=original_credentials,
-            db=db_session,
-        )
+    def test_dict_round_trips_with_types_intact(self):
+        manager = CredentialManager()
+        original = {"api_key": "k", "region": "us-east-1", "port": 443, "tls": True}
 
-        # Retrieve credentials
-        retrieved = await manager.retrieve_credentials(
-            integration_id=integration_id,
-            db=db_session,
-        )
+        restored = manager.decrypt_dict(manager.encrypt_dict(original))
 
-        assert retrieved == original_credentials
+        assert restored == original
 
-    async def test_update_credentials(self, db_session, test_organization):
-        """Test updating existing credentials."""
+    def test_empty_ciphertext_decrypts_to_an_empty_dict(self):
+        """A connection row with no auth data must read as {}, not raise."""
         manager = CredentialManager()
 
-        integration_id = uuid.uuid4()
+        assert manager.decrypt_dict("") == {}
 
-        # Store initial credentials
-        initial_credentials = {"access_token": "old_token"}
-        await manager.store_credentials(
-            integration_id=integration_id,
-            credentials=initial_credentials,
-            db=db_session,
-        )
-
-        # Update credentials
-        new_credentials = {"access_token": "new_token"}
-        updated = await manager.update_credentials(
-            integration_id=integration_id,
-            credentials=new_credentials,
-            db=db_session,
-        )
-
-        assert updated is not None
-
-        # Verify updated credentials
-        retrieved = await manager.retrieve_credentials(
-            integration_id=integration_id,
-            db=db_session,
-        )
-
-        assert retrieved["access_token"] == "new_token"
-
-    async def test_delete_credentials(self, db_session, test_organization):
-        """Test deleting integration credentials."""
+    def test_garbage_ciphertext_is_rejected(self):
+        """Tampered or truncated data must fail loudly, never return a partial key."""
         manager = CredentialManager()
 
-        integration_id = uuid.uuid4()
-        credentials = {"access_token": "test_token"}
+        with pytest.raises(CredentialDecryptionError):
+            manager.decrypt("not-a-real-fernet-token")
 
-        # Store credentials
-        await manager.store_credentials(
-            integration_id=integration_id,
-            credentials=credentials,
-            db=db_session,
-        )
+    def test_tampered_ciphertext_is_rejected(self):
+        """Fernet is authenticated; flipping a byte must fail the MAC check."""
+        manager = CredentialManager()
+        encrypted = manager.encrypt("secret")
 
-        # Delete credentials
-        result = await manager.delete_credentials(
-            integration_id=integration_id,
-            db=db_session,
-        )
+        tampered = encrypted[:-4] + ("AAAA" if not encrypted.endswith("AAAA") else "BBBB")
 
-        assert result is True
+        with pytest.raises(CredentialDecryptionError):
+            manager.decrypt(tampered)
 
-        # Verify deleted
-        retrieved = await manager.retrieve_credentials(
-            integration_id=integration_id,
-            db=db_session,
-        )
+    def test_a_different_key_cannot_decrypt(self):
+        """Confirms the ciphertext is actually bound to the configured secret."""
+        manager = CredentialManager()
+        encrypted = manager.encrypt("secret")
 
-        assert retrieved is None
+        from cryptography.fernet import Fernet
 
-    async def test_check_token_expiry(self):
-        """Test checking if access token is expired."""
+        stranger = CredentialManager()
+        stranger._fernet = Fernet(Fernet.generate_key())
+
+        with pytest.raises(CredentialDecryptionError):
+            stranger.decrypt(encrypted)
+
+    def test_oauth_tokens_are_encrypted_under_their_storage_names(self):
         manager = CredentialManager()
 
-        # Expired token
-        expired_credentials = {
-            "access_token": "token",
-            "expires_at": (datetime.utcnow() - timedelta(hours=1)).isoformat(),
+        encrypted = manager.encrypt_oauth_tokens("at-1", "rt-1")
+
+        assert set(encrypted) == {"access_token_encrypted", "refresh_token_encrypted"}
+        assert "at-1" not in encrypted["access_token_encrypted"]
+
+        restored = manager.decrypt_oauth_tokens(
+            encrypted["access_token_encrypted"],
+            encrypted["refresh_token_encrypted"],
+        )
+        assert restored == {"access_token": "at-1", "refresh_token": "rt-1"}
+
+    def test_refresh_token_is_optional(self):
+        """Client-credentials providers issue no refresh token."""
+        manager = CredentialManager()
+
+        encrypted = manager.encrypt_oauth_tokens("at-only")
+
+        assert "refresh_token_encrypted" not in encrypted
+        assert manager.decrypt_oauth_tokens(encrypted["access_token_encrypted"]) == {
+            "access_token": "at-only"
         }
 
-        is_expired = manager.is_token_expired(expired_credentials)
-        assert is_expired is True
+    def test_unicode_survives_the_round_trip(self):
+        manager = CredentialManager()
+        secret = "clé-très-sécurisée-🔐"
 
-        # Valid token
-        valid_credentials = {
-            "access_token": "token",
-            "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
-        }
+        assert manager.decrypt(manager.encrypt(secret)) == secret
 
-        is_expired = manager.is_token_expired(valid_credentials)
-        assert is_expired is False
+    def test_key_derivation_is_deterministic_across_instances(self):
+        """
+        Two processes must derive the same key from the same secret, or a restart
+        would orphan every stored credential.
+        """
+        first, second = CredentialManager(), CredentialManager()
+
+        assert second.decrypt(first.encrypt("shared")) == "shared"
 
 
-@pytest.mark.unit
-@pytest.mark.asyncio
-class TestWorkflowExecution:
-    """Test workflow execution functionality."""
+class TestSingletons:
+    def test_credential_manager_is_shared(self):
+        assert get_credential_manager() is get_credential_manager()
 
-    @patch("app.services.workflows.workflow_engine.WorkflowEngine")
-    async def test_execute_workflow(self, mock_engine, db_session):
-        """Test executing a workflow."""
-        from app.services.workflows.workflow_engine import WorkflowEngine
-
-        engine = WorkflowEngine()
-
-        workflow_definition = {
-            "trigger": "call_completed",
-            "actions": [
-                {
-                    "type": "salesforce_create_lead",
-                    "integration_id": str(uuid.uuid4()),
-                    "params": {
-                        "first_name": "{{caller_name}}",
-                        "email": "{{caller_email}}",
-                    },
-                }
-            ],
-        }
-
-        context = {
-            "caller_name": "John Doe",
-            "caller_email": "john@example.com",
-        }
-
-        # Mock execution
-        mock_engine.execute = AsyncMock(return_value={"success": True})
-
-        result = await mock_engine.execute(workflow_definition, context, db_session)
-
-        assert result["success"] is True
-
-    async def test_workflow_data_mapping(self):
-        """Test workflow data mapping."""
-        from app.services.workflows.data_mapper import DataMapper
-
-        mapper = DataMapper()
-
-        template = {
-            "name": "{{first_name}} {{last_name}}",
-            "email": "{{email}}",
-            "company": "{{company_name}}",
-        }
-
-        context = {
-            "first_name": "John",
-            "last_name": "Doe",
-            "email": "john@example.com",
-            "company_name": "Acme Corp",
-        }
-
-        mapped = mapper.map_data(template, context)
-
-        assert mapped["name"] == "John Doe"
-        assert mapped["email"] == "john@example.com"
-        assert mapped["company"] == "Acme Corp"
-
-    async def test_workflow_conditional_execution(self):
-        """Test conditional workflow execution."""
-        from app.services.workflows.workflow_engine import WorkflowEngine
-
-        engine = WorkflowEngine()
-
-        workflow = {
-            "trigger": "call_completed",
-            "conditions": [
-                {"field": "call_duration", "operator": "gt", "value": 60}
-            ],
-            "actions": [{"type": "send_notification"}],
-        }
-
-        # Context meets condition
-        context_pass = {"call_duration": 120}
-        should_execute = engine.evaluate_conditions(workflow["conditions"], context_pass)
-        assert should_execute is True
-
-        # Context doesn't meet condition
-        context_fail = {"call_duration": 30}
-        should_execute = engine.evaluate_conditions(workflow["conditions"], context_fail)
-        assert should_execute is False
+    def test_oauth_handler_is_shared(self):
+        """
+        The state store lives on the instance, so the callback must reach the
+        same handler that issued the state.
+        """
+        assert get_oauth_handler() is get_oauth_handler()

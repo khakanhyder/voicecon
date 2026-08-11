@@ -25,7 +25,9 @@ from app.services.integrations.resource_service import (
     list_resources,
 )
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+# `asyncio_mode = auto` already runs coroutine tests, so an explicit
+# asyncio mark here only warns on the sync tests in this module.
+pytestmark = [pytest.mark.unit]
 
 
 class FakeTrelloConnector:

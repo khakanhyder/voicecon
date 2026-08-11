@@ -5,16 +5,50 @@ import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { Eye, EyeOff, Mail } from 'lucide-react'
+import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
+
+  /**
+   * Check both fields and report everything that is wrong at once.
+   *
+   * The browser's built-in validation stops at the first invalid field, so a
+   * form with two empty inputs takes two attempts to find that out. Returning
+   * a map lets every message appear together, under the field it belongs to.
+   */
+  const validate = () => {
+    const next: { email?: string; password?: string } = {}
+    const trimmed = email.trim()
+
+    if (!trimmed) {
+      next.email = 'Enter your email address'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      next.email = 'Enter a valid email address, like you@example.com'
+    }
+
+    if (!password) {
+      next.password = 'Enter your password'
+    }
+
+    setErrors(next)
+    return next
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    login({ email, password })
+    const found = validate()
+    if (Object.keys(found).length > 0) {
+      // Focus the first field that failed, so keyboard and screen-reader users
+      // are taken to the problem instead of having to hunt for it.
+      document.getElementById(found.email ? 'email' : 'password')?.focus()
+      return
+    }
+    login({ email: email.trim(), password })
   }
 
   return (
@@ -37,7 +71,11 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {/* noValidate: this form reports its own errors below each field —
+          see components/ui/field-error.tsx for why the native bubble is not
+          good enough. The `required` attributes stay for semantics and for
+          assistive technology. */}
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {/* Email */}
         <div className="space-y-1.5">
           <label htmlFor="email" className="block text-base font-semibold text-slate-800">
@@ -48,14 +86,23 @@ export default function LoginPage() {
               id="email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }))
+              }}
               placeholder="you@example.com"
               required
               disabled={isLoggingIn}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+              {...fieldErrorProps('email', errors.email)}
+              className={`w-full rounded-lg border bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:ring-3 disabled:cursor-not-allowed disabled:opacity-50 ${
+                errors.email
+                  ? errorInputClass
+                  : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500/15'
+              }`}
             />
             <Mail className="pointer-events-none absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           </div>
+          <FieldError id="email-error" message={errors.email} />
         </div>
 
         {/* Password */}
@@ -68,11 +115,23 @@ export default function LoginPage() {
               id="password"
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••"
+              onChange={(e) => {
+                setPassword(e.target.value)
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }))
+              }}
+              // Not a row of dots. A dotted placeholder renders an *empty*
+              // password box as though it already contains a password, so
+              // "Please fill out this field" pointed at a field that looked
+              // full — which is exactly how this was reported.
+              placeholder="Enter your password"
               required
               disabled={isLoggingIn}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+              {...fieldErrorProps('password', errors.password)}
+              className={`w-full rounded-lg border bg-white px-4 py-2.5 pr-11 text-base text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:ring-3 disabled:cursor-not-allowed disabled:opacity-50 ${
+                errors.password
+                  ? errorInputClass
+                  : 'border-slate-300 focus:border-brand-500 focus:ring-brand-500/15'
+              }`}
             />
             <button
               type="button"
@@ -82,6 +141,7 @@ export default function LoginPage() {
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
+          <FieldError id="password-error" message={errors.password} />
           <div className="flex justify-end pt-1">
             <Link
               href="/forgot-password"

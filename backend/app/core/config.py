@@ -180,7 +180,7 @@ class Settings(BaseSettings):
     SMTP_USE_SSL: bool = False  # implicit TLS (465); mutually exclusive with STARTTLS
     SMTP_TIMEOUT: int = 15
     # Default From identity for all outbound mail.
-    EMAIL_FROM: str = Field(default="no-reply@voicecon.app", description="Default From address")
+    EMAIL_FROM: str = Field(default="noreply@voicecon.ai", description="Default From address")
     EMAIL_FROM_NAME: str = Field(default="Voicecon", description="Default From display name")
 
     # Sign-up requires confirming the email address with a one-time code. Turn
@@ -214,7 +214,7 @@ class Settings(BaseSettings):
 
     @property
     def email_from_full(self) -> str:
-        """RFC 5322 From header, e.g. 'Voicecon <no-reply@voicecon.app>'."""
+        """RFC 5322 From header, e.g. 'Voicecon <noreply@voicecon.ai>'."""
         return f"{self.EMAIL_FROM_NAME} <{self.EMAIL_FROM}>"
 
     # AWS (Storage)

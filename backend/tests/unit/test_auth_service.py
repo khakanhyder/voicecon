@@ -1,429 +1,408 @@
 """
-Unit tests for Authentication Service.
+Unit tests for authentication primitives: password hashing and JWT tokens.
 
-Tests user authentication, token management, and password handling.
+Everything here is in `app.core.security`, which is what stands between the
+public sign-up form and an authenticated session — so these tests care as much
+about what must be *rejected* (tampered tokens, wrong secrets, refresh tokens
+used as access tokens) as about the happy path.
 """
-import pytest
+import base64
+import json
+import time
 import uuid
 from datetime import datetime, timedelta
-from jose import jwt, JWTError
 
+import pytest
+from jose import jwt
+
+from app.core.config import settings
 from app.core.security import (
-    verify_password,
-    get_password_hash,
+    BCRYPT_MAX_BYTES,
     create_access_token,
+    create_email_verification_token,
     create_refresh_token,
     decode_token,
+    generate_api_key,
+    get_password_hash,
+    verify_api_key,
+    verify_email_verification_token,
+    verify_password,
 )
-from app.core.config import settings
+
+
+def _claims(token: str) -> dict:
+    """Decode a token the way the app does, so a bad signature fails the test."""
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
 
 
 @pytest.mark.unit
+@pytest.mark.auth
 class TestPasswordHashing:
     """Test password hashing and verification."""
 
     def test_hash_password(self):
-        """Test password hashing."""
         password = "test_password_123"
         hashed = get_password_hash(password)
 
         assert hashed != password
-        assert len(hashed) > 0
         assert hashed.startswith("$2b$")  # bcrypt prefix
 
     def test_verify_correct_password(self):
-        """Test verifying correct password."""
         password = "test_password_123"
-        hashed = get_password_hash(password)
 
-        is_valid = verify_password(password, hashed)
-        assert is_valid is True
+        assert verify_password(password, get_password_hash(password)) is True
 
     def test_verify_incorrect_password(self):
-        """Test verifying incorrect password."""
-        password = "test_password_123"
-        wrong_password = "wrong_password"
-        hashed = get_password_hash(password)
+        hashed = get_password_hash("test_password_123")
 
-        is_valid = verify_password(wrong_password, hashed)
-        assert is_valid is False
+        assert verify_password("wrong_password", hashed) is False
 
     def test_hash_same_password_twice(self):
-        """Test that hashing same password twice produces different hashes."""
+        """Per-hash salt: identical passwords must not produce identical hashes."""
         password = "test_password_123"
-        hash1 = get_password_hash(password)
-        hash2 = get_password_hash(password)
+        hash1, hash2 = get_password_hash(password), get_password_hash(password)
 
-        # Hashes should be different due to salt
         assert hash1 != hash2
-
-        # But both should verify correctly
         assert verify_password(password, hash1) is True
         assert verify_password(password, hash2) is True
 
     def test_hash_empty_password(self):
-        """Test hashing empty password."""
-        password = ""
-        hashed = get_password_hash(password)
+        hashed = get_password_hash("")
 
-        assert len(hashed) > 0
-        assert verify_password(password, hashed) is True
-
-    def test_hash_long_password(self):
-        """Test hashing very long password."""
-        password = "a" * 200
-        hashed = get_password_hash(password)
-
-        assert verify_password(password, hashed) is True
+        assert verify_password("", hashed) is True
 
     def test_hash_special_characters(self):
-        """Test hashing password with special characters."""
         password = "p@ssw0rd!#$%^&*()_+-=[]{}|;:',.<>?/~`"
-        hashed = get_password_hash(password)
 
-        assert verify_password(password, hashed) is True
+        assert verify_password(password, get_password_hash(password)) is True
 
     def test_hash_unicode_password(self):
-        """Test hashing password with unicode characters."""
         password = "pässwörd123密码"
-        hashed = get_password_hash(password)
 
-        assert verify_password(password, hashed) is True
+        assert verify_password(password, get_password_hash(password)) is True
+
+    def test_long_password_can_still_log_in(self):
+        """
+        Regression: bcrypt reads at most 72 bytes and raises past that. Hashing
+        truncated but verifying did not, so a long passphrase registered fine and
+        then 500'd on every login. Nothing caps password length on the way in.
+        """
+        password = "a" * 200
+
+        assert verify_password(password, get_password_hash(password)) is True
+
+    def test_long_unicode_password_can_still_log_in(self):
+        """Truncation is on *bytes*, so multi-byte characters must not crash it."""
+        password = "密码" * 100  # 3 bytes each → 600 bytes
+
+        assert verify_password(password, get_password_hash(password)) is True
+
+    def test_passwords_differing_past_the_bcrypt_limit_are_equivalent(self):
+        """
+        Documents an accepted consequence of bcrypt's 72-byte window: anything
+        beyond it is not read, so two passwords sharing a 72-byte prefix collide.
+        Asserted so that a future switch to a pre-hashing scheme is a deliberate,
+        visible change rather than a silent one.
+        """
+        base = "x" * BCRYPT_MAX_BYTES
+
+        assert verify_password(base + "AAA", get_password_hash(base + "ZZZ")) is True
+
+    def test_verify_against_a_malformed_hash_does_not_pass(self):
+        """A corrupt or empty hash column must never authenticate anybody."""
+        for bad_hash in ("", "not-a-bcrypt-hash", "$2b$12$tooshort"):
+            try:
+                assert verify_password("anything", bad_hash) is False
+            except ValueError:
+                pass  # bcrypt refusing to parse it is an equally safe outcome
 
 
 @pytest.mark.unit
+@pytest.mark.auth
 class TestTokenGeneration:
     """Test JWT token generation."""
 
     def test_create_access_token(self):
-        """Test creating access token."""
-        user_id = uuid.uuid4()
-        token = create_access_token(
-            data={"sub": str(user_id), "type": "access"}
-        )
+        token = create_access_token(subject=uuid.uuid4())
 
-        assert token is not None
         assert isinstance(token, str)
-        assert len(token) > 0
+        assert token.count(".") == 2  # header.payload.signature
 
     def test_create_refresh_token(self):
-        """Test creating refresh token."""
-        user_id = uuid.uuid4()
-        token = create_refresh_token(
-            data={"sub": str(user_id), "type": "refresh"}
-        )
+        token = create_refresh_token(subject=uuid.uuid4())
 
-        assert token is not None
         assert isinstance(token, str)
-        assert len(token) > 0
+        assert token.count(".") == 2
 
-    def test_access_token_contains_user_id(self):
-        """Test that access token contains user ID."""
+    def test_access_token_carries_subject_and_type(self):
         user_id = uuid.uuid4()
-        token = create_access_token(
-            data={"sub": str(user_id), "type": "access"}
-        )
 
-        # Decode without verification for testing
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
+        claims = _claims(create_access_token(subject=user_id))
 
-        assert payload["sub"] == str(user_id)
-        assert payload["type"] == "access"
+        assert claims["sub"] == str(user_id)
+        assert claims["type"] == "access"
 
-    def test_refresh_token_contains_user_id(self):
-        """Test that refresh token contains user ID."""
+    def test_refresh_token_carries_subject_and_type(self):
         user_id = uuid.uuid4()
-        token = create_refresh_token(
-            data={"sub": str(user_id), "type": "refresh"}
-        )
 
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
+        claims = _claims(create_refresh_token(subject=user_id))
 
-        assert payload["sub"] == str(user_id)
-        assert payload["type"] == "refresh"
+        assert claims["sub"] == str(user_id)
+        assert claims["type"] == "refresh"
+
+    def test_subject_is_stringified(self):
+        """`sub` must be a string — a raw UUID makes the token unencodable."""
+        claims = _claims(create_access_token(subject=12345))
+
+        assert claims["sub"] == "12345"
+        assert isinstance(claims["sub"], str)
 
     def test_token_with_custom_expiration(self):
-        """Test creating token with custom expiration."""
-        user_id = uuid.uuid4()
-        custom_expiration = timedelta(hours=24)
-
         token = create_access_token(
-            data={"sub": str(user_id)},
-            expires_delta=custom_expiration,
+            subject=uuid.uuid4(), expires_delta=timedelta(hours=24)
         )
 
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
+        expires_in = _claims(token)["exp"] - time.time()
+
+        assert 23 * 3600 < expires_in < 25 * 3600
+
+    def test_scopes_are_included_when_given(self):
+        claims = _claims(
+            create_access_token(subject=uuid.uuid4(), scopes=["agents:read", "calls:write"])
         )
 
-        exp_timestamp = payload["exp"]
-        exp_datetime = datetime.fromtimestamp(exp_timestamp)
-        now = datetime.utcnow()
+        assert claims["scopes"] == ["agents:read", "calls:write"]
 
-        time_diff = exp_datetime - now
-        # Should be approximately 24 hours (allowing small variance)
-        assert 23 * 3600 < time_diff.total_seconds() < 25 * 3600
-
-    def test_token_with_additional_claims(self):
-        """Test creating token with additional claims."""
-        user_id = uuid.uuid4()
-        token = create_access_token(
-            data={
-                "sub": str(user_id),
-                "email": "test@example.com",
-                "role": "admin",
-            }
-        )
-
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-
-        assert payload["sub"] == str(user_id)
-        assert payload["email"] == "test@example.com"
-        assert payload["role"] == "admin"
+    def test_scopes_are_omitted_when_not_given(self):
+        """An unscoped token must not carry an empty scope list to reason about."""
+        assert "scopes" not in _claims(create_access_token(subject=uuid.uuid4()))
 
 
 @pytest.mark.unit
+@pytest.mark.auth
 class TestTokenDecoding:
     """Test JWT token decoding and validation."""
 
     def test_decode_valid_token(self):
-        """Test decoding valid token."""
         user_id = uuid.uuid4()
-        token = create_access_token(
-            data={"sub": str(user_id), "type": "access"}
-        )
 
-        payload = decode_token(token)
+        payload = decode_token(create_access_token(subject=user_id))
 
-        assert payload is not None
         assert payload["sub"] == str(user_id)
         assert payload["type"] == "access"
 
-    def test_decode_expired_token(self):
-        """Test decoding expired token."""
-        user_id = uuid.uuid4()
+    def test_decode_returns_none_rather_than_raising(self):
+        """
+        Callers branch on a falsy return, so `decode_token` swallows JWTError.
+        A raised exception here would escape as a 500 instead of a 401.
+        """
+        assert decode_token("invalid.token.string") is None
 
-        # Create token that expires immediately
+    def test_decode_expired_token(self):
         token = create_access_token(
-            data={"sub": str(user_id)},
-            expires_delta=timedelta(seconds=-1),  # Already expired
+            subject=uuid.uuid4(), expires_delta=timedelta(seconds=-1)
         )
 
-        with pytest.raises(JWTError):
-            decode_token(token)
+        assert decode_token(token) is None
 
-    def test_decode_invalid_token(self):
-        """Test decoding invalid token."""
-        invalid_token = "invalid.token.string"
+    def test_decode_tampered_payload(self):
+        """Re-signing is required to change claims; editing them must not work."""
+        token = create_access_token(subject=uuid.uuid4())
+        header, _, signature = token.split(".")
 
-        with pytest.raises(JWTError):
-            decode_token(invalid_token)
+        forged = create_access_token(subject="attacker").split(".")[1]
 
-    def test_decode_token_with_wrong_secret(self):
-        """Test decoding token with wrong secret key."""
-        user_id = uuid.uuid4()
-        token = create_access_token(data={"sub": str(user_id)})
+        assert decode_token(f"{header}.{forged}.{signature}") is None
 
-        # Try to decode with wrong secret
-        with pytest.raises(JWTError):
-            jwt.decode(
-                token,
-                "wrong_secret_key",
-                algorithms=[settings.ALGORITHM],
-            )
+    def test_token_signed_with_another_secret_is_rejected(self):
+        """The whole security property: only this server can mint valid tokens."""
+        forged = jwt.encode(
+            {"sub": "attacker", "type": "access",
+             "exp": datetime.utcnow() + timedelta(hours=1)},
+            "not-the-real-secret",
+            algorithm=settings.ALGORITHM,
+        )
 
-    def test_decode_token_with_wrong_algorithm(self):
-        """Test decoding token with wrong algorithm."""
-        user_id = uuid.uuid4()
-        token = create_access_token(data={"sub": str(user_id)})
+        assert decode_token(forged) is None
 
-        # Try to decode with wrong algorithm
-        with pytest.raises(JWTError):
-            jwt.decode(
-                token,
-                settings.SECRET_KEY,
-                algorithms=["HS384"],  # Wrong algorithm
-            )
+    def test_unsigned_token_is_rejected(self):
+        """
+        `alg: none` is the classic JWT bypass. Assembled by hand because the
+        library refuses to *sign* it — which is exactly how an attacker would
+        produce one.
+        """
+        def b64(payload: dict) -> str:
+            raw = json.dumps(payload).encode()
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    def test_decode_tampered_token(self):
-        """Test decoding tampered token."""
-        user_id = uuid.uuid4()
-        token = create_access_token(data={"sub": str(user_id)})
+        unsigned = "{}.{}.".format(
+            b64({"alg": "none", "typ": "JWT"}),
+            b64({"sub": "attacker", "type": "access", "exp": int(time.time()) + 3600}),
+        )
 
-        # Tamper with the token
-        parts = token.split(".")
-        tampered_token = parts[0] + ".modified." + parts[2]
+        assert decode_token(unsigned) is None
 
-        with pytest.raises(JWTError):
-            decode_token(tampered_token)
+    def test_empty_token_is_rejected(self):
+        assert decode_token("") is None
 
 
 @pytest.mark.unit
+@pytest.mark.auth
 class TestTokenExpiration:
     """Test token expiration handling."""
 
-    def test_access_token_default_expiration(self):
-        """Test access token default expiration time."""
+    def test_access_token_uses_the_configured_lifetime(self):
+        token = create_access_token(subject=uuid.uuid4())
+
+        expires_in = _claims(token)["exp"] - time.time()
+
+        expected = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        assert abs(expires_in - expected) < 10
+
+    def test_refresh_token_outlives_the_access_token(self):
+        """Otherwise refreshing would be pointless — both would die together."""
         user_id = uuid.uuid4()
-        token = create_access_token(data={"sub": str(user_id)})
 
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
+        access_exp = _claims(create_access_token(subject=user_id))["exp"]
+        refresh_exp = _claims(create_refresh_token(subject=user_id))["exp"]
 
-        exp_timestamp = payload["exp"]
-        iat_timestamp = payload["iat"]
+        assert refresh_exp > access_exp
 
-        # Calculate token lifetime
-        lifetime = exp_timestamp - iat_timestamp
+    def test_tokens_expire_at_all(self):
+        """A token with no `exp` never expires and can never be revoked."""
+        claims = _claims(create_access_token(subject=uuid.uuid4()))
 
-        # Access token should expire in 30 minutes (1800 seconds)
-        assert lifetime == 1800
-
-    def test_refresh_token_longer_expiration(self):
-        """Test refresh token has longer expiration."""
-        user_id = uuid.uuid4()
-        access_token = create_access_token(data={"sub": str(user_id)})
-        refresh_token = create_refresh_token(data={"sub": str(user_id)})
-
-        access_payload = jwt.decode(
-            access_token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-
-        refresh_payload = jwt.decode(
-            refresh_token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-
-        access_lifetime = access_payload["exp"] - access_payload["iat"]
-        refresh_lifetime = refresh_payload["exp"] - refresh_payload["iat"]
-
-        # Refresh token should have longer lifetime
-        assert refresh_lifetime > access_lifetime
-
-    def test_token_issued_at_time(self):
-        """Test token issued at time is correct."""
-        before = datetime.utcnow()
-        user_id = uuid.uuid4()
-        token = create_access_token(data={"sub": str(user_id)})
-        after = datetime.utcnow()
-
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-
-        iat_datetime = datetime.fromtimestamp(payload["iat"])
-
-        # Issued at time should be between before and after
-        assert before <= iat_datetime <= after
+        assert "exp" in claims
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
-class TestAuthenticationFlow:
-    """Test complete authentication flows."""
+@pytest.mark.auth
+class TestEmailVerificationTokens:
+    """Proof that an address was confirmed before an account is created for it."""
 
-    async def test_registration_password_storage(self, db_session):
-        """Test that passwords are hashed during registration."""
+    def test_token_verifies_for_its_own_address(self):
+        token = create_email_verification_token("user@example.com")
+
+        assert verify_email_verification_token(token, "user@example.com") is True
+
+    def test_address_is_matched_case_insensitively_and_trimmed(self):
+        """Sign-up forms send whatever the user typed; the check normalises both."""
+        token = create_email_verification_token("  User@Example.COM ")
+
+        assert verify_email_verification_token(token, "user@example.com") is True
+
+    def test_token_does_not_verify_another_address(self):
+        """
+        The core property: a token proving you own A must not let you register B.
+        """
+        token = create_email_verification_token("user@example.com")
+
+        assert verify_email_verification_token(token, "victim@example.com") is False
+
+    def test_an_access_token_is_not_a_verification_proof(self):
+        """Type confusion here would turn any session into a verified address."""
+        token = create_access_token(subject="user@example.com")
+
+        assert verify_email_verification_token(token, "user@example.com") is False
+
+    def test_expired_verification_token_is_refused(self):
+        token = create_email_verification_token("user@example.com", expires_minutes=-1)
+
+        assert verify_email_verification_token(token, "user@example.com") is False
+
+    def test_garbage_is_refused(self):
+        assert verify_email_verification_token("nonsense", "user@example.com") is False
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+class TestApiKeys:
+    """API keys are bearer secrets; only their hash may be stored."""
+
+    def test_generated_key_verifies_against_its_hash(self):
+        key, key_hash = generate_api_key()
+
+        assert verify_api_key(key, key_hash) is True
+
+    def test_key_is_namespaced_for_recognisability(self):
+        """The prefix is what lets leak scanners spot one in a public repo."""
+        key, _ = generate_api_key()
+
+        assert key.startswith("vcon_")
+
+    def test_hash_does_not_contain_the_key(self):
+        key, key_hash = generate_api_key()
+
+        assert key not in key_hash
+
+    def test_keys_are_unique(self):
+        # Kept small deliberately: each call pays a 12-round bcrypt hash, and a
+        # collision in 256-bit random tokens would show up at any sample size.
+        keys = {generate_api_key()[0] for _ in range(5)}
+
+        assert len(keys) == 5
+
+    def test_another_key_does_not_verify(self):
+        _, key_hash = generate_api_key()
+        other_key, _ = generate_api_key()
+
+        assert verify_api_key(other_key, key_hash) is False
+
+
+@pytest.mark.unit
+@pytest.mark.auth
+class TestAuthenticationFlow:
+    """The sequences these primitives are composed into."""
+
+    async def test_registration_stores_only_a_hash(self, db_session):
         from app.models.user import User
 
         plain_password = "test_password_123"
-        hashed_password = get_password_hash(plain_password)
-
         user = User(
             email="newuser@example.com",
-            hashed_password=hashed_password,
+            hashed_password=get_password_hash(plain_password),
             full_name="New User",
         )
-
         db_session.add(user)
         await db_session.commit()
 
-        # Verify password is hashed
-        assert user.hashed_password != plain_password
+        assert plain_password not in user.hashed_password
         assert verify_password(plain_password, user.hashed_password) is True
 
-    async def test_login_token_generation(self):
-        """Test token generation during login."""
+    async def test_login_issues_a_usable_token_pair(self):
         user_id = uuid.uuid4()
 
-        # Generate tokens
-        access_token = create_access_token(
-            data={"sub": str(user_id), "type": "access"}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user_id), "type": "refresh"}
-        )
+        access = decode_token(create_access_token(subject=user_id))
+        refresh = decode_token(create_refresh_token(subject=user_id))
 
-        # Verify both tokens are valid
-        access_payload = decode_token(access_token)
-        refresh_payload = decode_token(refresh_token)
+        assert access["sub"] == refresh["sub"] == str(user_id)
+        assert access["type"] == "access"
+        assert refresh["type"] == "refresh"
 
-        assert access_payload["sub"] == str(user_id)
-        assert refresh_payload["sub"] == str(user_id)
-        assert access_payload["type"] == "access"
-        assert refresh_payload["type"] == "refresh"
+    async def test_refresh_flow_mints_a_new_access_token(self):
+        user_id = uuid.uuid4()
+        refresh_token = create_refresh_token(subject=user_id)
 
-    async def test_token_refresh_flow(self):
-        """Test refreshing access token using refresh token."""
+        payload = decode_token(refresh_token)
+        assert payload["type"] == "refresh"
+
+        new_access = decode_token(create_access_token(subject=payload["sub"]))
+
+        assert new_access["sub"] == str(user_id)
+        assert new_access["type"] == "access"
+
+    async def test_access_and_refresh_tokens_are_distinguishable(self):
+        """
+        The `type` claim is the only thing stopping a refresh token — which lives
+        30 days — from being accepted as a session token.
+        """
         user_id = uuid.uuid4()
 
-        # Create initial tokens
-        old_access_token = create_access_token(
-            data={"sub": str(user_id), "type": "access"}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user_id), "type": "refresh"}
-        )
+        assert decode_token(create_access_token(subject=user_id))["type"] == "access"
+        assert decode_token(create_refresh_token(subject=user_id))["type"] == "refresh"
 
-        # Decode refresh token
-        refresh_payload = decode_token(refresh_token)
-        assert refresh_payload["type"] == "refresh"
+    async def test_password_change_invalidates_the_old_password(self):
+        new_hash = get_password_hash("new_password_456")
 
-        # Create new access token
-        new_access_token = create_access_token(
-            data={"sub": refresh_payload["sub"], "type": "access"}
-        )
-
-        # Verify new token is valid and different
-        new_payload = decode_token(new_access_token)
-        assert new_payload["sub"] == str(user_id)
-        assert new_access_token != old_access_token
-
-    async def test_password_change_invalidates_old_hash(self):
-        """Test that changing password creates new hash."""
-        old_password = "old_password_123"
-        new_password = "new_password_456"
-
-        old_hash = get_password_hash(old_password)
-        new_hash = get_password_hash(new_password)
-
-        # Hashes should be different
-        assert old_hash != new_hash
-
-        # Old password should not verify with new hash
-        assert verify_password(old_password, new_hash) is False
-
-        # New password should verify with new hash
-        assert verify_password(new_password, new_hash) is True
+        assert verify_password("old_password_123", new_hash) is False
+        assert verify_password("new_password_456", new_hash) is True

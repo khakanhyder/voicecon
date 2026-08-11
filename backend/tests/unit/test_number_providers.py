@@ -10,6 +10,7 @@ The carrier clients are exercised with a stubbed `_request`, so no network.
 """
 import base64
 import types
+import uuid
 
 import pytest
 
@@ -353,7 +354,7 @@ def stub_selection(monkeypatch):
     """Drive `resolve_provider` off a fixed option list, with no DB or network."""
 
     def apply(options):
-        async def fake_list(db, user):
+        async def fake_list(db, org_id):
             return options
 
         async def fake_build(db, option):
@@ -370,7 +371,7 @@ async def test_no_connected_carrier_is_a_clear_error(stub_selection):
     stub_selection([])
 
     with pytest.raises(NoTelephonyProviderError) as exc:
-        await resolve_provider(db=None, user=None)
+        await resolve_provider(db=None, org_id=None)
 
     assert "Integrations" in str(exc.value)
 
@@ -379,7 +380,7 @@ async def test_no_connected_carrier_is_a_clear_error(stub_selection):
 async def test_single_carrier_is_selected_automatically(stub_selection):
     stub_selection([_option("telnyx", "Telnyx")])
 
-    resolved = await resolve_provider(db=None, user=None)
+    resolved = await resolve_provider(db=None, org_id=None)
 
     assert resolved.slug == "telnyx"
 
@@ -389,7 +390,7 @@ async def test_twilio_is_the_default_when_no_carrier_is_named(stub_selection):
     """Twilio is the product default, so it wins over another connected carrier."""
     stub_selection([_option("twilio", "Twilio", "c1"), _option("telnyx", "Telnyx", "c2")])
 
-    resolved = await resolve_provider(db=None, user=None)
+    resolved = await resolve_provider(db=None, org_id=None)
 
     assert resolved.slug == "twilio"
 
@@ -400,14 +401,14 @@ async def test_several_non_default_carriers_require_an_explicit_choice(stub_sele
     stub_selection([_option("telnyx", "Telnyx", "c1"), _option("vonage", "Vonage", "c2")])
 
     with pytest.raises(AmbiguousProviderError):
-        await resolve_provider(db=None, user=None)
+        await resolve_provider(db=None, org_id=None)
 
 
 @pytest.mark.asyncio
 async def test_explicit_slug_picks_that_carrier(stub_selection):
     stub_selection([_option("twilio", "Twilio", "c1"), _option("telnyx", "Telnyx", "c2")])
 
-    resolved = await resolve_provider(db=None, user=None, slug="telnyx")
+    resolved = await resolve_provider(db=None, org_id=None, slug="telnyx")
 
     assert resolved.slug == "telnyx"
     assert resolved.option.connection_id == "c2"
@@ -419,7 +420,7 @@ async def test_unconnected_carrier_is_refused(stub_selection):
     stub_selection([_option("twilio", "Twilio")])
 
     with pytest.raises(NoTelephonyProviderError) as exc:
-        await resolve_provider(db=None, user=None, slug="telnyx")
+        await resolve_provider(db=None, org_id=None, slug="telnyx")
 
     assert "Telnyx" in str(exc.value)
 
@@ -431,7 +432,7 @@ async def test_connection_id_disambiguates_duplicate_carriers(stub_selection):
         [_option("twilio", "Twilio Main", "c1"), _option("twilio", "Twilio Backup", "c2")]
     )
 
-    resolved = await resolve_provider(db=None, user=None, connection_id="c2")
+    resolved = await resolve_provider(db=None, org_id=None, connection_id="c2")
 
     assert resolved.option.connection_name == "Twilio Backup"
 
@@ -441,7 +442,7 @@ async def test_stale_connection_id_is_refused(stub_selection):
     stub_selection([_option("twilio", "Twilio", "c1")])
 
     with pytest.raises(NoTelephonyProviderError):
-        await resolve_provider(db=None, user=None, connection_id="c-removed")
+        await resolve_provider(db=None, org_id=None, connection_id="c-removed")
 
 
 @pytest.mark.asyncio
@@ -449,7 +450,7 @@ async def test_platform_credentials_are_usable_when_nothing_is_connected(stub_se
     """Server-level Twilio credentials keep older deployments working."""
     stub_selection([_option("twilio", "Twilio", None, PLATFORM_SOURCE)])
 
-    resolved = await resolve_provider(db=None, user=None)
+    resolved = await resolve_provider(db=None, org_id=None)
 
     assert resolved.slug == "twilio"
     assert resolved.connection_uuid is None
@@ -506,9 +507,9 @@ async def test_platform_and_own_twilio_are_both_offered(platform_twilio):
     so both appear — their own first, since that is the better default for them.
     """
     db = _FakeDB([_connection_row("c1", "My Twilio")])
-    user = types.SimpleNamespace(id="u1")
+    org_id = uuid.uuid4()
 
-    options = await list_available_providers(db, user)
+    options = await list_available_providers(db, org_id)
 
     assert [(o.source, o.connection_id) for o in options] == [
         (INTEGRATION_SOURCE, "c1"),
@@ -520,9 +521,9 @@ async def test_platform_and_own_twilio_are_both_offered(platform_twilio):
 async def test_twilio_is_listed_before_other_carriers(platform_twilio):
     """The picker's first entry is the default, and the default is Twilio."""
     db = _FakeDB([_connection_row("c1", "My Telnyx", slug="telnyx")])
-    user = types.SimpleNamespace(id="u1")
+    org_id = uuid.uuid4()
 
-    options = await list_available_providers(db, user)
+    options = await list_available_providers(db, org_id)
 
     assert [o.slug for o in options] == ["twilio", "telnyx"]
 
@@ -543,7 +544,7 @@ async def test_carrier_slug_prefers_the_users_own_account(stub_selection):
     """Asking for "Twilio" spends the user's own money, not the platform's."""
     stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
 
-    resolved = await resolve_provider(db=None, user=None, slug="twilio")
+    resolved = await resolve_provider(db=None, org_id=None, slug="twilio")
 
     assert resolved.option.source == INTEGRATION_SOURCE
     assert resolved.option.connection_id == "c1"
@@ -555,7 +556,7 @@ async def test_platform_account_is_selectable_by_its_connection_id(stub_selectio
     stub_selection([_option("twilio", "My Twilio", "c1"), _platform_twilio_option()])
 
     resolved = await resolve_provider(
-        db=None, user=None, slug="twilio", connection_id=platform_connection_id("twilio")
+        db=None, org_id=None, slug="twilio", connection_id=platform_connection_id("twilio")
     )
 
     assert resolved.option.source == PLATFORM_SOURCE
@@ -577,7 +578,7 @@ async def test_platform_number_is_managed_on_the_platform_account(stub_selection
 
     resolved = await resolve_provider_for_number(
         db=None,
-        user=None,
+        org_id=None,
         provider_slug="twilio",
         connection_id=None,
         provider_metadata={CREDENTIAL_SOURCE_KEY: PLATFORM_SOURCE},
@@ -592,7 +593,7 @@ async def test_own_number_is_managed_on_its_own_connection(stub_selection):
 
     resolved = await resolve_provider_for_number(
         db=None,
-        user=None,
+        org_id=None,
         provider_slug="twilio",
         connection_id="c1",
         provider_metadata={CREDENTIAL_SOURCE_KEY: INTEGRATION_SOURCE},
@@ -607,7 +608,7 @@ async def test_legacy_number_without_a_recorded_source_still_resolves(stub_selec
     stub_selection([_option("twilio", "My Twilio", "c1")])
 
     resolved = await resolve_provider_for_number(
-        db=None, user=None, provider_slug="twilio", connection_id=None
+        db=None, org_id=None, provider_slug="twilio", connection_id=None
     )
 
     assert resolved.option.connection_id == "c1"
@@ -621,7 +622,7 @@ async def test_platform_number_errors_when_server_credentials_are_gone(stub_sele
     with pytest.raises(NoTelephonyProviderError):
         await resolve_provider_for_number(
             db=None,
-            user=None,
+            org_id=None,
             provider_slug="twilio",
             connection_id=None,
             provider_metadata={CREDENTIAL_SOURCE_KEY: PLATFORM_SOURCE},

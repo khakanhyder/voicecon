@@ -164,11 +164,11 @@ test.describe('Registration — the name is required', () => {
 
     await page.getByRole('button', { name: 'Sign up Now' }).click()
 
-    // An empty required field is caught by the browser's own constraint
-    // validation, which blocks submission before any handler runs — so the
-    // assertion is on the field being invalid and nothing being sent, not on
-    // the app's message, which in this case never gets a chance to appear.
-    await expect(page.getByLabel('Your Name')).toHaveJSProperty('validity.valid', false)
+    // The form is `noValidate`, so the refusal is the app's own — a message
+    // under the field it belongs to, rather than the browser's bubble, which
+    // only ever reports one field and cannot be worded by us.
+    await expect(page.getByText('Enter your name')).toBeVisible()
+    await expect(page.getByLabel('Your Name')).toHaveAttribute('aria-invalid', 'true')
     // The point is that nothing was sent — a form that posts and lets the
     // server say no is a slower version of the same answer.
     expect(api.callsTo('/auth/register')).toHaveLength(0)
@@ -180,7 +180,8 @@ test.describe('Registration — the name is required', () => {
 
     await page.getByRole('button', { name: 'Sign up Now' }).click()
 
-    await expect(page.getByText('Please enter your name')).toBeVisible()
+    // Spaces satisfy `required`, so this one is only ever caught by the app.
+    await expect(page.getByText('Enter your name')).toBeVisible()
     expect(api.callsTo('/auth/register')).toHaveLength(0)
   })
 
@@ -212,14 +213,25 @@ test.describe('Registration — entering the emailed code', () => {
     await page.getByRole('button', { name: 'Verify', exact: true }).click()
   })
 
-  /** Paste into a box the way the browser delivers a clipboard drop. */
+  /**
+   * Paste into a box the way the browser delivers a clipboard drop.
+   *
+   * Playwright cannot seed the OS clipboard on every engine, so the drop is
+   * synthesised. Firefox ignores the constructor's `clipboardData` init member
+   * — it hands the listener an empty DataTransfer of its own making, so the
+   * paste arrives carrying nothing — which is why the payload is attached to
+   * the event object instead. Every engine honours that, and it is where React
+   * reads the clipboard from.
+   */
   async function pasteCode(page: Page, text: string, intoDigit = 1) {
     const box = page.getByLabel(`Digit ${intoDigit}`)
     await box.click()
     await box.evaluate((el, value) => {
       const data = new DataTransfer()
       data.setData('text/plain', value)
-      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'clipboardData', { value: data })
+      el.dispatchEvent(event)
     }, text)
   }
 

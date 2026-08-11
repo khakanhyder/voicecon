@@ -1,17 +1,35 @@
 """
 Pytest configuration and fixtures for Voicecon tests.
+
+Tests run against **Postgres**, the same engine as production — so `Numeric`
+really returns `Decimal`, and anything that depends on Postgres semantics is
+exercised for real rather than approximated.
+
+The default points at the local dev instance (Docker, host port 5435) using a
+separate `voicecon_test` database, which is dropped and recreated per test.
+Create it once with:
+
+    docker exec voicecon_postgres createdb -U voicecon_user voicecon_test
+
+Override the target with `TEST_DATABASE_URL`. SQLite is still accepted there
+(`sqlite+aiosqlite:///:memory:`) for a quick run with no database to hand, but
+it is a fallback, not the reference: SQLite returns floats for `Numeric` columns
+and does not enforce every constraint Postgres does, so a green SQLite run is
+weaker evidence than a green Postgres one.
 """
 
 import asyncio
 import os
-from typing import AsyncGenerator, Generator
 import uuid
+from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.core.config import settings
 
@@ -22,59 +40,112 @@ from app.core.config import settings
 # Playwright `api` project covers it against a live server — so it is off.
 settings.RATE_LIMIT_ENABLED = False
 
-from app.main import app
+from app.core.dependencies import get_current_user
 from app.database import Base, get_db
-from app.models.user import User, Organization
+from app.main import app
 from app.models.agent import Agent
 from app.models.call import PhoneNumber
+from app.models.user import Organization, OrganizationMember, User
 from app.services.billing import StripeService
-from app.core.dependencies import get_current_user
 
-
-# Test database URL
+#: Where the fixtures build their schema. Defaults to the local dev Postgres on
+#: port 5435 — the port the Docker container publishes, and the one `.env` uses.
+#: (The previous default named port 5432 with postgres/postgres credentials,
+#: which matched nothing here, so every database-backed test errored out.)
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/voicecon_test"
+    "postgresql+asyncpg://voicecon_user:voicecon_password_dev@localhost:5435/voicecon_test",
 )
+
+IS_SQLITE = TEST_DATABASE_URL.startswith("sqlite")
+
+#: bcrypt hash of "password", precomputed so fixtures don't pay ~12 rounds of
+#: hashing per test.
+TEST_PASSWORD = "password"
+TEST_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeW.ljYR7K7Q9K9Oi"
 
 
 # ==================== Database Fixtures ====================
 
 
+#: Sync URL for the one-off DDL below. Schema creation is done with psycopg2
+#: rather than asyncpg so it can be a plain session-scoped fixture — a
+#: *session*-scoped async fixture would be pinned to an event loop that the
+#: function-scoped tests no longer run on.
+SYNC_TEST_URL = TEST_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+
+
 @pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def _schema():
+    """
+    Build the schema once for the whole run.
+
+    Dropping and recreating 52 tables per test cost 1.5–3s of setup each and
+    dominated the suite. The tables are created once here; `db_engine` below
+    truncates between tests instead, which is the same isolation for a fraction
+    of the time.
+    """
+    if IS_SQLITE:
+        # An in-memory SQLite database cannot be shared with a separate sync
+        # engine, so those runs keep creating the schema per test (it is cheap
+        # there — no disk, no network).
+        yield
+        return
+
+    engine = create_engine(SYNC_TEST_URL)
+    with engine.begin() as conn:
+        Base.metadata.drop_all(conn)
+        Base.metadata.create_all(conn)
+
+    yield
+
+    with engine.begin() as conn:
+        Base.metadata.drop_all(conn)
+    engine.dispose()
+
+
+#: Emptied between tests. Built once, since `sorted_tables` is not free.
+_TRUNCATE_SQL = text(
+    "TRUNCATE TABLE {} RESTART IDENTITY CASCADE".format(
+        ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+    )
+)
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_engine():
-    """Create test database engine."""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        poolclass=NullPool,
-        echo=False,
-    )
+async def db_engine(_schema):
+    """
+    An empty database for one test.
 
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    In-memory SQLite gives each *connection* its own database, so the engine is
+    pinned to a single connection with `StaticPool` — otherwise the session that
+    creates the tables and the session that queries them see different (empty)
+    databases.
+    """
+    if IS_SQLITE:
+        engine = create_async_engine(
+            TEST_DATABASE_URL,
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+            echo=False,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
+        # One statement for all 52 tables: CASCADE means foreign keys do not
+        # dictate an order, and it is a single round trip.
+        async with engine.begin() as conn:
+            await conn.execute(_TRUNCATE_SQL)
 
     yield engine
-
-    # Cleanup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test database session."""
+    """A session on the test database. Rolled back when the test ends."""
     async_session = async_sessionmaker(
         db_engine,
         class_=AsyncSession,
@@ -88,7 +159,14 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture
 def client(db_session) -> TestClient:
-    """Create a test client with database session override."""
+    """
+    Synchronous test client sharing the test session.
+
+    Only safe for read-only endpoints: `TestClient` drives the app on its own
+    event loop, so a *write* through this client and the test's own `db_session`
+    end up interleaving on one asyncpg connection ("another operation is in
+    progress"). Use `async_client` for anything that writes.
+    """
 
     async def override_get_db():
         yield db_session
@@ -101,60 +179,155 @@ def client(db_session) -> TestClient:
     app.dependency_overrides.clear()
 
 
+@pytest_asyncio.fixture
+async def async_client(db_session) -> AsyncGenerator[AsyncClient, None]:
+    """
+    In-loop ASGI client, safe for write endpoints.
+
+    Runs on the *test's* event loop rather than a private one, so the app and
+    the test share the session without fighting over the connection.
+    """
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
 # ==================== User & Auth Fixtures ====================
 
 
-@pytest_asyncio.fixture
-async def test_organization(db_session: AsyncSession) -> Organization:
-    """Create a test organization."""
+async def create_user(
+    db_session: AsyncSession,
+    *,
+    email: str = "test@example.com",
+    full_name: str = "Test User",
+    is_active: bool = True,
+    is_verified: bool = True,
+) -> User:
+    """Insert a user. Flushed, not committed, so the caller can keep building."""
+    user = User(
+        email=email,
+        hashed_password=TEST_PASSWORD_HASH,
+        full_name=full_name,
+        is_active=is_active,
+        is_verified=is_verified,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+async def create_organization(
+    db_session: AsyncSession,
+    owner: User,
+    *,
+    name: str = "Test Organization",
+    slug: str = "test-org",
+    plan_type: str = "starter",
+) -> Organization:
+    """
+    Insert an organization owned by `owner`, plus the owner's membership row.
+
+    `owner_id` is NOT NULL and every request re-checks `organization_members`,
+    so an organization without both is not a state the app can produce.
+    """
     org = Organization(
-        name="Test Organization",
-        slug="test-org",
+        name=name,
+        slug=slug,
+        owner_id=owner.id,
+        plan_type=plan_type,
         is_active=True,
+        settings={},
     )
     db_session.add(org)
+    await db_session.flush()
+
+    db_session.add(
+        OrganizationMember(
+            organization_id=org.id,
+            user_id=owner.id,
+            role="owner",
+            permissions={},
+        )
+    )
+
+    # The workspace the owner's requests resolve to until they switch.
+    owner.active_organization_id = org.id
+    await db_session.flush()
+    return org
+
+
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession) -> User:
+    """A user who owns `test_organization`."""
+    user = await create_user(db_session)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_organization(
+    db_session: AsyncSession, test_user: User
+) -> Organization:
+    """An organization owned by `test_user`, with the membership row to match."""
+    org = await create_organization(db_session, test_user)
     await db_session.commit()
     await db_session.refresh(org)
     return org
 
 
 @pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession, test_organization: Organization) -> User:
-    """Create a test user."""
-    user = User(
-        email="test@example.com",
-        hashed_password="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeW.ljYR7K7Q9K9Oi",  # "password"
-        full_name="Test User",
-        organization_id=test_organization.id,
-        is_active=True,
-        is_superuser=False,
+async def test_member(
+    db_session: AsyncSession, test_organization: Organization
+) -> User:
+    """A second, non-owner user inside `test_organization`."""
+    member = await create_user(
+        db_session, email="member@example.com", full_name="Member User"
     )
-    db_session.add(user)
+    db_session.add(
+        OrganizationMember(
+            organization_id=test_organization.id,
+            user_id=member.id,
+            role="member",
+            permissions={},
+        )
+    )
+    member.active_organization_id = test_organization.id
     await db_session.commit()
-    await db_session.refresh(user)
-    return user
+    await db_session.refresh(member)
+    return member
 
 
 @pytest_asyncio.fixture
-async def test_superuser(db_session: AsyncSession, test_organization: Organization) -> User:
-    """Create a test superuser."""
-    user = User(
-        email="admin@example.com",
-        hashed_password="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeW.ljYR7K7Q9K9Oi",
-        full_name="Admin User",
-        organization_id=test_organization.id,
-        is_active=True,
-        is_superuser=True,
+async def other_organization(db_session: AsyncSession) -> Organization:
+    """
+    An unrelated organization with its own owner.
+
+    The counterparty for tenant-isolation tests: anything reachable from here
+    must not be reachable from `test_organization`.
+    """
+    outsider = await create_user(
+        db_session, email="outsider@example.com", full_name="Outsider"
     )
-    db_session.add(user)
+    org = await create_organization(
+        db_session, outsider, name="Other Org", slug="other-org"
+    )
     await db_session.commit()
-    await db_session.refresh(user)
-    return user
+    await db_session.refresh(org)
+    return org
 
 
 @pytest.fixture
 def auth_client(client: TestClient, test_user: User) -> TestClient:
-    """Create an authenticated test client."""
+    """`client`, with `test_user` as the authenticated caller."""
 
     async def override_get_current_user():
         return test_user
@@ -167,18 +340,19 @@ def auth_client(client: TestClient, test_user: User) -> TestClient:
 
 
 @pytest_asyncio.fixture
-async def test_agent(db_session: AsyncSession, test_organization: Organization) -> Agent:
-    """Create a test agent."""
+async def test_agent(
+    db_session: AsyncSession, test_user: User, test_organization: Organization
+) -> Agent:
+    """An agent belonging to `test_organization`."""
     agent = Agent(
+        user_id=test_user.id,
         organization_id=test_organization.id,
         name="Test Agent",
         description="A test agent for testing",
         system_prompt="You are a helpful test assistant.",
         first_message="Hello! How can I help you today?",
-        voice_id="en-US-Neural2-F",
-        language="en-US",
-        temperature=0.7,
-        max_tokens=150,
+        tts_voice_id="en-US-Neural2-F",
+        stt_language="en",
         is_active=True,
     )
     db_session.add(agent)
@@ -190,21 +364,22 @@ async def test_agent(db_session: AsyncSession, test_organization: Organization) 
 @pytest_asyncio.fixture
 async def test_phone_number(
     db_session: AsyncSession,
+    test_user: User,
     test_organization: Organization,
-    test_agent: Agent
+    test_agent: Agent,
 ) -> PhoneNumber:
-    """Create a test phone number."""
+    """A phone number assigned to `test_agent`."""
     phone = PhoneNumber(
+        user_id=test_user.id,
         organization_id=test_organization.id,
         phone_number="+15551234567",
-        friendly_name="Test Number",
         country_code="US",
-        number_type="local",
         capabilities={"voice": True, "sms": True},
         provider="twilio",
         provider_sid="PN1234567890",
+        provider_metadata={},
         status="active",
-        assigned_agent_id=test_agent.id,
+        agent_id=test_agent.id,
     )
     db_session.add(phone)
     await db_session.commit()
@@ -242,30 +417,6 @@ def mock_stripe_service(monkeypatch):
 
 
 @pytest.fixture
-def mock_openai_response(monkeypatch):
-    """Mock OpenAI API responses."""
-
-    class MockOpenAIResponse:
-        def __init__(self, content: str = "Test response"):
-            self.choices = [
-                type('obj', (object,), {
-                    'message': type('obj', (object,), {
-                        'content': content,
-                        'role': 'assistant'
-                    })()
-                })()
-            ]
-            self.usage = type('obj', (object,), {
-                'total_tokens': 100
-            })()
-
-    def mock_create(*args, **kwargs):
-        return MockOpenAIResponse()
-
-    monkeypatch.setattr("openai.ChatCompletion.create", mock_create)
-
-
-@pytest.fixture
 def mock_twilio_client(monkeypatch):
     """Mock Twilio client for testing."""
 
@@ -289,8 +440,9 @@ def mock_twilio_client(monkeypatch):
 @pytest_asyncio.fixture
 async def test_agent_template(db_session: AsyncSession):
     """Create a test agent template."""
-    from app.models.template import AgentTemplate
     from datetime import datetime
+
+    from app.models.template import AgentTemplate
 
     template = AgentTemplate(
         name="Test Agent Template",
@@ -358,14 +510,3 @@ def assert_response_error():
             f"Expected error {status_code}, got {response.status_code}"
         return response.json()
     return _assert
-
-
-# ==================== Cleanup ====================
-
-
-@pytest.fixture(autouse=True)
-def cleanup_files():
-    """Cleanup any test files after tests."""
-    yield
-    # Add cleanup logic if needed
-    pass

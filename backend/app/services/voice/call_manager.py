@@ -424,8 +424,16 @@ class CallSession:
 
                 if state == CallState.COMPLETED:
                     self.end_time = datetime.utcnow()
-                    call.end_time = self.end_time
-                    call.duration = int((self.end_time - self.start_time).total_seconds())
+                    # `ended_at`/`duration_seconds` — the columns that exist.
+                    # This used to assign `end_time`/`duration`, which raised
+                    # AttributeError inside the try below: the completion was
+                    # rolled back, so finished calls kept their previous status
+                    # and never recorded a duration. Billing reads that duration,
+                    # so nothing was metered either.
+                    call.ended_at = self.end_time
+                    call.duration_seconds = int(
+                        (self.end_time - self.start_time).total_seconds()
+                    )
 
                 await self.db.commit()
 
@@ -438,11 +446,17 @@ class CallSession:
     async def _log_event(self, event_type: str, metadata: Dict[str, Any]) -> None:
         """Log call event."""
         try:
+            # CallLog stores `log_type`/`message`/`details`. The old
+            # `event_type=`/`metadata=` kwargs match no column, so every event
+            # raised TypeError and was swallowed below — the call log table
+            # stayed empty for every call.
             log_entry = CallLog(
                 call_id=self.call_id,
                 timestamp=datetime.utcnow(),
-                event_type=event_type,
-                metadata=metadata,
+                log_type=event_type,
+                severity="error" if event_type.endswith("_error") else "info",
+                message=metadata.get("error") or event_type,
+                details=metadata,
             )
             self.db.add(log_entry)
             await self.db.commit()
@@ -518,15 +532,28 @@ class CallManager:
         """
         call_id = uuid.uuid4()
 
-        # Create call record in database
+        # `calls.user_id` and `calls.organization_id` are NOT NULL, and the call
+        # inherits both from the agent answering it. Without them the insert
+        # failed, so no call record was ever written on this path.
+        result = await db.execute(select(Agent).where(Agent.id == agent_id))
+        agent = result.scalar_one_or_none()
+
+        if not agent:
+            raise ValueError(f"Agent not found: {agent_id}")
+
+        # Create call record in database.
+        # `started_at` — not `start_time`, which is not a column on Call. The
+        # wrong name raised TypeError before the row was ever built.
         call = Call(
             id=call_id,
+            user_id=agent.user_id,
+            organization_id=agent.organization_id,
             agent_id=agent_id,
             from_number=phone_number,
             to_number="system",  # Updated by telephony provider
             direction="inbound",
             status=CallState.INITIATED.value,
-            start_time=datetime.utcnow(),
+            started_at=datetime.utcnow(),
         )
         db.add(call)
         await db.commit()

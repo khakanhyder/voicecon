@@ -11,12 +11,30 @@ import secrets
 from app.core.config import settings
 
 
+#: bcrypt hashes at most 72 bytes of input and raises on anything longer.
+BCRYPT_MAX_BYTES = 72
+
+
+def _bcrypt_bytes(password: str) -> bytes:
+    """
+    Encode a password for bcrypt, clipped to the 72 bytes bcrypt will read.
+
+    Hashing and verifying MUST clip identically. They did not: hashing truncated
+    and verifying passed the full string, so a password longer than 72 bytes
+    registered successfully and then raised `ValueError` on every subsequent
+    login — a permanent lockout, surfacing as a 500. Nothing caps password
+    length on the way in, so a long passphrase was enough to trigger it.
+    """
+    encoded = password.encode('utf-8')
+    return encoded[:BCRYPT_MAX_BYTES]
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain password against a hashed password using bcrypt.
     """
     return bcrypt.checkpw(
-        plain_password.encode('utf-8'),
+        _bcrypt_bytes(plain_password),
         hashed_password.encode('utf-8') if isinstance(hashed_password, str) else hashed_password
     )
 
@@ -26,14 +44,8 @@ def get_password_hash(password: str) -> str:
     Hash a password using bcrypt.
     Truncates password to 72 bytes if necessary (bcrypt limitation).
     """
-    # Truncate password to 72 bytes to avoid bcrypt error
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-
-    # Generate salt and hash
     salt = bcrypt.gensalt(rounds=12)
-    hashed = bcrypt.hashpw(password_bytes, salt)
+    hashed = bcrypt.hashpw(_bcrypt_bytes(password), salt)
     return hashed.decode('utf-8')
 
 

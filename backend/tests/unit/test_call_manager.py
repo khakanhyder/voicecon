@@ -1,440 +1,471 @@
 """
-Unit tests for CallManager and CallSession.
+Unit tests for CallManager, CallSession and the audio buffer.
 
-Tests the complete call lifecycle including:
-- Session initialization
-- Audio streaming
-- Transcription processing
-- LLM interaction
-- State management
+`CallSession` writes to `calls` and `call_logs` from inside broad
+`try/except` blocks that log and roll back. That means a column-name mismatch
+does not crash the call — it silently discards the write, and the damage only
+shows up later as an unbilled call or an empty log. Several of the tests below
+therefore assert on the *database row* after the fact rather than on a return
+value, since a return value would look fine either way.
+
+No STT/LLM/TTS providers are contacted: the session is driven directly.
 """
-import pytest
 import uuid
-from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from fastapi import WebSocket
+from datetime import datetime, timedelta
 
+import pytest
+from sqlalchemy import select
+
+from app.models.call import Call, CallLog
+from app.services.voice.audio_utils import AudioBuffer, AudioStream
 from app.services.voice.call_manager import (
     CallManager,
     CallSession,
     CallState,
     get_call_manager,
 )
-from app.models.agent import Agent
-from app.models.call import Call
-from app.services.voice import TranscriptionResult, AudioChunk
+from app.services.voice.providers.base import AudioChunk
+
+
+class FakeWebSocket:
+    """Records what the session sends, instead of talking to a socket."""
+
+    def __init__(self):
+        self.sent_json = []
+        self.sent_bytes = []
+
+    async def send_json(self, payload):
+        self.sent_json.append(payload)
+
+    async def send_bytes(self, data):
+        self.sent_bytes.append(data)
+
+    async def receive(self):
+        return {"type": "websocket.disconnect"}
+
+    async def close(self, code=1000):
+        self.closed_with = code
+
+
+def _chunk(data=b"\x00\x01" * 80, sample_rate=8000):
+    return AudioChunk(data=data, sample_rate=sample_rate)
+
+
+async def _make_call_row(db, agent, *, call_id=None, status="initiated"):
+    """Insert the `calls` row a live session would already have."""
+    call = Call(
+        id=call_id or uuid.uuid4(),
+        user_id=agent.user_id,
+        organization_id=agent.organization_id,
+        agent_id=agent.id,
+        from_number="+15551234567",
+        to_number="+15559876543",
+        direction="inbound",
+        status=status,
+        started_at=datetime.utcnow(),
+    )
+    db.add(call)
+    await db.commit()
+    return call
+
+
+def _session(db, agent, call_id, websocket=None):
+    return CallSession(
+        call_id=call_id,
+        agent_id=agent.id,
+        phone_number="+15551234567",
+        websocket=websocket or FakeWebSocket(),
+        db=db,
+    )
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
-class TestCallSession:
-    """Test CallSession functionality."""
+@pytest.mark.calls
+class TestCallSessionSetup:
+    async def test_session_starts_in_the_initiated_state(self, db_session, test_agent):
+        session = _session(db_session, test_agent, uuid.uuid4())
 
-    async def test_session_initialization(self, db_session, test_agent):
-        """Test call session initialization."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
-        phone_number = "+1234567890"
-
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number=phone_number,
-            websocket=websocket,
-            db=db_session,
-        )
-
-        assert session.call_id == call_id
-        assert session.agent_id == test_agent.id
-        assert session.phone_number == phone_number
         assert session.state == CallState.INITIATED
         assert session.agent is None
+        assert session.organization_id is None
 
-        # Initialize session
+    async def test_initialize_loads_the_agent_and_its_workspace(
+        self, db_session, test_agent
+    ):
+        """`organization_id` is what usage tracking bills against."""
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
+
         await session.initialize()
 
-        assert session.agent is not None
         assert session.agent.id == test_agent.id
         assert session.organization_id == test_agent.organization_id
 
-    async def test_session_initialization_agent_not_found(self, db_session):
-        """Test session initialization with non-existent agent."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
-        agent_id = uuid.uuid4()
-        phone_number = "+1234567890"
+    async def test_initialize_answers_the_call(self, db_session, test_agent):
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
 
+        await session.initialize()
+
+        assert session.state == CallState.ANSWERED
+
+    async def test_initialize_sends_the_agents_greeting(self, db_session, test_agent):
+        call = await _make_call_row(db_session, test_agent)
+        websocket = FakeWebSocket()
+        session = _session(db_session, test_agent, call.id, websocket)
+
+        await session.initialize()
+
+        greetings = [m for m in websocket.sent_json if m.get("type") == "agent_message"]
+        assert greetings and greetings[0]["text"] == test_agent.first_message
+
+    async def test_unknown_agent_is_refused(self, db_session, test_agent):
+        """A call for an agent that no longer exists must not open a session."""
+        call = await _make_call_row(db_session, test_agent)
         session = CallSession(
-            call_id=call_id,
-            agent_id=agent_id,
-            phone_number=phone_number,
-            websocket=websocket,
+            call_id=call.id,
+            agent_id=uuid.uuid4(),
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
             db=db_session,
         )
 
         with pytest.raises(ValueError, match="Agent not found"):
             await session.initialize()
 
-    async def test_session_state_transitions(self, db_session, test_agent):
-        """Test call state transitions."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
 
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
+@pytest.mark.unit
+@pytest.mark.calls
+class TestCallStatePersistence:
+    async def test_state_change_is_written_to_the_call_row(
+        self, db_session, test_agent
+    ):
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
 
-        await session.initialize()
+        await session._update_call_state(CallState.IN_PROGRESS)
 
-        # Initial state
-        assert session.state == CallState.INITIATED
+        await db_session.refresh(call)
+        assert call.status == CallState.IN_PROGRESS.value
 
-        # Simulate state changes
-        session.state = CallState.RINGING
-        assert session.state == CallState.RINGING
+    async def test_completion_records_end_time_and_duration(
+        self, db_session, test_agent
+    ):
+        """
+        Regression: this wrote `end_time`/`duration`, which are not columns on
+        `Call`. The AttributeError was swallowed and rolled back, so completed
+        calls kept their old status and never stored a duration — and billing,
+        which reads that duration, metered nothing.
+        """
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
+        session.start_time = datetime.utcnow() - timedelta(seconds=90)
 
-        session.state = CallState.ANSWERED
-        assert session.state == CallState.ANSWERED
+        await session._update_call_state(CallState.COMPLETED)
 
-        session.state = CallState.IN_PROGRESS
+        await db_session.refresh(call)
+        assert call.status == CallState.COMPLETED.value
+        assert call.ended_at is not None
+        assert 85 <= call.duration_seconds <= 95
+
+    async def test_state_change_for_an_unknown_call_is_survivable(
+        self, db_session, test_agent
+    ):
+        """A missing row must not take the live call down with it."""
+        session = _session(db_session, test_agent, uuid.uuid4())
+
+        await session._update_call_state(CallState.IN_PROGRESS)
+
         assert session.state == CallState.IN_PROGRESS
 
-    async def test_audio_buffer_management(self, db_session, test_agent):
-        """Test audio buffer handling."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
 
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
+@pytest.mark.unit
+@pytest.mark.calls
+class TestCallEventLogging:
+    async def test_event_is_written_to_the_call_log(self, db_session, test_agent):
+        """
+        Regression: the log entry was built with `event_type=`/`metadata=`,
+        neither of which is a column, so every event raised TypeError and was
+        swallowed — `call_logs` stayed empty for every call.
+        """
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
 
-        await session.initialize()
+        await session._log_event("transcription_final", {"text": "hello there"})
 
-        # Verify audio buffer exists
-        assert session.audio_buffer is not None
-        assert session.audio_stream is not None
+        rows = (
+            await db_session.execute(
+                select(CallLog).where(CallLog.call_id == call.id)
+            )
+        ).scalars().all()
 
-        # Test adding audio data
-        audio_data = b"fake_audio_data"
-        session.audio_buffer.add(audio_data)
+        assert len(rows) == 1
+        assert rows[0].log_type == "transcription_final"
+        assert rows[0].details["text"] == "hello there"
 
-        assert len(session.audio_buffer) > 0
+    async def test_error_events_are_recorded_at_error_severity(
+        self, db_session, test_agent
+    ):
+        """Severity is what makes a failing call findable in the log table."""
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
 
-    async def test_transcript_accumulation(self, db_session, test_agent):
-        """Test transcript accumulation during call."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
+        await session._log_event("llm_error", {"error": "provider timed out"})
 
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
+        row = (
+            await db_session.execute(
+                select(CallLog).where(CallLog.call_id == call.id)
+            )
+        ).scalar_one()
 
-        await session.initialize()
+        assert row.severity == "error"
+        assert row.message == "provider timed out"
 
-        # Add transcript entries
+
+@pytest.mark.unit
+@pytest.mark.calls
+class TestTranscript:
+    async def test_transcript_accumulates_in_order(self, db_session, test_agent):
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
+
         session.transcript.append("Hello, how can I help you?")
         session.transcript.append("I need help with my order.")
-        session.transcript.append("Of course, I can help with that.")
 
-        assert len(session.transcript) == 3
-        assert "help with my order" in session.transcript[1]
-
-    @patch("app.services.voice.call_manager.get_stt_service")
-    @patch("app.services.voice.call_manager.get_llm_service")
-    @patch("app.services.voice.call_manager.get_tts_service")
-    async def test_handle_audio_chunk(
-        self,
-        mock_tts,
-        mock_llm,
-        mock_stt,
-        db_session,
-        test_agent,
-    ):
-        """Test handling incoming audio chunks."""
-        # Setup mocks
-        mock_stt_instance = AsyncMock()
-        mock_stt_instance.transcribe.return_value = TranscriptionResult(
-            text="Hello, I need help",
-            is_final=True,
-            confidence=0.95,
-        )
-        mock_stt.return_value = mock_stt_instance
-
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
-
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
-
-        await session.initialize()
-
-        # Simulate receiving audio
-        audio_chunk = AudioChunk(
-            data=b"fake_audio_data",
-            timestamp=datetime.utcnow(),
-        )
-
-        # This would be part of the actual implementation
-        session.audio_buffer.add(audio_chunk.data)
-
-        assert len(session.audio_buffer) > 0
-
-    async def test_call_duration_calculation(self, db_session, test_agent):
-        """Test call duration calculation."""
-        websocket = AsyncMock(spec=WebSocket)
-        call_id = uuid.uuid4()
-
-        session = CallSession(
-            call_id=call_id,
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
-
-        await session.initialize()
-
-        start_time = session.start_time
-        assert start_time is not None
-        assert session.end_time is None
-
-        # Simulate call end
-        session.end_time = datetime.utcnow()
-        duration = (session.end_time - start_time).total_seconds()
-
-        assert duration >= 0
-        assert session.end_time > session.start_time
+        assert len(session.transcript) == 2
+        assert "my order" in session.transcript[1]
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
+@pytest.mark.calls
+class TestAudioBuffer:
+    async def test_chunks_come_back_in_order(self):
+        buffer = AudioBuffer(max_size=10)
+
+        await buffer.put(_chunk(b"first" * 32))
+        await buffer.put(_chunk(b"second" * 32))
+
+        assert (await buffer.get()).data == b"first" * 32
+        assert (await buffer.get()).data == b"second" * 32
+
+    async def test_size_tracks_pending_chunks(self):
+        buffer = AudioBuffer(max_size=10)
+        assert buffer.is_empty() is True
+
+        await buffer.put(_chunk())
+
+        assert buffer.size() == 1
+        assert buffer.is_empty() is False
+
+    async def test_duration_is_derived_from_the_sample_rate(self):
+        """16-bit mono: bytes / (sample_rate * 2) seconds."""
+        buffer = AudioBuffer(max_size=10)
+
+        await buffer.put(_chunk(data=b"\x00" * 16000, sample_rate=8000))
+
+        assert buffer.duration() == pytest.approx(1.0)
+
+    async def test_buffer_drops_the_oldest_chunk_when_full(self):
+        """
+        Bounded on purpose: a caller who never drains the buffer must not grow it
+        without limit. Dropping the oldest audio is the accepted trade.
+        """
+        buffer = AudioBuffer(max_size=2)
+
+        for marker in (b"a", b"b", b"c"):
+            await buffer.put(_chunk(marker * 32))
+
+        assert buffer.size() == 2
+        assert (await buffer.get()).data == b"b" * 32
+
+    async def test_get_all_drains_the_buffer(self):
+        buffer = AudioBuffer(max_size=10)
+        await buffer.put(_chunk())
+        await buffer.put(_chunk())
+
+        assert len(await buffer.get_all()) == 2
+        assert buffer.is_empty() is True
+
+    async def test_closed_buffer_refuses_new_audio(self):
+        buffer = AudioBuffer(max_size=10)
+        await buffer.close()
+
+        assert buffer.is_closed() is True
+        with pytest.raises(ValueError):
+            await buffer.put(_chunk())
+
+    async def test_get_returns_none_once_closed_and_drained(self):
+        """This is the signal that ends the consumer loop — without it it hangs."""
+        buffer = AudioBuffer(max_size=10)
+        await buffer.put(_chunk())
+        await buffer.close()
+
+        assert await buffer.get() is not None
+        assert await buffer.get() is None
+
+    async def test_stream_iterates_until_the_buffer_closes(self):
+        buffer = AudioBuffer(max_size=10)
+        await buffer.put(_chunk(b"x" * 32))
+        await buffer.put(_chunk(b"y" * 32))
+        await buffer.close()
+
+        received = [chunk.data async for chunk in AudioStream(buffer)]
+
+        assert received == [b"x" * 32, b"y" * 32]
+
+
+@pytest.mark.unit
+@pytest.mark.calls
 class TestCallManager:
-    """Test CallManager functionality."""
-
-    async def test_get_call_manager_singleton(self):
-        """Test that get_call_manager returns singleton instance."""
-        manager1 = get_call_manager()
-        manager2 = get_call_manager()
-
-        assert manager1 is manager2
-        assert isinstance(manager1, CallManager)
-
-    async def test_create_call_session(self, db_session, test_agent):
-        """Test creating a new call session."""
+    async def test_create_call_registers_an_active_session(
+        self, db_session, test_agent
+    ):
         manager = CallManager()
-        websocket = AsyncMock(spec=WebSocket)
-        phone_number = "+1234567890"
 
         session = await manager.create_call(
             agent_id=test_agent.id,
-            phone_number=phone_number,
-            websocket=websocket,
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
             db=db_session,
         )
 
-        assert session is not None
-        assert session.agent_id == test_agent.id
-        assert session.phone_number == phone_number
-        assert session.call_id in manager._sessions
+        assert await manager.get_active_calls_count() == 1
+        assert await manager.get_call(session.call_id) is session
 
-    async def test_get_active_session(self, db_session, test_agent):
-        """Test retrieving an active call session."""
+    async def test_create_call_writes_a_call_row(self, db_session, test_agent):
+        """
+        Regression: the row was built with `start_time=`, which is not a column,
+        and without the NOT NULL `user_id`/`organization_id` — so the websocket
+        call path never produced a call record at all.
+        """
         manager = CallManager()
-        websocket = AsyncMock(spec=WebSocket)
 
-        # Create session
         session = await manager.create_call(
             agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
             db=db_session,
         )
 
-        # Retrieve session
-        retrieved = manager.get_session(session.call_id)
+        call = (
+            await db_session.execute(select(Call).where(Call.id == session.call_id))
+        ).scalar_one()
 
-        assert retrieved is not None
-        assert retrieved.call_id == session.call_id
+        assert call.user_id == test_agent.user_id
+        assert call.organization_id == test_agent.organization_id
+        assert call.agent_id == test_agent.id
+        assert call.direction == "inbound"
+        assert call.status == CallState.INITIATED.value
+        assert call.started_at is not None
 
-    async def test_end_call_session(self, db_session, test_agent):
-        """Test ending a call session."""
-        manager = CallManager()
-        websocket = AsyncMock(spec=WebSocket)
-
-        # Create session
-        session = await manager.create_call(
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
-
-        call_id = session.call_id
-        assert call_id in manager._sessions
-
-        # End session
-        await manager.end_call(call_id)
-
-        # Verify session removed
-        assert call_id not in manager._sessions
-
-    async def test_list_active_sessions(self, db_session, test_agent):
-        """Test listing all active sessions."""
+    async def test_create_call_refuses_an_unknown_agent(self, db_session):
         manager = CallManager()
 
-        # Create multiple sessions
-        session1 = await manager.create_call(
-            agent_id=test_agent.id,
-            phone_number="+1111111111",
-            websocket=AsyncMock(spec=WebSocket),
-            db=db_session,
-        )
-
-        session2 = await manager.create_call(
-            agent_id=test_agent.id,
-            phone_number="+2222222222",
-            websocket=AsyncMock(spec=WebSocket),
-            db=db_session,
-        )
-
-        active_sessions = manager.list_active_sessions()
-
-        assert len(active_sessions) >= 2
-        assert session1.call_id in [s.call_id for s in active_sessions]
-        assert session2.call_id in [s.call_id for s in active_sessions]
-
-    async def test_get_session_by_agent(self, db_session, test_agent):
-        """Test getting sessions by agent ID."""
-        manager = CallManager()
-
-        # Create sessions for the agent
-        await manager.create_call(
-            agent_id=test_agent.id,
-            phone_number="+1111111111",
-            websocket=AsyncMock(spec=WebSocket),
-            db=db_session,
-        )
-
-        await manager.create_call(
-            agent_id=test_agent.id,
-            phone_number="+2222222222",
-            websocket=AsyncMock(spec=WebSocket),
-            db=db_session,
-        )
-
-        agent_sessions = manager.get_sessions_by_agent(test_agent.id)
-
-        assert len(agent_sessions) >= 2
-        assert all(s.agent_id == test_agent.id for s in agent_sessions)
-
-    async def test_concurrent_sessions_limit(self, db_session, test_agent):
-        """Test handling multiple concurrent sessions."""
-        manager = CallManager()
-        max_sessions = 10
-
-        sessions = []
-        for i in range(max_sessions):
-            session = await manager.create_call(
-                agent_id=test_agent.id,
-                phone_number=f"+123456{i:04d}",
-                websocket=AsyncMock(spec=WebSocket),
+        with pytest.raises(ValueError, match="Agent not found"):
+            await manager.create_call(
+                agent_id=uuid.uuid4(),
+                phone_number="+15551234567",
+                websocket=FakeWebSocket(),
                 db=db_session,
             )
-            sessions.append(session)
 
-        assert len(manager.list_active_sessions()) >= max_sessions
+    async def test_each_call_gets_its_own_id(self, db_session, test_agent):
+        manager = CallManager()
 
-        # Clean up
-        for session in sessions:
-            await manager.end_call(session.call_id)
+        first = await manager.create_call(
+            agent_id=test_agent.id,
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
+            db=db_session,
+        )
+        second = await manager.create_call(
+            agent_id=test_agent.id,
+            phone_number="+15559999999",
+            websocket=FakeWebSocket(),
+            db=db_session,
+        )
+
+        assert first.call_id != second.call_id
+        assert await manager.get_active_calls_count() == 2
+
+    async def test_unknown_call_id_returns_none(self):
+        assert await CallManager().get_call(uuid.uuid4()) is None
+
+    async def test_remove_call_frees_the_slot(self, db_session, test_agent):
+        manager = CallManager()
+        session = await manager.create_call(
+            agent_id=test_agent.id,
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
+            db=db_session,
+        )
+
+        await manager.remove_call(session.call_id)
+
+        assert await manager.get_active_calls_count() == 0
+        assert await manager.get_call(session.call_id) is None
+
+    async def test_removing_an_unknown_call_is_a_no_op(self):
+        """Cleanup paths call this twice; the second must not raise."""
+        manager = CallManager()
+
+        await manager.remove_call(uuid.uuid4())
+
+        assert await manager.get_active_calls_count() == 0
+
+    async def test_cleanup_all_empties_the_registry(self, db_session, test_agent):
+        manager = CallManager()
+        await manager.create_call(
+            agent_id=test_agent.id,
+            phone_number="+15551234567",
+            websocket=FakeWebSocket(),
+            db=db_session,
+        )
+
+        await manager.cleanup_all()
+
+        assert await manager.get_active_calls_count() == 0
+
+    def test_get_call_manager_is_a_singleton(self):
+        """One process-wide registry, or a call would be invisible to its owner."""
+        assert get_call_manager() is get_call_manager()
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
-class TestCallStateManagement:
-    """Test call state management."""
+@pytest.mark.calls
+class TestSessionCleanup:
+    async def test_cleanup_closes_the_audio_buffer(self, db_session, test_agent):
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
 
-    async def test_call_state_enum_values(self):
-        """Test CallState enum values."""
-        assert CallState.INITIATED == "initiated"
-        assert CallState.RINGING == "ringing"
-        assert CallState.ANSWERED == "answered"
-        assert CallState.IN_PROGRESS == "in_progress"
-        assert CallState.COMPLETED == "completed"
-        assert CallState.FAILED == "failed"
-        assert CallState.CANCELLED == "cancelled"
+        await session.cleanup()
 
-    async def test_valid_state_transitions(self, db_session, test_agent):
-        """Test valid state transitions."""
-        websocket = AsyncMock(spec=WebSocket)
-        session = CallSession(
-            call_id=uuid.uuid4(),
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
+        assert session.audio_buffer.is_closed() is True
 
-        await session.initialize()
-
-        # Valid transition flow
-        session.state = CallState.INITIATED
-        session.state = CallState.RINGING
-        session.state = CallState.ANSWERED
+    async def test_cleanup_completes_a_call_still_in_progress(
+        self, db_session, test_agent
+    ):
+        call = await _make_call_row(db_session, test_agent)
+        session = _session(db_session, test_agent, call.id)
         session.state = CallState.IN_PROGRESS
-        session.state = CallState.COMPLETED
 
-        assert session.state == CallState.COMPLETED
+        await session.cleanup()
 
-    async def test_failure_state_transition(self, db_session, test_agent):
-        """Test transitioning to failed state."""
-        websocket = AsyncMock(spec=WebSocket)
-        session = CallSession(
-            call_id=uuid.uuid4(),
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
+        await db_session.refresh(call)
+        assert call.status == CallState.COMPLETED.value
 
-        await session.initialize()
+    @pytest.mark.parametrize(
+        "terminal", [CallState.COMPLETED, CallState.FAILED, CallState.CANCELLED]
+    )
+    async def test_cleanup_leaves_an_already_finished_call_alone(
+        self, db_session, test_agent, terminal
+    ):
+        """A failed call must not be rewritten as a successful one on teardown."""
+        call = await _make_call_row(db_session, test_agent, status=terminal.value)
+        session = _session(db_session, test_agent, call.id)
+        session.state = terminal
 
-        session.state = CallState.IN_PROGRESS
-        session.state = CallState.FAILED
+        await session.cleanup()
 
-        assert session.state == CallState.FAILED
-
-    async def test_cancelled_state_transition(self, db_session, test_agent):
-        """Test transitioning to cancelled state."""
-        websocket = AsyncMock(spec=WebSocket)
-        session = CallSession(
-            call_id=uuid.uuid4(),
-            agent_id=test_agent.id,
-            phone_number="+1234567890",
-            websocket=websocket,
-            db=db_session,
-        )
-
-        await session.initialize()
-
-        session.state = CallState.RINGING
-        session.state = CallState.CANCELLED
-
-        assert session.state == CallState.CANCELLED
+        await db_session.refresh(call)
+        assert call.status == terminal.value

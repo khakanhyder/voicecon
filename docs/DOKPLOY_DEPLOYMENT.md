@@ -421,18 +421,32 @@ Without these the agents cannot hold a conversation.
 
 ### Email — required, and a hard gate on launch
 
+Production sends from the `noreply@voicecon.ai` cPanel mailbox
+(`server.vconekthost.com`):
+
 ```bash
 EMAIL_PROVIDER=auto
-EMAIL_FROM=no-reply@yourdomain.com
+EMAIL_FROM=noreply@voicecon.ai
 EMAIL_FROM_NAME=Voicecon
-SMTP_HOST=smtp.yourprovider.com
-SMTP_PORT=587
-SMTP_USERNAME=...
-SMTP_PASSWORD=...
-SMTP_USE_TLS=true
-SMTP_USE_SSL=false
+SMTP_HOST=mail.voicecon.ai
+SMTP_PORT=465
+SMTP_USERNAME=noreply@voicecon.ai   # full address, not just "noreply"
+SMTP_PASSWORD=...                   # cPanel > Email Accounts > Manage
+SMTP_USE_TLS=false
+SMTP_USE_SSL=true
 REQUIRE_EMAIL_VERIFICATION=true
 ```
+
+Port 465 (implicit SSL) is the safest choice: many hosts block outbound 587 from
+containers. If 465 is unreachable, fall back to `SMTP_PORT=587` with
+`SMTP_USE_TLS=true` / `SMTP_USE_SSL=false`.
+
+Exim rejects a `From` that isn't a mailbox on the authenticated account, so
+`EMAIL_FROM` must stay equal to `SMTP_USERNAME`. For inbox placement, confirm
+cPanel's SPF and DKIM records for `voicecon.ai` are published in DNS
+(cPanel > Email Deliverability).
+
+Verify after deploy with `python scripts/test_smtp.py you@example.com`.
 
 > **Test email delivery before you announce the deploy.** With
 > `REQUIRE_EMAIL_VERIFICATION=true` and no working SMTP transport, `EMAIL_PROVIDER=auto`

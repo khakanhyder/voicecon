@@ -43,6 +43,8 @@ dist/
 .env.local
 .env.*.local
 .env.production
+# Local backups of env files (contain live credentials)
+.env.bak*
 
 # IDEs
 .vscode/
@@ -64,6 +66,10 @@ logs/
 
 # Testing
 .coverage
+# Per-process data files from parallel coverage runs. `.coverage` above is an
+# exact filename and does not match these, so they showed up as untracked.
+.coverage.*
+coverage.xml
 .pytest_cache/
 htmlcov/
 .tox/
