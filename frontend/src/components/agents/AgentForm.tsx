@@ -391,7 +391,7 @@ export const AGENT_TABS = [
   { id: 'tools',        label: 'Tools',          icon: Wrench },
   { id: 'conversation', label: 'Conversation',   icon: MessageSquare },
   { id: 'advanced',     label: 'Advanced',       icon: Settings },
-  { id: 'knowledge',    label: 'Knowledge',      icon: BookOpen },
+  { id: 'knowledge',    label: 'Knowledge base', icon: BookOpen },
   { id: 'widget',       label: 'Chat Widget',    icon: MessageSquare },
   { id: 'calls',        label: 'Call History',   icon: Phone },
 ] as const
@@ -457,9 +457,9 @@ function SliderField({ label, value, min, max, step, format, onChange, hints }: 
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <Label className="text-[15px] font-semibold text-[#000000] font-poppins flex items-center gap-2">
-          {label} <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-black text-[9px] font-bold leading-none">i</span>
+          {label} <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
         </Label>
-        <span className="min-w-[50px] rounded-[6px] border border-[#000000] bg-[#0F6A590A] px-3 py-1.5 text-center text-[13px] font-medium text-[#000000] font-poppins">
+        <span className="min-w-[50px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-[13px] font-medium text-[#000000] font-poppins">
           {display}
         </span>
       </div>
@@ -501,7 +501,7 @@ function SectionCard({ title, subtitle, icon: Icon, children, hint }: {
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="rounded-[10px] border border-[#000000] bg-white overflow-hidden mt-4">
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden mt-4">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -569,7 +569,7 @@ function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex h-[42px] w-full items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-3 text-[14px] font-poppins text-[#000000]"
+        className="flex h-[42px] w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-[14px] font-poppins text-[#000000] outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15"
       >
         <span className={selectedNames.length ? 'text-[#000000] font-medium' : 'text-slate-500 font-medium'}>{label}</span>
         <ChevronDown className="h-5 w-5 flex-shrink-0 text-[#106959]" />
@@ -610,7 +610,7 @@ export function AgentIdentityFields({ form, set }: {
   form: AgentFormState; set: (key: keyof AgentFormState, value: any) => void
 }) {
   return (
-    <div className="space-y-4 rounded-[10px] border border-[#000000] bg-white p-5">
+    <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="space-y-2">
         <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Assistant Name <span className="text-red-500">*</span></Label>
         <Input
@@ -618,7 +618,7 @@ export function AgentIdentityFields({ form, set }: {
           value={form.name}
           onChange={e => set('name', e.target.value)}
           required
-          className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+          className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3 text-[14px]"
         />
       </div>
       <div className="space-y-2">
@@ -628,7 +628,7 @@ export function AgentIdentityFields({ form, set }: {
           value={form.description}
           onChange={e => set('description', e.target.value)}
           rows={3}
-          className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]"
+          className="w-full rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3 py-2 text-[14px]"
         />
       </div>
     </div>
@@ -650,7 +650,7 @@ export function AgentTabContent({ tab, form, set }: {
     return (
       <div className="flex flex-col w-[85%]">
         <SectionCard title="Model" subtitle="Configure the behaviour of the assistant">
-          <div className="grid gap-x-10 gap-y-6 lg:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-6 lg:grid-cols-2">
             {/* Left column */}
             <div className="space-y-6">
               <div className="space-y-2">
@@ -659,7 +659,7 @@ export function AgentTabContent({ tab, form, set }: {
                   value={form.first_message} 
                   onChange={e => set('first_message', e.target.value)} 
                   placeholder="Thank you for calling Wellness Partners..."
-                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 py-2"
+                  className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 py-2"
                 />
               </div>
               <div className="space-y-2">
@@ -669,7 +669,7 @@ export function AgentTabContent({ tab, form, set }: {
                   value={form.system_prompt} 
                   onChange={e => set('system_prompt', e.target.value)}
                   rows={13} required
-                  className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 py-3 leading-relaxed text-[13px]"
+                  className="w-full rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 py-3 leading-relaxed text-[13px]"
                 />
               </div>
             </div>
@@ -683,7 +683,7 @@ export function AgentTabContent({ tab, form, set }: {
                    <Input 
                      value={LLM_PROVIDERS.find(p => p.value === form.llm_provider)?.label || 'open.ai'}
                      readOnly
-                     className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                     className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins pl-4 pr-10 font-medium cursor-pointer"
                    />
                    <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
                      <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
@@ -693,6 +693,7 @@ export function AgentTabContent({ tab, form, set }: {
                        ))}
                      </SelectContent>
                    </Select>
+                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#106959]" />
                 </div>
               </div>
 
@@ -703,7 +704,7 @@ export function AgentTabContent({ tab, form, set }: {
                    <Input 
                      value={(LLM_MODELS[form.llm_provider] || []).find(m => m.value === form.llm_model)?.label.split(' ')[0] || 'GPT-4'}
                      readOnly
-                     className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                     className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins pl-4 pr-10 font-medium cursor-pointer"
                    />
                    <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
                      <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
@@ -713,6 +714,7 @@ export function AgentTabContent({ tab, form, set }: {
                        ))}
                      </SelectContent>
                    </Select>
+                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#106959]" />
                 </div>
               </div>
 
@@ -731,13 +733,13 @@ export function AgentTabContent({ tab, form, set }: {
 
               <div className="space-y-2 pt-2">
                 <Label className="text-[15px] font-bold text-[#000000] font-poppins flex items-center gap-2">
-                  Max Token <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-black text-[9px] font-bold leading-none">i</span>
+                  Max Token <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
                 </Label>
                 <Input
                   type="number" min={100} max={4000} step={50}
                   value={form.llm_max_tokens}
                   onChange={e => set('llm_max_tokens', parseInt(e.target.value) || 0)}
-                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-4 font-medium"
+                  className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 font-medium"
                 />
               </div>
             </div>
@@ -754,7 +756,7 @@ export function AgentTabContent({ tab, form, set }: {
         <div className="space-y-2">
           <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
           <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
-            <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+            <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {LLM_PROVIDERS.map(p => (
                 <SelectItem key={p.value} value={p.value}>
@@ -767,7 +769,7 @@ export function AgentTabContent({ tab, form, set }: {
         <div className="space-y-2">
           <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
           <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
-            <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+            <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {(LLM_MODELS[form.llm_provider] || []).map(m => (
                 <SelectItem key={m.value} value={m.value}>
@@ -811,7 +813,7 @@ export function AgentTabContent({ tab, form, set }: {
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
             <Select value={form.tts_provider || 'elevenlabs'} onValueChange={v => { set('tts_provider', v); set('tts_voice_id', (TTS_VOICES[v] || TTS_VOICES.elevenlabs)[0]?.value || '21m00Tcm4TlvDq8ikWAM') }}>
-              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {TTS_PROVIDERS.map(p => (
                   <SelectItem key={p.value} value={p.value}>
@@ -824,7 +826,7 @@ export function AgentTabContent({ tab, form, set }: {
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Voice</Label>
             <Select value={form.tts_voice_id || defaultVoiceId || (currentVoices[0]?.value ?? '')} onValueChange={v => set('tts_voice_id', v)}>
-              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {currentVoices.map(v => (
                   <SelectItem key={v.value} value={v.value}>
@@ -872,7 +874,7 @@ export function AgentTabContent({ tab, form, set }: {
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
             <Select value={form.stt_provider || 'deepgram'} onValueChange={v => { set('stt_provider', v); set('stt_model', (STT_MODELS[v] || STT_MODELS.deepgram)[0]?.value || 'nova-2') }}>
-              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {STT_PROVIDERS.map(p => (
                   <SelectItem key={p.value} value={p.value}>
@@ -885,7 +887,7 @@ export function AgentTabContent({ tab, form, set }: {
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
             <Select value={form.stt_model || defaultSttModel} onValueChange={v => set('stt_model', v)}>
-              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {sttModels.map(m => (
                   <SelectItem key={m.value} value={m.value}>
@@ -898,7 +900,7 @@ export function AgentTabContent({ tab, form, set }: {
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Language</Label>
             <Select value={form.stt_language} onValueChange={v => set('stt_language', v)}>
-              <SelectTrigger className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
               </SelectContent>
@@ -913,7 +915,7 @@ export function AgentTabContent({ tab, form, set }: {
   if (tab === 'conversation') return (
     <div className="flex flex-col w-[85%]">
       <SectionCard title="Conversation" subtitle="Turn-taking and call limits" icon={MessageSquare}>
-      <div className="flex items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-4 py-3">
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
         <div>
           <p className="text-sm font-medium text-slate-800">Allow Interruptions (Barge-in)</p>
           <p className="text-xs text-slate-400 mt-0.5">User can speak while agent is talking</p>
@@ -943,7 +945,7 @@ export function AgentTabContent({ tab, form, set }: {
         { key: 'sentiment_analysis_enabled', label: 'Sentiment Analysis',          desc: 'Detect user sentiment in real-time during calls' },
         { key: 'emotion_detection_enabled',  label: 'Emotion Detection',           desc: 'Analyze emotional tone from voice patterns' },
       ].map(({ key, label, desc }) => (
-        <div key={key} className="flex items-center justify-between rounded-[8px] border border-[#000000] bg-[#0F6A590A] px-4 py-3">
+        <div key={key} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
           <div>
             <p className="text-sm font-medium text-slate-800">{label}</p>
             <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
@@ -961,12 +963,12 @@ export function AgentTabContent({ tab, form, set }: {
 // ── Tab nav bar ───────────────────────────────────────────────────────────────
 
 /**
- * Step row from the design — a green dot per step, the active step in bold
- * slate with a green underline.
+ * Step row from the design — the active step is a solid green pill, the rest
+ * are plain text.
  */
 export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; onChange: (tab: AgentTabId) => void }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto border-b border-[#E5E7EB] pt-1">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
       {AGENT_TABS.map(({ id, label }) => {
         const active = activeTab === id
         return (
@@ -975,17 +977,13 @@ export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; on
             type="button"
             onClick={() => onChange(id)}
             title={label}
-            className={`flex items-center gap-2 whitespace-nowrap pb-[14px] text-[15px] font-poppins transition-colors relative ${
+            className={`whitespace-nowrap rounded-3xl px-4 py-2 text-[15px] font-poppins transition-colors ${
               active
-                ? 'font-bold text-[#000000]'
-                : 'font-medium text-[#000000] hover:opacity-80'
+                ? 'bg-[#106959] font-semibold text-white'
+                : 'font-medium text-[#000000] hover:bg-slate-100'
             }`}
           >
-            <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${active ? 'bg-[#106959]' : 'bg-[#106959]'}`} />
             {label}
-            {active && (
-              <span className="absolute bottom-[-1px] left-0 w-full h-[3px] bg-[#106959] rounded-t-sm" />
-            )}
           </button>
         )
       })}

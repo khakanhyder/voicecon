@@ -312,7 +312,7 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Call outcomes */}
         <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5 lg:col-span-1">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <h3 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-slate-400" />
             Call Outcomes
           </h3>
@@ -332,8 +332,8 @@ export default function AnalyticsPage() {
                 return (
                   <div key={row.label}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-slate-600">{row.label}</span>
-                      <span className={`text-xs font-semibold ${row.text}`}>{row.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
+                      <span className="text-sm font-medium text-slate-600">{row.label}</span>
+                      <span className={`text-sm font-semibold ${row.text}`}>{row.value} <span className="text-slate-400 font-normal">({pct}%)</span></span>
                     </div>
                     <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${row.color} transition-all duration-500`} style={{ width: `${pct}%` }} />
@@ -343,7 +343,7 @@ export default function AnalyticsPage() {
               })}
 
               <div className="pt-3 border-t border-slate-100 mt-3">
-                <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center justify-between text-sm text-slate-500">
                   <span>Total calls in period</span>
                   <span className="font-semibold text-slate-800">{fmt(callMetrics?.total_calls)}</span>
                 </div>
@@ -354,7 +354,7 @@ export default function AnalyticsPage() {
 
         {/* Sentiment */}
         <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <h3 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Activity className="h-4 w-4 text-slate-400" />
             Sentiment Analysis
           </h3>
@@ -366,13 +366,13 @@ export default function AnalyticsPage() {
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Activity className="h-8 w-8 text-slate-200 mb-2" />
               <p className="text-sm text-slate-400">No sentiment data yet</p>
-              <p className="text-xs text-slate-300 mt-1">Will appear after calls are processed</p>
+              <p className="text-sm text-slate-300 mt-1">Will appear after calls are processed</p>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="text-center">
                 <div className="text-4xl font-bold text-slate-900">{(callMetrics.avg_sentiment_score * 100).toFixed(0)}</div>
-                <div className="text-xs text-slate-500 mt-1">Avg sentiment score (out of 100)</div>
+                <div className="text-sm text-slate-500 mt-1">Avg sentiment score (out of 100)</div>
               </div>
               {[
                 { label: 'Positive', value: callMetrics.positive_sentiment_count, color: 'bg-emerald-500', text: 'text-emerald-600' },
@@ -384,8 +384,8 @@ export default function AnalyticsPage() {
                 return (
                   <div key={row.label}>
                     <div className="flex justify-between mb-1">
-                      <span className="text-xs font-medium text-slate-600">{row.label}</span>
-                      <span className={`text-xs font-semibold ${row.text}`}>{pct}%</span>
+                      <span className="text-sm font-medium text-slate-600">{row.label}</span>
+                      <span className={`text-sm font-semibold ${row.text}`}>{pct}%</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                       <div className={`h-full rounded-full ${row.color}`} style={{ width: `${pct}%` }} />
@@ -399,7 +399,7 @@ export default function AnalyticsPage() {
 
         {/* Today snapshot */}
         <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <h3 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Zap className="h-4 w-4 text-slate-400" />
             Today&apos;s Snapshot
           </h3>
@@ -418,7 +418,7 @@ export default function AnalyticsPage() {
                 { label: 'Active integrations', value: fmt(dashboard?.integrations.active_count) },
               ].map((row) => (
                 <div key={row.label} className="flex items-center justify-between py-2.5">
-                  <span className="text-xs text-slate-500">{row.label}</span>
+                  <span className="text-sm text-slate-500">{row.label}</span>
                   <span className="text-sm font-semibold text-slate-800">{row.value}</span>
                 </div>
               ))}
@@ -432,7 +432,7 @@ export default function AnalyticsPage() {
         {/* Real-time metrics */}
         <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               Real-time Metrics
             </h3>
@@ -459,7 +459,7 @@ export default function AnalyticsPage() {
                   <div key={item.label} className={`rounded-lg p-3 ${item.bg}`}>
                     <Icon className={`h-4 w-4 ${item.color} mb-2`} />
                     <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{item.label}</div>
+                    <div className="text-sm text-slate-500 mt-0.5">{item.label}</div>
                   </div>
                 )
               })}
@@ -469,7 +469,7 @@ export default function AnalyticsPage() {
 
         {/* Top agents */}
         <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <h3 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Users className="h-4 w-4 text-slate-400" />
             Top Performing Agents
           </h3>
@@ -481,7 +481,7 @@ export default function AnalyticsPage() {
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Users className="h-8 w-8 text-slate-200 mb-2" />
               <p className="text-sm text-slate-400">No agent data yet</p>
-              <p className="text-xs text-slate-300 mt-1">Create agents and make calls to see performance</p>
+              <p className="text-sm text-slate-300 mt-1">Create agents and make calls to see performance</p>
             </div>
           ) : (
             <div className="space-y-2">

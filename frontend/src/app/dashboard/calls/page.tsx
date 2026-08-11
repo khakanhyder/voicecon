@@ -88,11 +88,12 @@ export default function CallsPage() {
   })
 
   const statCards = [
-    { label: 'Total Calls', value: stats.total, icon: Phone, iconColor: 'text-[#106959]', iconBg: 'bg-[#0F6A5918]', accent: 'border-l-[#106959]', valueBg: 'from-[#0F6A5905] to-white' },
-    { label: 'Completed', value: stats.completed, icon: Phone, iconColor: 'text-emerald-600', iconBg: 'bg-emerald-50', accent: 'border-l-emerald-500', valueBg: 'from-emerald-50/40 to-white' },
-    { label: 'Active Now', value: stats.active, icon: Phone, iconColor: 'text-blue-600', iconBg: 'bg-blue-50', accent: 'border-l-blue-500', valueBg: 'from-blue-50/40 to-white' },
-    { label: 'Total Minutes', value: stats.duration.toFixed(1), icon: Clock, iconColor: 'text-violet-600', iconBg: 'bg-violet-50', accent: 'border-l-violet-500', valueBg: 'from-violet-50/40 to-white' },
-    { label: 'Total Cost', value: `$${stats.cost.toFixed(2)}`, icon: DollarSign, iconColor: 'text-amber-600', iconBg: 'bg-amber-50', accent: 'border-l-amber-500', valueBg: 'from-amber-50/40 to-white' },
+    // One brand-green accent across the row — only the icon and figure change.
+    { label: 'Total Calls', value: stats.total, icon: Phone },
+    { label: 'Completed', value: stats.completed, icon: Phone },
+    { label: 'Active Now', value: stats.active, icon: Phone },
+    { label: 'Total Minutes', value: stats.duration.toFixed(1), icon: Clock },
+    { label: 'Total Cost', value: `$${stats.cost.toFixed(2)}`, icon: DollarSign },
   ]
 
   return (
@@ -103,10 +104,10 @@ export default function CallsPage() {
         {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className={`flex items-center justify-between bg-gradient-to-br ${card.valueBg} rounded-[12px] border border-black/10 border-l-[3px] ${card.accent} p-5 hover:shadow-md transition-shadow duration-200`}>
+            <div key={card.label} className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 border-l-[3px] border-l-[#0F6A59] p-5 hover:border-slate-300 hover:shadow-md transition-all duration-200">
 
-              <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[10px] ${card.iconBg}`}>
-                <Icon className={`h-6 w-6 ${card.iconColor}`} />
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[10px] bg-[#0F6A59]/10">
+                <Icon className="h-6 w-6 text-[#0F6A59]" />
               </div>
               <div>
                 <div className="text-[28px] font-bold font-poppins text-[#000000] leading-none">{card.value}</div>
@@ -126,14 +127,14 @@ export default function CallsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by phone number…"
-            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] pl-9 pr-4 font-poppins text-[14px] text-black placeholder:text-black/40 outline-none"
+            className="w-full h-[45px] rounded-xl bg-white border border-slate-200 pl-9 pr-4 font-poppins text-[14px] text-black placeholder:text-black/40 outline-none focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 transition-colors"
           />
         </div>
         <div className="relative">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="appearance-none h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] pl-4 pr-9 font-poppins text-[14px] text-black outline-none cursor-pointer"
+            className="appearance-none h-[45px] rounded-xl bg-white border border-slate-200 pl-4 pr-9 font-poppins text-[14px] text-black outline-none cursor-pointer focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 transition-colors"
           >
             <option value="all">All statuses</option>
             <option value="completed">Completed</option>
@@ -155,13 +156,13 @@ export default function CallsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-[10px] border border-[#000000] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <div className="min-w-[90rem] w-full">
             {/* Table Header Always Visible */}
-            <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-[#0F6A5904] border-b border-[#000000] text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
+            <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200 text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
               <div className="flex items-center">
-                <input title="Select all" type="checkbox" className="rounded-[4px] border border-black/20 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
+                <input title="Select all" type="checkbox" className="rounded-[4px] border border-slate-300 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
               </div>
               <div>Call ID</div>
               <div>Assistant</div>
@@ -175,7 +176,7 @@ export default function CallsPage() {
             </div>
 
             {isLoading ? (
-              <div className="divide-y divide-[#E2E8F0]">
+              <div className="divide-y divide-slate-200">
                 {[1, 2, 3, 4].map(i => (
                   <div key={i} className="flex items-center gap-4 px-6 py-5 animate-pulse">
                     <div className="h-4 w-4 bg-slate-200 rounded-[4px] flex-shrink-0" />
@@ -214,7 +215,7 @@ export default function CallsPage() {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-[#E2E8F0]">
+              <div className="divide-y divide-slate-200">
                 {filtered.map((call) => {
                   const endReason = call.call_metadata?.disconnection_reason || call.status
                   const assistantPhone = call.direction === 'outbound' ? call.from_number : call.direction === 'inbound' ? call.to_number : 'Web Test'
@@ -224,7 +225,7 @@ export default function CallsPage() {
                     <Link key={call.id} href={`/dashboard/calls/${call.id}`} className="block">
                       <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
                         <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-                          <input type="checkbox" title="Select call" className="rounded-[4px] border border-black/20 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
+                          <input type="checkbox" title="Select call" className="rounded-[4px] border border-slate-300 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
                         </div>
 
                         <div className="text-[13px] font-poppins text-black/80 truncate font-medium" title={call.id}>

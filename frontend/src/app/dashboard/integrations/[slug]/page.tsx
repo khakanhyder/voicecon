@@ -487,7 +487,7 @@ export default function IntegrationDetailPage() {
         <Button variant="ghost" onClick={() => router.push('/dashboard/integrations')} className="mb-4 gap-2 -ml-2 text-slate-600">
           <ArrowLeft className="w-4 h-4" /> Back to Integrations
         </Button>
-        <div className="bg-white rounded-[10px] border border-[#000000] shadow-sm p-6">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="flex items-start gap-4">
             <div className="w-16 h-16 bg-white border border-slate-200 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
               {getIconUrl(integration.slug) && !iconFailed ? (

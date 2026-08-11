@@ -316,7 +316,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
   // ── Render helpers ───────────────────────────────────────────────────────
   const renderOAuthSetup = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-[10px] border border-[#000000] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Shield className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold text-gray-900">Required Permissions</h3>
@@ -332,7 +332,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
         </ul>
       </div>
 
-      <div className="bg-white rounded-[10px] border border-[#000000] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Setup Instructions</h3>
         <ol className="space-y-3">
           {integration.setupSteps.map((step, idx) => (
@@ -367,7 +367,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
 
   const renderApiKeySetup = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-[10px] border border-[#000000] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Key className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold text-gray-900">Enter Your Credentials</h3>
@@ -386,7 +386,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
                 onChange={(e) => setApiKeyValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
                 placeholder={`Enter your ${field.label.toLowerCase()}`}
                 required={field.required}
-                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+                className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3 text-[14px]"
                 disabled={isConnected}
               />
             </div>
@@ -394,7 +394,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
         </div>
       </div>
 
-      <div className="bg-white rounded-[10px] border border-[#000000] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">How to Get Your Credentials</h3>
         <ol className="space-y-3">
           {integration.setupSteps.map((step, idx) => (
@@ -408,7 +408,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
         </ol>
       </div>
 
-      <div className="bg-white rounded-[10px] border border-[#000000] p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Shield className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold text-gray-900">What Voicecon Can Do</h3>

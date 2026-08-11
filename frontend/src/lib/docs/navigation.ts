@@ -212,7 +212,7 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'voice', title: 'Voice (text-to-speech)' },
           { id: 'conversation', title: 'Conversation' },
           { id: 'advanced', title: 'Advanced' },
-          { id: 'knowledge', title: 'Knowledge' },
+          { id: 'knowledge', title: 'Knowledge base' },
           { id: 'tools-tab', title: 'Tools' },
           { id: 'tuning-for-latency', title: 'Tuning for latency' },
         ],

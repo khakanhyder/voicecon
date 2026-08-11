@@ -54,13 +54,13 @@ function formatTotalTime(seconds: number) {
   return `${seconds}s`
 }
 
-const cardStyles = [
-  { border: 'border-l-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-600', Icon: Headphones },
-  { border: 'border-l-blue-500', bg: 'bg-blue-50', text: 'text-blue-600', Icon: User },
-  { border: 'border-l-purple-500', bg: 'bg-purple-50', text: 'text-purple-600', Icon: ShoppingCart },
-  { border: 'border-l-orange-500', bg: 'bg-orange-50', text: 'text-orange-600', Icon: Calendar },
-  { border: 'border-l-teal-500', bg: 'bg-teal-50', text: 'text-teal-600', Icon: HelpCircle },
-]
+/**
+ * Every card carries the sidebar's brand green (#0F6A59) — only the glyph
+ * rotates, so a wall of agents reads as one family.
+ */
+const CARD_ACCENT = { border: 'border-l-[#0F6A59]', bg: 'bg-[#0F6A59]/10', text: 'text-[#0F6A59]' }
+
+const cardStyles = [Headphones, User, ShoppingCart, Calendar, HelpCircle].map(Icon => ({ ...CARD_ACCENT, Icon }))
 
 const providerBadge: Record<string, string> = {
   openai: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -318,7 +318,7 @@ export default function AgentsPage() {
     return (
       <div className="space-y-6">
         <div className="flex h-20 bg-white rounded border border-slate-200 animate-pulse mb-6"></div>
-        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
           {[1, 2, 3, 4].map(i => (
             <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 h-[260px] animate-pulse">
               <div className="flex gap-4 mb-4">
@@ -431,7 +431,7 @@ export default function AgentsPage() {
           )}
         </div>
       ) : (
-        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
           {filtered.map((agent, index) => (
             <AgentCard
               key={agent.id}

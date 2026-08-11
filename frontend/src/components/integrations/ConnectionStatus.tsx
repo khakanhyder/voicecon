@@ -95,9 +95,9 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
   return (
     <div
-      className={`border rounded-[10px] p-6 transition-all ${
+      className={`border rounded-2xl p-6 transition-all ${
         integration.status === 'connected'
-          ? 'border-[#000000] bg-[#0F6A590F]'
+          ? 'border-slate-200 bg-white'
           : integration.status === 'error'
           ? 'border-red-500 bg-red-50/30'
           : 'border-yellow-500 bg-yellow-50/30'

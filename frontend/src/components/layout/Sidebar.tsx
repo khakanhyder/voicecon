@@ -34,8 +34,6 @@ import {
   Users,
   Key,
   Sliders,
-  LifeBuoy,
-  ArrowUpRight,
 } from 'lucide-react'
 
 /** Sidebar palette — brand green (#0F6A59). */
@@ -357,38 +355,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
         <div className={collapsed ? 'px-2' : 'px-3'}>
           <SettingsGroup />
-        </div>
-
-        {/* Documentation lives outside the dashboard at a public route, so it is
-            a plain link rather than a NavItem — it never reads as "active". */}
-        <div className={cn('mt-1', collapsed ? 'px-2' : 'px-3')}>
-          <Link
-            href="/docs"
-            title={collapsed ? 'Documentation' : undefined}
-            className={rowClass(false)}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = SIDEBAR.hover
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = ''
-            }}
-          >
-            <LifeBuoy className="h-5 w-5 flex-shrink-0" strokeWidth={1.75} />
-            {!collapsed && (
-              <>
-                <span className="truncate">Documentation</span>
-                <ArrowUpRight className="ml-auto h-3.5 w-3.5 flex-shrink-0 opacity-60" />
-              </>
-            )}
-            {collapsed && (
-              <div
-                className="absolute left-full ml-3 z-50 hidden whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium text-white shadow-lg group-hover:block"
-                style={{ background: '#0b5045' }}
-              >
-                Documentation
-              </div>
-            )}
-          </Link>
         </div>
       </nav>
 

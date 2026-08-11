@@ -120,8 +120,7 @@ export const IntegrationCard: React.FC<IntegrationCardProps> = ({ integration, o
 
   return (
     <div
-      className={`flex items-center justify-between px-3 sm:px-5 py-3 rounded-lg border border-[#000000] cursor-pointer group gap-2 sm:gap-4`}
-      style={{ background: '#0F6A590F' }}
+      className={`flex items-center justify-between px-3 sm:px-5 py-3 rounded-2xl border border-slate-200 bg-white cursor-pointer group gap-2 sm:gap-4 transition-all hover:border-slate-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.35)]`}
       onClick={onConnect}
     >
       <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">

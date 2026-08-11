@@ -97,7 +97,7 @@ export default function CallerHistory() {
   return (
     <div className="bg-white rounded-xl border border-slate-200 card-shadow p-5">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+        <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
           <Users className="h-4 w-4 text-slate-400" />
           Caller History
           {!loading && (

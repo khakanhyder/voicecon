@@ -165,7 +165,7 @@ function AudioPlayer({ url }: { url: string }) {
   const fmtT = (t: number) => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`
 
   return (
-    <div className="flex items-center gap-3 rounded-[8px] border border-[#000000] bg-white px-4 py-3">
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
       <audio
         ref={audioRef}
         src={url}
@@ -252,7 +252,7 @@ export default function CallDetailPage() {
       </div>
 
       {/* Hero card */}
-      <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[10px] bg-[#0F6A5910]">
@@ -294,7 +294,7 @@ export default function CallDetailPage() {
         {/* Transcript — main column */}
         <div className="lg:col-span-2 xl:col-span-3 space-y-4">
           {/* Conversation summary */}
-          <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
               <Sparkles className="h-4 w-4 text-[#106959]" />
               Conversation Summary
@@ -312,7 +312,7 @@ export default function CallDetailPage() {
 
           {/* Recording player */}
           {call.recording_url && (
-            <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
               <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
                 <Volume2 className="h-4 w-4 text-[#106959]" />
                 Recording
@@ -331,7 +331,7 @@ export default function CallDetailPage() {
           )}
 
           {/* Transcript */}
-          <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-4">
               <FileText className="h-4 w-4 text-black/50" />
               Transcript
@@ -392,7 +392,7 @@ export default function CallDetailPage() {
         {/* Sidebar — 1 col */}
         <div className="space-y-4">
           {/* Call info */}
-          <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
               <Phone className="h-4 w-4 text-black/50" />
               Call Details
@@ -421,7 +421,7 @@ export default function CallDetailPage() {
           </div>
 
           {/* Sentiment */}
-          <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
               <Activity className="h-4 w-4 text-black/50" />
               Sentiment
@@ -430,7 +430,7 @@ export default function CallDetailPage() {
           </div>
 
           {/* Cost breakdown */}
-          <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
               <DollarSign className="h-4 w-4 text-black/50" />
               Cost Breakdown
@@ -451,7 +451,7 @@ export default function CallDetailPage() {
                 </span>
               </div>
             ))}
-            <div className="flex items-center justify-between pt-2 mt-1 border-t border-[#000000]">
+            <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-200">
               <span className="text-[12px] font-bold font-poppins text-[#000000]">Total</span>
               <span className="text-[14px] font-bold font-poppins text-[#000000]">
                 {totalCost ? `$${Number(totalCost).toFixed(4)}` : '—'}
@@ -461,7 +461,7 @@ export default function CallDetailPage() {
 
           {/* Tags */}
           {call.tags && call.tags.length > 0 && (
-            <div className="bg-[#EAF1F2] rounded-[10px] border border-[#000000] p-5">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
               <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
                 <Tag className="h-4 w-4 text-black/50" />
                 Tags

@@ -182,7 +182,7 @@ export default function IntegrationsPage() {
               placeholder="Search..."
               value={categoryQuery}
               onChange={(e) => setCategoryQuery(e.target.value)}
-              className="pl-10 bg-white border border-[#000000] rounded-[6px] h-[36px]"
+              className="pl-10 bg-white border border-slate-200 rounded-full h-[36px]"
             />
           </div>
 
@@ -226,7 +226,7 @@ export default function IntegrationsPage() {
           </div>
 
           {sortedIntegrations.length > 0 ? (
-            <div className="flex flex-col gap-3 pb-4">
+            <div className="grid gap-3 pb-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {sortedIntegrations.map((integration) => {
                 const conn = connectionMap[integration.slug];
                 return (

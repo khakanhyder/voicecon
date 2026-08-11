@@ -226,7 +226,7 @@ export default function DashboardPage() {
                 >
                   <div className="text-2xl font-bold tabular-nums text-white">{item.value}</div>
                   <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-50/75">
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-5 w-5 mb-1" />
                     {item.label}
                   </div>
                 </div>
@@ -279,7 +279,7 @@ export default function DashboardPage() {
 
         {/* Quick actions */}
         <div className="xl:col-span-2">
-          <h2 className="text-sm font-semibold text-slate-900 mb-4">Quick actions</h2>
+          <h2 className="text-base font-semibold text-slate-900 mb-4">Quick actions</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {quickActions.map((action) => {
               const Icon = action.icon
@@ -307,8 +307,8 @@ export default function DashboardPage() {
                     >
                       <Icon className="h-5 w-5 text-white" />
                     </div>
-                    <h3 className="relative text-sm font-semibold text-slate-900">{action.title}</h3>
-                    <p className="relative mt-1 text-xs leading-relaxed text-slate-500">{action.description}</p>
+                    <h3 className="relative text-base font-semibold text-slate-900">{action.title}</h3>
+                    <p className="relative mt-1 text-sm leading-relaxed text-slate-500">{action.description}</p>
                     <div
                       className="relative mt-3 flex items-center gap-1 text-xs font-semibold opacity-0 transition-all duration-200 group-hover:opacity-100"
                       style={{ color: action.accent.solid }}
@@ -324,7 +324,7 @@ export default function DashboardPage() {
 
         {/* Platform features */}
         <div>
-          <h2 className="text-sm font-semibold text-slate-900 mb-4">Platform features</h2>
+          <h2 className="text-base font-semibold text-slate-900 mb-4">Platform features</h2>
           <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
             {features.map((f) => {
               const Icon = f.icon
@@ -334,8 +334,8 @@ export default function DashboardPage() {
                     <Icon className="h-4 w-4 text-[#0F6A59]" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-800">{f.title}</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{f.desc}</p>
+                    <p className="text-base font-medium text-slate-800">{f.title}</p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-slate-500">{f.desc}</p>
                   </div>
                 </div>
               )
