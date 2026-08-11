@@ -40,6 +40,11 @@ WHITE_LABEL = "white_label"
 ANALYTICS = "analytics"
 CALL_RECORDINGS = "call_recordings"
 WEBHOOKS = "webhooks"
+#: Buying a number from a carrier. Off during the trial, so a card-free
+#: account can never place a recurring charge with Twilio or Telnyx —
+#: including on a carrier account the user connected themselves, because the
+#: gate is on the action, not on whose credentials pay for it.
+PHONE_NUMBER_PURCHASE = "phone_number_purchase"
 
 # ---- Limit keys ----
 # Resource limits are counted live from the owning table; usage limits are read
@@ -54,6 +59,10 @@ LIMIT_MINUTES = "minutes_per_month"
 LIMIT_CALLS = "calls_per_month"
 LIMIT_SMS = "sms_per_month"
 LIMIT_EMAILS = "emails_per_month"
+
+#: ``-1`` means "no ceiling". Read by ``Entitlements.within``, which short-
+#: circuits before comparing against usage.
+UNLIMITED = -1
 
 #: Limits counted by a ``SELECT COUNT(*)`` against the resource's own table.
 RESOURCE_LIMITS = frozenset(
@@ -88,6 +97,7 @@ ALL_FEATURES = (
     ANALYTICS,
     CALL_RECORDINGS,
     WEBHOOKS,
+    PHONE_NUMBER_PURCHASE,
 )
 
 #: Human labels for the 402 body and the upgrade dialog.
@@ -109,6 +119,7 @@ FEATURE_LABELS: Dict[str, str] = {
     ANALYTICS: "Analytics",
     CALL_RECORDINGS: "Call recordings & transcripts",
     WEBHOOKS: "Webhooks",
+    PHONE_NUMBER_PURCHASE: "Buying phone numbers",
 }
 
 LIMIT_LABELS: Dict[str, str] = {
@@ -133,11 +144,15 @@ def _features(**overrides: bool) -> Dict[str, bool]:
 
 
 # ---- Free trial ----
-# Deliberately generous on *capability* and strict on *consumption*. Trials
-# convert on feature discovery: a user who never sees lead scoring has no reason
-# to pick the expensive plan. What costs us real money is minutes and calls, and
-# those are capped hard — with overage disabled, because an account with no card
-# on file must never be able to run up a bill.
+# Deliberately generous on *capability*. Trials convert on feature discovery: a
+# user who never sees lead scoring has no reason to pick the expensive plan.
+#
+# Minutes and calls are uncapped. The one thing a trial cannot do is buy a phone
+# number, and that single gate replaces the old consumption caps: a number is a
+# recurring charge at the carrier that outlives the trial, whereas conversation
+# usage is bounded by the trial window itself. Restricting the durable
+# commitment rather than the exploration is both cheaper to run and far less
+# frustrating to evaluate on.
 TRIAL_ENTITLEMENTS: Dict[str, Any] = {
     "features": _features(
         **{
@@ -153,6 +168,7 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
             LEAD_SCORING: True,
             ANALYTICS: True,
             CALL_RECORDINGS: True,
+            # PHONE_NUMBER_PURCHASE stays off — see the note above the key.
         }
     ),
     "limits": {
@@ -162,8 +178,8 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
         LIMIT_TEAM_MEMBERS: 2,
         LIMIT_WORKFLOWS: 2,
         LIMIT_API_KEYS: 0,
-        LIMIT_MINUTES: 60,
-        LIMIT_CALLS: 25,
+        LIMIT_MINUTES: UNLIMITED,
+        LIMIT_CALLS: UNLIMITED,
         LIMIT_SMS: 25,
         LIMIT_EMAILS: 100,
     },
@@ -195,6 +211,7 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
                 ANALYTICS: True,
                 CALL_RECORDINGS: True,
                 WEBHOOKS: True,
+                PHONE_NUMBER_PURCHASE: True,
             }
         ),
         "limits": {
@@ -204,8 +221,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_TEAM_MEMBERS: 3,
             LIMIT_WORKFLOWS: 5,
             LIMIT_API_KEYS: 0,
-            LIMIT_MINUTES: 1000,
-            LIMIT_CALLS: 350,
+            LIMIT_MINUTES: UNLIMITED,
+            LIMIT_CALLS: UNLIMITED,
             LIMIT_SMS: 600,
             LIMIT_EMAILS: 2500,
         },
@@ -220,8 +237,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_TEAM_MEMBERS: 10,
             LIMIT_WORKFLOWS: -1,
             LIMIT_API_KEYS: 10,
-            LIMIT_MINUTES: 3000,
-            LIMIT_CALLS: 600,
+            LIMIT_MINUTES: UNLIMITED,
+            LIMIT_CALLS: UNLIMITED,
             LIMIT_SMS: 1000,
             LIMIT_EMAILS: 5000,
         },

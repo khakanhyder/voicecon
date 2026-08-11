@@ -754,8 +754,7 @@ export default function TestAgentPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href={`/dashboard/agents/${agentId}/edit`}><Button variant="outline" size="sm">Edit</Button></Link>
-          <Link href={`/dashboard/agents/${agentId}`}><Button variant="outline" size="sm">← Back</Button></Link>
+          <Link href={`/dashboard/agents/${agentId}`}><Button variant="outline" size="sm">← Back to assistant</Button></Link>
         </div>
       </div>
 

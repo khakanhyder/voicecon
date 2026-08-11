@@ -386,7 +386,7 @@ export default function BillingPage() {
         <div className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="mb-6">
             <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Usage This Period</h2>
-            <p className="text-[14px] font-poppins text-black/60 mt-1">Track your monthly minutes and calls</p>
+            <p className="text-[14px] font-poppins text-black/60 mt-1">Calls and minutes are unlimited — this is what you have used</p>
           </div>
 
           {loading ? (
@@ -402,83 +402,34 @@ export default function BillingPage() {
               ))}
             </div>
           ) : usage ? (
+            /* Counts only — no bars. Minutes and calls are unlimited on every
+               plan, so a progress bar would have no denominator to fill and an
+               "x / unlimited" ratio is not a thing anyone can read. */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Minutes */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-[#106959]" />
-                    <span className="font-medium font-poppins text-[#000000]">Call Minutes</span>
-                  </div>
-                  <span className="text-[14px] font-semibold font-poppins text-[#000000]">
-                    {usage.minutes_used} / {usage.minutes_included}
-                  </span>
+              <div className="rounded-[8px] border border-black/10 bg-[#0F6A590A] p-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-[#106959]" />
+                  <span className="font-medium font-poppins text-[#000000]">Call Minutes</span>
                 </div>
-                <div className="w-full bg-[#0F6A590A] rounded-full h-2 mb-2">
-                  <div
-                    className="bg-[#106959] h-2 rounded-full"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        usage.minutes_included > 0
-                          ? (usage.minutes_used / usage.minutes_included) * 100
-                          : 0
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[12px] font-poppins text-black/50">
-                  <span>
-                    {usage.minutes_included > 0
-                      ? Math.round((usage.minutes_used / usage.minutes_included) * 100)
-                      : 0}
-                    % used
-                  </span>
-                  {usage.minutes_overage > 0 && (
-                    <span className="text-red-600 font-semibold">
-                      +{usage.minutes_overage} overage
-                    </span>
-                  )}
-                </div>
+                <p className="mt-2 text-[26px] font-bold font-poppins leading-none text-[#000000]">
+                  {usage.minutes_used}
+                </p>
+                <p className="mt-1.5 text-[12px] font-poppins text-black/50">
+                  used this period &middot; unlimited on your plan
+                </p>
               </div>
 
-              {/* Calls */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-5 h-5 text-[#106959]" />
-                    <span className="font-medium font-poppins text-[#000000]">Total Calls</span>
-                  </div>
-                  <span className="text-[14px] font-semibold font-poppins text-[#000000]">
-                    {usage.calls_used} / {usage.calls_included}
-                  </span>
+              <div className="rounded-[8px] border border-black/10 bg-[#0F6A590A] p-4">
+                <div className="flex items-center gap-2">
+                  <Phone className="w-5 h-5 text-[#106959]" />
+                  <span className="font-medium font-poppins text-[#000000]">Total Calls</span>
                 </div>
-                <div className="w-full bg-[#0F6A590A] rounded-full h-2 mb-2">
-                  <div
-                    className="bg-[#106959] h-2 rounded-full"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        usage.calls_included > 0
-                          ? (usage.calls_used / usage.calls_included) * 100
-                          : 0
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[12px] font-poppins text-black/50">
-                  <span>
-                    {usage.calls_included > 0
-                      ? Math.round((usage.calls_used / usage.calls_included) * 100)
-                      : 0}
-                    % used
-                  </span>
-                  {usage.calls_overage > 0 && (
-                    <span className="text-red-600 font-semibold">
-                      +{usage.calls_overage} overage
-                    </span>
-                  )}
-                </div>
+                <p className="mt-2 text-[26px] font-bold font-poppins leading-none text-[#000000]">
+                  {usage.calls_used}
+                </p>
+                <p className="mt-1.5 text-[12px] font-poppins text-black/50">
+                  used this period &middot; unlimited on your plan
+                </p>
               </div>
             </div>
           ) : (
@@ -588,13 +539,12 @@ export default function BillingPage() {
                     </div>
 
                     <div className="space-y-3.5 mb-8 flex-1">
+                      {/* Driven by code, not by `included_minutes`: that column
+                          is legacy pricing data and no longer caps anything, so
+                          rendering it would advertise a limit that is not real. */}
                       <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
                         <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
-                        <span><strong className="font-semibold">{plan.included_minutes.toLocaleString()}</strong> minutes/month</span>
-                      </div>
-                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
-                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
-                        <span><strong className="font-semibold">{plan.included_calls.toLocaleString()}</strong> calls/month</span>
+                        <span><strong className="font-semibold">Unlimited</strong> calls &amp; minutes</span>
                       </div>
                       <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
                         <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />

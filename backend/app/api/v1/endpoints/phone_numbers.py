@@ -240,7 +240,12 @@ async def search_phone_numbers(
     response_model=PhoneNumberResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[
-        Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS))
+        # Buying is gated on the *feature* before the *limit*: a trial has no
+        # allowance to check, it simply may not buy. The feature check also
+        # covers a user's own connected carrier, because the gate is on the
+        # action rather than on whose credentials the carrier bills.
+        Depends(require_entitlement(feature=catalog.PHONE_NUMBER_PURCHASE)),
+        Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS)),
     ],
 )
 async def provision_phone_number(

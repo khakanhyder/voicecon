@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen, ChevronUp, ChevronDown, Check,
+  FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen, ChevronUp, ChevronDown, Check, Phone,
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -393,6 +393,7 @@ export const AGENT_TABS = [
   { id: 'advanced',     label: 'Advanced',       icon: Settings },
   { id: 'knowledge',    label: 'Knowledge',      icon: BookOpen },
   { id: 'widget',       label: 'Chat Widget',    icon: MessageSquare },
+  { id: 'calls',        label: 'Call History',   icon: Phone },
 ] as const
 
 export type AgentTabId = typeof AGENT_TABS[number]['id']
@@ -965,7 +966,7 @@ export function AgentTabContent({ tab, form, set }: {
  */
 export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; onChange: (tab: AgentTabId) => void }) {
   return (
-    <div className="flex items-center gap-7 overflow-x-auto border-b border-[#E5E7EB] pt-1">
+    <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto border-b border-[#E5E7EB] pt-1">
       {AGENT_TABS.map(({ id, label }) => {
         const active = activeTab === id
         return (

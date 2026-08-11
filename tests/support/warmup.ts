@@ -33,7 +33,7 @@ const ROUTES = [
   '/dashboard',
   '/dashboard/agents',
   '/dashboard/agents/new',
-  '/dashboard/agents/warmup/edit',
+  '/dashboard/agents/warmup',
   '/dashboard/analytics',
   '/dashboard/calls',
   '/dashboard/settings',

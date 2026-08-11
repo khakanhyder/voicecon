@@ -11,6 +11,9 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { FEATURES } from '@/lib/entitlements'
+import { useEntitlementStore } from '@/store/entitlementStore'
+import { PhoneNumberPaywall } from '@/components/billing/PhoneNumberPaywall'
 
 interface PhoneNumber {
   id: string
@@ -86,6 +89,11 @@ export default function PhoneNumbersPage() {
   const [searchResults, setSearchResults] = useState<AvailableNumber[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [isPurchasing, setIsPurchasing] = useState<string | null>(null)
+
+  // Whether this plan may buy numbers at all. The backend refuses the purchase
+  // regardless; this only decides whether we show someone a flow that would.
+  const canPurchase = useEntitlementStore((s) => s.has)(FEATURES.PHONE_NUMBER_PURCHASE)
+  const entitlementsLoading = useEntitlementStore((s) => s.isLoading)
 
   // Agent selector state for provisioning
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
@@ -230,6 +238,13 @@ export default function PhoneNumbersPage() {
             </div>
 
             <div className="px-5 pb-6 overflow-y-auto w-full">
+              {/* A plan without the purchase feature never sees the search UI.
+                  Letting someone pick a number and only then telling them they
+                  cannot have it wastes their time and reads as a bug. */}
+              {!entitlementsLoading && !canPurchase ? (
+                <PhoneNumberPaywall onUpgraded={fetchProviders} />
+              ) : (
+              <>
               {providersLoading && (
                 <div className="flex flex-col items-center justify-center py-16 bg-white rounded-[6px] border border-gray-300">
                   <Loader2 className="h-8 w-8 text-blue-500 animate-spin mb-3" />
@@ -480,6 +495,8 @@ export default function PhoneNumbersPage() {
                     )}
                   </div>
                 </div>
+              )}
+              </>
               )}
             </div>
           </div>

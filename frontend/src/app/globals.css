@@ -198,3 +198,85 @@
     box-shadow: 0 0 20px hsl(213 100% 54% / 0.35), 0 0 40px hsl(213 100% 54% / 0.15);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Documentation vertical rhythm.
+
+   All spacing between content blocks on a /docs page lives here rather than on
+   the individual components. Margins spread across a dozen components drift
+   apart the moment one is edited in isolation; a single owner keeps the page on
+   one scale and lets adjacent-sibling rules do what per-component margins
+   cannot — tighten the gap under a heading, and collapse the space between
+   stacked headings.
+
+   Scale (4px base):  block 20 · h4 28 · h3 40 · h2 56
+   ──────────────────────────────────────────────────────────────────────────── */
+.doc-prose > * + * {
+  margin-top: 1.25rem;
+}
+
+.doc-prose > h2 {
+  margin-top: 3.5rem;
+}
+.doc-prose > h3 {
+  margin-top: 2.5rem;
+}
+.doc-prose > h4 {
+  margin-top: 1.75rem;
+}
+.doc-prose > hr {
+  margin-top: 3.5rem;
+}
+
+/* A heading owns the space above it, so whatever follows should sit close
+   enough to read as belonging to it. */
+.doc-prose > h2 + * {
+  margin-top: 1rem;
+}
+.doc-prose > h3 + * {
+  margin-top: 0.75rem;
+}
+.doc-prose > h4 + * {
+  margin-top: 0.625rem;
+}
+
+/* Stacked headings — a subsection opening immediately under its section title
+   should not inherit the full 40px gap meant to separate it from body copy. */
+.doc-prose > h2 + h3,
+.doc-prose > h3 + h4 {
+  margin-top: 1.5rem;
+}
+
+/* The page frame already spaces the body away from the lead paragraph. */
+.doc-prose > :first-child {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .doc-prose > h2 {
+    margin-top: 2.75rem;
+  }
+  .doc-prose > h3 {
+    margin-top: 2rem;
+  }
+}
+
+/* A node/tool reference entry wraps its heading, chip, and summary in one
+   element so they stay together; it still needs the spacing a bare h2 gets. */
+.doc-prose > .doc-ref {
+  margin-top: 3.5rem;
+}
+.doc-prose > .doc-ref + * {
+  margin-top: 1rem;
+}
+
+/* Consecutive "Outputs: …" / "Parameters: …" lines read as one block. */
+.doc-prose > .doc-meta + .doc-meta {
+  margin-top: 0.375rem;
+}
+
+@media (max-width: 640px) {
+  .doc-prose > .doc-ref {
+    margin-top: 2.75rem;
+  }
+}

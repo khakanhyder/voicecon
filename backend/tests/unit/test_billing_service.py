@@ -9,6 +9,7 @@ import uuid
 
 from app.services.billing.stripe_service import StripeService
 from app.services.billing.usage_tracker import UsageTracker
+from app.services.billing import catalog
 from app.models.subscription import SubscriptionPlan, Subscription, UsageRecord
 from app.models.call import Call
 
@@ -107,16 +108,18 @@ class TestStripeService:
         )
 
         assert usage["minutes_used"] == 750
-        assert usage["minutes_included"] == 1000
-        assert usage["minutes_overage"] == 0
         assert usage["calls_used"] == 60
-        assert usage["calls_included"] == 100
+        # No plan includes a minute or call allowance any more, so there is
+        # nothing to be "included" in and nothing to spill into overage.
+        assert usage["minutes_included"] == catalog.UNLIMITED
+        assert usage["calls_included"] == catalog.UNLIMITED
+        assert usage["minutes_overage"] == 0
         assert usage["calls_overage"] == 0
 
-    async def test_get_current_usage_with_overage(
+    async def test_get_current_usage_never_reports_overage(
         self, db_session, stripe_service, test_organization
     ):
-        """Test getting usage when limits are exceeded."""
+        """Heavy usage is still just usage — there is no ceiling to exceed."""
         # Create plan
         plan = SubscriptionPlan(
             name="Test Plan",
@@ -154,8 +157,10 @@ class TestStripeService:
             subscription_id=subscription.id
         )
 
-        assert usage["minutes_overage"] == 250
-        assert usage["calls_overage"] == 20
+        assert usage["minutes_used"] == 1250
+        assert usage["calls_used"] == 120
+        assert usage["minutes_overage"] == 0
+        assert usage["calls_overage"] == 0
 
 
 @pytest.mark.unit
@@ -230,10 +235,10 @@ class TestUsageTracker:
         assert subscription.current_period_minutes == 3  # ceil(180/60)
         assert subscription.current_period_calls == 1
 
-    async def test_record_call_usage_with_overage(
+    async def test_record_call_usage_is_never_priced(
         self, db_session, test_user, test_organization, test_agent
     ):
-        """Test recording usage that exceeds limits."""
+        """Usage past the old allowance is recorded, but costs nothing."""
         # Create plan with low limits
         plan = SubscriptionPlan(
             name="Test Plan",
@@ -303,8 +308,11 @@ class TestUsageTracker:
         )
         minutes_record = result.scalar_one()
 
-        # Should charge for 2 minutes overage
-        assert minutes_record.total_amount == Decimal("0.015") * 2
+        # Recorded for analytics and invoicing history, priced at zero: minutes
+        # are uncapped, so charging "overage" on them would bill every call.
+        assert minutes_record.quantity == 2
+        assert minutes_record.total_amount == 0
+        assert minutes_record.unit_price == 0
 
     async def test_check_usage_limit(self, db_session, test_organization):
         """Test checking usage limits."""

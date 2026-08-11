@@ -69,7 +69,7 @@ export function AssistantsRail({
               return (
                 <Link
                   key={agent.id}
-                  href={`/dashboard/agents/${agent.id}/edit`}
+                  href={`/dashboard/agents/${agent.id}`}
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                     active ? 'bg-[#0F6A59]/10' : 'hover:bg-slate-50'
                   }`}

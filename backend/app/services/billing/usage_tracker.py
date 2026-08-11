@@ -97,14 +97,16 @@ class UsageTracker:
                 logger.error(f"Plan not found for subscription {subscription.id}")
                 return None
 
-            # Create usage records for both minutes and calls
-            # Only charge for overage (beyond included limits)
-            minutes_overage = max(
-                0, subscription.current_period_minutes + minutes - plan.included_minutes
-            )
-            calls_overage = max(
-                0, subscription.current_period_calls + 1 - plan.included_calls
-            )
+            # Conversation usage is recorded but never priced.
+            #
+            # Overage only ever meant "past the included allowance", and no plan
+            # has a minute or call allowance any more. Deriving a charge from a
+            # ceiling that no longer exists would bill every minute as overage
+            # the moment `included_minutes` fell behind reality — the exact
+            # failure the removal of those caps was meant to prevent. The rows
+            # are still written so analytics and invoicing keep their history.
+            minutes_overage = 0
+            calls_overage = 0
 
             # Record minutes usage
             if minutes > 0:

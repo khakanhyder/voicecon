@@ -3,10 +3,15 @@
 /**
  * Compact usage meter for the sidebar.
  *
- * Shows what a trial has left, since a trial's cap is small enough to hit in an
- * afternoon and running out silently is the worst version of that. Paid plans
- * only see it once they cross the warning threshold, so it stays out of the way
- * when there is nothing to act on.
+ * Shows what is left of the allowances that still exist, since running out
+ * silently is the worst version of hitting a cap. Paid plans only see it once
+ * they cross the warning threshold, so it stays out of the way when there is
+ * nothing to act on.
+ *
+ * Minutes and calls are deliberately absent: no plan limits them any more, so a
+ * meter for them would either read "0 / unlimited" or, worse, imply a ceiling
+ * that is not enforced. Rows whose cap is unlimited are filtered out below, so
+ * adding them back would render nothing regardless.
  */
 import { useRouter } from 'next/navigation'
 
@@ -15,7 +20,10 @@ import { useEntitlementStore } from '@/store/entitlementStore'
 
 const WARN_AT = 0.8
 
-const TRACKED: string[] = [LIMITS.MINUTES, LIMITS.CALLS]
+// Only limits whose usage the entitlements payload actually carries. Resource
+// caps (agents, phone numbers) are counted per-request on the backend and are
+// not in `usage`, so listing one here would render a permanent "0 / n".
+const TRACKED: string[] = [LIMITS.SMS, LIMITS.EMAILS]
 
 export function UsageMeter({ collapsed = false }: { collapsed?: boolean }) {
   const router = useRouter()

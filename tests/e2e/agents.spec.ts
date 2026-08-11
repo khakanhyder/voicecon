@@ -67,11 +67,13 @@ test('edits an agent and the change survives a reload', async ({ page, request }
   ).json()
   await signIn(page, session)
 
-  await page.goto(`/dashboard/agents/${created.id}/edit`)
+  await page.goto(`/dashboard/agents/${created.id}`)
   await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Before Rename')
 
   await page.getByPlaceholder('e.g. Riley').fill('After Rename')
   await page.getByRole('button', { name: 'Save Changes' }).click()
+  // The editor is the agent page — a successful save stays put and says so.
+  await expect(page.getByText('Agent updated')).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${created.id}$`))
 
   const fetched = await (

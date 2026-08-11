@@ -36,6 +36,8 @@ export const FEATURES = {
   ANALYTICS: 'analytics',
   CALL_RECORDINGS: 'call_recordings',
   WEBHOOKS: 'webhooks',
+  /** Buying a number from a carrier. Off during the free trial. */
+  PHONE_NUMBER_PURCHASE: 'phone_number_purchase',
 } as const
 
 export const LIMITS = {
@@ -72,6 +74,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   [FEATURES.ANALYTICS]: 'Analytics',
   [FEATURES.CALL_RECORDINGS]: 'Call recordings & transcripts',
   [FEATURES.WEBHOOKS]: 'Webhooks',
+  [FEATURES.PHONE_NUMBER_PURCHASE]: 'Buying phone numbers',
 }
 
 export const LIMIT_LABELS: Record<string, string> = {

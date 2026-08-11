@@ -14,6 +14,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.billing import catalog
 from app.models.subscription import (
     LIVE_STATUSES,
     SubscriptionPlan,
@@ -526,17 +527,17 @@ class StripeService:
         )
         plan = result.scalar_one_or_none()
 
+        # Minutes and calls are uncapped on every plan, so there is no allowance
+        # to be "included" in and nothing to spill over into overage. The keys
+        # stay in the response because clients read them; `included` reports the
+        # unlimited sentinel and overage is always zero.
         return {
             "minutes_used": subscription.current_period_minutes,
-            "minutes_included": plan.included_minutes,
-            "minutes_overage": max(
-                0, subscription.current_period_minutes - plan.included_minutes
-            ),
+            "minutes_included": catalog.UNLIMITED,
+            "minutes_overage": 0,
             "calls_used": subscription.current_period_calls,
-            "calls_included": plan.included_calls,
-            "calls_overage": max(
-                0, subscription.current_period_calls - plan.included_calls
-            ),
+            "calls_included": catalog.UNLIMITED,
+            "calls_overage": 0,
         }
 
     async def check_usage_limits(
@@ -572,22 +573,14 @@ class StripeService:
                 "within_limits": False,
             }
 
-        # Get plan limits
-        result = await db.execute(
-            select(SubscriptionPlan).where(
-                SubscriptionPlan.id == subscription.plan_id
-            )
-        )
-        plan = result.scalar_one_or_none()
-
-        # Check limits (allow overage for metered billing)
+        # There are no conversation limits on any plan, so neither flag can be
+        # reached. They remain in the response as a stable contract for clients
+        # that already branch on them.
         return {
             "has_active_subscription": True,
-            "within_limits": True,  # We bill overage, so always within limits
-            "minutes_limit_reached": subscription.current_period_minutes
-            >= plan.included_minutes,
-            "calls_limit_reached": subscription.current_period_calls
-            >= plan.included_calls,
+            "within_limits": True,
+            "minutes_limit_reached": False,
+            "calls_limit_reached": False,
         }
 
     # ==================== Invoices ====================

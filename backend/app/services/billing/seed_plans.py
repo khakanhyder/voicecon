@@ -46,7 +46,7 @@ DEFAULT_PLANS = [
                 "Seamless CRM Integrations (Salesforce, MLS, Zillow, and more)",
                 "Scheduling & Follow-Up Automation",
                 "Outbound & Inbound Calls with Real-Time Conversational AI",
-                "350 Calls, 600 Texts, 2,500 Emails/Month",
+                "Unlimited Calls & Minutes, 600 Texts, 2,500 Emails/Month",
             ]
         },
     },
@@ -69,7 +69,7 @@ DEFAULT_PLANS = [
                 "Multiple Phone Numbers for Campaigns",
                 "Virtual Meetings & Note Taking",
                 "Lead Scoring & Real-Time Data Updates (Schools, Neighborhoods, etc.)",
-                "600 Calls, 1,000 Texts, 5,000 Emails/Month",
+                "Unlimited Calls & Minutes, 1,000 Texts, 5,000 Emails/Month",
             ]
         },
     },
@@ -90,6 +90,72 @@ def _slug_for(plan: SubscriptionPlan) -> str:
     if "chatbot" in name or "sales" in name:
         return "sales-chatbot"
     return name.replace(" ", "-") or "plan"
+
+
+#: Marketing bullets we shipped that quoted a monthly call allowance, mapped to
+#: their replacements. Matched exactly so a bullet an operator has since edited
+#: is left alone — this corrects our own stale copy, it does not own the column.
+_LEGACY_CALL_BULLETS = {
+    "350 Calls, 600 Texts, 2,500 Emails/Month":
+        "Unlimited Calls & Minutes, 600 Texts, 2,500 Emails/Month",
+    "600 Calls, 1,000 Texts, 5,000 Emails/Month":
+        "Unlimited Calls & Minutes, 1,000 Texts, 5,000 Emails/Month",
+}
+
+
+def _refresh_stale_copy(plan: SubscriptionPlan) -> bool:
+    """Rewrite pricing bullets that still advertise a monthly call allowance.
+
+    Without this an existing install shows "Unlimited calls & minutes" and
+    "350 Calls/Month" on the same card — and it does so on the screen where
+    someone decides whether to pay.
+    """
+    features = dict(plan.features or {})
+    highlights = features.get("highlights")
+    if not isinstance(highlights, list):
+        return False
+
+    replaced = [_LEGACY_CALL_BULLETS.get(line, line) for line in highlights]
+    if replaced == highlights:
+        return False
+
+    features["highlights"] = replaced
+    plan.features = features  # JSON column: reassign, do not mutate in place.
+    return True
+
+
+def _relax_stored_document(plan: SubscriptionPlan) -> bool:
+    """Bring one stored entitlement document up to the current contract.
+
+    Idempotent and additive: it lifts minute/call ceilings and grants paid plans
+    the phone-number purchase feature, leaving every other key an operator may
+    have tuned by hand exactly as it was found. Returns whether anything moved.
+
+    ``plan.entitlements`` is a JSON column, so it is reassigned wholesale rather
+    than mutated in place — SQLAlchemy does not track mutation inside a JSON
+    value and the change would not be persisted.
+    """
+    document = dict(plan.entitlements or {})
+    limits = dict(document.get("limits") or {})
+    features = dict(document.get("features") or {})
+    changed = False
+
+    for key in (catalog.LIMIT_MINUTES, catalog.LIMIT_CALLS):
+        if limits.get(key) != catalog.UNLIMITED:
+            limits[key] = catalog.UNLIMITED
+            changed = True
+
+    # Every paid plan may buy numbers; only the trial may not, and the trial
+    # never reaches this function because it resolves from the catalogue.
+    if features.get(catalog.PHONE_NUMBER_PURCHASE) is not True:
+        features[catalog.PHONE_NUMBER_PURCHASE] = True
+        changed = True
+
+    if changed:
+        document["limits"] = limits
+        document["features"] = features
+        plan.entitlements = document
+    return changed
 
 
 async def backfill_plan_entitlements(db: AsyncSession) -> int:
@@ -124,8 +190,12 @@ async def backfill_plan_entitlements(db: AsyncSession) -> int:
             limits[catalog.LIMIT_AGENTS] = plan.max_agents
             limits[catalog.LIMIT_PHONE_NUMBERS] = plan.max_phone_numbers
             limits[catalog.LIMIT_KNOWLEDGE_BASES] = plan.max_knowledge_bases
-            limits[catalog.LIMIT_MINUTES] = plan.included_minutes
-            limits[catalog.LIMIT_CALLS] = plan.included_calls
+            # `included_minutes` / `included_calls` are deliberately NOT copied
+            # into the limits document. They remain on the row for pricing copy
+            # and historical invoices, but nothing enforces them: conversation
+            # usage is uncapped on every plan.
+            limits[catalog.LIMIT_MINUTES] = catalog.UNLIMITED
+            limits[catalog.LIMIT_CALLS] = catalog.UNLIMITED
             plan.entitlements = {
                 "features": dict(document["features"]),
                 "limits": limits,
@@ -135,6 +205,17 @@ async def backfill_plan_entitlements(db: AsyncSession) -> int:
                     "per_call": float(plan.overage_rate_per_call),
                 },
             }
+            changed = True
+
+        else:
+            # A plan seeded before conversation limits were removed still has
+            # the old ceilings baked into its stored document, and the resolver
+            # reads the column rather than the catalogue — so without this an
+            # existing install keeps enforcing caps the product no longer has.
+            if _relax_stored_document(plan):
+                changed = True
+
+        if _refresh_stale_copy(plan):
             changed = True
 
         if not plan.trial_days:

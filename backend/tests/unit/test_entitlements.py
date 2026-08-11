@@ -423,24 +423,37 @@ class TestGuard:
         assert payload["used"] == 1
         assert payload["cap"] == 1
 
-    def test_trial_stops_dead_at_its_usage_allowance(self):
-        """No card on file, so there is nothing to bill the overage to."""
-        cap = catalog.TRIAL_ENTITLEMENTS["limits"][catalog.LIMIT_CALLS]
-        ent = make_entitlements(usage={catalog.LIMIT_CALLS: cap})
-        with pytest.raises(EntitlementError):
-            assert_within_limit(ent, catalog.LIMIT_CALLS)
+    def test_trial_calls_and_minutes_are_uncapped(self):
+        """The trial's restriction is buying a number, not talking."""
+        for limit in (catalog.LIMIT_CALLS, catalog.LIMIT_MINUTES):
+            ent = make_entitlements(usage={limit: 10_000})
+            assert_within_limit(ent, limit)  # does not raise
 
-    def test_paid_plan_bills_past_its_usage_allowance(self):
-        """Metered billing working as designed — going over costs, not blocks."""
+    def test_trial_may_not_buy_a_phone_number(self):
+        """The one thing a card-free trial cannot do."""
+        ent = make_entitlements()
+        with pytest.raises(EntitlementError) as excinfo:
+            assert_feature(ent, catalog.PHONE_NUMBER_PURCHASE)
+        # The 402 has to name a plan that fixes it, or the dialog has no CTA.
+        assert excinfo.value.payload["required_plans"]
+
+    def test_paid_plans_may_buy_a_phone_number(self):
+        for slug, doc in catalog.PLAN_ENTITLEMENTS.items():
+            ent = make_entitlements(
+                status=STATUS_ACTIVE, source=SOURCE_STRIPE, document=doc
+            )
+            assert_feature(ent, catalog.PHONE_NUMBER_PURCHASE)  # does not raise
+
+    def test_paid_plan_calls_and_minutes_are_uncapped(self):
         doc = catalog.PLAN_ENTITLEMENTS["voice-ai"]
-        cap = doc["limits"][catalog.LIMIT_CALLS]
         ent = make_entitlements(
             status=STATUS_ACTIVE,
             source=SOURCE_STRIPE,
             document=doc,
-            usage={catalog.LIMIT_CALLS: cap + 50},
+            usage={catalog.LIMIT_CALLS: 10_000, catalog.LIMIT_MINUTES: 100_000},
         )
         assert_within_limit(ent, catalog.LIMIT_CALLS)  # does not raise
+        assert_within_limit(ent, catalog.LIMIT_MINUTES)  # does not raise
 
     def test_resource_caps_never_overflow_even_on_a_paid_plan(self):
         """"One more agent, billed as overage" is not a thing."""
@@ -453,3 +466,60 @@ class TestGuard:
         )
         with pytest.raises(EntitlementError):
             assert_within_limit(ent, catalog.LIMIT_AGENTS)
+
+@pytest.mark.unit
+class TestPhoneNumberPurchaseGate:
+    """The trial's single restriction, and the routes that enforce it.
+
+    The catalogue saying "trial cannot buy" is worth nothing if no endpoint
+    consults it, so these assert the dependency is actually attached — and to
+    *every* way of ending up with a number, not just the obvious one.
+    """
+
+    PURCHASE_ROUTES = {
+        "/api/v1/phone-numbers/provision",
+        "/api/v1/onboarding/phone-number",
+        "/api/v1/calls/phone-numbers",
+    }
+
+    def test_trial_lacks_the_feature_and_paid_plans_have_it(self):
+        assert (
+            catalog.TRIAL_ENTITLEMENTS["features"][catalog.PHONE_NUMBER_PURCHASE]
+            is False
+        )
+        for slug, doc in catalog.PLAN_ENTITLEMENTS.items():
+            assert doc["features"][catalog.PHONE_NUMBER_PURCHASE] is True, slug
+
+    def test_every_purchase_route_is_gated_on_the_feature(self):
+        """Catches a new buy-a-number route shipped without the gate."""
+        from app.main import app
+
+        seen = set()
+        for route in app.routes:
+            path = getattr(route, "path", None)
+            if path not in self.PURCHASE_ROUTES:
+                continue
+            if "POST" not in (getattr(route, "methods", None) or set()):
+                continue
+            seen.add(path)
+            # `require_entitlement` returns a closure over its arguments, so the
+            # feature it guards is readable from the dependency's cells.
+            closures = [
+                cell.cell_contents
+                for dependency in route.dependant.dependencies
+                if dependency.call is not None
+                and getattr(dependency.call, "__closure__", None)
+                for cell in dependency.call.__closure__
+            ]
+            assert catalog.PHONE_NUMBER_PURCHASE in closures, (
+                f"{path} can create a phone number without the purchase gate"
+            )
+
+        assert seen == self.PURCHASE_ROUTES, f"routes missing: {self.PURCHASE_ROUTES - seen}"
+
+    def test_no_plan_caps_minutes_or_calls(self):
+        """The restriction is buying a number — never talking on one."""
+        documents = [catalog.TRIAL_ENTITLEMENTS, *catalog.PLAN_ENTITLEMENTS.values()]
+        for doc in documents:
+            for key in (catalog.LIMIT_MINUTES, catalog.LIMIT_CALLS):
+                assert doc["limits"][key] == catalog.UNLIMITED

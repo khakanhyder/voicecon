@@ -196,7 +196,7 @@ test.describe('Agents', () => {
       await api.on(ROUTES.agent, { body: agentDetail() })
       await api.on(ROUTES.agentKnowledgeBases, { body: [] })
 
-      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}/edit`)
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
 
       // The form must be populated from the server, not left blank — saving a
       // blank form would wipe the agent.
@@ -205,7 +205,8 @@ test.describe('Agents', () => {
       await page.getByPlaceholder('e.g. Riley').fill('Riley v2')
       await page.getByRole('button', { name: 'Save Changes' }).click()
 
-      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}$`))
+      // The editor is the agent page now, so a save confirms in place.
+      await expect(page.getByText('Agent updated')).toBeVisible()
       const [patched] = api.callsOf('PATCH', `/api/v1/agents/${AGENT_ID}`)
       expect(patched.body).toMatchObject({ name: 'Riley v2' })
     })
@@ -214,7 +215,7 @@ test.describe('Agents', () => {
       await api.on(ROUTES.agent, { body: agentDetail() })
       await api.on(ROUTES.agentKnowledgeBases, { body: [] })
 
-      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}/edit`)
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
       await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
 
       await page.getByPlaceholder('e.g. Riley').fill('')
@@ -222,16 +223,16 @@ test.describe('Agents', () => {
 
       // Native `required` stops the submit, so nothing reaches the server and
       // the agent keeps the name it had.
-      await expect(page).toHaveURL(/\/edit$/)
+      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}$`))
       expect(api.callsOf('PATCH', `/api/v1/agents/${AGENT_ID}`)).toHaveLength(0)
     })
 
     test('returns to the list when the agent no longer exists', async ({ page, api }) => {
       await api.on(ROUTES.agent, { status: 404, body: apiError('Agent not found') })
 
-      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}/edit`)
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
 
-      // Stranding the user on a dead edit form is worse than sending them back.
+      // Stranding the user on a dead agent page is worse than sending them back.
       await expect(page).toHaveURL(/\/dashboard\/agents$/)
     })
 
@@ -246,7 +247,7 @@ test.describe('Agents', () => {
       )
       await api.on(ROUTES.agentKnowledgeBases, { body: [] })
 
-      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}/edit`)
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
       await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
 
       await page.getByPlaceholder('e.g. Riley').fill('Riley v2')
@@ -254,7 +255,82 @@ test.describe('Agents', () => {
 
       await expect(page.getByText('Could not save agent')).toBeVisible()
       // Navigating away on failure would tell the user the edit was saved.
-      await expect(page).toHaveURL(/\/edit$/)
+      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}$`))
+    })
+  })
+
+  /**
+   * The agent editor *is* the agent page — there is no separate read-only view —
+   * so every agent-level action has to be reachable from it.
+   */
+  test.describe('Detail page', () => {
+    test.beforeEach(async ({ api }) => {
+      await api.on(ROUTES.agent, { body: agentDetail() })
+      await api.on(ROUTES.agentKnowledgeBases, { body: [] })
+      await api.on(ROUTES.agents, { body: agentListResponse([agent()]) })
+    })
+
+    test('header carries every agent action', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
+
+      await expect(page.getByRole('button', { name: 'Test Call' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Talk to Assistant' })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Deactivate|Activate/ })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
+      // The redundant "Edit" action is gone — this page is the editor.
+      await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
+    })
+
+    test('Test Call opens the live drawer', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await page.getByRole('button', { name: 'Test Call' }).click()
+      await expect(page.getByText('Live Test Call')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Start Call' })).toBeVisible()
+    })
+
+    test('Deactivate PATCHes is_active and flips the label', async ({ page, api }) => {
+      await api.on(ROUTES.agent, { body: { ...agentDetail(), is_active: false } }, { method: 'PATCH' })
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await page.getByRole('button', { name: 'Deactivate' }).click()
+      const [patched] = api.callsOf('PATCH', `/api/v1/agents/${AGENT_ID}`)
+      expect(patched.body).toMatchObject({ is_active: false })
+      await expect(page.getByRole('button', { name: 'Activate' })).toBeVisible()
+    })
+
+    test('Delete confirms then returns to the list', async ({ page, api }) => {
+      await api.on(ROUTES.agent, { body: {} }, { method: 'DELETE' })
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      page.once('dialog', d => d.accept())
+      await page.getByRole('button', { name: 'Delete' }).click()
+      await expect(page).toHaveURL(/\/dashboard\/agents$/)
+      expect(api.callsOf('DELETE', `/api/v1/agents/${AGENT_ID}`)).toHaveLength(1)
+    })
+
+    test('Call History tab lists the agent calls', async ({ page, api }) => {
+      await api.on(ROUTES.calls, { body: { calls: [{
+        id: '11111111-1111-1111-1111-111111111111',
+        direction: 'inbound', status: 'completed',
+        from_number: '+15550001111', to_number: '+15550002222',
+        duration_seconds: 95, cost_total: 0.1, started_at: new Date().toISOString(),
+      }], total: 1 } })
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await page.getByRole('button', { name: 'Call History' }).click()
+      await expect(page.getByText('+15550001111')).toBeVisible()
+      await expect(page.getByText('completed')).toBeVisible()
+    })
+
+    test('Talk to Assistant goes to the live call page', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await page.getByRole('button', { name: 'Talk to Assistant' }).click()
+      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}/test$`))
+    })
+
+    test('clicking an agent card opens the editor directly', async ({ page, api }) => {
+      await enterDashboard(page, api, '/dashboard/agents')
+      await page.getByRole('heading', { name: 'Riley' }).click()
+      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}$`))
+      await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
     })
   })
 

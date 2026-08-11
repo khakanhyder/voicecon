@@ -27,6 +27,8 @@ from app.schemas.call import (
 )
 from app.services.telephony.twilio_service import get_twilio_service_for_number
 from app.core.config import settings
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -353,7 +355,19 @@ async def get_call_stats(
 
 # Phone Number Management
 
-@router.post("/phone-numbers", response_model=PhoneNumberResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/phone-numbers",
+    response_model=PhoneNumberResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        # Attaching a number is gated exactly like buying one. This route does
+        # not call a carrier, but it is still a way to end up with a working
+        # number on a trial account, and a restriction with a side door is not
+        # a restriction.
+        Depends(require_entitlement(feature=catalog.PHONE_NUMBER_PURCHASE)),
+        Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS)),
+    ],
+)
 async def create_phone_number(
     phone_data: PhoneNumberCreate,
     db: AsyncSession = Depends(get_db),

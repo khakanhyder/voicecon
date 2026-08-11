@@ -79,7 +79,7 @@ export default function NewAgentPage() {
       {/* Step row + search */}
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-2 lg:flex-row lg:items-center lg:justify-between">
         <AgentTabBar activeTab={tab} onChange={setTab} />
-        <div className="relative w-full lg:w-72 flex-shrink-0">
+        <div className="relative w-full lg:w-60 flex-shrink-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"

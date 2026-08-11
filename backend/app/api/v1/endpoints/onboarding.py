@@ -214,6 +214,9 @@ async def _assistant_agent(
         # Buying a number costs real money at the carrier, and this endpoint is
         # reachable before onboarding finishes — without a plan or trial behind
         # it, anyone who signs up could provision numbers on our account.
+        # The trial does not include buying at all, hence the feature gate as
+        # well as the capacity one.
+        Depends(require_entitlement(feature=catalog.PHONE_NUMBER_PURCHASE)),
         Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS)),
     ],
 )

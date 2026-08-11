@@ -409,28 +409,37 @@ class TestResolution:
 
         ent = await EntitlementService().resolve(db, org.id, fresh=True)
 
-        assert ent.limit(catalog.LIMIT_MINUTES) == 3000
+        assert ent.is_unlimited(catalog.LIMIT_MINUTES)
         assert ent.limit(catalog.LIMIT_AGENTS) == 5
         assert ent.overage_allowed is True
 
     async def test_usage_counters_feed_the_quota_check(self, db, org, plan):
+        """Counters still reach the resolver — they just no longer cap calls.
+
+        The per-period counters remain the input to every quota question, so
+        this guards the plumbing that SMS and email limits still depend on.
+        """
         subscription = await make_trial(db, org, plan, started_days_ago=1)
-        cap = catalog.TRIAL_ENTITLEMENTS["limits"][catalog.LIMIT_CALLS]
-        subscription.current_period_calls = cap
+        subscription.current_period_calls = 500
+        subscription.current_period_sms = catalog.TRIAL_ENTITLEMENTS["limits"][
+            catalog.LIMIT_SMS
+        ]
         await db.commit()
 
         ent = await EntitlementService().resolve(db, org.id, fresh=True)
 
-        assert ent.used(catalog.LIMIT_CALLS) == cap
-        assert not ent.within(catalog.LIMIT_CALLS)
-        assert ent.remaining(catalog.LIMIT_CALLS) == 0
+        assert ent.used(catalog.LIMIT_CALLS) == 500
+        # Uncapped: five hundred calls on a trial is fine.
+        assert ent.within(catalog.LIMIT_CALLS)
+        assert ent.remaining(catalog.LIMIT_CALLS) is None
+        # A limit that still exists is still enforced through the same path.
+        assert not ent.within(catalog.LIMIT_SMS)
 
-    async def test_runtime_check_blocks_a_trial_at_its_cap(self, db, org, plan):
-        """No card on file, so the trial stops rather than billing overage."""
+    async def test_runtime_check_lets_a_trial_keep_taking_calls(self, db, org, plan):
+        """Call volume never stops a trial — only the trial ending does."""
         subscription = await make_trial(db, org, plan, started_days_ago=1)
-        subscription.current_period_calls = catalog.TRIAL_ENTITLEMENTS["limits"][
-            catalog.LIMIT_CALLS
-        ]
+        subscription.current_period_calls = 10_000
+        subscription.current_period_minutes = 100_000
         await db.commit()
 
         service = EntitlementService()
@@ -439,8 +448,8 @@ class TestResolution:
             db, org.id, catalog.INBOUND_CALLS
         )
 
-        assert allowed is False
-        assert reason == "limit_exceeded"
+        assert allowed is True
+        assert reason is None
 
     async def test_runtime_check_blocks_an_expired_account(self, db, org, plan):
         await make_trial(
@@ -693,7 +702,7 @@ class TestEarlyTrialConversion:
         assert after.is_live
         assert after.limit(catalog.LIMIT_AGENTS) == 5
         assert after.is_unlimited(catalog.LIMIT_WORKFLOWS)
-        assert after.limit(catalog.LIMIT_MINUTES) == 3000
+        assert after.is_unlimited(catalog.LIMIT_MINUTES)
         assert after.has(catalog.LEAD_SCORING)
         assert after.has(catalog.API_ACCESS)
         assert after.overage_allowed
@@ -750,7 +759,8 @@ class TestEarlyTrialConversion:
         ent = await EntitlementService().resolve(db, org.id, fresh=True)
         assert ent.used(catalog.LIMIT_MINUTES) == 0
         assert ent.used(catalog.LIMIT_CALLS) == 0
-        assert ent.remaining(catalog.LIMIT_MINUTES) == 3000
+        # Uncapped, so there is no remaining figure to report.
+        assert ent.remaining(catalog.LIMIT_MINUTES) is None
 
     async def test_conversion_is_recorded_and_the_trial_cannot_be_restarted(
         self, db, org, plan

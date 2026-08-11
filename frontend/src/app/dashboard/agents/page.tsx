@@ -144,7 +144,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
 
           <div className="flex items-center gap-2">
             {canWrite && (
-              <Link href={`/dashboard/agents/${agent.id}/edit`} onClick={(e) => e.stopPropagation()}>
+              <Link href={`/dashboard/agents/${agent.id}`} onClick={(e) => e.stopPropagation()}>
                 <button className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                   <Pencil className="h-4 w-4" /> Edit
                 </button>
