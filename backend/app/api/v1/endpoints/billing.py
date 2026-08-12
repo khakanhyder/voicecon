@@ -1448,6 +1448,24 @@ async def checkout(
     await db.refresh(subscription)
     invalidate_entitlements(org_id)
 
+    try:
+        from app.services.email.service import email_service
+        from app.core.config import settings
+
+        base = (settings.FRONTEND_URL or "").rstrip("/")
+        action_url = f"{base}/dashboard/settings/billing"
+
+        import asyncio
+        asyncio.create_task(
+            email_service.send_subscription_confirmation(
+                to_email=current_user.email,
+                plan_name=plan.name,
+                action_url=action_url,
+            )
+        )
+    except Exception as exc:
+        logger.error(f"Failed to send subscription confirmation email: {exc}")
+
     return _subscription_response(subscription, plan)
 
 
@@ -1552,6 +1570,25 @@ async def change_plan(
     await db.commit()
     await db.refresh(subscription)
     invalidate_entitlements(org_id)
+
+    if is_upgrade:
+        try:
+            from app.services.email.service import email_service
+            from app.core.config import settings
+
+            base = (settings.FRONTEND_URL or "").rstrip("/")
+            action_url = f"{base}/dashboard/settings/billing"
+
+            import asyncio
+            asyncio.create_task(
+                email_service.send_subscription_confirmation(
+                    to_email=current_user.email,
+                    plan_name=target.name,
+                    action_url=action_url,
+                )
+            )
+        except Exception as exc:
+            logger.error(f"Failed to send subscription confirmation email on upgrade: {exc}")
 
     effective_plan = target if is_upgrade else current_plan
     return _subscription_response(subscription, effective_plan)

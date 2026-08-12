@@ -290,7 +290,10 @@ export default function BillingPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
               <div>
                 <div className="text-[14px] font-poppins text-black/60 mb-1">Plan</div>
-                <div className="text-[24px] font-bold font-poppins text-[#106959]">{subscription.plan_name}</div>
+                <div className="text-[24px] font-bold font-poppins text-[#106959]">
+                  {subscription.plan_name}
+                  {entitlements?.is_trial && <span className="ml-2 text-[14px] text-amber-600 font-semibold">(Free Trial)</span>}
+                </div>
                 {currentPlan && (
                   <div className="text-[14px] font-poppins text-black/60">
                     ${currentPlan.price_monthly}/month

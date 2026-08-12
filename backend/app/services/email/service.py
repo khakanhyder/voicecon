@@ -154,6 +154,35 @@ class EmailService:
         message = EmailMessage(to=to_email, subject=subject, html=html, text=text)
         return await self.send(message)
 
+    async def send_subscription_confirmation(
+        self,
+        *,
+        to_email: str,
+        plan_name: str,
+        action_url: str,
+    ) -> bool:
+        """Send a confirmation email when a user subscribes to a paid plan."""
+        subject = f"{plan_name} Subscription is Active"
+        heading = f"Welcome to {plan_name}"
+        intro = (
+            f"Your subscription to the {plan_name} plan is now active. "
+            "You can now access all features included in your plan."
+        )
+        bullets = [
+            "Your agents and workflows are fully enabled.",
+            "You can manage your subscription at any time from your dashboard."
+        ]
+        html, text = render_billing_notice_email(
+            brand=settings.APP_NAME,
+            heading=heading,
+            intro=intro,
+            action_url=action_url,
+            action_label="Go to Dashboard",
+            bullets=bullets,
+        )
+        message = EmailMessage(to=to_email, subject=subject, html=html, text=text)
+        return await self.send(message)
+
 
 # Process-wide singleton.
 email_service = EmailService()

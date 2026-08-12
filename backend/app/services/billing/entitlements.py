@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.subscription import (
     LIVE_STATUSES,
     RUNTIME_STATUSES,
+    SOURCE_TRIAL,
     STATUS_ACTIVE,
     STATUS_CANCELED,
     STATUS_EXPIRED,
@@ -111,7 +112,8 @@ class Entitlements:
 
     @property
     def is_trial(self) -> bool:
-        return self.status == STATUS_TRIALING
+        """A trial remains a trial even when in grace or expired."""
+        return self.source == SOURCE_TRIAL
 
     @property
     def is_live(self) -> bool:

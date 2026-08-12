@@ -200,13 +200,13 @@ export default function APIKeysPage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Input value={newKey} readOnly className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"/>
+            <Input value={newKey} readOnly className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
             <Button onClick={() => copyToClipboard(newKey)}>Copy</Button>
           </div>
           <div className="space-y-2">
             <p className="text-sm font-medium">Use it like this:</p>
             <pre className="overflow-x-auto rounded-[8px] bg-black/85 p-3 text-[12px] leading-relaxed text-white">
-{`curl ${API_BASE}/api/v1/agents \\
+              {`curl ${API_BASE}/api/v1/agents \\
   -H "Authorization: Bearer ${newKey}"`}
             </pre>
             <p className="text-xs text-muted-foreground">
@@ -223,7 +223,7 @@ export default function APIKeysPage() {
           <form onSubmit={handleCreateKey} className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-end gap-4">
               <div className="flex-1 space-y-2">
-                <Label htmlFor="keyName" className="text-[14px] font-bold text-[#000000] font-poppins block">Key Name</Label>
+                <Label htmlFor="keyName" className="text-base font-bold text-[#000000] font-poppins block">Key Name</Label>
                 <Input
                   id="keyName"
                   placeholder="Production API"
@@ -258,12 +258,12 @@ export default function APIKeysPage() {
                 <button
                   type="button"
                   onClick={() => setShowScopePicker((v) => !v)}
-                  className="text-sm font-medium text-[#106959] hover:underline"
+                  className="text-base font-medium text-[#106959] hover:underline"
                 >
                   {showScopePicker ? '▾' : '▸'} Permissions ({selectedScopes.length === 0 ? 'full access' : `${selectedScopes.length} selected`})
                 </button>
-                <p className="text-xs text-muted-foreground">
-                  Leave empty for full access — the key can then do anything your role allows.
+                <p className="text-sm text-muted-foreground">
+                  Leave empty for full access. The key can then do anything your role allows.
                   Selecting scopes limits it further. A key can never exceed your own permissions,
                   and can never manage keys, team, or billing.
                 </p>
@@ -304,7 +304,7 @@ export default function APIKeysPage() {
             ))}
           </div>
         ) : apiKeys.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             {canManage
               ? 'No API keys yet. Create one above to get started.'
               : 'No API keys in this workspace. Ask an admin to create one.'}
@@ -350,15 +350,15 @@ export default function APIKeysPage() {
                       ) : null}
                     </p>
                   )}
-                  <p className="font-mono text-sm text-muted-foreground break-all">
+                  <p className="font-mono text-base text-muted-foreground break-all">
                     {apiKey.key_prefix}••••••••••••
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {apiKey.scopes.length === 0
                       ? 'Full access'
                       : `${apiKey.scopes.length} scope${apiKey.scopes.length === 1 ? '' : 's'}: ${apiKey.scopes.join(', ')}`}
                   </p>
-                  <div className="flex flex-col sm:flex-row sm:gap-4 text-xs text-muted-foreground mt-2 sm:mt-0">
+                  <div className="flex flex-col sm:flex-row sm:gap-4 text-sm text-muted-foreground mt-2 sm:mt-0">
                     <span>Created {formatDate(apiKey.created_at)}</span>
                     <span className="hidden sm:inline">·</span>
                     <span>Last used {apiKey.last_used_at ? formatDate(apiKey.last_used_at) : 'never'}</span>
@@ -418,7 +418,7 @@ export default function APIKeysPage() {
       {/* Security Notice */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
         <h3 className="font-semibold text-destructive mb-2">Security Best Practices</h3>
-        <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
+        <ul className="space-y-1 text-base text-muted-foreground list-disc list-inside">
           <li>Never share your API keys publicly or commit them to version control</li>
           <li>Rotate your keys regularly for enhanced security</li>
           <li>Use different keys for development and production environments</li>

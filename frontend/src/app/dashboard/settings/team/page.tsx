@@ -171,8 +171,8 @@ export default function TeamSettingsPage() {
   const handleTransferOwnership = async (member: TeamMember) => {
     const confirmed = confirm(
       `Make ${member.name || member.email} the owner of ${workspace?.name}?\n\n` +
-        `You will become an admin and will no longer be able to manage billing, ` +
-        `transfer ownership, or delete the workspace.`
+      `You will become an admin and will no longer be able to manage billing, ` +
+      `transfer ownership, or delete the workspace.`
     )
     if (!confirmed) return
     setBusyId(member.id)
@@ -207,15 +207,15 @@ export default function TeamSettingsPage() {
           <h2 className="text-xl font-semibold">Invite Team Member</h2>
           <form onSubmit={handleInvite} className="flex flex-col sm:flex-row sm:items-end gap-4">
             <div className="flex-1 space-y-2">
-              <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email Address</Label>
+              <Label htmlFor="email" className="text-base font-bold text-[#000000] font-poppins block">Email Address</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="colleague@example.com"
+                placeholder="user@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-               className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
             <div className="space-y-2 w-full sm:w-auto">
               <Label htmlFor="role" className="text-[14px] font-bold text-[#000000] font-poppins block">Role</Label>
@@ -235,7 +235,7 @@ export default function TeamSettingsPage() {
               {inviting ? 'Sending…' : 'Send Invite'}
             </Button>
           </form>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             We&apos;ll email them an invite with Accept/Decline links. If they already have an
             account, they&apos;ll also see it in their notifications.
             {!canManageAdmins && ' Only the workspace owner can invite an admin.'}
@@ -320,12 +320,12 @@ export default function TeamSettingsPage() {
                       {initials(member)}
                     </div>
                     <div>
-                      <p className="font-medium break-all flex items-center gap-1.5">
+                      <p className="font-semibold break-all flex items-center gap-1.5">
                         {member.name || member.email}
                         {isOwner && <Crown className="h-3.5 w-3.5 text-amber-500" />}
-                        {isSelf && <span className="text-xs text-muted-foreground">(you)</span>}
+                        {isSelf && <span className="text-sm text-muted-foreground">(you)</span>}
                       </p>
-                      <p className="text-sm text-muted-foreground break-all mt-0.5">{member.email}</p>
+                      <p className="text-base text-muted-foreground break-all mt-0.5">{member.email}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 w-full sm:w-auto">
@@ -397,15 +397,15 @@ export default function TeamSettingsPage() {
         <div className="space-y-3">
           {[
             ['Owner', 'Full access. Only the owner can transfer ownership, manage billing, or delete the workspace.'],
-            ['Admin', 'Manages members, invites, and API keys — but cannot remove the owner, promote admins, or take ownership.'],
+            ['Admin', 'Manages members, invites, and API keys, but cannot remove the owner, promote admins, or take ownership.'],
             ['Member', 'Can create and manage agents, workflows, tools, and knowledge bases.'],
             ['Viewer', 'Read-only access to agents, calls, and analytics.'],
           ].map(([name, desc]) => (
             <div key={name} className="flex items-start gap-3">
-              <div className="rounded bg-primary/10 px-2 py-1 text-xs font-medium text-primary w-16 text-center">
+              <div className="rounded bg-primary/10 px-2 py-1 text-sm font-medium text-primary w-16 text-center">
                 {name}
               </div>
-              <p className="flex-1 text-sm">{desc}</p>
+              <p className="flex-1 text-base mt-1">{desc}</p>
             </div>
           ))}
         </div>
