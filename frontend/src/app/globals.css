@@ -280,3 +280,18 @@
     margin-top: 2.75rem;
   }
 }
+
+/* ── Tool card responsive layout toggle ────────────────────────────────────
+   At xl 2-col (1280–1535px) the cards are too narrow for the single-row
+   layout, so we swap to the "intermediate" variant: Connected top-right,
+   Test bottom-left, Delete+Edit bottom-right.
+   Outside that range the default row layout is used.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (min-width: 1280px) and (max-width: 1535px) {
+  .tool-card .tool-card__default {
+    display: none !important;
+  }
+  .tool-card .tool-card__intermediate {
+    display: block !important;
+  }
+}
