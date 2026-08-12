@@ -228,22 +228,22 @@ export default function WorkflowDetailPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Total Executions</div>
           <div className="text-3xl font-bold">{workflow.total_executions}</div>
         </div>
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Successful</div>
           <div className="text-3xl font-bold text-green-600">{workflow.successful_executions}</div>
         </div>
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="text-sm text-muted-foreground mb-1">Failed</div>
           <div className="text-3xl font-bold text-red-600">{workflow.failed_executions}</div>
         </div>
       </div>
 
       {/* Execution history */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Execution history</h2>
           <Button variant="outline" size="sm" onClick={fetchExecutions}>Refresh</Button>
@@ -342,7 +342,7 @@ export default function WorkflowDetailPage() {
       {/* Configuration */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Trigger Configuration */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Trigger Configuration</h2>
 
           <div className="space-y-3">
@@ -363,7 +363,7 @@ export default function WorkflowDetailPage() {
         </div>
 
         {/* Execution Settings */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Execution Settings</h2>
 
           <div className="space-y-3">
@@ -391,7 +391,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Workflow Steps */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Workflow Steps</h2>
           <Link href={`/dashboard/workflows/${workflowId}/builder`}>
@@ -445,7 +445,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Quick Actions</h2>
 
         <div className="flex gap-2">
@@ -462,7 +462,7 @@ export default function WorkflowDetailPage() {
       </div>
 
       {/* Metadata */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Information</h2>
 
         <div className="grid gap-4 md:grid-cols-3">

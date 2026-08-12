@@ -60,7 +60,7 @@ export default function NewKnowledgeBasePage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="kb-name" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Name</Label>
           <Input
@@ -69,7 +69,7 @@ export default function NewKnowledgeBasePage() {
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Support FAQs"
             required
-            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
+            className="w-full h-[45px] rounded-xl bg-white border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 px-3 font-poppins text-[14px] text-black"
           />
         </div>
 
@@ -81,11 +81,11 @@ export default function NewKnowledgeBasePage() {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What kind of content lives in here?"
             rows={3}
-            className="w-full rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 font-poppins text-[14px] text-black"
+            className="w-full rounded-xl bg-white border border-slate-200 p-3 font-poppins text-[14px] text-black"
           />
         </div>
 
-        <div className="rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 text-sm text-[#000000] font-poppins">
+        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm text-[#000000] font-poppins">
           Your documents are automatically split and indexed for fast, accurate
           retrieval — nothing else to configure.
         </div>
@@ -95,7 +95,7 @@ export default function NewKnowledgeBasePage() {
             {isSaving ? 'Creating...' : 'Create & add documents'}
           </Button>
           <Link href="/dashboard/knowledge">
-            <Button type="button" variant="outline" className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50">Cancel</Button>
+            <Button type="button" variant="outline" className="border border-slate-200 rounded-xl font-poppins font-medium text-black bg-white hover:bg-slate-50">Cancel</Button>
           </Link>
         </div>
       </form>

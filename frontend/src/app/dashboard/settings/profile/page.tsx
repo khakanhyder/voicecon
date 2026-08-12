@@ -149,7 +149,7 @@ export default function ProfileSettingsPage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Personal Information */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Personal Information</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -159,12 +159,12 @@ export default function ProfileSettingsPage() {
                 id="fullName"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email</Label>
-              <Input id="email" type="email" value={formData.email} disabled className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              <Input id="email" type="email" value={formData.email} disabled className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
               <p className="text-xs text-muted-foreground">
                 Contact support to change your email address
               </p>
@@ -178,7 +178,7 @@ export default function ProfileSettingsPage() {
                 placeholder="+1 (555) 123-4567"
                 value={formData.phone_number}
                 onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
 
             <div className="space-y-2">
@@ -188,7 +188,7 @@ export default function ProfileSettingsPage() {
                 placeholder="Acme Inc."
                 value={formData.company_name}
                 onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
             </div>
           </div>
 
@@ -200,18 +200,18 @@ export default function ProfileSettingsPage() {
               value={formData.bio}
               onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
               rows={4}
-              className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]" />
+              className="w-full rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 py-2 text-[14px]" />
           </div>
         </div>
 
         {/* Preferences */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Preferences</h2>
 
           <div className="space-y-2">
             <Label htmlFor="timezone" className="text-[14px] font-bold text-[#000000] font-poppins block">Timezone</Label>
             <select
-              id="timezone" className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+              id="timezone" className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"
               value={formData.timezone}
               onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
             >
@@ -225,7 +225,7 @@ export default function ProfileSettingsPage() {
         </div>
 
         {/* Avatar */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Profile Picture</h2>
 
           <div className="flex items-center gap-4">
@@ -248,7 +248,7 @@ export default function ProfileSettingsPage() {
                 placeholder="https://…/avatar.png"
                 value={formData.avatar_url}
                 onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-                className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
               <p className="text-xs text-muted-foreground">
                 Paste a public image URL. Saved with your profile.
               </p>
@@ -264,7 +264,7 @@ export default function ProfileSettingsPage() {
       </form>
 
       {/* Change Password */}
-      <form onSubmit={handleChangePassword} className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <form onSubmit={handleChangePassword} className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Change Password</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
@@ -275,7 +275,7 @@ export default function ProfileSettingsPage() {
               value={pw.current_password}
               onChange={(e) => setPw({ ...pw, current_password: e.target.value })}
               placeholder="Leave blank if none set"
-              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="newPw" className="text-[14px] font-bold text-[#000000] font-poppins block">New Password</Label>
@@ -284,7 +284,7 @@ export default function ProfileSettingsPage() {
               type="password"
               value={pw.new_password}
               onChange={(e) => setPw({ ...pw, new_password: e.target.value })}
-              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPw" className="text-[14px] font-bold text-[#000000] font-poppins block">Confirm New Password</Label>
@@ -293,7 +293,7 @@ export default function ProfileSettingsPage() {
               type="password"
               value={pw.confirm}
               onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
-              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+              className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
         </div>
         <Button type="submit" variant="outline" disabled={changingPw}>
@@ -302,7 +302,7 @@ export default function ProfileSettingsPage() {
       </form>
 
       {/* Danger Zone */}
-      <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6 space-y-4">
+      <div className="rounded-2xl border border-red-200 bg-red-50/40 p-6 space-y-4">
         <div>
           <h2 className="text-xl font-semibold text-destructive">Danger Zone</h2>
           <p className="text-sm text-muted-foreground">

@@ -124,7 +124,7 @@ function fmtDate(d: string | null) {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-black/10 last:border-0">
+    <div className="flex items-center justify-between py-2.5 border-b border-slate-200 last:border-0">
       <span className="text-[12px] font-poppins text-black/60">{label}</span>
       <span className="text-[14px] font-bold font-poppins text-[#000000]">{value}</span>
     </div>
@@ -357,9 +357,9 @@ export default function CallDetailPage() {
                           <Bot className="h-3.5 w-3.5 text-[#106959]" />
                         </div>
                       )}
-                      <div className={`max-w-[80%] rounded-[10px] px-3.5 py-2.5 ${
+                      <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${
                         isAgent
-                          ? 'bg-white border border-black/10 text-[#000000] rounded-bl-sm'
+                          ? 'bg-white border border-slate-200 text-[#000000] rounded-bl-sm'
                           : 'bg-[#106959] text-white rounded-br-sm'
                       }`}>
                         <p className="text-[14px] font-poppins leading-relaxed">{entry.text}</p>
@@ -382,7 +382,7 @@ export default function CallDetailPage() {
 
             {/* Raw transcript fallback */}
             {call.transcript && transcript.length === 0 && (
-              <pre className="text-[12px] text-black/60 bg-white border border-black/10 rounded-[8px] p-4 whitespace-pre-wrap font-mono max-h-80 overflow-y-auto">
+              <pre className="text-[12px] text-black/60 bg-white border border-slate-200 rounded-[8px] p-4 whitespace-pre-wrap font-mono max-h-80 overflow-y-auto">
                 {call.transcript}
               </pre>
             )}
@@ -441,7 +441,7 @@ export default function CallDetailPage() {
               { label: 'TTS',       value: call.cost_tts,       icon: Volume2 },
               { label: 'Telephony', value: call.cost_telephony, icon: Phone },
             ].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b border-black/10 last:border-0">
+              <div key={label} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
                 <div className="flex items-center gap-1.5 text-[12px] font-poppins text-black/60">
                   <Icon className="h-3.5 w-3.5" />
                   {label}

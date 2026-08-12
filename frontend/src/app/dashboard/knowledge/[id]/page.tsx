@@ -255,7 +255,7 @@ export default function KnowledgeBaseDetailPage() {
 
       {/* Add content */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-bold font-poppins text-[#000000]">Upload a file</h2>
           <p className="text-sm text-muted-foreground">
             PDF, Word (.docx), Excel (.xlsx), text, Markdown, JSON or CSV. Scanned/image-only PDFs can&apos;t be
@@ -277,13 +277,13 @@ export default function KnowledgeBaseDetailPage() {
           </Button>
         </div>
 
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-bold font-poppins text-[#000000]">Or paste text</h2>
           <div className="space-y-1.5">
             <Label htmlFor="pt" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Title</Label>
             <Input
               id="pt"
-              className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
+              className="w-full h-[45px] rounded-xl bg-white border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 px-3 font-poppins text-[14px] text-black"
               value={pasteTitle}
               onChange={(e) => setPasteTitle(e.target.value)}
               placeholder="e.g. Refund policy"
@@ -293,24 +293,24 @@ export default function KnowledgeBaseDetailPage() {
             <Label htmlFor="pb" className="text-[14px] font-bold font-poppins text-[#000000] block mb-1">Content</Label>
             <Textarea
               id="pb"
-              className="w-full rounded-[8px] bg-[#0F6A590A] border border-[#000000] p-3 font-poppins text-[14px] text-black"
+              className="w-full rounded-xl bg-white border border-slate-200 p-3 font-poppins text-[14px] text-black"
               rows={4}
               value={pasteBody}
               onChange={(e) => setPasteBody(e.target.value)}
               placeholder="Paste the policy, FAQ, or script here..."
             />
           </div>
-          <Button onClick={handlePaste} disabled={isPasting} variant="outline" className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[45px]">
+          <Button onClick={handlePaste} disabled={isPasting} variant="outline" className="border border-slate-200 rounded-xl font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[45px]">
             {isPasting ? 'Adding...' : 'Add text'}
           </Button>
         </div>
       </div>
 
       {/* Documents */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold font-poppins text-[#000000]">Documents</h2>
-          <Button variant="outline" size="sm" onClick={fetchDocs} className="border border-[#000000] rounded-[8px] font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[40px]">
+          <Button variant="outline" size="sm" onClick={fetchDocs} className="border border-slate-200 rounded-xl font-poppins font-medium text-black bg-white hover:bg-slate-50 h-[40px]">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -323,7 +323,7 @@ export default function KnowledgeBaseDetailPage() {
         ) : (
           <div className="space-y-2">
             {docs.map((d) => (
-              <div key={d.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-[#000000] bg-[#F4F4F4] p-4">
+              <div key={d.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center gap-4 min-w-0 w-full sm:w-auto">
                   {(() => {
                     const meta = getFileMeta(d.title, d.file_type);
@@ -360,7 +360,7 @@ export default function KnowledgeBaseDetailPage() {
       </div>
 
       {/* Ask tester */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <div>
           <h2 className="text-xl font-bold font-poppins text-[#000000]">Ask your knowledge base</h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -372,7 +372,7 @@ export default function KnowledgeBaseDetailPage() {
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2">
           <Input
             value={query}
-            className="w-full h-[45px] rounded-[8px] bg-[#0F6A590A] border border-[#000000] px-3 font-poppins text-[14px] text-black"
+            className="w-full h-[45px] rounded-xl bg-white border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 px-3 font-poppins text-[14px] text-black"
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. ask anything that's in the attached documents"
           />

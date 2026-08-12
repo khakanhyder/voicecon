@@ -255,7 +255,7 @@ export default function BillingPage() {
 
 
         {/* Current Subscription */}
-        <div className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Current Plan</h2>
@@ -383,7 +383,7 @@ export default function BillingPage() {
         </div>
 
         {/* Usage This Period */}
-        <div className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="mb-6">
             <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Usage This Period</h2>
             <p className="text-[14px] font-poppins text-black/60 mt-1">Calls and minutes are unlimited — this is what you have used</p>
@@ -406,7 +406,7 @@ export default function BillingPage() {
                plan, so a progress bar would have no denominator to fill and an
                "x / unlimited" ratio is not a thing anyone can read. */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="rounded-[8px] border border-black/10 bg-[#0F6A590A] p-4">
+              <div className="rounded-xl border border-slate-200 bg-[#0F6A590A] p-4">
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-[#106959]" />
                   <span className="font-medium font-poppins text-[#000000]">Call Minutes</span>
@@ -419,7 +419,7 @@ export default function BillingPage() {
                 </p>
               </div>
 
-              <div className="rounded-[8px] border border-black/10 bg-[#0F6A590A] p-4">
+              <div className="rounded-xl border border-slate-200 bg-[#0F6A590A] p-4">
                 <div className="flex items-center gap-2">
                   <Phone className="w-5 h-5 text-[#106959]" />
                   <span className="font-medium font-poppins text-[#000000]">Total Calls</span>
@@ -455,13 +455,13 @@ export default function BillingPage() {
         </div>
 
         {/* Available Plans */}
-        <div id="available-plans" className="rounded-[10px] border border-black/10 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+        <div id="available-plans" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="flex flex-col items-center justify-center mb-8 pt-4 gap-5 text-center">
             <div>
               <h2 className="text-[24px] font-bold font-poppins text-[#000000]">Available Plans</h2>
               <p className="text-[14px] font-poppins text-black/60 mt-1">Choose the plan that fits your needs</p>
             </div>
-            <div className="flex items-center justify-center gap-2 bg-[#0F6A590A] border border-black/10 rounded-lg p-1">
+            <div className="flex items-center justify-center gap-2 bg-[#0F6A590A] border border-slate-200 rounded-lg p-1">
               <button
                 onClick={() => setBillingPeriod('monthly')}
                 className={`px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
@@ -489,7 +489,7 @@ export default function BillingPage() {
           {loading ? (
             <div className="flex flex-col md:flex-row flex-wrap justify-center gap-6">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="w-full md:w-[350px] border border-black/10 rounded-[10px] p-6 space-y-4">
+                <div key={i} className="w-full md:w-[350px] border border-slate-200 rounded-[10px] p-6 space-y-4">
                   <Skeleton className="h-6 w-28" />
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-12 w-24" />
@@ -512,7 +512,7 @@ export default function BillingPage() {
                     className={`w-full md:w-[350px] flex flex-col rounded-[10px] border p-6 transition-all bg-white relative top-0 hover:-top-1 ${
                       plan.id === subscription?.plan_id
                         ? 'border-[#106959] bg-[#0F6A590A] shadow-sm'
-                        : 'border-black/10 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]'
+                        : 'border-slate-200 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]'
                     }`}
                   >
                     <div className="mb-4">
@@ -611,7 +611,7 @@ export default function BillingPage() {
                       </p>
                     )}
 
-                    <div className="mt-5 pt-4 border-t border-black/5 text-[12px] text-gray-500 font-poppins flex flex-col gap-1">
+                    <div className="mt-5 pt-4 border-t border-slate-200 text-[12px] text-gray-500 font-poppins flex flex-col gap-1">
                       <div>Overage minutes: <span className="font-medium text-gray-900">${plan.overage_rate_per_minute}/min</span></div>
                       <div>Extra calls: <span className="font-medium text-gray-900">${plan.overage_rate_per_call}/call</span></div>
                     </div>
@@ -624,8 +624,8 @@ export default function BillingPage() {
         </div>
 
         {/* Invoice History */}
-        <div className="rounded-[10px] border border-black/10 bg-white overflow-hidden shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
-          <div className="px-6 py-5 border-b border-black/10">
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
+          <div className="px-6 py-5 border-b border-slate-200">
             <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Invoice History</h2>
             <p className="text-[14px] font-poppins text-black/60 mt-1">Download and view past invoices</p>
           </div>

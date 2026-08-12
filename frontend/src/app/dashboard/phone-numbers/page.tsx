@@ -557,7 +557,7 @@ export default function PhoneNumbersPage() {
           </div>
         ) : numbers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-[12px] bg-[#0F6A590A] border border-black/5 p-3 shadow-sm mb-5">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#0F6A590A] border border-slate-200 p-3 shadow-sm mb-5">
               <Phone className="h-8 w-8 text-[#106959]" />
             </div>
             <h3 className="text-[20px] font-bold text-[#000000] mb-2">No phone numbers yet</h3>

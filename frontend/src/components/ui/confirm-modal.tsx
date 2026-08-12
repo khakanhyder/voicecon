@@ -46,7 +46,7 @@ export function ConfirmModal({
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
         aria-describedby="confirm-modal-description"
-        className="w-full max-w-md rounded-[10px] border border-[#000000] bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200"
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -67,7 +67,7 @@ export function ConfirmModal({
         <div className="flex items-center gap-3 mt-8">
           <Button
             variant="outline"
-            className="flex-1 rounded-[8px] h-[45px] text-[14px] font-medium border border-[#000000]"
+            className="flex-1 rounded-xl h-[45px] text-[14px] font-medium border border-slate-200"
             onClick={onCancel}
             disabled={isLoading}
           >
@@ -75,7 +75,7 @@ export function ConfirmModal({
           </Button>
           <Button
             variant={isDestructive ? 'destructive' : 'default'}
-            className="flex-1 rounded-[8px] h-[45px] text-[14px] font-medium border border-[#000000]"
+            className="flex-1 rounded-xl h-[45px] text-[14px] font-medium border border-slate-200"
             onClick={onConfirm}
             disabled={isLoading}
           >

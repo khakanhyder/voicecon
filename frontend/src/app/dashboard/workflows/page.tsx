@@ -182,9 +182,9 @@ export default function WorkflowsPage() {
       )}
 
       {workflows.length === 0 ? (
-        <div className="rounded-[10px] border border-black/10 bg-white p-12 text-center shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <div className="mx-auto max-w-md space-y-6">
-            <div className="flex h-20 w-20 mx-auto items-center justify-center rounded-[12px] bg-[#0F6A590A] border border-black/5 p-3 shadow-sm">
+            <div className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl bg-[#0F6A590A] border border-slate-200 p-3 shadow-sm">
               <img src="/brand/workflow.png" alt="Workflow icon" className="w-full h-full object-contain mix-blend-multiply opacity-90" />
             </div>
             <div>

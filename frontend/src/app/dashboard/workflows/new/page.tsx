@@ -58,7 +58,7 @@ export default function NewWorkflowPage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Information */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Basic Information</h2>
 
           <div className="space-y-2">
@@ -69,7 +69,7 @@ export default function NewWorkflowPage() {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
-              className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+              className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"
             />
           </div>
 
@@ -81,13 +81,13 @@ export default function NewWorkflowPage() {
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={3}
-              className="w-full rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 py-2 text-[14px]"
+              className="w-full rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 py-2 text-[14px]"
             />
           </div>
         </div>
 
         {/* Trigger Configuration */}
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Trigger</h2>
 
           <div className="space-y-2">
@@ -96,7 +96,7 @@ export default function NewWorkflowPage() {
               value={formData.triggerType}
               onValueChange={(value) => setFormData({ ...formData, triggerType: value })}
             >
-              <SelectTrigger id="triggerType" className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]">
+              <SelectTrigger id="triggerType" className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -118,7 +118,7 @@ export default function NewWorkflowPage() {
                 value={formData.agentId}
                 onValueChange={(value) => setFormData({ ...formData, agentId: value })}
               >
-                <SelectTrigger id="agentId" className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]">
+                <SelectTrigger id="agentId" className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]">
                   <SelectValue
                     placeholder={
                       agentsLoading ? 'Loading agents…' : 'Select an agent'
@@ -143,14 +143,14 @@ export default function NewWorkflowPage() {
         </div>
 
         {/* Visual Builder Notice */}
-        <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
           <h3 className="font-semibold mb-2 text-[#000000]">Voice Call Flow Builder</h3>
           <p className="text-sm text-muted-foreground mb-4">
             After creating, you'll be taken directly to the visual builder to add voice call steps.
           </p>
           <div className="flex flex-wrap gap-2 text-xs">
             {['Speak', 'Ask Question', 'Branch', 'Transfer', 'Run Tool', 'Webhook', 'AI Response', 'End Call'].map((s) => (
-              <span key={s} className="rounded bg-white px-2 py-1 border border-[#000000] font-medium text-[#000000]">{s}</span>
+              <span key={s} className="rounded bg-white px-2 py-1 border border-slate-200 font-medium text-[#000000]">{s}</span>
             ))}
           </div>
         </div>

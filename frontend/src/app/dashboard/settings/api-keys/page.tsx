@@ -187,7 +187,7 @@ export default function APIKeysPage() {
     <div className="space-y-6">
       {/* New API Key Alert */}
       {newKey && (
-        <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <h3 className="font-semibold text-primary">New API Key Created</h3>
@@ -200,7 +200,7 @@ export default function APIKeysPage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Input value={newKey} readOnly className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"/>
+            <Input value={newKey} readOnly className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"/>
             <Button onClick={() => copyToClipboard(newKey)}>Copy</Button>
           </div>
           <div className="space-y-2">
@@ -218,7 +218,7 @@ export default function APIKeysPage() {
 
       {/* Create API Key */}
       {canManage && (
-        <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Create New API Key</h2>
           <form onSubmit={handleCreateKey} className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-end gap-4">
@@ -230,7 +230,7 @@ export default function APIKeysPage() {
                   value={keyName}
                   onChange={(e) => setKeyName(e.target.value)}
                   required
-                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]" />
+                  className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
               </div>
               <div className="space-y-2 sm:w-48">
                 <Label htmlFor="expiry" className="text-[14px] font-bold text-[#000000] font-poppins block">Expires</Label>
@@ -238,7 +238,7 @@ export default function APIKeysPage() {
                   id="expiry"
                   value={expiryDays ?? ''}
                   onChange={(e) => setExpiryDays(e.target.value === '' ? null : Number(e.target.value))}
-                  className="w-full h-[45px] rounded-[8px] border border-[#000000] bg-[#0F6A590A] text-[#000000] font-poppins px-3 text-[14px]"
+                  className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"
                 >
                   {EXPIRY_OPTIONS.map(([label, days]) => (
                     <option key={label} value={days ?? ''}>{label}</option>
@@ -254,7 +254,7 @@ export default function APIKeysPage() {
 
             {/* Scopes */}
             {availableScopes.length > 0 && (
-              <div className="space-y-3 border-t border-black/10 pt-4">
+              <div className="space-y-3 border-t border-slate-200 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowScopePicker((v) => !v)}
@@ -278,7 +278,7 @@ export default function APIKeysPage() {
                               type="checkbox"
                               checked={selectedScopes.includes(scope)}
                               onChange={() => toggleScope(scope)}
-                              className="rounded border-black/30"
+                              className="rounded border-slate-300"
                             />
                             <span className="font-mono text-[12px]">{scope.split(':')[1]}</span>
                           </label>
@@ -294,7 +294,7 @@ export default function APIKeysPage() {
       )}
 
       {/* API Keys List */}
-      <div className="rounded-[10px] border border-[#000000] bg-white p-6 space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
         <h2 className="text-xl font-semibold">Your API Keys</h2>
 
         {loading ? (
@@ -314,7 +314,7 @@ export default function APIKeysPage() {
             {apiKeys.map((apiKey) => (
               <div
                 key={apiKey.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[10px] border border-[#000000] p-4 bg-white"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4 bg-white"
               >
                 <div className="space-y-1 min-w-0">
                   {renamingId === apiKey.id ? (
@@ -327,7 +327,7 @@ export default function APIKeysPage() {
                           if (e.key === 'Escape') setRenamingId(null)
                         }}
                         autoFocus
-                        className="h-9 w-56 rounded-[8px] border border-[#000000] px-2 text-[14px]"
+                        className="h-9 w-56 rounded-xl border border-slate-200 px-2 text-[14px]"
                       />
                       <Button size="sm" onClick={() => handleRename(apiKey.id)} disabled={busyId === apiKey.id}>
                         Save
@@ -416,7 +416,7 @@ export default function APIKeysPage() {
       </div>
 
       {/* Security Notice */}
-      <div className="rounded-[10px] border border-[#000000] bg-[#0F6A590A] p-6">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
         <h3 className="font-semibold text-destructive mb-2">Security Best Practices</h3>
         <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
           <li>Never share your API keys publicly or commit them to version control</li>
