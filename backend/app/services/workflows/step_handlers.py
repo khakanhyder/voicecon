@@ -344,33 +344,14 @@ class ActionStepHandler(BaseStepHandler):
             if not connector:
                 raise StepExecutionError("Connector not found")
 
-            # Get connector class dynamically
-            connector_map = {
-                "salesforce": "SalesforceConnector",
-                "hubspot": "HubSpotConnector",
-                "sendgrid": "SendGridConnector",
-                "google-calendar": "GoogleCalendarConnector",
-                "slack": "SlackConnector",
-                "stripe": "StripeConnector",
-                "notion": "NotionConnector",
-                "clickup": "ClickUpConnector",
-                "trello": "TrelloConnector",
-                "whatsapp": "WhatsAppConnector",
-                "airtable": "AirtableConnector",
-                "gohighlevel": "GoHighLevelConnector",
-                "twilio": "TwilioConnector",
-                "langfuse": "LangfuseConnector",
-                "calendly": "CalendlyConnector",
-                "google-sheets": "GoogleSheetsConnector",
-                "google-drive": "GoogleDriveConnector",
-                "cal-com": "CalComConnector",
-                "monday": "MondayConnector",
-                "vonage": "VonageConnector",
-                "telnyx": "TelnyxConnector",
-                "supabase": "SupabaseConnector",
-            }
+            # Get connector class dynamically. CONNECTOR_CLASS_MAP is the one
+            # source of truth — this used to be a second hand-maintained copy of
+            # it, and the copies drifted: Stripe was present here but absent
+            # from the registry, so a 696-line working connector could not be
+            # reached from a workflow at all.
+            from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
 
-            connector_class_name = connector_map.get(connector.slug)
+            connector_class_name = CONNECTOR_CLASS_MAP.get(connector.slug)
             if not connector_class_name:
                 raise StepExecutionError(f"Unsupported connector: {connector.slug}")
 
@@ -395,6 +376,7 @@ class ActionStepHandler(BaseStepHandler):
                 # list" — so most workflows never have to name a list at all.
                 # An explicit value always wins; this only fills gaps.
                 from app.services.integrations.action_registry import (
+                    adapt_parameters,
                     drop_unsupported_arguments,
                     get_action_schema,
                     strip_ui_only_parameters,
@@ -418,6 +400,11 @@ class ActionStepHandler(BaseStepHandler):
                 parameters = strip_ui_only_parameters(
                     connector.slug, action, parameters
                 )
+                # Saved steps store the schema's parameter names. Translate to
+                # the connector's before drop_unsupported_arguments gets a look
+                # at them, or a renamed key is discarded as "unknown" and the
+                # step fails on a missing required argument instead.
+                parameters = adapt_parameters(connector.slug, action, parameters)
 
                 action_method = getattr(connector_instance, action)
                 # Last line of defence before ``**parameters``: a step whose

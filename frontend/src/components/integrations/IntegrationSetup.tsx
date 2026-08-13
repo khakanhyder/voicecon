@@ -45,6 +45,14 @@ const PRIMARY_CREDENTIAL_FIELDS = [
   'api_key', 'access_token', 'api_token', 'token', 'secret_key',
   'service_role_key', 'service_account_json', 'connection_string',
   'secret_access_key', 'api_secret', 'auth_token',
+  // Webhook integrations (Zapier, Make, Teams): the URL *is* the credential —
+  // it is unguessable and possession of it is authority to post — so it is
+  // stored encrypted like any other secret rather than in plain config.
+  'webhook_url',
+  // Azure Blob accepts either style; SAS first because it is the scoped one.
+  'sas_token', 'account_key',
+  // SMTP
+  'password', 'app_password',
 ]
 
 /**
@@ -65,6 +73,16 @@ function buildApiKeyAuth(
   if (slug === 'twilio') {
     return {
       api_key: btoa(`${filled.account_sid || ''}:${filled.auth_token || ''}`),
+      additional_fields: filled,
+    }
+  }
+
+  // Zendesk's Basic auth username is not the email but `<email>/token`. Sending
+  // the plain email returns a 401 that reads exactly like a bad token, so the
+  // pair is assembled here rather than left to the user to get right.
+  if (slug === 'zendesk') {
+    return {
+      api_key: btoa(`${filled.email || ''}/token:${filled.api_token || ''}`),
       additional_fields: filled,
     }
   }

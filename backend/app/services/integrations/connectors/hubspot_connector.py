@@ -125,7 +125,7 @@ class HubSpotConnector(BaseConnector):
     async def update_contact(
         self,
         contact_id: str,
-        properties: Dict[str, Any],
+        properties: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Update an existing contact in HubSpot.
@@ -140,6 +140,14 @@ class HubSpotConnector(BaseConnector):
         Raises:
             ConnectorError: If update fails
         """
+        if not properties:
+            # A PATCH with an empty property bag is a wasted round trip that
+            # HubSpot answers 200 to, so the step would report success having
+            # changed nothing. Say what actually happened instead.
+            raise ConnectorError(
+                "update_contact was called with no fields to update"
+            )
+
         try:
             response = await self.patch(
                 f"/crm/v3/objects/contacts/{contact_id}",
@@ -226,7 +234,8 @@ class HubSpotConnector(BaseConnector):
 
     async def search_contacts(
         self,
-        filters: List[Dict[str, Any]],
+        query: Optional[str] = None,
+        filters: Optional[List[Dict[str, Any]]] = None,
         limit: int = 100,
         properties: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -245,10 +254,21 @@ class HubSpotConnector(BaseConnector):
             ConnectorError: If search fails
         """
         try:
-            search_request = {
-                "filterGroups": [{"filters": filters}],
-                "limit": limit,
-            }
+            # Two ways in, because callers differ. A workflow author builds
+            # structured filterGroups; a voice agent has a name or a phone
+            # number it heard and nothing more. HubSpot's search endpoint takes
+            # a top-level free-text `query`, so the agent case maps onto it
+            # directly rather than being guessed into a filter.
+            search_request: Dict[str, Any] = {"limit": limit}
+
+            if query:
+                search_request["query"] = query
+            if filters:
+                search_request["filterGroups"] = [{"filters": filters}]
+            if not query and not filters:
+                raise ConnectorError(
+                    "search_contacts needs either a query or filters"
+                )
 
             if properties:
                 search_request["properties"] = properties
@@ -380,10 +400,11 @@ class HubSpotConnector(BaseConnector):
     async def create_deal(
         self,
         deal_name: str,
-        pipeline: str,
-        deal_stage: str,
+        pipeline: str = "default",
+        deal_stage: str = "appointmentscheduled",
         amount: Optional[float] = None,
         close_date: Optional[str] = None,
+        contact_email: Optional[str] = None,
         additional_properties: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
@@ -426,11 +447,44 @@ class HubSpotConnector(BaseConnector):
                 json={"properties": properties},
             )
 
-            logger.info(f"HubSpot deal created: {response.get('id')}")
+            deal_id = response.get("id")
+            logger.info(f"HubSpot deal created: {deal_id}")
+
+            # A deal raised from a call is about somebody. The action schema has
+            # always offered contact_email, but the method had no such argument,
+            # so it was dropped before the call and the deal landed in HubSpot
+            # attached to nobody. Associate it — best-effort, because a deal
+            # that exists unattached is better than a failed step.
+            associated_contact_id = None
+            if contact_email and deal_id:
+                try:
+                    matches = await self.search_contacts(query=contact_email, limit=1)
+                    results = matches.get("results") or matches.get("contacts") or []
+                    if results:
+                        associated_contact_id = results[0].get("id")
+                        await self.associate_objects(
+                            from_object_type="deals",
+                            from_object_id=deal_id,
+                            to_object_type="contacts",
+                            to_object_id=associated_contact_id,
+                            # HUBSPOT_DEFINED deal→contact.
+                            association_type_id=3,
+                        )
+                    else:
+                        logger.warning(
+                            f"No HubSpot contact matched {contact_email}; "
+                            f"deal {deal_id} created without an association"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        f"Deal {deal_id} created but could not be associated "
+                        f"with {contact_email}: {exc}"
+                    )
 
             return {
-                "id": response.get("id"),
+                "id": deal_id,
                 "properties": response.get("properties", {}),
+                "associated_contact_id": associated_contact_id,
                 "created_at": response.get("createdAt"),
                 "updated_at": response.get("updatedAt"),
             }

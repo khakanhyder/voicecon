@@ -27,6 +27,34 @@ class ConnectorError(Exception):
     pass
 
 
+def resolve_base_url(
+    connector: IntegrationConnector,
+    connection: Optional[IntegrationConnection] = None,
+) -> Optional[str]:
+    """The API host to talk to for this particular connection.
+
+    Most providers have one host for everybody and the connector row's
+    ``base_url`` is the whole answer. A few are tenant-scoped and cannot be:
+
+    * **Supabase** — every project has its own ``https://<ref>.supabase.co``.
+      The seeded row is the literal placeholder ``https://your-project.supabase.co``,
+      so without an override every Supabase call resolves to a host that does
+      not exist.
+    * **Azure Blob** — ``https://<account>.blob.core.windows.net``.
+    * **Make**, **Zendesk** — region- and subdomain-scoped hooks.
+
+    The override lives on ``connection.config["base_url"]``, written by the
+    setup form, and is read here rather than at each call site so that the
+    connector, the connection test and the OAuth flow cannot disagree about
+    where the requests are going.
+    """
+    config = getattr(connection, "config", None) or {}
+    override = config.get("base_url")
+    if isinstance(override, str) and override.strip():
+        return override.strip().rstrip("/")
+    return connector.base_url
+
+
 class BaseConnector(ABC):
     """
     Abstract base class for integration connectors.
@@ -67,7 +95,7 @@ class BaseConnector(ABC):
         retry_config = RetryConfig(max_retries=3)
 
         self.http_client = IntegrationHTTPClient(
-            base_url=connector.base_url,
+            base_url=resolve_base_url(connector, connection),
             rate_limiter=rate_limiter,
             retry_config=retry_config,
         )
@@ -215,6 +243,36 @@ class BaseConnector(ABC):
 
         return {}
 
+    def get_auth_params(self, access_token: str) -> Dict[str, Any]:
+        """Credentials that belong in the query string rather than a header.
+
+        Cal.com and Vonage authenticate with ``?apiKey=`` / ``?api_key=``, and
+        their seed rows say so via ``api_key_location: "query"``. Until this
+        existed, ``get_auth_headers`` returned ``{}`` for them and nothing else
+        picked the credential up, so every request went out anonymous.
+
+        What made that hard to see: ``IntegrationManager.test_connection``
+        builds its own request and *does* honour ``api_key_location``. So the
+        connection tested green, the UI showed Connected, and only the actual
+        actions 401'd. Both paths now derive the credential the same way.
+
+        Args:
+            access_token: Decrypted API key or access token.
+
+        Returns:
+            Query parameters to merge into the request, or ``{}``.
+        """
+        if self.connector.auth_type != "api_key":
+            return {}
+
+        auth_config = self.connector.auth_config or {}
+        if auth_config.get("api_key_location") != "query":
+            return {}
+
+        api_key_name = auth_config.get("api_key_name", "api_key")
+        api_key_format = auth_config.get("api_key_format", "{api_key}")
+        return {api_key_name: api_key_format.format(api_key=access_token)}
+
     async def make_request(
         self,
         method: str,
@@ -253,6 +311,14 @@ class BaseConnector(ABC):
             # Add additional headers
             if headers:
                 request_headers.update(headers)
+
+            # Query-string credentials, for providers that authenticate that
+            # way. An explicit caller parameter wins — Vonage's connector
+            # passes api_key/api_secret itself, and that call should not be
+            # silently rewritten underneath it.
+            auth_params = self.get_auth_params(access_token)
+            if auth_params:
+                params = {**auth_params, **(params or {})}
 
             # Make request
             start_time = time.time()

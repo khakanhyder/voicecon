@@ -12,6 +12,16 @@ from app.services.integrations.connector_base import BaseConnector, ConnectorErr
 logger = logging.getLogger(__name__)
 
 
+def _soql_escape(value: str) -> str:
+    """Escape a value for interpolation into a SOQL string literal.
+
+    SOQL has no parameter binding over the REST query endpoint, so the literal
+    has to be built by hand. Backslash first, or it would double-escape the
+    quotes added after it.
+    """
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
 class SalesforceConnector(BaseConnector):
     """
     Salesforce CRM connector.
@@ -60,8 +70,8 @@ class SalesforceConnector(BaseConnector):
 
     async def create_contact(
         self,
-        first_name: str,
         last_name: str,
+        first_name: Optional[str] = None,
         email: Optional[str] = None,
         phone: Optional[str] = None,
         additional_fields: Optional[Dict[str, Any]] = None,
@@ -84,10 +94,9 @@ class SalesforceConnector(BaseConnector):
         """
         try:
             # Build contact data
-            contact_data = {
-                "FirstName": first_name,
-                "LastName": last_name,
-            }
+            contact_data = {"LastName": last_name}
+            if first_name:
+                contact_data["FirstName"] = first_name
 
             if email:
                 contact_data["Email"] = email
@@ -211,9 +220,9 @@ class SalesforceConnector(BaseConnector):
 
     async def create_lead(
         self,
-        first_name: str,
         last_name: str,
         company: str,
+        first_name: Optional[str] = None,
         email: Optional[str] = None,
         phone: Optional[str] = None,
         status: str = "Open - Not Contacted",
@@ -240,11 +249,12 @@ class SalesforceConnector(BaseConnector):
         try:
             # Build lead data
             lead_data = {
-                "FirstName": first_name,
                 "LastName": last_name,
                 "Company": company,
                 "Status": status,
             }
+            if first_name:
+                lead_data["FirstName"] = first_name
 
             if email:
                 lead_data["Email"] = email
@@ -408,6 +418,7 @@ class SalesforceConnector(BaseConnector):
 
     async def search_contacts(
         self,
+        query: Optional[str] = None,
         email: Optional[str] = None,
         phone: Optional[str] = None,
         name: Optional[str] = None,
@@ -427,14 +438,29 @@ class SalesforceConnector(BaseConnector):
             ConnectorError: If search fails
         """
         try:
-            # Build SOQL query
+            # Build SOQL query. Values are escaped, not interpolated raw: these
+            # come from a caller's spoken name or an LLM's tool arguments, and
+            # a single apostrophe ("O'Brien") both breaks the query and opens
+            # the door to injecting SOQL.
             conditions = []
             if email:
-                conditions.append(f"Email = '{email}'")
+                conditions.append(f"Email = '{_soql_escape(email)}'")
             if phone:
-                conditions.append(f"Phone = '{phone}'")
+                conditions.append(f"Phone = '{_soql_escape(phone)}'")
             if name:
-                conditions.append(f"Name LIKE '%{name}%'")
+                conditions.append(f"Name LIKE '%{_soql_escape(name)}%'")
+
+            # A voice agent knows one thing about the person, not which field
+            # it belongs to. Match it against all three.
+            if query:
+                term = _soql_escape(query)
+                conditions.extend(
+                    [
+                        f"Email = '{term}'",
+                        f"Phone = '{term}'",
+                        f"Name LIKE '%{term}%'",
+                    ]
+                )
 
             if not conditions:
                 return []

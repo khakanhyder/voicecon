@@ -26,6 +26,29 @@ from app.services.integrations.connectors.vonage_connector import VonageConnecto
 from app.services.integrations.connectors.telnyx_connector import TelnyxConnector
 from app.services.integrations.connectors.supabase_connector import SupabaseConnector
 
+# ── Object storage (S3-compatible family + Azure) ────────────────────────────
+from app.services.integrations.connectors.aws_s3_connector import AWSS3Connector
+from app.services.integrations.connectors.cloudflare_r2_connector import CloudflareR2Connector
+from app.services.integrations.connectors.gcs_connector import GCSConnector
+from app.services.integrations.connectors.azure_blob_connector import AzureBlobConnector
+
+# ── Outbound webhooks ────────────────────────────────────────────────────────
+from app.services.integrations.connectors.zapier_connector import ZapierConnector
+from app.services.integrations.connectors.make_connector import MakeConnector
+from app.services.integrations.connectors.microsoft_teams_connector import MicrosoftTeamsConnector
+
+# ── SMTP email ───────────────────────────────────────────────────────────────
+from app.services.integrations.connectors.smtp_connector import (
+    GmailSMTPConnector,
+    OutlookSMTPConnector,
+    CustomSMTPConnector,
+)
+
+# ── CRM / support ────────────────────────────────────────────────────────────
+from app.services.integrations.connectors.pipedrive_connector import PipedriveConnector
+from app.services.integrations.connectors.zendesk_connector import ZendeskConnector
+from app.services.integrations.connectors.intercom_connector import IntercomConnector
+
 __all__ = [
     "SalesforceConnector",
     "SendGridConnector",
@@ -49,4 +72,17 @@ __all__ = [
     "VonageConnector",
     "TelnyxConnector",
     "SupabaseConnector",
+    "AWSS3Connector",
+    "CloudflareR2Connector",
+    "GCSConnector",
+    "AzureBlobConnector",
+    "ZapierConnector",
+    "MakeConnector",
+    "MicrosoftTeamsConnector",
+    "GmailSMTPConnector",
+    "OutlookSMTPConnector",
+    "CustomSMTPConnector",
+    "PipedriveConnector",
+    "ZendeskConnector",
+    "IntercomConnector",
 ]

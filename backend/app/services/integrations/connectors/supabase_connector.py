@@ -24,14 +24,16 @@ class SupabaseConnector(BaseConnector):
 
     async def test_connection(self) -> Dict[str, Any]:
         try:
-            # We hit an arbitrary table endpoint with limit 1 to verify credentials
-            auth_data = self.get_auth_data()
-            test_table = auth_data.get("test_table", "users")
-            res = await self.get(f"/rest/v1/{test_table}", params={"limit": "1"})
+            # The REST root answers with the project's OpenAPI description for
+            # any valid key. The previous version probed a table named "users",
+            # taken from a `test_table` field no setup form ever collected — so
+            # a perfectly good key failed the test on any project that happened
+            # not to have that table.
+            await self.get("/rest/v1/")
             return {
                 "success": True,
                 "message": "Supabase connection successful",
-                "details": {},
+                "details": {"project_url": self.http_client.base_url},
             }
         except Exception as e:
             return {"success": False, "message": f"Connection test failed: {e}", "details": {}}

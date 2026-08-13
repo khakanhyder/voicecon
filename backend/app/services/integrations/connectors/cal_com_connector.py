@@ -16,12 +16,10 @@ class CalComConnector(BaseConnector):
     - list_event_types
     - get_bookings
     """
-    def get_auth_headers(self, access_token: str) -> Dict[str, str]:
-        # Cal.com allows apiKey as query parameter, but we can also use Authorization Bearer
-        # according to standard fallback or configure it via seed_data auth_config.
-        # But let's return it as query parameter by overriding make_request, or
-        # using the database auth_config format if handled correctly in base.
-        return {}  # Handled by auth_config template in base class or query params
+    # Auth is ``?apiKey=`` — declared as ``api_key_location: "query"`` on the
+    # seeded connector row and applied by BaseConnector.get_auth_params. This
+    # class used to override get_auth_headers to return {}, which read as
+    # "handled elsewhere" but meant no credential was sent at all.
 
     async def test_connection(self) -> Dict[str, Any]:
         try:

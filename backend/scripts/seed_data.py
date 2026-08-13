@@ -2,7 +2,7 @@
 Seed script: integration connectors + subscription plans.
 Run: python -m scripts.seed_data
 """
-import asyncio, sys, uuid
+import asyncio, json, sys, uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -22,21 +22,21 @@ CONNECTORS = [
     # CRM
     {"slug": "salesforce",        "name": "Salesforce",           "category": "crm",           "auth_type": "oauth2",  "description": "Sync contacts, leads, and opportunities with Salesforce CRM",         "base_url": "https://api.salesforce.com",        "auth_config": {"oauth_url": "https://login.salesforce.com/services/oauth2/authorize", "token_url": "https://login.salesforce.com/services/oauth2/token", "scopes": ["api", "refresh_token"], "test_endpoint": "/services/data/v58.0/"}, "rate_limit_per_minute": 100},
     {"slug": "hubspot",           "name": "HubSpot",              "category": "crm",           "auth_type": "oauth2",  "description": "CRM contacts, deals, and pipeline management",                       "base_url": "https://api.hubapi.com",            "auth_config": {"oauth_url": "https://app.hubspot.com/oauth/authorize", "token_url": "https://api.hubapi.com/oauth/v1/token", "scopes": ["contacts", "crm.objects.deals.read"], "test_endpoint": "/crm/v3/objects/contacts"}, "rate_limit_per_minute": 100},
-    {"slug": "pipedrive",         "name": "Pipedrive",            "category": "crm",           "auth_type": "oauth2",  "description": "Sales pipeline CRM to track deals and contacts from voice calls",    "base_url": "https://api.pipedrive.com",         "auth_config": {"oauth_url": "https://oauth.pipedrive.com/oauth/authorize", "token_url": "https://oauth.pipedrive.com/oauth/token", "scopes": ["deals:full", "contacts:full"], "test_endpoint": "/v1/users/me"}, "rate_limit_per_minute": 80},
-    {"slug": "zendesk",           "name": "Zendesk",              "category": "crm",           "auth_type": "oauth2",  "description": "Create and update support tickets from voice interactions",           "base_url": "https://api.zendesk.com",           "auth_config": {"test_endpoint": "/api/v2/users/me.json"}, "rate_limit_per_minute": 100},
-    {"slug": "intercom",          "name": "Intercom",             "category": "crm",           "auth_type": "oauth2",  "description": "Create conversations and update contacts in Intercom from calls",    "base_url": "https://api.intercom.io",           "auth_config": {"oauth_url": "https://app.intercom.com/oauth", "token_url": "https://api.intercom.io/auth/eagle/token", "scopes": ["read_conversations", "write_conversations"], "test_endpoint": "/me"}, "rate_limit_per_minute": 60},
+    {"slug": "pipedrive",         "name": "Pipedrive",            "category": "crm",           "auth_type": "api_key", "description": "Sales pipeline CRM to track deals and contacts from voice calls",    "base_url": "https://api.pipedrive.com",         "auth_config": {"api_key_location": "query", "api_key_name": "api_token", "test_endpoint": "/v1/users/me"}, "rate_limit_per_minute": 80},
+    {"slug": "zendesk",           "name": "Zendesk",              "category": "crm",           "auth_type": "api_key", "description": "Create and update support tickets from voice interactions",           "base_url": "https://example.zendesk.com",       "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Basic {api_key}", "base_url_field": "subdomain_url", "test_endpoint": "/api/v2/users/me.json"}, "rate_limit_per_minute": 100},
+    {"slug": "intercom",          "name": "Intercom",             "category": "crm",           "auth_type": "api_key", "description": "Create conversations and update contacts in Intercom from calls",    "base_url": "https://api.intercom.io",           "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Bearer {api_key}", "test_endpoint": "/me"}, "rate_limit_per_minute": 60},
     # Calendar
     {"slug": "google-calendar",   "name": "Google Calendar",      "category": "calendar",      "auth_type": "oauth2",  "description": "Schedule and manage calendar events during voice calls",             "base_url": "https://www.googleapis.com",        "auth_config": {"oauth_url": "https://accounts.google.com/o/oauth2/v2/auth", "token_url": "https://oauth2.googleapis.com/token", "scopes": ["https://www.googleapis.com/auth/calendar"], "test_endpoint": "/calendar/v3/users/me/calendarList"}, "rate_limit_per_minute": 60},
     {"slug": "calendly",          "name": "Calendly",             "category": "calendar",      "auth_type": "oauth2",  "description": "Book appointments with Calendly scheduling",                         "base_url": "https://api.calendly.com",          "auth_config": {"oauth_url": "https://auth.calendly.com/oauth/authorize", "token_url": "https://auth.calendly.com/oauth/token", "scopes": ["default"], "test_endpoint": "/users/me"}, "rate_limit_per_minute": 60},
     {"slug": "cal-com",           "name": "Cal.com",              "category": "calendar",      "auth_type": "api_key", "description": "Open-source scheduling — book meetings directly from voice calls",   "base_url": "https://api.cal.com",              "auth_config": {"api_key_location": "query", "api_key_name": "apiKey", "test_endpoint": "/v1/me"}, "rate_limit_per_minute": 60},
     # Communication
     {"slug": "slack",             "name": "Slack",                "category": "communication", "auth_type": "oauth2",  "description": "Send notifications and messages to Slack channels",                  "base_url": "https://slack.com/api",             "auth_config": {"oauth_url": "https://slack.com/oauth/v2/authorize", "token_url": "https://slack.com/api/oauth.v2.access", "scopes": ["chat:write", "channels:read"], "test_endpoint": "/auth.test"}, "rate_limit_per_minute": 60},
-    {"slug": "microsoft-teams",   "name": "Microsoft Teams",      "category": "communication", "auth_type": "oauth2",  "description": "Send messages and notifications to Teams channels",                  "base_url": "https://graph.microsoft.com",       "auth_config": {"oauth_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize", "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token", "scopes": ["ChannelMessage.Send", "Chat.ReadWrite"], "test_endpoint": "/v1.0/me"}, "rate_limit_per_minute": 60},
+    {"slug": "microsoft-teams",   "name": "Microsoft Teams",      "category": "communication", "auth_type": "api_key", "description": "Send messages and notifications to Teams channels",                  "base_url": "https://webhook.office.com",        "auth_config": {"connect_flow": "webhook_url", "credential_label": "Incoming Webhook URL"}, "rate_limit_per_minute": 60},
     {"slug": "twilio",            "name": "Twilio",               "category": "communication", "auth_type": "api_key", "description": "Enhanced telephony, SMS and WhatsApp messaging",                     "base_url": "https://api.twilio.com",            "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Basic {api_key}", "test_endpoint": "/2010-04-01/Accounts.json"}, "rate_limit_per_minute": 200},
     {"slug": "sendgrid",          "name": "SendGrid",             "category": "communication", "auth_type": "api_key", "description": "Send transactional emails from voice conversations",                  "base_url": "https://api.sendgrid.com",          "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Bearer {api_key}", "test_endpoint": "/v3/user/profile"}, "rate_limit_per_minute": 100},
     # Productivity / Automation
-    {"slug": "zapier",            "name": "Zapier",               "category": "productivity",  "auth_type": "oauth2",  "description": "Connect to 5000+ apps via Zapier automation",                        "base_url": "https://hooks.zapier.com",          "auth_config": {"test_endpoint": "/"}, "rate_limit_per_minute": 100},
-    {"slug": "make",              "name": "Make (Integromat)",    "category": "productivity",  "auth_type": "api_key", "description": "Visual automation platform — connect Voicecon to any app",           "base_url": "https://hook.eu1.make.com",         "auth_config": {"api_key_location": "query", "api_key_name": "token", "test_endpoint": "/"}, "rate_limit_per_minute": 100},
+    {"slug": "zapier",            "name": "Zapier",               "category": "productivity",  "auth_type": "api_key", "description": "Connect to 5000+ apps via Zapier automation",                        "base_url": "https://hooks.zapier.com",          "auth_config": {"connect_flow": "webhook_url", "credential_label": "Catch Hook URL"}, "rate_limit_per_minute": 100},
+    {"slug": "make",              "name": "Make (Integromat)",    "category": "productivity",  "auth_type": "api_key", "description": "Visual automation platform — connect Voicecon to any app",           "base_url": "https://hook.eu1.make.com",         "auth_config": {"connect_flow": "webhook_url", "credential_label": "Custom Webhook URL"}, "rate_limit_per_minute": 100},
     {"slug": "google-sheets",     "name": "Google Sheets",        "category": "productivity",  "auth_type": "oauth2",  "description": "Log call data and customer information to spreadsheets",             "base_url": "https://sheets.googleapis.com",     "auth_config": {"oauth_url": "https://accounts.google.com/o/oauth2/v2/auth", "token_url": "https://oauth2.googleapis.com/token", "scopes": ["https://www.googleapis.com/auth/spreadsheets"], "test_endpoint": "/v4/spreadsheets"}, "rate_limit_per_minute": 60},
     {"slug": "google-drive",      "name": "Google Drive",         "category": "productivity",  "auth_type": "oauth2",  "description": "Save call recordings and transcripts to Google Drive",               "base_url": "https://www.googleapis.com",        "auth_config": {"oauth_url": "https://accounts.google.com/o/oauth2/v2/auth", "token_url": "https://oauth2.googleapis.com/token", "scopes": ["https://www.googleapis.com/auth/drive.file"], "test_endpoint": "/drive/v3/about?fields=user"}, "rate_limit_per_minute": 60},
     {"slug": "airtable",          "name": "Airtable",             "category": "productivity",  "auth_type": "api_key", "description": "Store and organize conversation data in Airtable",                   "base_url": "https://api.airtable.com",          "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Bearer {api_key}", "test_endpoint": "/v0/meta/whoami"}, "rate_limit_per_minute": 60},
@@ -55,11 +55,17 @@ CONNECTORS = [
     # Analytics / Observability
     {"slug": "langfuse",          "name": "Langfuse",             "category": "analytics",     "auth_type": "api_key", "description": "Open-source LLM observability — trace, evaluate, and debug AI",    "base_url": "https://cloud.langfuse.com",        "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Basic {api_key}", "test_endpoint": "/api/public/health"}, "rate_limit_per_minute": 200},
     # Cloud Storage
-    {"slug": "aws-s3",            "name": "AWS S3",               "category": "cloud",         "auth_type": "api_key", "description": "Store call recordings and files in Amazon S3 buckets",              "base_url": "https://s3.amazonaws.com",          "auth_config": {"api_key_location": "header", "api_key_name": "X-Amz-Security-Token", "test_endpoint": "/"}, "rate_limit_per_minute": 500},
-    {"slug": "azure-blob",        "name": "Azure Blob Storage",   "category": "cloud",         "auth_type": "api_key", "description": "Store and manage call data in Microsoft Azure Blob Storage",         "base_url": "https://blob.core.windows.net",     "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "test_endpoint": "/"}, "rate_limit_per_minute": 500},
-    {"slug": "gcs",               "name": "Google Cloud Storage", "category": "cloud",         "auth_type": "api_key", "description": "Store recordings and data in Google Cloud Storage buckets",          "base_url": "https://storage.googleapis.com",    "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Bearer {api_key}", "test_endpoint": "/storage/v1/b"}, "rate_limit_per_minute": 500},
-    {"slug": "cloudflare-r2",     "name": "Cloudflare R2",        "category": "cloud",         "auth_type": "api_key", "description": "Zero-egress object storage for recordings and call artifacts",       "base_url": "https://api.cloudflare.com",        "auth_config": {"api_key_location": "header", "api_key_name": "Authorization", "api_key_format": "Bearer {api_key}", "test_endpoint": "/client/v4/user/tokens/verify"}, "rate_limit_per_minute": 200},
-    {"slug": "supabase",          "name": "Supabase",             "category": "cloud",         "auth_type": "api_key", "description": "Open-source Firebase alternative — store call data in Postgres",     "base_url": "https://your-project.supabase.co",  "auth_config": {"api_key_location": "header", "api_key_name": "apikey", "test_endpoint": "/rest/v1/"}, "rate_limit_per_minute": 200},
+    {"slug": "aws-s3",            "name": "AWS S3",               "category": "cloud",         "auth_type": "api_key", "description": "Store call recordings and files in Amazon S3 buckets",              "base_url": "https://s3.amazonaws.com",          "auth_config": {"signing": "sigv4"}, "rate_limit_per_minute": 500},
+    {"slug": "azure-blob",        "name": "Azure Blob Storage",   "category": "cloud",         "auth_type": "api_key", "description": "Store and manage call data in Microsoft Azure Blob Storage",         "base_url": "https://blob.core.windows.net",     "auth_config": {"signing": "azure_shared_key", "base_url_field": "account_url"}, "rate_limit_per_minute": 500},
+    {"slug": "gcs",               "name": "Google Cloud Storage", "category": "cloud",         "auth_type": "api_key", "description": "Store recordings and data in Google Cloud Storage buckets",          "base_url": "https://storage.googleapis.com",    "auth_config": {"signing": "sigv4"}, "rate_limit_per_minute": 500},
+    {"slug": "cloudflare-r2",     "name": "Cloudflare R2",        "category": "cloud",         "auth_type": "api_key", "description": "Zero-egress object storage for recordings and call artifacts",       "base_url": "https://r2.cloudflarestorage.com",  "auth_config": {"signing": "sigv4"}, "rate_limit_per_minute": 200},
+    {"slug": "supabase",          "name": "Supabase",             "category": "cloud",         "auth_type": "api_key", "description": "Open-source Firebase alternative — store call data in Postgres",     "base_url": "https://your-project.supabase.co",  "auth_config": {"api_key_location": "header", "api_key_name": "apikey", "api_key_format": "{api_key}", "base_url_field": "project_url", "test_endpoint": "/rest/v1/"}, "rate_limit_per_minute": 200},
+    # ── Email (SMTP) ─────────────────────────────────────────────────────────
+    # One connector, three presets. SMTP is not HTTP, so there is no base_url or
+    # test_endpoint to seed; the connector's own test_connection logs in.
+    {"slug": "gmail",             "name": "Gmail SMTP",           "category": "email",         "auth_type": "api_key", "description": "Send email from your Gmail account (app password required)",         "base_url": "smtp://smtp.gmail.com:587",         "auth_config": {"transport": "smtp", "smtp_host": "smtp.gmail.com", "smtp_port": 587, "credential_label": "App Password"}, "rate_limit_per_minute": 60},
+    {"slug": "outlook",           "name": "Outlook SMTP",         "category": "email",         "auth_type": "api_key", "description": "Send email from your Outlook or Microsoft 365 account",              "base_url": "smtp://smtp-mail.outlook.com:587",  "auth_config": {"transport": "smtp", "smtp_host": "smtp-mail.outlook.com", "smtp_port": 587, "credential_label": "App Password"}, "rate_limit_per_minute": 60},
+    {"slug": "custom-smtp",       "name": "Custom SMTP",          "category": "email",         "auth_type": "api_key", "description": "Send email through any SMTP server you control",                     "base_url": "smtp://",                           "auth_config": {"transport": "smtp", "credential_label": "SMTP Password"}, "rate_limit_per_minute": 60},
 ]
 
 PLANS = [
@@ -74,41 +80,59 @@ async def seed():
         # ── Integration Connectors ─────────────────────────────────────────
         existing_slugs_result = await db.execute(text("SELECT slug FROM integration_connectors"))
         existing_slugs = {row[0] for row in existing_slugs_result.fetchall()}
-        new_connectors = [c for c in CONNECTORS if c["slug"] not in existing_slugs]
-        if new_connectors:
-            print(f"Seeding {len(new_connectors)} new integration connectors...")
-            for c in new_connectors:
-                await db.execute(text("""
-                    INSERT INTO integration_connectors
-                    (id, name, slug, category, description, base_url, auth_type, auth_config,
-                     supports_triggers, supports_actions, supports_realtime, supports_webhooks,
-                     rate_limit_per_minute, is_active, is_beta, is_premium, created_at, updated_at)
-                    VALUES (:id, :name, :slug, :category, :description, :base_url, :auth_type, :auth_config,
-                            false, true, false, false,
-                            :rate_limit, true, false, false, :now, :now)
-                    ON CONFLICT (slug) DO NOTHING
-                """), {
-                    "id": uuid.uuid4().hex,
-                    "name": c["name"],
-                    "slug": c["slug"],
-                    "category": c["category"],
-                    "description": c["description"],
-                    "base_url": c["base_url"],
-                    "auth_type": c["auth_type"],
-                    "auth_config": str(c["auth_config"]).replace("'", '"'),
-                    "rate_limit": c.get("rate_limit_per_minute", 60),
-                    "now": NOW,
-                })
-            await db.commit()
-            print(f"  ✅ Seeded {len(new_connectors)} new connectors ({len(existing_slugs)} already existed)")
-        else:
-            print(f"  ℹ️  All {len(CONNECTORS)} connectors already seeded")
+        new_count = len([c for c in CONNECTORS if c["slug"] not in existing_slugs])
+
+        # Upsert rather than insert-if-absent. These rows are platform
+        # configuration, not user data, and this file is their source of truth —
+        # but the old INSERT ... DO NOTHING meant a corrected auth_config only
+        # ever reached a fresh database. Fixing an endpoint or an auth scheme
+        # silently did nothing on every environment that already had the row,
+        # which is the worst possible failure mode for a fix.
+        #
+        # is_active / is_beta / is_premium are deliberately not in the UPDATE
+        # list: those are operational toggles someone may have set by hand.
+        print(f"Syncing {len(CONNECTORS)} integration connectors ({new_count} new)...")
+        for c in CONNECTORS:
+            await db.execute(text("""
+                INSERT INTO integration_connectors
+                (id, name, slug, category, description, base_url, auth_type, auth_config,
+                 supports_triggers, supports_actions, supports_realtime, supports_webhooks,
+                 rate_limit_per_minute, is_active, is_beta, is_premium, created_at, updated_at)
+                VALUES (:id, :name, :slug, :category, :description, :base_url, :auth_type,
+                        CAST(:auth_config AS JSON),
+                        false, true, false, false,
+                        :rate_limit, true, false, false, :now, :now)
+                ON CONFLICT (slug) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    category = EXCLUDED.category,
+                    description = EXCLUDED.description,
+                    base_url = EXCLUDED.base_url,
+                    auth_type = EXCLUDED.auth_type,
+                    auth_config = EXCLUDED.auth_config,
+                    rate_limit_per_minute = EXCLUDED.rate_limit_per_minute,
+                    updated_at = EXCLUDED.updated_at
+            """), {
+                "id": uuid.uuid4().hex,
+                "name": c["name"],
+                "slug": c["slug"],
+                "category": c["category"],
+                "description": c["description"],
+                "base_url": c["base_url"],
+                "auth_type": c["auth_type"],
+                # json.dumps, not str(dict).replace("'", '"') — repr emits
+                # Python True/False/None, which is not valid JSON, and mangles
+                # any value containing an apostrophe.
+                "auth_config": json.dumps(c["auth_config"]),
+                "rate_limit": c.get("rate_limit_per_minute", 60),
+                "now": NOW,
+            })
+        await db.commit()
+        print(f"  ✅ Synced {len(CONNECTORS)} connectors ({new_count} new, {len(existing_slugs)} refreshed)")
 
         # ── Subscription Plans ─────────────────────────────────────────────
         existing = (await db.execute(text("SELECT COUNT(*) FROM subscription_plans"))).scalar()
         if existing == 0:
             print("Seeding subscription plans...")
-            import json
             for p in PLANS:
                 await db.execute(text("""
                     INSERT INTO subscription_plans

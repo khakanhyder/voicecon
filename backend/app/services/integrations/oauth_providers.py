@@ -13,6 +13,8 @@ are secrets and come only from the environment.
 import os
 from typing import Dict, Any, Optional
 
+from app.core.config import env_value
+
 
 # slug -> provider OAuth config
 OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
@@ -118,12 +120,16 @@ def resolve_client_credentials(
     auth_config = auth_config or {}
     provider = OAUTH_PROVIDERS.get(slug, {})
 
+    # env_value, not os.getenv: pydantic loads .env into the Settings object but
+    # never exports it to the process environment, so os.getenv returned None
+    # for credentials that were present and correct in .env — and the user was
+    # told to go and register an OAuth app they already had.
     client_id = None
     client_secret = None
     if provider.get("client_id_env"):
-        client_id = os.getenv(provider["client_id_env"])
+        client_id = env_value(provider["client_id_env"])
     if provider.get("client_secret_env"):
-        client_secret = os.getenv(provider["client_secret_env"])
+        client_secret = env_value(provider["client_secret_env"])
 
     # auth_config can override/supply (e.g. self-hosted or per-tenant apps)
     client_id = auth_config.get("client_id") or client_id

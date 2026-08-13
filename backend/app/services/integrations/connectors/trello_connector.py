@@ -5,10 +5,10 @@ Trello authenticates every request with two query params: an app-level `key`
 (TRELLO_API_KEY, shared) and a per-user `token` (obtained via Trello's authorize
 flow and stored on the connection). It is NOT OAuth2 and NOT a header API key.
 """
-import os
 import logging
 from typing import Dict, Any, Optional, List
 
+from app.core.config import env_value
 from app.services.integrations.connector_base import BaseConnector, ConnectorError
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class TrelloConnector(BaseConnector):
         return {}
 
     async def _auth_params(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        app_key = os.getenv("TRELLO_API_KEY")
+        app_key = env_value("TRELLO_API_KEY")
         if not app_key:
             raise ConnectorError("TRELLO_API_KEY is not configured on the server")
         token = await self.get_access_token()  # the stored per-user token

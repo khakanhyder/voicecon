@@ -939,13 +939,21 @@ class FunctionExecutor:
             raise ValueError(f"Action '{action}' not found on {class_name}")
 
         method = getattr(instance, action)
+        from app.services.integrations.action_registry import (
+            adapt_parameters,
+            drop_unsupported_arguments,
+            strip_ui_only_parameters,
+        )
+
+        # The LLM was handed the action's published schema, so it answers in
+        # that vocabulary ("message", "body", "title"). Translate to the
+        # connector's argument names before anything starts discarding keys.
+        parameters = strip_ui_only_parameters(slug, action, parameters)
+        parameters = adapt_parameters(slug, action, parameters)
+
         # The arguments came from an LLM deciding how to call this tool, so an
         # extra plausible-looking key is a matter of time. Drop what the action
         # cannot accept rather than failing the whole tool call on it.
-        from app.services.integrations.action_registry import (
-            drop_unsupported_arguments,
-        )
-
         parameters = drop_unsupported_arguments(
             method, parameters, context=f"{slug}.{action}"
         )

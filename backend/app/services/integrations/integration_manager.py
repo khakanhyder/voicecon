@@ -33,6 +33,19 @@ class ConnectionTestError(Exception):
     pass
 
 
+def _normalize_base_url(value: str) -> str:
+    """Make a host someone typed into a setup form usable as a base URL.
+
+    People paste "my-project.supabase.co", "https://my-project.supabase.co/"
+    and everything in between. Left alone, the first becomes a relative URL and
+    the last double-slashes every endpoint.
+    """
+    host = (value or "").strip().rstrip("/")
+    if host and not host.startswith(("http://", "https://")):
+        host = f"https://{host}"
+    return host
+
+
 class IntegrationManager:
     """
     Manages integration connections and operations.
@@ -295,6 +308,17 @@ class IntegrationManager:
             if additional_fields:
                 encrypted_auth_data = self.credential_manager.encrypt_dict(additional_fields)
 
+            # Tenant-scoped providers carry their host in a setup field rather
+            # than in the shared connector row — Supabase's "Project URL" is
+            # the whole reason the seeded base_url is a placeholder. Which
+            # field that is comes from the connector's own auth_config, so this
+            # stays data-driven instead of a slug switch here.
+            config = {}
+            base_url_field = (connector.auth_config or {}).get("base_url_field")
+            supplied_host = (additional_fields or {}).get(base_url_field or "base_url")
+            if supplied_host:
+                config["base_url"] = _normalize_base_url(supplied_host)
+
             # Create connection
             connection = IntegrationConnection(
                 user_id=user_id,
@@ -304,10 +328,11 @@ class IntegrationManager:
                 status="pending",  # Will be "active" after test
                 api_key_encrypted=encrypted_api_key,
                 auth_data_encrypted=encrypted_auth_data,
+                config=config,
             )
 
             # Test connection before saving
-            test_result = await self.test_connection(connection, connector)
+            test_result = await self.test_connection(connection, connector, db=db)
 
             if not test_result["success"]:
                 raise ConnectionTestError(f"Connection test failed: {test_result['message']}")
@@ -334,27 +359,58 @@ class IntegrationManager:
         self,
         connection: IntegrationConnection,
         connector: IntegrationConnector,
+        db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
         Test integration connection.
 
+        Prefers the connector's own ``test_connection`` when there is a
+        connector class for the slug, and only falls back to a generic HTTP GET
+        against ``test_endpoint`` when there is not.
+
+        The generic probe assumes the integration is a REST API reachable at
+        ``base_url + test_endpoint`` with the credential in a header. That is
+        true for most connectors and false for a growing number: object storage
+        authenticates with a per-request SigV4 signature, SMTP is not HTTP at
+        all, and a webhook has no endpoint to GET. For those the generic probe
+        cannot do anything but fail, which would make every one of them
+        impossible to connect.
+
+        It is also the more honest test for the REST connectors: the connector's
+        own method exercises the same auth path its actions use, which is the
+        specific thing that was silently diverging for Cal.com.
+
         Args:
             connection: Integration connection
             connector: Integration connector
+            db: Session, needed to instantiate a connector class
 
         Returns:
             Test result dictionary
         """
+        import time
+
+        start_time = time.time()
+
+        connector_test = await self._connector_self_test(connection, connector, db)
+        if connector_test is not None:
+            connector_test.setdefault(
+                "response_time_ms", int((time.time() - start_time) * 1000)
+            )
+            return connector_test
+
         try:
-            import time
-            start_time = time.time()
 
             # Get test endpoint from auth_config
             auth_config = connector.auth_config or {}
             test_endpoint = auth_config.get("test_endpoint", "/user")
 
-            # Build full URL
-            base_url = connector.base_url
+            # Build full URL. Same resolution the connector itself uses, so a
+            # tenant-scoped host (Supabase project, Azure account) is tested
+            # against the host the actions will actually call.
+            from app.services.integrations.connector_base import resolve_base_url
+
+            base_url = resolve_base_url(connector, connection)
             if not base_url:
                 return {
                     "success": False,
@@ -428,6 +484,56 @@ class IntegrationManager:
                 "response_time_ms": 0,
                 "details": {"error": str(e)},
             }
+
+    async def _connector_self_test(
+        self,
+        connection: IntegrationConnection,
+        connector: IntegrationConnector,
+        db: Optional[AsyncSession],
+    ) -> Optional[Dict[str, Any]]:
+        """Run the connector class's own test, or return None if there isn't one.
+
+        Returning None rather than raising is deliberate: a slug with no
+        connector class is a normal state (the row is seeded before the class
+        exists), and the caller should quietly fall through to the generic
+        probe rather than treat it as a failure.
+        """
+        from app.services.integrations import connectors as connector_module
+        from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
+
+        class_name = CONNECTOR_CLASS_MAP.get(connector.slug)
+        if not class_name or db is None:
+            return None
+
+        connector_class = getattr(connector_module, class_name, None)
+        if connector_class is None:
+            return None
+
+        instance = connector_class(connection=connection, connector=connector, db=db)
+        try:
+            result = await instance.test_connection()
+        except Exception as exc:  # noqa: BLE001 - connectors raise their own types
+            logger.warning(f"{connector.slug} self-test raised: {exc}")
+            return {
+                "success": False,
+                "message": f"Connection test failed: {exc}",
+                "details": {},
+            }
+        finally:
+            # Every connector opens an HTTP client in __init__ whether or not
+            # it ends up using it; not closing leaks a connection pool per
+            # connection attempt.
+            try:
+                await instance.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        if not isinstance(result, dict):
+            return None
+        result.setdefault("success", False)
+        result.setdefault("message", "")
+        result.setdefault("details", {})
+        return result
 
     async def refresh_token(
         self,

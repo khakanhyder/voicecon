@@ -57,8 +57,8 @@ class SendGridConnector(BaseConnector):
     async def send_email(
         self,
         to_email: str,
-        from_email: str,
         subject: str,
+        from_email: Optional[str] = None,
         html_content: Optional[str] = None,
         text_content: Optional[str] = None,
         to_name: Optional[str] = None,
@@ -93,6 +93,22 @@ class SendGridConnector(BaseConnector):
             ConnectorError: If sending fails
         """
         try:
+            # A workflow step or an agent asking to "email the caller" has no
+            # opinion about the From address, and there was no way to supply
+            # one — from_email was required and absent from the action schema,
+            # so every send raised TypeError before reaching SendGrid. Fall back
+            # to the sender configured on the connection, then the platform
+            # default.
+            if not from_email:
+                from app.core.config import settings
+
+                connection_config = getattr(self.connection, "config", None) or {}
+                from_email = (
+                    connection_config.get("from_email")
+                    or settings.SENDGRID_FROM_EMAIL
+                    or settings.EMAIL_FROM
+                )
+
             # Build email data
             email_data = {
                 "personalizations": [

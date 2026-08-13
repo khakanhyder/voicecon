@@ -35,20 +35,20 @@ const integrationCatalog: Integration[] = [
   // CRM
   { id: '1', slug: 'salesforce', name: 'Salesforce', description: 'Sync contacts, leads, and opportunities with Salesforce CRM', category: 'crm', icon: '🔷', authType: 'oauth2', features: ['Contact Sync', 'Lead Management', 'Opportunity Tracking', 'Custom Fields'], popular: true },
   { id: '2', slug: 'hubspot', name: 'HubSpot', description: 'Connect HubSpot CRM to manage contacts and track customer interactions', category: 'crm', icon: '🟠', authType: 'oauth2', features: ['Contact Management', 'Deal Pipeline', 'Email Tracking', 'Analytics'], popular: true },
-  { id: '3', slug: 'pipedrive', name: 'Pipedrive', description: 'Sales pipeline CRM to track deals and contacts from voice calls', category: 'crm', icon: '🟢', authType: 'oauth2', features: ['Deal Tracking', 'Contact Sync', 'Pipeline Management', 'Activity Logging'], popular: false },
-  { id: '4', slug: 'zendesk', name: 'Zendesk', description: 'Create and update support tickets from voice interactions', category: 'crm', icon: '🎫', authType: 'oauth2', features: ['Ticket Management', 'Customer Profiles', 'Automation', 'Reporting'], popular: false },
-  { id: '5', slug: 'intercom', name: 'Intercom', description: 'Create conversations and update contacts in Intercom from calls', category: 'crm', icon: '💬', authType: 'oauth2', features: ['Conversation Sync', 'Contact Management', 'Notes & Tags', 'Event Tracking'], popular: false },
+  { id: '3', slug: 'pipedrive', name: 'Pipedrive', description: 'Sales pipeline CRM to track deals and contacts from voice calls', category: 'crm', icon: '🟢', authType: 'api_key', features: ['Deal Tracking', 'Contact Sync', 'Pipeline Management', 'Activity Logging'], popular: false },
+  { id: '4', slug: 'zendesk', name: 'Zendesk', description: 'Create and update support tickets from voice interactions', category: 'crm', icon: '🎫', authType: 'api_key', features: ['Ticket Management', 'Customer Profiles', 'Automation', 'Reporting'], popular: false },
+  { id: '5', slug: 'intercom', name: 'Intercom', description: 'Create conversations and update contacts in Intercom from calls', category: 'crm', icon: '💬', authType: 'api_key', features: ['Conversation Sync', 'Contact Management', 'Notes & Tags', 'Event Tracking'], popular: false },
   // Calendar
   { id: '6', slug: 'google-calendar', name: 'Google Calendar', description: 'Schedule appointments and manage events from voice conversations', category: 'calendar', icon: '📅', authType: 'oauth2', features: ['Event Creation', 'Availability Check', 'Reminders', 'Multi-Calendar'], popular: true },
   { id: '7', slug: 'calendly', name: 'Calendly', description: 'Book appointments using your Calendly scheduling links', category: 'calendar', icon: '🗓️', authType: 'oauth2', features: ['Meeting Scheduling', 'Availability Sync', 'Custom Links', 'Reminders'], popular: false },
   { id: '8', slug: 'cal-com', name: 'Cal.com', description: 'Open-source scheduling — book meetings directly from voice calls', category: 'calendar', icon: '📆', authType: 'api_key', features: ['Meeting Scheduling', 'Custom Event Types', 'Team Scheduling', 'Webhooks'], popular: false },
   // Communication
   { id: '9', slug: 'slack', name: 'Slack', description: 'Send notifications and updates to your Slack channels', category: 'communication', icon: '💬', authType: 'oauth2', features: ['Channel Messages', 'Direct Messages', 'File Sharing', 'Webhooks'], popular: true },
-  { id: '10', slug: 'microsoft-teams', name: 'Microsoft Teams', description: 'Send messages and notifications to Teams channels', category: 'communication', icon: '👥', authType: 'oauth2', features: ['Channel Messages', 'Chat', 'File Sharing', 'Meeting Integration'], popular: false },
+  { id: '10', slug: 'microsoft-teams', name: 'Microsoft Teams', description: 'Post messages and alerts to a Teams channel via Incoming Webhook', category: 'communication', icon: '👥', authType: 'api_key', features: ['Channel Messages', 'Rich Cards', 'Alerts'], popular: false },
   { id: '11', slug: 'twilio', name: 'Twilio', description: 'Enhanced telephony features and SMS capabilities', category: 'communication', icon: '📞', authType: 'api_key', features: ['Voice Calls', 'SMS', 'WhatsApp', 'Call Recording'], popular: false },
   { id: '12', slug: 'sendgrid', name: 'SendGrid', description: 'Send transactional emails from voice conversations', category: 'communication', icon: '✉️', authType: 'api_key', features: ['Transactional Email', 'Templates', 'Analytics', 'List Management'], popular: false },
   // Productivity
-  { id: '13', slug: 'zapier', name: 'Zapier', description: 'Connect to 5000+ apps through Zapier automation', category: 'productivity', icon: '⚡', authType: 'oauth2', features: ['Workflow Automation', 'Custom Triggers', 'Multi-Step Zaps', 'Webhooks'], popular: true },
+  { id: '13', slug: 'zapier', name: 'Zapier', description: 'Connect to 5000+ apps through Zapier automation', category: 'productivity', icon: '⚡', authType: 'api_key', features: ['Workflow Automation', 'Custom Triggers', 'Multi-Step Zaps', 'Webhooks'], popular: true },
   { id: '14', slug: 'make', name: 'Make (Integromat)', description: 'Visual automation platform — connect Voicecon to any app', category: 'productivity', icon: '🔧', authType: 'api_key', features: ['Visual Automation', 'Webhooks', '1000+ Apps', 'Data Mapping'], popular: false },
   { id: '15', slug: 'google-sheets', name: 'Google Sheets', description: 'Log call data and customer information to spreadsheets', category: 'productivity', icon: '📊', authType: 'oauth2', features: ['Data Logging', 'Real-time Updates', 'Custom Columns', 'Formulas'], popular: false },
   { id: '16', slug: 'google-drive', name: 'Google Drive', description: 'Save call recordings and transcripts to Google Drive', category: 'productivity', icon: '💾', authType: 'oauth2', features: ['File Upload', 'Folder Organization', 'Sharing', 'Search'], popular: false },
@@ -71,11 +71,16 @@ const integrationCatalog: Integration[] = [
   { id: '28', slug: 'cloudflare-r2', name: 'Cloudflare R2', description: 'Zero-egress object storage for recordings and call artifacts', category: 'cloud', icon: '🔶', authType: 'api_key', features: ['Object Storage', 'Zero Egress Fees', 'S3-compatible API', 'Global CDN'], popular: false },
   { id: '29', slug: 'supabase', name: 'Supabase', description: 'Open-source Firebase alternative — store call data in Postgres', category: 'cloud', icon: '⚡', authType: 'api_key', features: ['Postgres Database', 'Realtime', 'Storage', 'Edge Functions'], popular: false },
   { id: '31', slug: 'clickup', name: 'ClickUp', description: 'Create and manage ClickUp tasks from voice calls and workflows', category: 'productivity', icon: '✅', authType: 'oauth2', features: ['Create Tasks', 'List Tasks', 'Comments', 'Workspaces'], popular: true },
+  // Trello's authType is deliberately 'oauth2' here even though the backend
+  // stores an api_key: it selects the "Connect with Trello" button rather than
+  // a credentials form, and IntegrationSetup intercepts the click by slug to
+  // run Trello's own app-key + per-user-token flow. Setting it to 'api_key'
+  // would render an empty form, since Trello has no apiKeyFields.
   { id: '32', slug: 'trello', name: 'Trello', description: 'Create and manage Trello cards, lists, and boards from voice calls', category: 'productivity', icon: '📋', authType: 'oauth2', features: ['Create Cards', 'List Boards', 'Comments', 'Update Cards'], popular: false },
   { id: '33', slug: 'whatsapp', name: 'WhatsApp', description: 'Send WhatsApp messages via the WhatsApp Business Cloud API', category: 'communication', icon: '💬', authType: 'api_key', features: ['Send Messages', 'Templates', 'Business Cloud API'], popular: true },
-  { id: '100', slug: 'gmail', name: 'Gmail SMTP', description: '', category: 'email', icon: 'M', authType: 'api_key', features: [], popular: false },
-  { id: '101', slug: 'outlook', name: 'Outlook SMTP', description: '', category: 'email', icon: 'O', authType: 'api_key', features: [], popular: false },
-  { id: '102', slug: 'custom-smtp', name: 'Custom SMTP', description: '', category: 'email', icon: '✉️', authType: 'api_key', features: [], popular: false },
+  { id: '100', slug: 'gmail', name: 'Gmail SMTP', description: 'Send email from your Gmail account during and after calls', category: 'email', icon: '📧', authType: 'api_key', features: ['Send Email', 'HTML Bodies', 'CC & Reply-To'], popular: false },
+  { id: '101', slug: 'outlook', name: 'Outlook SMTP', description: 'Send email from your Outlook or Microsoft 365 account', category: 'email', icon: '📨', authType: 'api_key', features: ['Send Email', 'HTML Bodies', 'CC & Reply-To'], popular: false },
+  { id: '102', slug: 'custom-smtp', name: 'Custom SMTP', description: 'Send email through any SMTP server you control', category: 'email', icon: '✉️', authType: 'api_key', features: ['Send Email', 'HTML Bodies', 'Any Provider'], popular: false },
 ];
 
 // "All Integrations" leads; the rest follow. Categories with no apps in the

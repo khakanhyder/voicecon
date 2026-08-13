@@ -944,6 +944,7 @@ async def test_connection(
         test_result = await manager.test_connection(
             connection=connection,
             connector=connector,
+            db=db,
         )
 
         return ConnectionTestResponse(**test_result)
@@ -1603,10 +1604,11 @@ async def trello_authorize_url(
     callback URL *fragment* (#token=...), which the frontend reads and sends to
     /trello/connect.
     """
-    import os
     from urllib.parse import urlencode
 
-    app_key = os.getenv("TRELLO_API_KEY")
+    from app.core.config import env_value
+
+    app_key = env_value("TRELLO_API_KEY")
     if not app_key:
         raise HTTPException(
             status_code=400,

@@ -6,7 +6,7 @@ Vapi-style: each action becomes a tool the AI can call during a live conversatio
 """
 import inspect
 import logging
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +387,95 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
+    "stripe": [
+        {
+            "action": "create_customer",
+            "label": "Create Customer",
+            "description": "Create a Stripe customer record for the caller",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "Customer email address"},
+                    "name": {"type": "string", "description": "Customer's full name"},
+                    "phone": {"type": "string", "description": "Customer phone number"},
+                    "description": {"type": "string", "description": "Internal note about this customer"},
+                },
+                "required": ["email"],
+            },
+        },
+        {
+            "action": "create_payment_intent",
+            "label": "Take a Payment",
+            "description": "Create a payment intent to charge a customer",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    # Stripe is minor-units everywhere. Saying so here is the
+                    # difference between charging $10 and charging 10 cents,
+                    # and this text is what the agent sees when it fills the
+                    # field in.
+                    "amount": {
+                        "type": "integer",
+                        "description": "Amount in the smallest currency unit — cents for USD, so 1000 means $10.00",
+                    },
+                    "currency": {"type": "string", "description": "Three-letter currency code, e.g. usd"},
+                    "customer": {"type": "string", "description": "Stripe customer ID to charge"},
+                    "description": {"type": "string", "description": "What the payment is for"},
+                },
+                "required": ["amount"],
+            },
+        },
+        {
+            "action": "create_subscription",
+            "label": "Create Subscription",
+            "description": "Subscribe a customer to one or more prices",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer": {"type": "string", "description": "Stripe customer ID"},
+                    "items": {
+                        "type": "array",
+                        "description": 'Subscription items, e.g. [{"price": "price_xxx"}]',
+                        "items": {"type": "object"},
+                    },
+                    "trial_period_days": {"type": "integer", "description": "Free trial length in days"},
+                },
+                "required": ["customer", "items"],
+            },
+        },
+        {
+            "action": "create_refund",
+            "label": "Refund a Payment",
+            "description": "Refund a payment, in full or in part",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "payment_intent": {"type": "string", "description": "Payment intent ID to refund"},
+                    "amount": {
+                        "type": "integer",
+                        "description": "Amount to refund in cents; leave empty to refund the full payment",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "One of: duplicate, fraudulent, requested_by_customer",
+                    },
+                },
+                "required": ["payment_intent"],
+            },
+        },
+        {
+            "action": "get_customer",
+            "label": "Look Up Customer",
+            "description": "Fetch an existing Stripe customer by ID",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {"type": "string", "description": "Stripe customer ID"},
+                },
+                "required": ["customer_id"],
+            },
+        },
+    ],
     "airtable": [
         {
             "action": "create_record",
@@ -551,6 +640,212 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
+    "zapier": [
+        {
+            "action": "send_webhook",
+            "label": "Send to Zapier",
+            "description": "Send call data to a Zapier Catch Hook, triggering a Zap",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "object", "description": "JSON payload to send to Zapier"},
+                    "event": {"type": "string", "description": "Optional event name, e.g. call_completed"},
+                },
+                "required": ["data"],
+            },
+        },
+    ],
+
+    "make": [
+        {
+            "action": "send_webhook",
+            "label": "Send to Make",
+            "description": "Send call data to a Make scenario's custom webhook",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "object", "description": "JSON payload to send to Make"},
+                    "event": {"type": "string", "description": "Optional event name, e.g. call_completed"},
+                },
+                "required": ["data"],
+            },
+        },
+    ],
+
+    "microsoft-teams": [
+        {
+            "action": "send_message",
+            "label": "Send Teams Message",
+            "description": "Post a message to the connected Microsoft Teams channel",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "Message text (Markdown supported)"},
+                    "title": {"type": "string", "description": "Optional card title"},
+                },
+                "required": ["message"],
+            },
+        },
+    ],
+
+    "pipedrive": [
+        {
+            "action": "create_person",
+            "label": "Create Person",
+            "description": "Create a person (contact) in Pipedrive",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Full name"},
+                    "email": {"type": "string", "description": "Email address"},
+                    "phone": {"type": "string", "description": "Phone number"},
+                },
+                "required": ["name"],
+            },
+        },
+        {
+            "action": "search_persons",
+            "label": "Search People",
+            "description": "Find people in Pipedrive by name, email or phone",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search term (name, email, or phone)"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "create_deal",
+            "label": "Create Deal",
+            "description": "Create a deal in the Pipedrive pipeline",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Deal title"},
+                    "value": {"type": "number", "description": "Deal value"},
+                    "currency": {"type": "string", "description": "Currency code, e.g. USD"},
+                    "person_id": {"type": "integer", "description": "ID of the person to attach"},
+                },
+                "required": ["title"],
+            },
+        },
+        {
+            "action": "add_note",
+            "label": "Add Note",
+            "description": "Attach a note (e.g. the call summary) to a person or deal",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Note text"},
+                    "person_id": {"type": "integer", "description": "Person to attach the note to"},
+                    "deal_id": {"type": "integer", "description": "Deal to attach the note to"},
+                },
+                "required": ["content"],
+            },
+        },
+    ],
+
+    "zendesk": [
+        {
+            "action": "create_ticket",
+            "label": "Create Ticket",
+            "description": "Raise a Zendesk support ticket from the call",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string", "description": "Ticket subject"},
+                    "description": {"type": "string", "description": "Ticket body / call summary"},
+                    "requester_email": {"type": "string", "description": "Caller's email, so Zendesk matches an existing user"},
+                    "requester_name": {"type": "string", "description": "Caller's name"},
+                    "priority": {"type": "string", "description": "urgent, high, normal, or low"},
+                },
+                "required": ["subject", "description"],
+            },
+        },
+        {
+            "action": "add_comment",
+            "label": "Comment on Ticket",
+            "description": "Add a comment to an existing Zendesk ticket",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "integer", "description": "Ticket ID"},
+                    "comment": {"type": "string", "description": "Comment text"},
+                    "public": {"type": "boolean", "description": "Visible to the requester (default true)"},
+                },
+                "required": ["ticket_id", "comment"],
+            },
+        },
+        {
+            "action": "search_tickets",
+            "label": "Search Tickets",
+            "description": "Search Zendesk tickets",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search term, e.g. an email address or status:open"},
+                },
+                "required": ["query"],
+            },
+        },
+    ],
+
+    "intercom": [
+        {
+            "action": "create_contact",
+            "label": "Create Contact",
+            "description": "Create a contact or lead in Intercom",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "Email address"},
+                    "phone": {"type": "string", "description": "Phone number"},
+                    "name": {"type": "string", "description": "Full name"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "action": "search_contacts",
+            "label": "Search Contacts",
+            "description": "Find Intercom contacts by email, phone or name",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search term"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "add_note",
+            "label": "Add Note to Contact",
+            "description": "Attach a note (e.g. the call summary) to an Intercom contact",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Intercom contact ID"},
+                    "note": {"type": "string", "description": "Note text"},
+                },
+                "required": ["contact_id", "note"],
+            },
+        },
+        {
+            "action": "create_conversation",
+            "label": "Start Conversation",
+            "description": "Start an Intercom conversation with a contact",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Intercom contact ID"},
+                    "message": {"type": "string", "description": "Message body"},
+                },
+                "required": ["contact_id", "message"],
+            },
+        },
+    ],
+
     "supabase": [
         {
             "action": "fetch_table",
@@ -567,6 +862,131 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
         },
     ],
 }
+
+
+def _object_storage_actions(container_word: str) -> List[Dict[str, Any]]:
+    """The five actions every object-storage tile exposes.
+
+    S3, R2, GCS and Azure Blob share one connector surface, so they share one
+    action definition rather than four copies that would drift. The only
+    user-visible difference is vocabulary: Azure calls it a container, the
+    S3-compatible three call it a bucket, and the field is named accordingly so
+    the form matches the provider's own console.
+    """
+    return [
+        {
+            "action": "upload_text",
+            "label": "Store Text",
+            "description": (
+                f"Save a transcript, summary or note as a file in the {container_word}"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Object path, e.g. transcripts/call-123.txt"},
+                    "content": {"type": "string", "description": "Text to store"},
+                    "content_type": {"type": "string", "description": "MIME type (default text/plain)"},
+                    container_word: {"type": "string", "description": f"Override the connection's {container_word}"},
+                },
+                "required": ["key", "content"],
+            },
+        },
+        {
+            "action": "upload_from_url",
+            "label": "Store File from URL",
+            "description": f"Copy a file — usually a call recording — into the {container_word}",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Object path, e.g. recordings/call-123.mp3"},
+                    "source_url": {"type": "string", "description": "URL of the file to copy"},
+                    container_word: {"type": "string", "description": f"Override the connection's {container_word}"},
+                },
+                "required": ["key", "source_url"],
+            },
+        },
+        {
+            "action": "list_objects",
+            "label": "List Files",
+            "description": f"List files in the {container_word}, optionally under a prefix",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prefix": {"type": "string", "description": "Only list keys starting with this, e.g. recordings/"},
+                    "limit": {"type": "integer", "description": "Maximum number of results"},
+                    container_word: {"type": "string", "description": f"Override the connection's {container_word}"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "action": "delete_object",
+            "label": "Delete File",
+            "description": f"Delete a file from the {container_word}",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Object path to delete"},
+                    container_word: {"type": "string", "description": f"Override the connection's {container_word}"},
+                },
+                "required": ["key"],
+            },
+        },
+        {
+            "action": "generate_presigned_url",
+            "label": "Create Shareable Link",
+            "description": (
+                "Create a time-limited download link, so a recording can be shared "
+                f"without making the {container_word} public"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Object path to share"},
+                    "expires_in": {"type": "integer", "description": "Link lifetime in seconds (default 3600, max 7 days)"},
+                    container_word: {"type": "string", "description": f"Override the connection's {container_word}"},
+                },
+                "required": ["key"],
+            },
+        },
+    ]
+
+
+def _smtp_actions(provider_label: str) -> List[Dict[str, Any]]:
+    """Gmail, Outlook and Custom SMTP are one connector with three presets."""
+    return [
+        {
+            "action": "send_email",
+            "label": "Send Email",
+            "description": f"Send an email via {provider_label}",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_email": {"type": "string", "description": "Recipient address (comma-separate for several)"},
+                    "subject": {"type": "string", "description": "Subject line"},
+                    "body": {"type": "string", "description": "Plain-text body"},
+                    "html_body": {"type": "string", "description": "Optional HTML body"},
+                    "cc": {"type": "string", "description": "CC recipients, comma-separated"},
+                    "reply_to": {"type": "string", "description": "Reply-To address"},
+                },
+                "required": ["to_email", "subject", "body"],
+            },
+        },
+    ]
+
+
+INTEGRATION_ACTIONS.update(
+    {
+        "aws-s3": _object_storage_actions("bucket"),
+        "cloudflare-r2": _object_storage_actions("bucket"),
+        "gcs": _object_storage_actions("bucket"),
+        "azure-blob": _object_storage_actions("container"),
+        "gmail": _smtp_actions("Gmail"),
+        "outlook": _smtp_actions("Outlook"),
+        "custom-smtp": _smtp_actions("your SMTP server"),
+    }
+)
+
 
 # Connector slug → Python class name mapping (mirrors step_handlers.py)
 CONNECTOR_CLASS_MAP: Dict[str, str] = {
@@ -593,7 +1013,174 @@ CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "vonage": "VonageConnector",
     "telnyx": "TelnyxConnector",
     "supabase": "SupabaseConnector",
+    "aws-s3": "AWSS3Connector",
+    "cloudflare-r2": "CloudflareR2Connector",
+    "gcs": "GCSConnector",
+    "azure-blob": "AzureBlobConnector",
+    "zapier": "ZapierConnector",
+    "make": "MakeConnector",
+    "microsoft-teams": "MicrosoftTeamsConnector",
+    "gmail": "GmailSMTPConnector",
+    "outlook": "OutlookSMTPConnector",
+    "custom-smtp": "CustomSMTPConnector",
+    "pipedrive": "PipedriveConnector",
+    "zendesk": "ZendeskConnector",
+    "intercom": "IntercomConnector",
 }
+
+
+def _as_iso(value: str, *, end_of_day: bool = False) -> str:
+    """Widen a plain ``YYYY-MM-DD`` into the ISO timestamp Google expects.
+
+    The action schemas ask for a date because that is what a caller says out
+    loud ("anything free on the 14th?"). The Calendar API wants an RFC-3339
+    instant. A value that already carries a time is passed through untouched.
+    """
+    text = str(value).strip()
+    if "T" in text:
+        return text
+    return f"{text}T23:59:59Z" if end_of_day else f"{text}T00:00:00Z"
+
+
+def _adapt_gcal_create_event(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "title" in p:
+        p.setdefault("summary", p.pop("title"))
+    attendee = p.pop("attendee_email", None)
+    if attendee:
+        p.setdefault(
+            "attendees", [attendee] if isinstance(attendee, str) else list(attendee)
+        )
+    return p
+
+
+def _adapt_gcal_list_events(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "start_date" in p:
+        p.setdefault("time_min", _as_iso(p.pop("start_date")))
+    if "end_date" in p:
+        p.setdefault("time_max", _as_iso(p.pop("end_date"), end_of_day=True))
+    return p
+
+
+def _adapt_gcal_find_slots(p: Dict[str, Any]) -> Dict[str, Any]:
+    day = p.pop("date", None)
+    if day:
+        p.setdefault("search_start", _as_iso(day))
+        p.setdefault("search_end", _as_iso(day, end_of_day=True))
+    return p
+
+
+def _adapt_gcal_check_availability(p: Dict[str, Any]) -> Dict[str, Any]:
+    calendar = p.pop("calendar_id", None)
+    if calendar:
+        p.setdefault("calendar_ids", [calendar])
+    return p
+
+
+def _adapt_hubspot_update_contact(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold the schema's flat fields into the single ``properties`` dict.
+
+    The schema offers "phone" and "company" because that is what a caller
+    actually updates mid-conversation; the method speaks HubSpot's internal
+    property bag. Without this the flat fields were dropped and the update
+    failed on a missing required ``properties``.
+    """
+    # Defensive: this value comes from an LLM or a saved form, and a string
+    # where a dict belongs must not take the whole tool call down.
+    supplied = p.pop("additional_properties", None)
+    properties = dict(supplied) if isinstance(supplied, dict) else {}
+    for schema_name, hubspot_property in (("phone", "phone"), ("company", "company")):
+        if schema_name in p:
+            properties[hubspot_property] = p.pop(schema_name)
+    if properties:
+        p.setdefault("properties", properties)
+    return p
+
+
+def _adapt_hubspot_create_deal(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "stage" in p:
+        p.setdefault("deal_stage", p.pop("stage"))
+    return p
+
+
+def _adapt_salesforce_create_contact(p: Dict[str, Any]) -> Dict[str, Any]:
+    # Account is a lookup relationship, so it cannot be set by name in the
+    # same call. Passed through as a custom field, which is where a Salesforce
+    # admin would map it, rather than silently dropped.
+    account = p.pop("account_name", None)
+    if account:
+        extra = dict(p.get("additional_fields") or {})
+        extra.setdefault("AccountName__c", account)
+        p["additional_fields"] = extra
+    return p
+
+
+def _adapt_salesforce_create_lead(p: Dict[str, Any]) -> Dict[str, Any]:
+    source = p.pop("lead_source", None)
+    if source:
+        extra = dict(p.get("additional_fields") or {})
+        extra.setdefault("LeadSource", source)
+        p["additional_fields"] = extra
+    return p
+
+
+def _adapt_slack_send_message(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "message" in p:
+        p.setdefault("text", p.pop("message"))
+    return p
+
+
+def _adapt_sendgrid_send_email(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "body" in p:
+        p.setdefault("text_content", p.pop("body"))
+    return p
+
+
+#: (slug, action) → function mapping the schema's public parameter names onto
+#: the connector method's actual arguments.
+#:
+#: These two vocabularies had silently diverged. The schema is what the builder
+#: renders, what a saved workflow stores and what an agent's tool definition
+#: advertises — "message", "body", "title", "start_date". The methods were
+#: written against the provider's vocabulary — "text", "text_content",
+#: "summary", "time_min". Nothing reconciled them, and because
+#: ``drop_unsupported_arguments`` quietly discards keys a method cannot take,
+#: the mismatch did not raise where it happened: Slack's send_message lost its
+#: text and failed on a missing required argument instead.
+#:
+#: Renaming the schema instead would have been the smaller diff and the wrong
+#: fix — it would break every workflow already saved with these keys, and push
+#: provider naming into the UI.
+ACTION_ADAPTERS: Dict[Tuple[str, str], Callable[[Dict[str, Any]], Dict[str, Any]]] = {
+    ("google-calendar", "create_event"): _adapt_gcal_create_event,
+    ("google-calendar", "list_events"): _adapt_gcal_list_events,
+    ("google-calendar", "find_available_slots"): _adapt_gcal_find_slots,
+    ("google_calendar", "create_event"): _adapt_gcal_create_event,
+    ("google_calendar", "list_events"): _adapt_gcal_list_events,
+    ("google_calendar", "find_available_slots"): _adapt_gcal_find_slots,
+    ("google-calendar", "check_availability"): _adapt_gcal_check_availability,
+    ("google_calendar", "check_availability"): _adapt_gcal_check_availability,
+    ("slack", "send_message"): _adapt_slack_send_message,
+    ("sendgrid", "send_email"): _adapt_sendgrid_send_email,
+    ("hubspot", "update_contact"): _adapt_hubspot_update_contact,
+    ("hubspot", "create_deal"): _adapt_hubspot_create_deal,
+    ("salesforce", "create_contact"): _adapt_salesforce_create_contact,
+    ("salesforce", "create_lead"): _adapt_salesforce_create_lead,
+}
+
+
+def adapt_parameters(
+    connector_slug: str, action: str, parameters: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Translate schema parameter names into connector method arguments.
+
+    Runs at the same choke point as ``strip_ui_only_parameters`` and before
+    ``drop_unsupported_arguments``, so a renamed key is translated rather than
+    discarded.
+    """
+    adapter = ACTION_ADAPTERS.get((connector_slug, action))
+    if adapter is None:
+        return dict(parameters or {})
+    return adapter(dict(parameters or {}))
 
 
 def get_actions_for_connector(connector_slug: str) -> List[Dict[str, Any]]:

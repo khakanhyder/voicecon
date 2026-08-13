@@ -1,6 +1,7 @@
 """
 Application configuration management using Pydantic Settings.
 """
+import os
 from typing import List, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -304,3 +305,30 @@ class Settings(BaseSettings):
 
 # Create global settings instance
 settings = Settings()
+
+
+def env_value(name: str, default: Optional[str] = None) -> Optional[str]:
+    """Read a configuration value from wherever it actually lives.
+
+    ``os.getenv`` alone is wrong here and was a real, user-visible bug: pydantic
+    loads ``.env`` into this Settings object but never exports it to the process
+    environment. So a developer who put GOOGLE_CLIENT_ID in ``.env`` — correctly,
+    and where every other setting is read from — got ``os.getenv`` returning
+    None and the message "Google Sheets is not configured for OAuth on this
+    server. The administrator must register an OAuth app", which sends them off
+    to re-create credentials that were already there and already correct.
+
+    Both sources are needed, in this order:
+
+    * ``settings`` covers ``.env``. ``extra="allow"`` means keys that are not
+      declared as fields (most of the per-provider OAuth credentials) still
+      arrive as attributes.
+    * ``os.getenv`` covers real process environment variables in deployments
+      that set them directly and ship no ``.env`` file. Pydantic only reads
+      os.environ for *declared* fields, so undeclared ones would be invisible
+      without this fallback.
+    """
+    value = getattr(settings, name, None)
+    if value is None or value == "":
+        value = os.getenv(name, default)
+    return value
