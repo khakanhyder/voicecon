@@ -222,7 +222,7 @@ async def list_subscription_plans(
             overage_rate_per_call=float(plan.overage_rate_per_call),
             features=plan.features or {},
             entitlements=plan.entitlements or catalog.entitlements_for_plan(plan.slug),
-            trial_days=plan.trial_days or 7,
+            trial_days=plan.trial_days or catalog.DEFAULT_TRIAL_DAYS,
             is_trialable=bool(plan.is_trialable),
             is_active=plan.is_active,
             is_public=plan.is_public,
@@ -1127,7 +1127,7 @@ async def start_free_trial(
         )
 
     plan = await _get_trial_plan(db, request.plan_id)
-    trial_days = plan.trial_days or 7
+    trial_days = plan.trial_days or catalog.DEFAULT_TRIAL_DAYS
 
     now = datetime.utcnow()
     trial_end = now + timedelta(days=trial_days)

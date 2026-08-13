@@ -91,7 +91,9 @@ class SubscriptionPlan(Base):
     entitlements: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
     # Trial
-    trial_days: Mapped[int] = mapped_column(Integer, default=7)
+    #: Kept in step with ``catalog.DEFAULT_TRIAL_DAYS`` by the startup backfill;
+    #: the literal here only covers rows inserted without going through it.
+    trial_days: Mapped[int] = mapped_column(Integer, default=30)
     is_trialable: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Status

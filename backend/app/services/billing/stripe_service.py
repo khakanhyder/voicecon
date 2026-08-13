@@ -1125,7 +1125,7 @@ async def get_stripe_service() -> StripeService:
         from fastapi import HTTPException
         raise HTTPException(
             status_code=503,
-            detail="Card payments are not configured yet. Please try the 7-day free trial.",
+            detail="Card payments are not configured yet. Please try the free trial.",
         )
 
     api_key = settings.stripe_secret_key

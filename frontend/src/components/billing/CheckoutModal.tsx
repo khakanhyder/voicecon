@@ -5,7 +5,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { apiClient, getErrorMessage } from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
+import { API_ENDPOINTS, FREE_TRIAL_DAYS } from '@/lib/constants'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
 
 export interface CheckoutPlan {
@@ -13,6 +13,8 @@ export interface CheckoutPlan {
   name: string
   price_monthly: number
   price_yearly: number | null
+  /** From `GET /billing/plans`. Falls back to `FREE_TRIAL_DAYS` when absent. */
+  trial_days?: number
 }
 
 interface Props {
@@ -33,6 +35,7 @@ function InnerForm({ plan, billingPeriod, onClose, onSuccess }: Props) {
   const [startingTrial, setStartingTrial] = useState(false)
 
   const price = priceFor(billingPeriod, plan.price_monthly, plan.price_yearly)
+  const trialDays = plan.trial_days ?? FREE_TRIAL_DAYS
 
   const pay = async () => {
     if (!stripe || !elements) {
@@ -62,12 +65,12 @@ function InnerForm({ plan, billingPeriod, onClose, onSuccess }: Props) {
   const startTrial = async () => {
     setStartingTrial(true)
     try {
+      // No `trial_days`: the server owns the length and ignores a client one.
       await apiClient.post(API_ENDPOINTS.BILLING_TRIAL, {
         plan_id: plan.id,
         billing_period: billingPeriod,
-        trial_days: 7,
       })
-      toast.success('Your 7-day free trial has started!')
+      toast.success(`Your ${trialDays}-day free trial has started!`)
       onSuccess()
     } catch (err) {
       toast.error(getErrorMessage(err))
@@ -105,7 +108,7 @@ function InnerForm({ plan, billingPeriod, onClose, onSuccess }: Props) {
 
       <div className="flex items-center gap-3">
         <Button variant="outline" className="flex-1" onClick={startTrial} disabled={busy}>
-          {startingTrial ? 'Starting…' : 'Start 7-day free trial'}
+          {startingTrial ? 'Starting…' : `Start ${trialDays}-day free trial`}
         </Button>
         <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel

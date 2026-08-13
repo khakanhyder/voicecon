@@ -23,6 +23,7 @@ export interface SubscriptionPlan {
   max_phone_numbers: number
   max_knowledge_bases: number
   features: { highlights?: string[] } & Record<string, unknown>
+  trial_days: number
   is_active: boolean
   is_public: boolean
 }
@@ -146,15 +147,14 @@ export const onboardingService = {
     return data
   },
 
+  /** The trial's length is the server's to decide — see `plan.trial_days`. */
   async startTrial(params: {
     plan_id?: string
     billing_period?: BillingPeriod
-    trial_days?: number
   }): Promise<SubscriptionResponse> {
     const { data } = await apiClient.post('/api/v1/billing/trial', {
       plan_id: params.plan_id ?? null,
       billing_period: params.billing_period ?? 'monthly',
-      trial_days: params.trial_days ?? 7,
     })
     return data
   },

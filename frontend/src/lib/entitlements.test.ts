@@ -273,23 +273,29 @@ describe('billingBanner', () => {
   })
 
   describe('healthy trial', () => {
-    it('is an informational countdown', () => {
+    it('shows nothing while the trial has time left on it', () => {
+      // A banner that sits there for the whole trial is ignored by the time it
+      // means something. The countdown lives on the billing page instead.
       const banner = billingBanner(
         entitlements({ status: 'trialing', is_trial: true, days_remaining: 10 })
       )
 
-      expect(banner?.key).toBe('trial')
-      expect(banner?.tone).toBe('info')
-      expect(banner?.title).toContain('10 days')
+      expect(banner).toBeNull()
     })
 
-    it('singularises the last day', () => {
+    it('appears only once the server marks the trial as expiring soon', () => {
       const banner = billingBanner(
-        entitlements({ is_trial: true, days_remaining: 1 })
+        entitlements({
+          status: 'trialing',
+          is_trial: true,
+          trial_expiring_soon: true,
+          days_remaining: 3,
+        })
       )
 
-      expect(banner?.title).toContain('1 day')
-      expect(banner?.title).not.toContain('1 days')
+      expect(banner?.key).toBe('trial-ending-3')
+      expect(banner?.tone).toBe('warning')
+      expect(banner?.title).toContain('3 days')
     })
   })
 
@@ -345,7 +351,7 @@ describe('billingBanner', () => {
       expect(banner?.key).toMatch(/^trial-ending/)
     })
 
-    it('prefers the ending-soon warning over the healthy trial notice', () => {
+    it('still warns when a trial ending soon is otherwise healthy', () => {
       const banner = billingBanner(
         entitlements({
           is_trial: true,
@@ -368,7 +374,6 @@ describe('billingBanner', () => {
       { status: 'past_due' },
       { is_trial: true, trial_expiring_soon: true, days_remaining: 2 },
       { cancel_at_period_end: true, current_period_end: '2026-09-15T00:00:00Z' },
-      { is_trial: true, days_remaining: 9 },
     ]
 
     for (const state of states) {

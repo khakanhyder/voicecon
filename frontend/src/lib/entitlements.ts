@@ -212,7 +212,8 @@ export function formatCap(cap: number | undefined): string {
  * The one place that turns a status into a banner.
  *
  * Returns at most one banner, highest severity first — stacked billing banners
- * get ignored wholesale, so the rule is one or none.
+ * get ignored wholesale, so the rule is one or none. A trial that is not close
+ * to running out gets no banner at all.
  */
 export type BannerTone = 'info' | 'warning' | 'danger'
 
@@ -277,6 +278,11 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
     }
   }
 
+  // The only banner a trial ever gets. A healthy trial shows nothing: a notice
+  // that sits there for weeks is banner blindness by the time it matters, and
+  // the countdown stays on the billing page for anyone who wants it. The
+  // server decides when "soon" starts (EXPIRING_SOON_DAYS, three days today),
+  // so the window moves in one place.
   if (ent.is_trial && ent.trial_expiring_soon) {
     const days = ent.days_remaining ?? 0
     return {
@@ -304,18 +310,6 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
       title: `Your subscription ends on ${when}`,
       body: 'You keep full access until then. Reactivate any time before that date.',
       cta: 'Reactivate',
-    }
-  }
-
-  if (ent.is_trial) {
-    const days = ent.days_remaining ?? 0
-    return {
-      key: 'trial',
-      tone: 'info',
-      dismissible: false,
-      title: `Free trial — ${days} ${days === 1 ? 'day' : 'days'} left`,
-      body: 'You have full access to every feature while you try Voicecon.',
-      cta: 'Choose a plan',
     }
   }
 

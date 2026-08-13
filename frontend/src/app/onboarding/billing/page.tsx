@@ -20,6 +20,7 @@ import { onboardingService } from '@/lib/onboarding'
 import { entitlementService } from '@/lib/entitlements'
 import { useOnboardingStore } from '@/store/onboardingStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
+import { FREE_TRIAL_DAYS } from '@/lib/constants'
 
 const COUNTRIES = [
   'United States of America',
@@ -106,6 +107,9 @@ function CheckoutForm() {
   })
   const trialUsed = entitlements?.trial_used ?? false
 
+  // A plan persisted by an older session may predate the field, hence the fallback.
+  const trialDays = selectedPlan?.trial_days ?? FREE_TRIAL_DAYS
+
   const price = selectedPlan
     ? priceFor(billingPeriod, selectedPlan.price_monthly, selectedPlan.price_yearly)
     : 0
@@ -149,7 +153,7 @@ function CheckoutForm() {
       onboardingService.startTrial({ plan_id: selectedPlan?.id, billing_period: billingPeriod }),
     onSuccess: () => {
       reset()
-      toast.success('Your 7-day free trial has started!')
+      toast.success(`Your ${trialDays}-day free trial has started!`)
       router.push('/dashboard')
     },
     onError: (err: any) => toast.error(err.response?.data?.detail || 'Could not start trial'),
@@ -161,7 +165,7 @@ function CheckoutForm() {
       return
     }
     if (!configured) {
-      toast.error('Card payments are not configured yet. Try the 7-day free trial instead.')
+      toast.error(`Card payments are not configured yet. Try the ${trialDays}-day free trial instead.`)
       return
     }
     checkoutMutation.mutate()
@@ -247,8 +251,8 @@ function CheckoutForm() {
         </p>
         {!configured && (
           <p className="mt-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] text-amber-200">
-            Stripe test keys are not set yet — use the 7-day free trial below, or add your keys to
-            enable card payments.
+            Stripe test keys are not set yet — use the {trialDays}-day free trial below, or add
+            your keys to enable card payments.
           </p>
         )}
       </div>
@@ -305,7 +309,7 @@ function CheckoutForm() {
             ? 'Free trial already used'
             : trialMutation.isPending
             ? 'Starting…'
-            : 'Try voicecon for 7 days'}
+            : `Try voicecon for ${trialDays} days`}
         </button>
         <button
           type="button"

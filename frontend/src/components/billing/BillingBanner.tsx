@@ -4,8 +4,9 @@
  * The single billing banner at the top of the dashboard.
  *
  * Exactly one banner is ever shown, chosen by severity in
- * `billingBanner()` — expired beats past-due beats expiring beats trial.
- * Stacked billing banners get ignored wholesale, so the rule is one or none.
+ * `billingBanner()` — expired beats past-due beats a trial about to run out.
+ * Stacked billing banners get ignored wholesale, so the rule is one or none,
+ * and a trial with time left on it shows none.
  *
  * The banners that mean "your product has stopped working" are deliberately not
  * dismissible; the softer ones can be dismissed for the session.

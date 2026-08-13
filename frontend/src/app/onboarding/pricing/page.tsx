@@ -6,7 +6,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Check, ArrowUpRight } from 'lucide-react'
 import { VoiceconLogo, SalesChatbotIcon, VoiceAiIcon } from '@/lib/icons'
-import { QUERY_KEYS } from '@/lib/constants'
+import { FREE_TRIAL_DAYS, QUERY_KEYS } from '@/lib/constants'
 import { onboardingService, type SubscriptionPlan } from '@/lib/onboarding'
 import { useOnboardingStore } from '@/store/onboardingStore'
 
@@ -39,11 +39,13 @@ export default function PricingPage() {
     return plans.length ? plans[plans.length - 1] : null
   }, [plans, selectedPlan])
 
+  const trialDays = activePlan?.trial_days ?? FREE_TRIAL_DAYS
+
   const trialMutation = useMutation({
     mutationFn: () =>
       onboardingService.startTrial({ plan_id: activePlan?.id, billing_period: billingPeriod }),
     onSuccess: () => {
-      toast.success('Your 7-day free trial has started!')
+      toast.success(`Your ${trialDays}-day free trial has started!`)
       router.push('/dashboard')
     },
     onError: (err: any) => toast.error(err.response?.data?.detail || 'Could not start trial'),

@@ -144,6 +144,13 @@ def _features(**overrides: bool) -> Dict[str, bool]:
 
 
 # ---- Free trial ----
+#: How long a card-free trial runs, in days. The single source of truth: plans
+#: are seeded with it, existing plans are re-synced to it on startup (see
+#: ``seed_plans.backfill_plan_entitlements``), and ``POST /billing/trial`` falls
+#: back to it when a plan carries no length of its own. Change it here and the
+#: whole product follows — there is no per-plan trial length in the UI today.
+DEFAULT_TRIAL_DAYS = 30
+
 # Deliberately generous on *capability*. Trials convert on feature discovery: a
 # user who never sees lead scoring has no reason to pick the expensive plan.
 #

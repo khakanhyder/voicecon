@@ -206,6 +206,7 @@ export default function BillingPage() {
       name: plan.name,
       price_monthly: plan.price_monthly,
       price_yearly: plan.price_yearly,
+      trial_days: plan.trial_days,
     });
   };
 

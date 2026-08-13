@@ -218,8 +218,12 @@ async def backfill_plan_entitlements(db: AsyncSession) -> int:
         if _refresh_stale_copy(plan):
             changed = True
 
-        if not plan.trial_days:
-            plan.trial_days = 7
+        # Trial length is owned by the catalogue, not by the row: there is no
+        # per-plan trial length in the UI, so a stored value that disagrees with
+        # ``DEFAULT_TRIAL_DAYS`` is a plan seeded before the constant last
+        # changed. Re-syncing here is what makes changing the constant enough.
+        if plan.trial_days != catalog.DEFAULT_TRIAL_DAYS:
+            plan.trial_days = catalog.DEFAULT_TRIAL_DAYS
             changed = True
 
         if changed:
@@ -306,7 +310,7 @@ async def seed_default_plans(db: AsyncSession) -> int:
                 "limits": dict(entitlements["limits"]),
                 "overage": dict(entitlements["overage"]),
             },
-            trial_days=7,
+            trial_days=catalog.DEFAULT_TRIAL_DAYS,
             is_trialable=slug == TRIAL_PLAN_SLUG,
             sort_order=spec["sort_order"],
             is_active=True,
