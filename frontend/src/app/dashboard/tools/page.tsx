@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { useConfirm } from '@/hooks/use-confirm'
 import {
   Wrench, Plus, Search, Phone, PhoneForwarded, PhoneOff,
   MessageSquare, Voicemail, Hash, ArrowLeftRight, Bot,
@@ -848,6 +849,7 @@ function ActiveIntegrationsBanner({ integrations, onCreateFromIntegration }: {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ToolsPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const [tools, setTools] = useState<Tool[]>([])
   const [activeIntegrations, setActiveIntegrations] = useState<ActiveIntegration[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -888,7 +890,13 @@ export default function ToolsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this tool? It will be removed from all agents.')) return
+    const ok = await confirm({
+      title: 'Delete Tool',
+      description: 'Delete this tool? It will be removed from all agents.',
+      confirmText: 'Delete',
+      isDestructive: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(API_ENDPOINTS.TOOL(id))
       setTools(prev => prev.filter(t => t.id !== id))
@@ -1013,6 +1021,7 @@ export default function ToolsPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </>
   )
 }

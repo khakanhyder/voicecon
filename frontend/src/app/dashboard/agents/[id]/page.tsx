@@ -20,6 +20,8 @@ import { AssistantsRail } from '@/components/agents/AssistantsRail'
 import { AgentCallsTab } from '@/components/agents/AgentCallsTab'
 import { CallTestPanel, TestCallAgent } from '@/components/agents/CallTestPanel'
 
+import { useConfirm } from '@/hooks/use-confirm'
+
 // ── Tool types (mirrors tools page) ─────────────────────────────────────────
 
 const TOOL_TYPE_META: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; category: string; color: string; bg: string }> = {
@@ -487,6 +489,7 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
 const FORM_TABS: AgentTabId[] = ['basic', 'llm', 'stt', 'voice', 'conversation', 'advanced']
 
 export default function AgentDetailPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const router  = useRouter()
   const params  = useParams()
   const agentId = params.id as string
@@ -622,7 +625,13 @@ export default function AgentDetailPage() {
   }
 
   const handleDelete = async () => {
-    if (!confirm('Delete this agent? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Delete Agent',
+      description: 'Delete this agent? This cannot be undone.',
+      confirmText: 'Delete',
+      isDestructive: true,
+    })
+    if (!ok) return
     setIsDeleting(true)
     try {
       await apiClient.delete(API_ENDPOINTS.AGENT(agentId))
@@ -809,6 +818,7 @@ export default function AgentDetailPage() {
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
       />
+      <ConfirmDialog />
     </div>
   )
 }

@@ -10,6 +10,8 @@ import { apiClient } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/hooks/use-confirm';
+
 interface ApiConnection {
   id: string;
   name: string | null;
@@ -61,6 +63,7 @@ function apiStatusToDisplay(s: string): 'connected' | 'error' | 'pending' {
 }
 
 export default function ConnectedIntegrationsPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [connectedIntegrations, setConnectedIntegrations] = useState<ConnectedIntegration[]>([]);
@@ -104,7 +107,13 @@ export default function ConnectedIntegrationsPage() {
   const handleDisconnect = async (slug: string) => {
     const integration = connectedIntegrations.find((i) => i.slug === slug);
     if (!integration) return;
-    if (!confirm(`Are you sure you want to disconnect ${integration.name}?`)) return;
+    const ok = await confirm({
+      title: 'Disconnect Integration',
+      description: `Are you sure you want to disconnect ${integration.name}? You can reconnect it at any time.`,
+      confirmText: 'Disconnect',
+      isDestructive: true,
+    });
+    if (!ok) return;
 
     try {
       await apiClient.delete(API_ENDPOINTS.INTEGRATION_CONNECTION(integration.connectionId));
@@ -253,6 +262,7 @@ export default function ConnectedIntegrationsPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog />
     </div>
   );
 }

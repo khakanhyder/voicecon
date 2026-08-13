@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { validateNodeData } from '@/lib/flowValidation';
 
+import { useConfirm } from '@/hooks/use-confirm';
+
 interface ValidationError {
   field: string;
   message: string;
@@ -31,6 +33,7 @@ export const EnhancedNodeConfigPanel: React.FC<EnhancedNodeConfigPanelProps> = (
   onClose,
   onTest,
 }) => {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [localData, setLocalData] = useState(node.data);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [isTesting, setIsTesting] = useState(false);
@@ -623,8 +626,14 @@ export const EnhancedNodeConfigPanel: React.FC<EnhancedNodeConfigPanelProps> = (
       <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
         <Button
           variant="destructive"
-          onClick={() => {
-            if (confirm('Are you sure you want to delete this node?')) {
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'Delete Node',
+              description: 'Are you sure you want to delete this node? This cannot be undone.',
+              confirmText: 'Delete',
+              isDestructive: true,
+            });
+            if (ok) {
               onDelete(node.id);
             }
           }}
@@ -634,6 +643,7 @@ export const EnhancedNodeConfigPanel: React.FC<EnhancedNodeConfigPanelProps> = (
           Delete Node
         </Button>
       </div>
+      <ConfirmDialog />
     </div>
   );
 };

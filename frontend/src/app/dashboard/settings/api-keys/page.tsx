@@ -10,6 +10,8 @@ import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { PERMISSIONS } from '@/lib/workspace'
 import { usePermission } from '@/store/workspaceStore'
 
+import { useConfirm } from '@/hooks/use-confirm'
+
 interface ApiKey {
   id: string
   name: string
@@ -49,6 +51,7 @@ function groupScopes(scopes: string[]) {
 }
 
 export default function APIKeysPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const canManage = usePermission(PERMISSIONS.apiKeysManage)
 
   const [keyName, setKeyName] = useState('')
@@ -122,7 +125,13 @@ export default function APIKeysPage() {
   }
 
   const handleRegenerate = async (id: string) => {
-    if (!confirm('Regenerate this key? The current key will stop working immediately.')) return
+    const ok = await confirm({
+      title: 'Regenerate API Key',
+      description: 'Regenerate this key? The current key will stop working immediately.',
+      confirmText: 'Regenerate',
+      isDestructive: true,
+    })
+    if (!ok) return
     setBusyId(id)
     try {
       const { data } = await apiClient.post<{ key: string }>(API_ENDPOINTS.API_KEY_REGENERATE(id))
@@ -165,7 +174,13 @@ export default function APIKeysPage() {
   }
 
   const handleRevoke = async (id: string) => {
-    if (!confirm('Revoke this key? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Revoke API Key',
+      description: 'Revoke this key? This cannot be undone.',
+      confirmText: 'Revoke',
+      isDestructive: true,
+    })
+    if (!ok) return
     setBusyId(id)
     try {
       await apiClient.delete(API_ENDPOINTS.API_KEY(id))
@@ -426,6 +441,7 @@ export default function APIKeysPage() {
           <li>Revoke keys immediately if you suspect they&apos;ve been compromised</li>
         </ul>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

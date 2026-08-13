@@ -8,6 +8,8 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 
+import { useConfirm } from '@/hooks/use-confirm'
+
 interface Workflow {
   id: string
   name: string
@@ -51,6 +53,7 @@ interface WorkflowExecution {
 }
 
 export default function WorkflowDetailPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const router = useRouter()
   const params = useParams()
   const workflowId = params.id as string
@@ -154,9 +157,13 @@ export default function WorkflowDetailPage() {
   }
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this workflow? This action cannot be undone.')) {
-      return
-    }
+    const ok = await confirm({
+      title: 'Delete Workflow',
+      description: 'Are you sure you want to delete this workflow? This action cannot be undone.',
+      confirmText: 'Delete',
+      isDestructive: true,
+    })
+    if (!ok) return
 
     setIsDeleting(true)
     try {
@@ -482,6 +489,7 @@ export default function WorkflowDetailPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

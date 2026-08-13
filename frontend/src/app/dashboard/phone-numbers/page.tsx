@@ -15,6 +15,8 @@ import { FEATURES } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { PhoneNumberPaywall } from '@/components/billing/PhoneNumberPaywall'
 
+import { useConfirm } from '@/hooks/use-confirm'
+
 interface PhoneNumber {
   id: string
   phone_number: string
@@ -78,6 +80,7 @@ function CapBadge({ label, active }: { label: string; active: boolean }) {
 }
 
 export default function PhoneNumbersPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const [numbers, setNumbers] = useState<PhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -203,7 +206,13 @@ export default function PhoneNumbersPage() {
   }
 
   const releaseNumber = async (id: string) => {
-    if (!confirm('Release this phone number? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Release Phone Number',
+      description: 'Release this phone number? This cannot be undone.',
+      confirmText: 'Release',
+      isDestructive: true,
+    })
+    if (!ok) return
     try {
       await apiClient.delete(API_ENDPOINTS.PHONE_NUMBER(id))
       toast.success('Phone number released')
@@ -634,6 +643,7 @@ export default function PhoneNumbersPage() {
           </>
         )}
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

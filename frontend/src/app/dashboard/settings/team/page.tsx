@@ -24,6 +24,8 @@ import { useAuthStore } from '@/store/authStore'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import { PERMISSIONS, workspaceService } from '@/lib/workspace'
 
+import { useConfirm } from '@/hooks/use-confirm'
+
 interface TeamMember {
   id: string
   user_id: string
@@ -60,6 +62,7 @@ function initials(member: { name: string | null; email: string }) {
 }
 
 export default function TeamSettingsPage() {
+  const { confirm, ConfirmDialog } = useConfirm()
   const { user } = useAuthStore()
   const workspace = useWorkspaceStore((s) => s.current)
   const refreshWorkspace = useWorkspaceStore((s) => s.refresh)
@@ -128,7 +131,14 @@ export default function TeamSettingsPage() {
   }
 
   const handleCancelInvite = async (invite: Invitation) => {
-    if (!confirm(`Cancel the invitation to ${invite.email}?`)) return
+    const ok = await confirm({
+      title: 'Cancel Invitation',
+      description: `Cancel the invitation to ${invite.email}? They will no longer be able to join with this invite.`,
+      confirmText: 'Cancel Invitation',
+      cancelText: 'Keep Invitation',
+      isDestructive: true,
+    })
+    if (!ok) return
     setBusyId(invite.id)
     try {
       await apiClient.delete(API_ENDPOINTS.TEAM_INVITATION(invite.id))
@@ -155,7 +165,13 @@ export default function TeamSettingsPage() {
   }
 
   const handleRemove = async (member: TeamMember) => {
-    if (!confirm(`Remove ${member.name || member.email} from the team?`)) return
+    const ok = await confirm({
+      title: 'Remove Member',
+      description: `Remove ${member.name || member.email} from the team? They will immediately lose access to this workspace.`,
+      confirmText: 'Remove',
+      isDestructive: true,
+    })
+    if (!ok) return
     setBusyId(member.id)
     try {
       await apiClient.delete(API_ENDPOINTS.TEAM_MEMBER(member.id))
@@ -169,11 +185,15 @@ export default function TeamSettingsPage() {
   }
 
   const handleTransferOwnership = async (member: TeamMember) => {
-    const confirmed = confirm(
-      `Make ${member.name || member.email} the owner of ${workspace?.name}?\n\n` +
-      `You will become an admin and will no longer be able to manage billing, ` +
-      `transfer ownership, or delete the workspace.`
-    )
+    const confirmed = await confirm({
+      title: 'Transfer Ownership',
+      description:
+        `Make ${member.name || member.email} the owner of ${workspace?.name}? ` +
+        `You will become an admin and will no longer be able to manage billing, ` +
+        `transfer ownership, or delete the workspace.`,
+      confirmText: 'Transfer Ownership',
+      isDestructive: true,
+    })
     if (!confirmed) return
     setBusyId(member.id)
     try {
@@ -410,6 +430,7 @@ export default function TeamSettingsPage() {
           ))}
         </div>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

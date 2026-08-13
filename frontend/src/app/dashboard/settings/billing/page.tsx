@@ -19,6 +19,8 @@ import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutM
 import { entitlementService, FEATURE_LABELS } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 
+import { useConfirm } from '@/hooks/use-confirm';
+
 interface SubscriptionPlan {
   id: string;
   slug: string | null;
@@ -89,6 +91,7 @@ function Skeleton({ className }: { className?: string }) {
 }
 
 export default function BillingPage() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -160,7 +163,14 @@ export default function BillingPage() {
   };
 
   const cancelSubscription = async () => {
-    if (!confirm('Cancel your subscription at the end of the current period?')) return;
+    const ok = await confirm({
+      title: 'Cancel Subscription',
+      description: 'Cancel your subscription at the end of the current period? You keep access until then.',
+      confirmText: 'Cancel Subscription',
+      cancelText: 'Keep Subscription',
+      isDestructive: true,
+    });
+    if (!ok) return;
     setActionBusy(true);
     try {
       await entitlementService.cancel();
@@ -732,6 +742,7 @@ export default function BillingPage() {
           }}
         />
       )}
+      <ConfirmDialog />
     </div>
   );
 }

@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+import { useConfirm } from '@/hooks/use-confirm';
+
 interface NodeConfigPanelProps {
   node: Node;
   onUpdate: (nodeId: string, data: any) => void;
@@ -22,6 +24,7 @@ export const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({
   onDelete,
   onClose,
 }) => {
+  const { confirm, ConfirmDialog } = useConfirm();
   const [localData, setLocalData] = useState(node.data);
 
   const handleUpdate = (field: string, value: any) => {
@@ -525,8 +528,14 @@ export const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({
       <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
         <Button
           variant="destructive"
-          onClick={() => {
-            if (confirm('Are you sure you want to delete this node?')) {
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'Delete Node',
+              description: 'Are you sure you want to delete this node? This cannot be undone.',
+              confirmText: 'Delete',
+              isDestructive: true,
+            });
+            if (ok) {
               onDelete(node.id);
             }
           }}
@@ -536,6 +545,7 @@ export const NodeConfigPanel: React.FC<NodeConfigPanelProps> = ({
           Delete Node
         </Button>
       </div>
+      <ConfirmDialog />
     </div>
   );
 };
