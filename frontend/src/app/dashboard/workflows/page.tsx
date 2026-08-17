@@ -221,9 +221,9 @@ export default function WorkflowsPage() {
 
                   {/* Title & Description */}
                   <div className="flex-1 flex flex-col justify-start relative">
-                    <div className="flex justify-between items-start">
-                      <h3 className="text-[15px] font-bold text-gray-900 pr-12 leading-tight tracking-tight">{workflow.name}</h3>
-                      <div className={`absolute right-0 top-0 flex-shrink-0 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap px-2 py-0.5 rounded-full ${workflow.is_active ? 'text-[#16a34a] bg-green-50' : 'text-gray-500 bg-gray-50'
+                    <div className="flex justify-between items-start gap-3">
+                      <h3 className="text-[15px] font-bold text-gray-900 leading-tight tracking-tight">{workflow.name}</h3>
+                      <div className={`flex-shrink-0 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap px-2 py-0.5 rounded-full ${workflow.is_active ? 'text-[#16a34a] bg-green-50' : 'text-gray-500 bg-gray-50'
                         }`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${workflow.is_active ? 'bg-[#16a34a]' : 'bg-gray-400'}`} />
                         {workflow.is_active ? 'Active' : 'Inactive'}
