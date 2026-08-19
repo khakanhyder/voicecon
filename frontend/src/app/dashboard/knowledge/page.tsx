@@ -257,9 +257,9 @@ export default function KnowledgeBasesPage() {
                  <button onClick={() => router.push(`/dashboard/knowledge/${kb.id}`)} className="flex-1 hidden min-[400px]:flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                    <Upload className="w-3.5 h-3.5 shrink-0" /> Upload
                  </button>
-                 <button onClick={() => setDeletingId(kb.id)} className="flex items-center justify-center rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer relative w-8 h-8 group/btn" title="Delete">
-                   <MoreHorizontal className="w-4 h-4 absolute group-hover/btn:opacity-0 transition-opacity" />
-                   <Trash2 className="w-4 h-4 absolute opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                 <button onClick={() => setDeletingId(kb.id)} className="flex items-center justify-center rounded-lg border border-red-400 p-1.5 text-red-500 hover:text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer relative w-8 h-8 group/btn" title="Delete">
+                   {/* <MoreHorizontal className="w-4 h-4 absolute group-hover/btn:opacity-0 transition-opacity" /> */}
+                   <Trash2 className="w-4 h-4" />
                  </button>
               </div>
             </div>
