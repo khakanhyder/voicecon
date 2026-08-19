@@ -71,6 +71,10 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "client_id_env": "NOTION_CLIENT_ID",
         "client_secret_env": "NOTION_CLIENT_SECRET",
         "authorize_params": {"owner": "user"},
+        # Notion authenticates the token request with HTTP Basic (client_id:
+        # client_secret) and requires a JSON body; credentials in a form body
+        # get a 401.
+        "token_style": "basic_json",
     },
     "clickup": {
         "authorize_url": "https://app.clickup.com/api",
@@ -80,6 +84,10 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "scopes": [],
         "client_id_env": "CLICKUP_CLIENT_ID",
         "client_secret_env": "CLICKUP_CLIENT_SECRET",
+        # ClickUp's token endpoint accepts exactly client_id, client_secret and
+        # code. Sending the usual grant_type/redirect_uri alongside them is
+        # rejected with 401 Unauthorized.
+        "token_style": "clickup",
     },
     "calendly": {
         "authorize_url": "https://auth.calendly.com/oauth/authorize",
@@ -115,7 +123,8 @@ def resolve_client_credentials(
     scopes come from the registry, with auth_config allowed to override.
 
     Returns a dict with authorize_url, token_url, scopes, authorize_params,
-    client_id, client_secret (any of which may be None if unconfigured).
+    token_style, client_id, client_secret (any of which may be None if
+    unconfigured).
     """
     auth_config = auth_config or {}
     provider = OAUTH_PROVIDERS.get(slug, {})
@@ -140,6 +149,7 @@ def resolve_client_credentials(
         "token_url": auth_config.get("token_url") or provider.get("token_url"),
         "scopes": auth_config.get("scopes") or provider.get("scopes", []),
         "authorize_params": provider.get("authorize_params", {}),
+        "token_style": auth_config.get("token_style") or provider.get("token_style") or "form",
         "client_id": client_id,
         "client_secret": client_secret,
     }

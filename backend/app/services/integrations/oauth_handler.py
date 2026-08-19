@@ -3,6 +3,7 @@ OAuth2 Authentication Handler.
 
 Handles OAuth2 authorization flow for integrations.
 """
+import base64
 import logging
 import secrets
 import time
@@ -153,6 +154,7 @@ class OAuth2Handler:
         code: str,
         redirect_uri: str,
         additional_params: Optional[Dict[str, str]] = None,
+        style: str = "form",
     ) -> Dict[str, Any]:
         """
         Exchange authorization code for access token.
@@ -164,6 +166,10 @@ class OAuth2Handler:
             code: Authorization code
             redirect_uri: Redirect URI used in authorization
             additional_params: Additional parameters
+            style: Provider request dialect. "form" is the OAuth2 default
+                (credentials in a form body). "basic_json" sends HTTP Basic auth
+                with a JSON body (Notion). "clickup" sends only client_id,
+                client_secret and code as JSON — ClickUp 401s on anything else.
 
         Returns:
             Token response containing access_token, refresh_token, etc.
@@ -174,24 +180,46 @@ class OAuth2Handler:
         try:
             client = await self._get_http_client()
 
-            data = {
-                "grant_type": "authorization_code",
-                "code": code,
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "redirect_uri": redirect_uri,
-            }
+            headers = {"Accept": "application/json"}
+            kwargs: Dict[str, Any] = {}
 
-            if additional_params:
-                data.update(additional_params)
+            if style == "basic_json":
+                payload = {
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                }
+                if additional_params:
+                    payload.update(additional_params)
+                basic = base64.b64encode(
+                    f"{client_id}:{client_secret}".encode()
+                ).decode()
+                headers["Authorization"] = f"Basic {basic}"
+                kwargs["json"] = payload
+            elif style == "clickup":
+                payload = {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                }
+                if additional_params:
+                    payload.update(additional_params)
+                kwargs["json"] = payload
+            else:
+                data = {
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": redirect_uri,
+                }
+                if additional_params:
+                    data.update(additional_params)
+                kwargs["data"] = data
 
-            logger.info(f"Exchanging code for token at {token_url}")
+            logger.info(f"Exchanging code for token at {token_url} (style={style})")
 
-            response = await client.post(
-                token_url,
-                data=data,
-                headers={"Accept": "application/json"}
-            )
+            response = await client.post(token_url, headers=headers, **kwargs)
 
             response.raise_for_status()
 
@@ -203,6 +231,16 @@ class OAuth2Handler:
 
             logger.info("Successfully exchanged code for token")
             return token_data
+
+        except httpx.HTTPStatusError as e:
+            # Without the provider's response body a 401 here is undebuggable:
+            # every provider explains *why* it rejected the exchange in the body.
+            detail = (e.response.text or "")[:500]
+            logger.error(
+                f"HTTP error during token exchange: {e} — response: {detail}",
+                exc_info=True,
+            )
+            raise OAuth2Error(f"Token exchange failed: {str(e)} — {detail}")
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during token exchange: {e}", exc_info=True)
@@ -219,6 +257,7 @@ class OAuth2Handler:
         client_secret: str,
         refresh_token: str,
         additional_params: Optional[Dict[str, str]] = None,
+        style: str = "form",
     ) -> Dict[str, Any]:
         """
         Refresh access token using refresh token.
@@ -239,23 +278,35 @@ class OAuth2Handler:
         try:
             client = await self._get_http_client()
 
-            data = {
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": client_id,
-                "client_secret": client_secret,
-            }
+            headers = {"Accept": "application/json"}
+            kwargs: Dict[str, Any] = {}
 
-            if additional_params:
-                data.update(additional_params)
+            if style == "basic_json":
+                payload = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                }
+                if additional_params:
+                    payload.update(additional_params)
+                basic = base64.b64encode(
+                    f"{client_id}:{client_secret}".encode()
+                ).decode()
+                headers["Authorization"] = f"Basic {basic}"
+                kwargs["json"] = payload
+            else:
+                data = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                }
+                if additional_params:
+                    data.update(additional_params)
+                kwargs["data"] = data
 
-            logger.info(f"Refreshing token at {token_url}")
+            logger.info(f"Refreshing token at {token_url} (style={style})")
 
-            response = await client.post(
-                token_url,
-                data=data,
-                headers={"Accept": "application/json"}
-            )
+            response = await client.post(token_url, headers=headers, **kwargs)
 
             response.raise_for_status()
 

@@ -219,6 +219,7 @@ class IntegrationManager:
                 client_secret=client_secret,
                 code=code,
                 redirect_uri=redirect_uri,
+                style=oauth.get("token_style", "form"),
             )
 
             # Extract tokens
@@ -585,6 +586,7 @@ class IntegrationManager:
                 client_id=client_id,
                 client_secret=client_secret,
                 refresh_token=refresh_token,
+                style=oauth.get("token_style", "form"),
             )
 
             # Extract new tokens
