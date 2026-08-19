@@ -18,6 +18,7 @@ interface KnowledgeBase {
   document_count: number
   is_active: boolean
   created_at: string
+  updated_at: string
 }
 
 export default function KnowledgeBasesPage() {
@@ -61,24 +62,43 @@ export default function KnowledgeBasesPage() {
     }
   }
 
+  // The API serialises naive UTC timestamps ("2026-08-19T17:54:42.329002") with
+  // no timezone marker, and `new Date()` reads those as *local* time. Without
+  // pinning them to UTC every stamp is off by the browser's offset — at UTC+5 a
+  // library saved seconds ago reported "5h ago".
+  const parseUtc = (dateStr: string) =>
+    new Date(/([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr) ? dateStr : `${dateStr}Z`)
+
   const getTimeAgo = (dateStr: string) => {
-    const diff = Math.max(0, Date.now() - new Date(dateStr).getTime())
+    const diff = Date.now() - parseUtc(dateStr).getTime()
+    if (diff < 60000) return 'Just now'
     const mins = Math.floor(diff / 60000)
-    if (mins < 60) return `${Math.max(1, mins)}m ago`
+    if (mins < 60) return `${mins}m ago`
     const hours = Math.floor(mins / 60)
     if (hours < 24) return `${hours}h ago`
-    return `${Math.floor(hours / 24)}d ago`
+    const days = Math.floor(hours / 24)
+    if (days < 30) return `${days}d ago`
+    return parseUtc(dateStr).toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+    })
   }
+
+  const lastActivityAt = (kb: KnowledgeBase) => kb.updated_at || kb.created_at
 
   const filtered = items
     .filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.description?.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       if (sortBy === 'Name') return a.name.localeCompare(b.name)
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      return parseUtc(lastActivityAt(b)).getTime() - parseUtc(lastActivityAt(a)).getTime()
     })
 
   const totalDocs = items.reduce((sum, item) => sum + item.document_count, 0)
   const activeKbs = items.filter(i => i.is_active).length
+  const lastUpdatedAt = items.reduce<string | null>((latest, item) => {
+    const stamp = lastActivityAt(item)
+    if (!stamp) return latest
+    return !latest || parseUtc(stamp).getTime() > parseUtc(latest).getTime() ? stamp : latest
+  }, null)
 
   if (isLoading) {
     return (
@@ -133,8 +153,11 @@ export default function KnowledgeBasesPage() {
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-500 mb-0.5">Last Updated</div>
-              <div className="text-xl font-bold text-slate-900 leading-none mt-1">
-                {items.length > 0 ? 'Just now' : 'Never'}
+              <div
+                className="text-xl font-bold text-slate-900 leading-none mt-1"
+                title={lastUpdatedAt ? parseUtc(lastUpdatedAt).toLocaleString() : undefined}
+              >
+                {lastUpdatedAt ? getTimeAgo(lastUpdatedAt) : 'Never'}
               </div>
               <div className="text-xs text-slate-400 mt-1">Recently active libraries</div>
             </div>
@@ -218,7 +241,7 @@ export default function KnowledgeBasesPage() {
                   <div className="w-px h-3 bg-slate-300"></div>
                   <div className="flex items-center gap-1.5 whitespace-nowrap">
                      <Clock className="w-3.5 h-3.5" />
-                     {getTimeAgo(kb.created_at)}
+                     {getTimeAgo(lastActivityAt(kb))}
                   </div>
                 </div>
               </div>
