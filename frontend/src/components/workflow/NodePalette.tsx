@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import {
+  HelpCircle,
   Clock,
-  Code,
+  Calculator,
   Braces,
   Filter as FilterIcon,
   GitBranch,
@@ -38,7 +39,8 @@ const ICONS: Record<string, LucideIcon> = {
   Wrench,
   Plug,
   Braces,
-  Code,
+  Calculator,
+  HelpCircle,
   Split,
   FilterIcon,
   GitMerge,

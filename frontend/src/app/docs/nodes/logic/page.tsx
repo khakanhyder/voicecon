@@ -262,96 +262,61 @@ RIGHT — narrowest first
         <A href="/docs/workflows/variables#type-preservation">Type preservation</A>.
       </Callout>
 
-      <RefHeader id="code" name="Code" chip="Logic" tone="amber">
-        Runs a Python or JavaScript snippet against the run&rsquo;s data, in a sandbox.
+      <RefHeader id="calculate" name="Calculate" chip="Logic" tone="amber">
+        Works out numbers from other values, one row at a time.
       </RefHeader>
       <Meta label="Outputs"><C>out</C></Meta>
 
       <ParamTable
         params={[
           {
-            name: 'language',
-            type: 'enum',
-            default: 'python',
-            description: <><C>python</C> or <C>javascript</C>. Also drives editor highlighting.</>,
-          },
-          {
-            name: 'code',
-            type: 'code',
+            name: 'calculations',
+            type: 'array',
             required: true,
             description: (
               <>
-                The snippet. Assign to <C>result</C>, or define <C>main(input)</C> and return
-                from it.
+                Rows of <C>{'{ name, left, operator, right }'}</C>. Operands may be literals
+                or <C>{'{{references}}'}</C>.
               </>
             ),
           },
           {
-            name: 'timeout_seconds',
+            name: 'decimals',
             type: 'number',
-            default: '5',
-            description: (
-              <>
-                Kills a snippet that runs too long. Keep it low — this is a workflow step, not
-                a batch job.
-              </>
-            ),
+            description: <>Round every result to this many decimal places. Optional.</>,
           },
         ]}
       />
 
-      <H3>The input object</H3>
+      <H3>Rows build on each other</H3>
       <P>
-        Your snippet receives <C>input</C>, holding the run&rsquo;s data as real values — no
-        string interpolation, so numbers are numbers and objects are objects.
+        Rows run top to bottom and each result is published as soon as it is worked out, so a
+        later row can use an earlier one by name. Three related figures live in one node
+        rather than three.
       </P>
       <CodeBlock
-        language="python"
-        code={`# input = {
-#   "trigger": { … },
-#   "steps":   { "n_abc123": { … } },
-#   "vars":    { …top-level variables… }
-# }
+        language="text"
+        code={`subtotal  =  {{trigger.price}}  ×   {{trigger.quantity}}
+tax       =  15                 % of {{subtotal}}
+total     =  {{subtotal}}       +   {{tax}}
 
-items = input["steps"]["n_abc123"]["body"]["results"]
-
-result = {
-    "count":     len(items),
-    "emails":    [i["email"] for i in items if i.get("email")],
-    "has_leads": len(items) > 0,
-}
-
-# Each key of the returned object is published as a top-level variable:
-# {{count}}, {{emails}}, {{has_leads}}`}
+# Later steps can then say: "That comes to {{total}}."`}
       />
 
-      <CodeBlock
-        language="javascript"
-        code={`// The same thing, with a main() function instead of assigning result.
-function main(input) {
-  const items = input.steps.n_abc123.body.results
+      <P>
+        Operators are <C>+</C>, <C>−</C>, <C>×</C>, <C>÷</C>, remainder, and <C>% of</C>.
+      </P>
 
-  return {
-    count:    items.length,
-    emails:   items.map(i => i.email).filter(Boolean),
-    hasLeads: items.length > 0,
-  }
-}`}
-      />
-
-      <Callout kind="warning" title="Sandbox limits">
-        The snippet runs sandboxed. There is no filesystem, no network, and no package
-        installation. If you need to call an API, use a{' '}
-        <A href="/docs/nodes/actions#webhook">Webhook</A> or{' '}
-        <A href="/docs/nodes/actions#action">Integration</A> node — Code is for transforming
-        data you already have.
+      <Callout kind="note" title="Totalling a list belongs in Set Fields">
+        Calculate works on individual numbers. To add up a field across a list — an order
+        total, an average call length — use <A href="#transform">Set Fields</A> with the
+        <C>Sum of</C> transform, which takes the list and the field name to add up.
       </Callout>
 
-      <Callout kind="note" title="Reach for Code last">
-        Set Fields handles composition, Branch and Switch handle routing, and Filter handles
-        gating. Code earns its place for genuine computation — parsing, aggregating,
-        reshaping a list. A graph where Code does the routing is much harder for the next
-        person to read.
+      <Callout kind="warning" title="A missing value stops the step">
+        If an operand is empty or is not a number, the step fails with a message naming the
+        row, rather than quietly producing nothing. That is deliberate: a blank total is far
+        worse when the next step reads it out to a caller.
       </Callout>
 
       <RefHeader id="delay" name="Wait" chip="Logic" tone="amber">
@@ -425,7 +390,7 @@ function main(input) {
         <LI>
           <Strong>Numeric comparisons need numbers.</Strong>{' '}
           <C>is greater than</C> against a value that arrived as text may not behave as you
-          expect. If a value crosses a boundary as a string, convert it in a Code or Set
+          expect. If a value crosses a boundary as a string, convert it in a Set
           Fields node first.
         </LI>
       </UL>

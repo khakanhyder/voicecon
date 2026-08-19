@@ -366,7 +366,7 @@ export const DOCS_NAV: DocGroup[] = [
       {
         title: 'Logic Nodes',
         href: '/docs/nodes/logic',
-        description: 'Branch, Switch, Filter, Merge, Loop, Set Fields, Code, and Wait.',
+        description: 'Branch, Switch, Filter, Merge, Loop, Set Fields, Calculate, and Wait.',
         sections: [
           { id: 'condition', title: 'Branch' },
           { id: 'switch', title: 'Switch' },
@@ -374,13 +374,14 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'merge', title: 'Merge' },
           { id: 'loop', title: 'Loop Over Items' },
           { id: 'transform', title: 'Set Fields' },
-          { id: 'code', title: 'Code' },
+          { id: 'calculate', title: 'Calculate' },
           { id: 'delay', title: 'Wait' },
           { id: 'operators', title: 'Operator reference' },
         ],
         keywords: [
           'branch', 'condition', 'switch', 'filter', 'merge', 'loop', 'transform',
-          'set fields', 'code', 'python', 'javascript', 'delay', 'wait', 'operators',
+          'set fields', 'calculate', 'sum', 'total', 'average', 'round', 'currency',
+          'format', 'math', 'delay', 'wait', 'operators',
         ],
       },
       {

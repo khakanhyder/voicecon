@@ -4,7 +4,7 @@
  */
 import type { Edge, Node } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
-import { getDescriptor, outputsFor } from './nodeTypes'
+import { getDescriptor, isKnownNodeType, outputsFor } from './nodeTypes'
 
 export interface NodeSettings {
   on_error?: 'stop' | 'continue'
@@ -174,6 +174,19 @@ export function validateFlow(nodes: FlowNode[], edges: Edge[]): Issue[] {
       severity: 'warning',
     })
     return issues
+  }
+
+  // Node types this build no longer supports (e.g. a retired Code node in a
+  // flow saved earlier). Surfaced as an error because the run would fail at
+  // that step anyway; better to say so while it can still be replaced.
+  for (const node of nodes) {
+    if (!isKnownNodeType(node.data.nodeType)) {
+      issues.push({
+        nodeId: node.id,
+        message: `${node.data.label}: "${node.data.nodeType}" steps are no longer supported — replace this step`,
+        severity: 'error',
+      })
+    }
   }
 
   // Required fields

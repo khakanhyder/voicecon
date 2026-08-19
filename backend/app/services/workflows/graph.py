@@ -18,6 +18,8 @@ keep executing untouched.
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from app.schemas.workflow import StepType
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
@@ -31,6 +33,12 @@ _LAYOUT_BRANCH_X_OFFSET = 280
 TERMINAL_TYPES = {"end", "transfer"}
 
 # Handle names.
+#: Step types this build can execute, derived from the StepType enum the
+#: handler factory dispatches on. Deriving rather than restating it means
+#: retiring a node cannot leave this validator silently approving graphs the
+#: engine will refuse to run.
+KNOWN_STEP_TYPES = frozenset(t.value for t in StepType)
+
 HANDLE_IN = "in"
 HANDLE_OUT = "out"
 HANDLE_TRUE = "true"
@@ -517,6 +525,21 @@ def validate_graph(graph: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
                 {"nodeId": node["id"], "message": f"Duplicate node id '{node['id']}'"}
             )
         seen.add(node["id"])
+
+    # Node types this build no longer runs — e.g. a Code node in a flow saved
+    # before it was retired. The run would fail at that step, so saying so here
+    # lets the builder show it while there is still something to replace it
+    # with, rather than reporting a healthy graph that cannot execute.
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type != "trigger" and node_type not in KNOWN_STEP_TYPES:
+            errors.append({
+                "nodeId": node["id"],
+                "message": (
+                    f"'{node.get('name')}' is a '{node_type}' step, which is no "
+                    f"longer supported. Replace it with Set Fields or Calculate."
+                ),
+            })
 
     triggers = [n for n in nodes if n.get("type") == "trigger"]
     if len(triggers) > 1:

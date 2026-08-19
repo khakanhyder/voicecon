@@ -82,6 +82,17 @@ class DataMapper:
             "array_join": self._array_join,
             "array_filter": self._array_filter,
             "array_map": self._array_map,
+            "pluck": self._pluck,
+
+            # Aggregations. Each takes an optional field name so a list of
+            # objects can be totalled directly ("sum:amount"), which is what
+            # the Set Fields builder emits — without it every aggregate would
+            # need a separate pluck step the UI has no way to express.
+            "count": self._count,
+            "sum": self._sum,
+            "average": self._average,
+            "min_value": self._min_value,
+            "max_value": self._max_value,
 
             # Utilities
             "default": self._default,
@@ -252,31 +263,47 @@ class DataMapper:
     # String Transformations
     # ========================================================================
 
+    def _text(self, value: Any) -> str:
+        """
+        Coerce a value to text for a string transform.
+
+        Rejects lists and objects rather than falling back to ``str()``: that
+        would produce a Python repr — ``[]``, ``{'sku': 'A-1'}`` — which a Speak
+        step reads to the caller verbatim. A container reaching a text transform
+        is a configuration mistake, and saying so beats voicing punctuation.
+        """
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple, dict, set)):
+            raise DataMappingError(
+                f"expected text but got a {type(value).__name__}. "
+                f"Pick a single value, or use a list transform first."
+            )
+        return str(value)
+
     def _uppercase(self, value: Any) -> str:
         """Convert to uppercase."""
-        return str(value).upper() if value is not None else ""
+        return self._text(value).upper()
 
     def _lowercase(self, value: Any) -> str:
         """Convert to lowercase."""
-        return str(value).lower() if value is not None else ""
+        return self._text(value).lower()
 
     def _trim(self, value: Any) -> str:
         """Trim whitespace."""
-        return str(value).strip() if value is not None else ""
+        return self._text(value).strip()
 
     def _capitalize(self, value: Any) -> str:
         """Capitalize first letter."""
-        return str(value).capitalize() if value is not None else ""
+        return self._text(value).capitalize()
 
     def _title(self, value: Any) -> str:
         """Title case."""
-        return str(value).title() if value is not None else ""
+        return self._text(value).title()
 
     def _slug(self, value: Any) -> str:
         """Convert to URL-safe slug."""
-        if value is None:
-            return ""
-        slug = str(value).lower()
+        slug = self._text(value).lower()
         slug = re.sub(r'[^\w\s-]', '', slug)
         slug = re.sub(r'[-\s]+', '-', slug)
         return slug.strip('-')
@@ -284,7 +311,7 @@ class DataMapper:
     def _truncate(self, value: Any, length: Union[str, int] = 100) -> str:
         """Truncate to specified length."""
         length = int(length)
-        text = str(value) if value is not None else ""
+        text = self._text(value)
         if len(text) <= length:
             return text
         return text[:length] + "..."
@@ -371,10 +398,31 @@ class DataMapper:
         return dt.strftime(format)
 
     def _parse_date(self, value: Any, format: str = "%Y-%m-%d") -> datetime:
-        """Parse date string."""
+        """
+        Parse a date string, ISO 8601 first.
+
+        ISO is tried before the supplied format because that is what triggers
+        and APIs actually send ("2026-08-20T09:30:00"), and the old
+        strptime-only version rejected every one of them — which made
+        Add days / Add hours / timestamp unusable on real data with the
+        opaque error "unconverted data remains: T09:30:00".
+
+        An explicit non-ISO format still works: ISO parsing only succeeds on
+        ISO-shaped input, so anything else falls through to strptime.
+        """
         if isinstance(value, datetime):
             return value
-        return datetime.strptime(str(value), format)
+        if isinstance(value, date):
+            return datetime(value.year, value.month, value.day)
+
+        text = str(value).strip()
+
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+
+        return datetime.strptime(text, format)
 
     def _add_days(self, value: Any, days: Union[str, int]) -> datetime:
         """Add days to date."""
@@ -475,6 +523,91 @@ class DataMapper:
         if not isinstance(value, (list, tuple)):
             return []
         return [self.apply_transformation(item, transform) for item in value]
+
+    def _pluck(self, value: Any, field: str) -> List[Any]:
+        """Extract one field from every object in an array."""
+        if not isinstance(value, (list, tuple)):
+            return []
+        out = []
+        for item in value:
+            if isinstance(item, dict):
+                out.append(item.get(field))
+            else:
+                out.append(getattr(item, field, None))
+        return out
+
+    def _series(self, value: Any, field: Optional[str] = None) -> List[float]:
+        """
+        Coerce a value into a list of numbers for aggregation.
+
+        Accepts a bare list of numbers, a list of objects plus a `field` to read
+        from each, or a single scalar. Anything non-numeric is skipped rather
+        than raising: one malformed row in an API response should not fail the
+        whole workflow, and the alternative is a step error the builder user
+        cannot act on.
+        """
+        if value is None:
+            return []
+
+        items = value if isinstance(value, (list, tuple)) else [value]
+
+        if field:
+            items = self._pluck(items, field)
+
+        numbers: List[float] = []
+        for item in items:
+            if isinstance(item, bool) or item is None:
+                continue
+            if isinstance(item, (int, float, Decimal)):
+                numbers.append(float(item))
+                continue
+            try:
+                numbers.append(float(str(item).strip()))
+            except (TypeError, ValueError):
+                continue
+
+        return numbers
+
+    def _count(self, value: Any, field: Optional[str] = None) -> int:
+        """Number of items in a list (0 for anything else)."""
+        if isinstance(value, (list, tuple)):
+            return len(value)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 0
+        return 1
+
+    def _sum(self, value: Any, field: Optional[str] = None) -> float:
+        """Total of a list of numbers, or of `field` across a list of objects."""
+        return self._clean(sum(self._series(value, field)))
+
+    def _average(self, value: Any, field: Optional[str] = None) -> Optional[float]:
+        """Mean of a numeric series. None for an empty series, not 0."""
+        numbers = self._series(value, field)
+        if not numbers:
+            return None
+        return self._clean(sum(numbers) / len(numbers))
+
+    def _min_value(self, value: Any, field: Optional[str] = None) -> Optional[float]:
+        """Smallest number in a series, or None when there is nothing to compare."""
+        numbers = self._series(value, field)
+        return self._clean(min(numbers)) if numbers else None
+
+    def _max_value(self, value: Any, field: Optional[str] = None) -> Optional[float]:
+        """Largest number in a series, or None when there is nothing to compare."""
+        numbers = self._series(value, field)
+        return self._clean(max(numbers)) if numbers else None
+
+    def _clean(self, number: float) -> float:
+        """
+        Render a float without binary-floating-point noise.
+
+        ``0.1 + 0.2`` is ``0.30000000000000004``, and a workflow that speaks its
+        result would read every one of those digits to the caller. Rounding to
+        10 decimal places removes the artefact while leaving any precision a
+        real monetary or measurement value could carry.
+        """
+        rounded = round(number, 10)
+        return int(rounded) if rounded == int(rounded) else rounded
 
     # ========================================================================
     # Utilities

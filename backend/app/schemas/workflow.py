@@ -32,7 +32,7 @@ class StepType(str, Enum):
     MERGE = "merge"
     LOOP = "loop"
     TRANSFORM = "transform"
-    CODE = "code"
+    CALCULATE = "calculate"
     DELAY = "delay"
     # Voice call-flow builder steps (must match frontend builder STEP_TYPES)
     SPEAK = "speak"

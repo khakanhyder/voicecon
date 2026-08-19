@@ -485,3 +485,29 @@ async def test_normalize_defaults_settings_to_empty_dict():
         "edges": [],
     })
     assert loaded["nodes"][0]["settings"] == {}
+
+
+async def test_validate_flags_a_retired_node_type():
+    """A Code node in a flow saved before its removal must not validate clean."""
+    graph = {
+        "nodes": [
+            {"id": "t", "type": "trigger", "name": "T", "config": {}},
+            {"id": "c", "type": "code", "name": "Legacy code", "config": {}},
+        ],
+        "edges": [{"id": "e", "source": "t", "target": "c",
+                   "sourceHandle": "out", "targetHandle": "in"}],
+    }
+    report = g.validate_graph(graph)
+    assert any("no longer supported" in e["message"] for e in report["errors"])
+
+
+async def test_known_step_types_tracks_the_handler_factory():
+    """
+    The validator's allowlist and the dispatcher must not drift apart: a type
+    the factory can run but the validator rejects would block a valid workflow.
+    """
+    from app.services.workflows.step_handlers import StepHandlerFactory
+
+    for step_type in g.KNOWN_STEP_TYPES:
+        # Raises ValueError for anything the factory cannot dispatch.
+        StepHandlerFactory.get_handler(step_type)

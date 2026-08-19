@@ -28,8 +28,10 @@ export type FieldType =
   | 'rules'
   /** Declares the workflow's input parameters, on the trigger node. */
   | 'inputs'
-  /** A monospace code editor. */
-  | 'code'
+  /** Named fields, each with an optional transform — the Set Fields node. */
+  | 'fieldMap'
+  /** Ordered arithmetic rows — the Calculate node. */
+  | 'calculations'
 
 export interface FieldDescriptor {
   name: string
@@ -546,9 +548,11 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
       {
         name: 'transformations',
         label: 'Fields',
-        type: 'keyValue',
+        type: 'fieldMap',
         default: {},
-        help: 'Each field becomes available to later steps by name.',
+        help:
+          'Each field becomes available to later steps by name. Add a transform '
+          + 'to total a list, format money or a date, or change text case.',
       },
     ],
     summary: (c) => {
@@ -557,53 +561,36 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     },
   },
 
-  code: {
-    type: 'code',
-    label: 'Code',
-    description: 'Run a Python or JavaScript snippet on the data',
+  calculate: {
+    type: 'calculate',
+    label: 'Calculate',
+    description: 'Work out a number from other values',
     category: 'Logic',
     accent: 'bg-zinc-600',
-    icon: 'Code',
+    icon: 'Calculator',
     outputs: OUT,
     hasInput: true,
     fields: [
       {
-        name: 'language',
-        label: 'Language',
-        type: 'select',
-        default: 'python',
-        options: [
-          { value: 'python', label: 'Python' },
-          { value: 'javascript', label: 'JavaScript' },
-        ],
+        name: 'calculations',
+        label: 'Calculations',
+        type: 'calculations',
+        default: [],
+        help:
+          'Rows run in order, so a later row can use an earlier result by name.',
       },
       {
-        name: 'code',
-        label: 'Code',
-        type: 'code',
-        required: true,
-        // The editor highlights based on this sibling field.
-        dependsOn: 'language',
-        default:
-          '# `input` holds trigger, steps and vars.\n'
-          + '# Return data by assigning `result`.\n'
-          + 'result = {\n'
-          + '    "example": input["trigger"],\n'
-          + '}\n',
-        help: 'Runs in a sandbox. Assign `result`, or define `main(input)`. '
-          + 'A returned object is published as named variables.',
-      },
-      {
-        name: 'timeout_seconds',
-        label: 'Timeout (seconds)',
+        name: 'decimals',
+        label: 'Round results to',
         type: 'number',
-        default: 5,
+        placeholder: 'decimal places (optional)',
       },
     ],
     summary: (c) => {
-      const lines = String(c.code || '').trim().split('\n').filter(Boolean).length
-      const lang = c.language === 'javascript' ? 'JavaScript' : 'Python'
-      return lines ? `${lines} line${lines > 1 ? 's' : ''} of ${lang}` : 'No code yet'
+      const rows = (c.calculations as any[]) || []
+      if (!rows.length) return 'No calculations set'
+      const names = rows.map((r) => r?.name).filter(Boolean)
+      return names.length ? names.join(', ') : `${rows.length} calculation(s)`
     },
   },
 
@@ -656,8 +643,36 @@ export const PALETTE_CATEGORIES: NodeDescriptor['category'][] = [
   'AI',
 ]
 
+/**
+ * Descriptor shown for a node type this build no longer knows about — a flow
+ * saved before a node was retired (the Code node, for example).
+ *
+ * It has no fields, so opening the node cannot rewrite its stored config, and
+ * falling back to another node's descriptor would do exactly that: the old
+ * config would be read against the wrong fields and quietly discarded on save.
+ */
+export const UNKNOWN_NODE: NodeDescriptor = {
+  type: 'unknown',
+  label: 'Unsupported step',
+  description:
+    'This step type is no longer available. Replace it with Set Fields or '
+    + 'Calculate, then delete this node.',
+  category: 'Logic',
+  accent: 'bg-muted-foreground',
+  icon: 'HelpCircle',
+  outputs: OUT,
+  hasInput: true,
+  fields: [],
+  summary: () => 'No longer supported — replace this step',
+}
+
 export function getDescriptor(type: string): NodeDescriptor {
-  return NODE_TYPES[type] ?? NODE_TYPES.speak
+  return NODE_TYPES[type] ?? UNKNOWN_NODE
+}
+
+/** Whether this build still supports a stored node type. */
+export function isKnownNodeType(type: string): boolean {
+  return type in NODE_TYPES
 }
 
 /** Build a config object populated with the descriptor's defaults. */

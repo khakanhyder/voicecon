@@ -13,8 +13,19 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.schemas.workflow import StepType
+from app.services.workflows.data_mapper import DataMappingError
 
 logger = logging.getLogger(__name__)
+
+#: Transforms that are meaningful on an absent or empty value. An aggregation
+#: over nothing has a real answer (no orders total 0, and there is no average of
+#: nothing), so these are allowed through instead of being reported as a broken
+#: reference.
+_EMPTY_SAFE_TRANSFORMS = frozenset({
+    "sum", "average", "min_value", "max_value", "count", "pluck",
+    "array_length", "array_first", "array_last", "array_join", "array_filter",
+    "default", "coalesce", "to_string",
+})
 
 # Matches an array access segment in a variable path, e.g. "results[0]".
 _ARRAY_ACCESS = re.compile(r"^(\w+)\[(-?\d+)\]$")
@@ -804,19 +815,77 @@ class TransformStepHandler(BaseStepHandler):
                 for key, transform_spec in transformations.items():
                     # Get source value
                     if isinstance(transform_spec, dict):
+                        # `source` names where the value comes from. The builder
+                        # writes it braced ({{trigger.orders}}) because that is
+                        # what every other field shows, so accept either form
+                        # rather than silently resolving nothing.
                         source = transform_spec.get("source")
                         if source:
-                            value = context.get_variable(source)
+                            value = context.interpolate(source) \
+                                if _TEMPLATE.search(str(source)) \
+                                else context.get_variable(str(source))
                         else:
-                            value = transform_spec.get("value")
+                            # A literal typed into the builder may still contain
+                            # references; interpolating it keeps the two field
+                            # kinds behaving the same way.
+                            value = context.interpolate(transform_spec.get("value"))
 
-                        # Apply transformation if specified
-                        if "transform" in transform_spec:
-                            value = mapper.apply_transformation(value, transform_spec["transform"])
-
-                        # Apply default if value is None
+                        # A default stands in for a missing source *before* the
+                        # transform runs, so "Format as money" with a default of
+                        # 0 formats the 0 rather than failing on the absence.
                         if value is None and "default" in transform_spec:
-                            value = transform_spec["default"]
+                            value = context.interpolate(transform_spec["default"])
+
+                        # Apply transformation if specified. `args` is kept
+                        # separate from the name so the builder can offer a
+                        # dropdown plus an argument box instead of asking a
+                        # non-technical user to type "truncate:40".
+                        transform = transform_spec.get("transform")
+                        if transform:
+                            args = transform_spec.get("args")
+                            if args not in (None, ""):
+                                spec = {
+                                    "name": transform,
+                                    "args": context.interpolate(args),
+                                }
+                            else:
+                                spec = transform
+
+                            # Aggregations answer honestly for an empty list —
+                            # "no orders" really does total 0 — but every other
+                            # transform on a missing value is a broken
+                            # reference, and reporting it here beats letting a
+                            # TypeError surface as "float() argument must be a
+                            # string or a real number, not 'NoneType'".
+                            if value is None and transform not in _EMPTY_SAFE_TRANSFORMS:
+                                raise StepExecutionError(
+                                    f"Set Fields: '{key}' has no value to work on, so "
+                                    f"'{transform}' cannot run. Check that the step "
+                                    f"providing {transform_spec.get('source') or 'it'} "
+                                    f"ran first, or set a default."
+                                )
+
+                            try:
+                                value = mapper.apply_transformation(value, spec)
+                            except DataMappingError as exc:
+                                # Name the field, the transform and its argument.
+                                # The mapper only ever sees the value, so its
+                                # message alone leaves a builder user with
+                                # nothing to act on.
+                                detail = str(exc).replace("Transformation failed: ", "")
+                                where = (
+                                    f"'{transform}' (argument '{args}')"
+                                    if args not in (None, "")
+                                    else f"'{transform}'"
+                                )
+                                raise StepExecutionError(
+                                    f"Set Fields: '{key}' — {where} failed: {detail}"
+                                ) from exc
+
+                        # A transform may still return nothing (average of an
+                        # empty list); fall back to the default in that case too.
+                        if value is None and "default" in transform_spec:
+                            value = context.interpolate(transform_spec["default"])
 
                     elif isinstance(transform_spec, str):
                         # Simple string: interpolate it
@@ -842,6 +911,10 @@ class TransformStepHandler(BaseStepHandler):
                     "result": results,
                 }
 
+        except StepExecutionError:
+            # Already phrased for the person who built the step; re-wrapping it
+            # would prepend a second, less useful prefix.
+            raise
         except Exception as e:
             logger.error(f"Transform step failed: {e}", exc_info=True)
             raise StepExecutionError(f"Transform step failed: {str(e)}")
@@ -1060,66 +1133,111 @@ class MergeStepHandler(BaseStepHandler):
         }
 
 
-class CodeStepHandler(BaseStepHandler):
+class CalculateStepHandler(BaseStepHandler):
     """
-    Runs user Python in the sandbox (see services/workflows/sandbox.py).
+    Arithmetic across workflow values, expressed as rows rather than an expression.
 
-    The script receives the workflow context as ``input`` (and ``items``), and
-    returns data by assigning ``result`` or defining ``main(input)``. Its return
-    value becomes the node's output, referenceable as ``{{steps.<id>...}}``.
+    Each row is ``{name, left, operator, right}``. Rows are evaluated in order
+    and each result is published immediately, so a later row can build on an
+    earlier one (``subtotal`` → ``tax`` → ``total``) without needing three
+    separate nodes on the canvas.
+
+    Operands may be literals or ``{{references}}``. A non-numeric operand is a
+    hard error naming the offending row: the alternative is a silently missing
+    variable that a Speak step later reads to the caller as a blank.
     """
+
+    #: name -> (symbol shown in errors, function)
+    OPERATORS = {
+        "add": ("+", lambda a, b: a + b),
+        "subtract": ("-", lambda a, b: a - b),
+        "multiply": ("x", lambda a, b: a * b),
+        "divide": ("/", lambda a, b: a / b),
+        "modulo": ("%", lambda a, b: a % b),
+        # "15 percent_of 200" reads as "15% of 200" — the order a builder user
+        # types it after picking the operator from the middle column.
+        "percent_of": ("% of", lambda a, b: b * a / 100),
+    }
+
+    def _number(self, raw: Any, row_name: str, side: str) -> float:
+        """Coerce an operand to a number, or fail with a message a user can act on."""
+        if isinstance(raw, bool) or raw is None or (
+            isinstance(raw, str) and not raw.strip()
+        ):
+            raise StepExecutionError(
+                f"Calculate: '{row_name}' has no {side} value. "
+                f"Check the step that should provide it ran first."
+            )
+        if isinstance(raw, (int, float, Decimal)):
+            return float(raw)
+        try:
+            return float(str(raw).strip().replace(",", ""))
+        except (TypeError, ValueError):
+            raise StepExecutionError(
+                f"Calculate: '{row_name}' {side} value {raw!r} is not a number."
+            )
 
     async def execute(
         self,
         step: Dict[str, Any],
         context: WorkflowContext,
     ) -> Dict[str, Any]:
-        config = step.get("config", {})
-        code = config.get("code", "")
-        language = (config.get("language") or "python").lower()
-
-        # Expose upstream data so a script can read {{trigger.*}} / earlier
-        # steps without string interpolation. We pass the resolved values, not
-        # raw templates.
-        data = {
-            "trigger": context.variables.get("trigger", {}),
-            "steps": context.variables.get("steps", {}),
-            "vars": {
-                k: v
-                for k, v in context.variables.items()
-                if k not in ("trigger", "steps")
-            },
-        }
-
-        timeout = int(config.get("timeout_seconds", 5) or 5)
-        memory = int(config.get("memory_mb", 128) or 128)
-
         try:
-            if language in ("javascript", "js", "node"):
-                from app.services.workflows.js_sandbox import run_js, JSSandboxError
+            config = step.get("config", {})
+            rows = config.get("calculations") or []
 
-                try:
-                    output = await run_js(code, data, timeout, memory)
-                except JSSandboxError as e:
-                    raise StepExecutionError(str(e))
-            else:
-                from app.services.workflows.sandbox import run_code, SandboxError
+            if not rows:
+                raise StepExecutionError("Calculate step has no calculations")
 
-                try:
-                    output = await run_code(code, data, timeout, memory)
-                except SandboxError as e:
-                    raise StepExecutionError(str(e))
-        except StepExecutionError as e:
-            logger.error(f"Code step failed ({language}): {e}")
+            decimals = config.get("decimals")
+            results: Dict[str, Any] = {}
+
+            for index, row in enumerate(rows):
+                name = str(row.get("name") or "").strip()
+                if not name:
+                    raise StepExecutionError(
+                        f"Calculate: row {index + 1} needs a name to store its result in"
+                    )
+
+                operator = str(row.get("operator") or "add")
+                if operator not in self.OPERATORS:
+                    raise StepExecutionError(
+                        f"Calculate: '{name}' uses unknown operator '{operator}'"
+                    )
+
+                symbol, func = self.OPERATORS[operator]
+                left = self._number(context.interpolate(row.get("left")), name, "first")
+                right = self._number(context.interpolate(row.get("right")), name, "second")
+
+                if operator in ("divide", "modulo") and right == 0:
+                    raise StepExecutionError(
+                        f"Calculate: '{name}' cannot divide by zero"
+                    )
+
+                value = func(left, right)
+
+                if decimals not in (None, ""):
+                    value = round(value, int(decimals))
+
+                # Drop the binary-floating-point tail (0.30000000000000004),
+                # which a Speak step would otherwise read out digit by digit.
+                value = round(value, 10)
+                if value == int(value):
+                    value = int(value)
+
+                logger.info(f"Calculate: {name} = {left} {symbol} {right} = {value}")
+
+                results[name] = value
+                # Publish immediately so the next row can reference this one.
+                context.set_variable(name, value)
+
+            return {"success": True, "result": results}
+
+        except StepExecutionError:
             raise
-
-        # If the script returned a dict, publish each key as a variable so later
-        # steps can use {{name}} directly, matching Set Fields behaviour.
-        if isinstance(output, dict):
-            for key, value in output.items():
-                context.set_variable(key, value)
-
-        return {"success": True, "result": output}
+        except Exception as e:
+            logger.error(f"Calculate step failed: {e}", exc_info=True)
+            raise StepExecutionError(f"Calculate step failed: {str(e)}")
 
 
 class TransferStepHandler(BaseStepHandler):
@@ -1423,7 +1541,7 @@ class StepHandlerFactory:
             StepType.MERGE: MergeStepHandler,
             StepType.LOOP: LoopStepHandler,
             StepType.TRANSFORM: TransformStepHandler,
-            StepType.CODE: CodeStepHandler,
+            StepType.CALCULATE: CalculateStepHandler,
             StepType.DELAY: DelayStepHandler,
             StepType.TOOL: ToolStepHandler,
             StepType.WEBHOOK: WebhookStepHandler,
