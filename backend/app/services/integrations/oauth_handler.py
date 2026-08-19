@@ -4,6 +4,7 @@ OAuth2 Authentication Handler.
 Handles OAuth2 authorization flow for integrations.
 """
 import base64
+import hashlib
 import logging
 import secrets
 import time
@@ -65,11 +66,13 @@ class OAuth2Handler:
             State token
         """
         state = secrets.token_urlsafe(32)
+        code_verifier = secrets.token_urlsafe(64)
 
         # Store state with metadata (expires in 10 minutes)
         self._state_store[state] = {
             "connector_id": connector_id,
             "user_id": user_id,
+            "code_verifier": code_verifier,
             "created_at": time.time(),
             "expires_at": time.time() + 600,  # 10 minutes
         }
@@ -135,6 +138,15 @@ class OAuth2Handler:
             "state": state,
         }
 
+        state_data = self._state_store.get(state)
+        if state_data and "code_verifier" in state_data:
+            code_verifier = state_data["code_verifier"]
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode("ascii")).digest()
+            ).decode("ascii").rstrip("=")
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+
         if scopes:
             params["scope"] = " ".join(scopes)
 
@@ -155,6 +167,7 @@ class OAuth2Handler:
         redirect_uri: str,
         additional_params: Optional[Dict[str, str]] = None,
         style: str = "form",
+        code_verifier: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Exchange authorization code for access token.
@@ -189,6 +202,8 @@ class OAuth2Handler:
                     "code": code,
                     "redirect_uri": redirect_uri,
                 }
+                if code_verifier:
+                    payload["code_verifier"] = code_verifier
                 if additional_params:
                     payload.update(additional_params)
                 basic = base64.b64encode(
@@ -202,6 +217,8 @@ class OAuth2Handler:
                     "client_secret": client_secret,
                     "code": code,
                 }
+                if code_verifier:
+                    payload["code_verifier"] = code_verifier
                 if additional_params:
                     payload.update(additional_params)
                 kwargs["json"] = payload
@@ -213,6 +230,8 @@ class OAuth2Handler:
                     "client_secret": client_secret,
                     "redirect_uri": redirect_uri,
                 }
+                if code_verifier:
+                    data["code_verifier"] = code_verifier
                 if additional_params:
                     data.update(additional_params)
                 kwargs["data"] = data

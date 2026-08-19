@@ -220,6 +220,7 @@ class IntegrationManager:
                 code=code,
                 redirect_uri=redirect_uri,
                 style=oauth.get("token_style", "form"),
+                code_verifier=state_data.get("code_verifier"),
             )
 
             # Extract tokens
