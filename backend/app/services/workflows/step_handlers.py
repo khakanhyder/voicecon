@@ -8,8 +8,8 @@ import asyncio
 import json
 import re
 import uuid
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, List, Optional, Tuple
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from app.schemas.workflow import StepType
@@ -67,6 +67,92 @@ def _as_text(value: Any) -> str:
     if isinstance(value, Decimal):
         return format(value, "f")
     return str(value)
+
+
+def json_safe(value: Any) -> Any:
+    """Render a value in a form the finished run can actually be saved as.
+
+    A workflow's result — every step's output and the whole final context — is
+    persisted to a JSON column. The date transforms hand back real ``datetime``
+    objects, which is exactly what makes them chainable, but one of those left
+    anywhere in the run kills it at save time with "Object of type datetime is
+    not JSON serializable". The step itself reported success, so the failure
+    surfaced far from its cause and took the run's whole record with it.
+
+    Dates become ISO 8601 text, which round-trips: ``add_hours``, ``add_days``
+    and ``format_date`` all parse an ISO string, so a later step can still build
+    on an earlier one. ``Decimal`` and ``UUID`` get the same treatment because a
+    connector response can carry either.
+
+    Args:
+        value: Any value produced by a step
+
+    Returns:
+        The same value with unserializable leaves rendered as text
+    """
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    return value
+
+
+def _transform_chain(spec: Dict[str, Any], field: str) -> List[Tuple[str, Any]]:
+    """Read a field's transform as an ordered chain of (name, argument).
+
+    One transform per field cannot express "work the value out, then format it"
+    — and the date transforms *need* that pairing, because on their own they
+    return a datetime rather than something a caller can read. So ``transform``
+    accepts a list as well as a single name.
+
+    Both spellings of a chain step are honoured: ``"format_date:%H:%M"`` for
+    hand-written config, and ``{"name": ..., "args": ...}`` for the builder,
+    which keeps the argument in its own box rather than asking a non-technical
+    user to punctuate it.
+
+    Args:
+        spec: The field's mapping spec
+        field: Field name, for error messages
+
+    Returns:
+        Ordered (transform name, argument) pairs; empty when none is set
+    """
+    raw = spec.get("transform")
+    if not raw:
+        return []
+
+    if isinstance(raw, str):
+        return [(raw, spec.get("args"))]
+
+    if isinstance(raw, list):
+        chain: List[Tuple[str, Any]] = []
+        for step in raw:
+            if isinstance(step, str):
+                # Split once only: a format like "%H:%M" contains colons too.
+                name, separator, inline = step.partition(":")
+                chain.append((name.strip(), inline if separator else None))
+            elif isinstance(step, dict):
+                chain.append((str(step.get("name") or "").strip(), step.get("args")))
+            else:
+                raise StepExecutionError(
+                    f"Set Fields: '{field}' has a transform step that is neither "
+                    f"a name nor a name and argument."
+                )
+            if not chain[-1][0]:
+                raise StepExecutionError(
+                    f"Set Fields: '{field}' has a transform step with no name."
+                )
+        return chain
+
+    raise StepExecutionError(
+        f"Set Fields: '{field}' has a transform that is neither a name nor a list."
+    )
 
 
 def _normalize_var_name(raw: Any) -> str:
@@ -793,7 +879,9 @@ class TransformStepHandler(BaseStepHandler):
 
                 # Apply mapping
                 validate = config.get("validate", True)
-                result = mapper.map_fields(source_data, mapping_config, validate=validate)
+                result = json_safe(
+                    mapper.map_fields(source_data, mapping_config, validate=validate)
+                )
 
                 logger.info(f"Advanced transform completed with DataMapper")
 
@@ -836,13 +924,12 @@ class TransformStepHandler(BaseStepHandler):
                         if value is None and "default" in transform_spec:
                             value = context.interpolate(transform_spec["default"])
 
-                        # Apply transformation if specified. `args` is kept
-                        # separate from the name so the builder can offer a
-                        # dropdown plus an argument box instead of asking a
-                        # non-technical user to type "truncate:40".
-                        transform = transform_spec.get("transform")
-                        if transform:
-                            args = transform_spec.get("args")
+                        # Apply the transforms in order. `args` is kept separate
+                        # from the name so the builder can offer a dropdown plus
+                        # an argument box instead of asking a non-technical user
+                        # to type "truncate:40", and a chain lets one field both
+                        # work a value out and format it.
+                        for transform, args in _transform_chain(transform_spec, key):
                             if args not in (None, ""):
                                 spec = {
                                     "name": transform,
@@ -895,7 +982,9 @@ class TransformStepHandler(BaseStepHandler):
                         # Literal value
                         value = transform_spec
 
-                    results[key] = value
+                    # A date transform returns a datetime, which the run cannot
+                    # be saved with; render it before it reaches the context.
+                    results[key] = json_safe(value)
 
                 # Publish each field at the top level so later steps can use
                 # {{field_name}} directly. Without this the builder's "Set

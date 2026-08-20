@@ -25,6 +25,7 @@ from app.services.workflows.step_handlers import (
     StepHandlerFactory,
     WorkflowContext,
     StepExecutionError,
+    json_safe,
 )
 
 logger = logging.getLogger(__name__)
@@ -601,10 +602,14 @@ class WorkflowEngine:
             execution.steps_executed = executed_steps
             execution.steps_successful = successful_steps
             execution.steps_failed = failed_steps
-            execution.result_data = {
+            # Belt and braces: the steps themselves render their own output, but
+            # this column is JSON and a connector response is not ours to vouch
+            # for. One unserializable leaf anywhere in here used to lose the
+            # entire execution record, including the steps that did succeed.
+            execution.result_data = json_safe({
                 "steps": step_results,
                 "final_context": context.variables,
-            }
+            })
 
             # For a dry run, include what the agent would have said — that's the
             # whole point of testing a flow from the dashboard.

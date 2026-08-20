@@ -6,7 +6,10 @@ These replace the former Code node sandbox tests. The builder is deliberately
 code-free, so the cases below assert that the arithmetic and formatting a user
 previously had to write Python for is reachable from configuration alone.
 """
+import json
 import uuid
+from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
@@ -408,8 +411,8 @@ async def test_date_transforms_accept_iso_timestamps():
         },
         trigger={"when": "2026-08-20T09:30:00"},
     )
-    assert str(out["followup"]).startswith("2026-08-27")
-    assert str(out["later"]).startswith("2026-08-20 11:30")
+    assert out["followup"] == "2026-08-27T09:30:00"
+    assert out["later"] == "2026-08-20T11:30:00"
     assert out["day"] == "20 Aug 2026"
 
 
@@ -418,7 +421,7 @@ async def test_plain_date_strings_still_parse():
         {"followup": {"source": "{{trigger.when}}", "transform": "add_days", "args": "7"}},
         trigger={"when": "2026-08-20"},
     )
-    assert str(out["followup"]).startswith("2026-08-27")
+    assert out["followup"] == "2026-08-27T00:00:00"
 
 
 # ==================== Missing / wrong-shaped data ====================
@@ -500,3 +503,160 @@ async def test_error_message_is_not_double_prefixed():
             trigger={},
         )
     assert str(excinfo.value).startswith("Set Fields:")
+
+
+# ==================== Dates survive being saved ====================
+
+
+async def test_a_moved_date_is_published_as_text_not_a_datetime():
+    """
+    Add hours hands back a real datetime. Left as one it reached the JSON column
+    the run is stored in and killed the whole execution at save time with
+    "Object of type datetime is not JSON serializable" — long after the step
+    that produced it had reported success.
+    """
+    out, context = await set_fields(
+        {"later": {"source": "{{trigger.when}}", "transform": "add_hours", "args": "2"}},
+        trigger={"when": "2026-08-20T09:30:00"},
+    )
+
+    assert isinstance(out["later"], str)
+    assert isinstance(context.get_variable("later"), str)
+    json.dumps(out)  # the failure this guards against was raised right here
+
+
+async def test_a_published_date_can_still_be_built_on():
+    """ISO text round-trips, so rendering it does not end the chain."""
+    _, context = await set_fields(
+        {"later": {"source": "{{trigger.when}}", "transform": "add_hours", "args": "2"}},
+        trigger={"when": "2026-08-20T09:30:00"},
+    )
+    out = await TransformStepHandler().execute(
+        {"id": "s2", "type": "transform", "config": {"transformations": {
+            "shown": {"source": "later", "transform": "format_date", "args": "%H:%M"}}}},
+        context,
+    )
+    assert out["result"]["shown"] == "11:30"
+
+
+async def test_a_run_carrying_dates_is_saved_rather_than_lost(db):
+    """The whole execution record used to be lost, successful steps included."""
+    graph = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "trigger", "type": "trigger", "name": "T",
+             "position": {"x": 0, "y": 0}, "config": {}},
+            {"id": "when", "type": "transform", "name": "Deadline",
+             "position": {"x": 0, "y": 1},
+             "config": {"transformations": {
+                 "due": {"source": "{{trigger.raised}}", "transform": "add_hours",
+                         "args": "8"}}}},
+            {"id": "say", "type": "speak", "name": "Say",
+             "position": {"x": 0, "y": 2},
+             "config": {"message": "Due at {{due}}."}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "trigger", "sourceHandle": "out", "target": "when"},
+            {"id": "e2", "source": "when", "sourceHandle": "out", "target": "say"},
+        ],
+    }
+    wf = Workflow(user_id=uuid.uuid4(), organization_id=uuid.uuid4(), name="dates",
+                  trigger_type="manual", trigger_config={}, workflow_steps=graph,
+                  is_active=True, error_handling="stop", max_retries=0, retry_delay=0)
+    db.add(wf)
+    await db.commit()
+    await db.refresh(wf)
+
+    execution = await WorkflowEngine(db).execute_workflow(
+        workflow_id=str(wf.id), trigger_data={"raised": "2026-08-20T09:30:00"},
+        wait_for_completion=True, channel=SimulatedChannel())
+    await db.refresh(execution)
+
+    assert execution.status == "completed"
+    json.dumps(execution.result_data)
+    spoken = [e["text"] for e in execution.result_data["transcript"]
+              if e.get("type") == "speak"]
+    assert "Due at 2026-08-20T17:30:00." in spoken
+
+
+async def test_engine_renders_a_stray_date_from_anywhere(db):
+    """
+    Steps render their own output, but a connector response is not ours to
+    vouch for, so the engine renders whatever reaches the column.
+    """
+    from app.services.workflows.step_handlers import json_safe
+
+    rendered = json_safe({
+        "at": datetime(2026, 8, 20, 9, 30),
+        "on": date(2026, 8, 20),
+        "money": Decimal("12.50"),
+        "id": uuid.UUID("11111111-2222-3333-4444-555555555555"),
+        "nested": [{"at": datetime(2026, 8, 20, 9, 30)}],
+    })
+
+    json.dumps(rendered)
+    assert rendered["at"] == "2026-08-20T09:30:00"
+    assert rendered["on"] == "2026-08-20"
+    assert rendered["money"] == 12.5
+    assert rendered["nested"][0]["at"] == "2026-08-20T09:30:00"
+
+
+# ==================== Chained transforms ====================
+
+
+async def test_two_transforms_run_in_order():
+    """
+    One transform cannot both move a date and present it, which is the pairing
+    every "in two hours, as a time" field needs.
+    """
+    out, _ = await set_fields(
+        {"due": {"source": "{{trigger.when}}",
+                 "transform": [{"name": "add_hours", "args": "2"},
+                               {"name": "format_date", "args": "%H:%M"}]}},
+        trigger={"when": "2026-08-20T09:30:00"},
+    )
+    assert out["due"] == "11:30"
+
+
+async def test_a_chain_step_may_carry_its_argument_inline():
+    """Hand-written config spells a step "name:argument"; a format has colons
+    of its own, so only the first one separates."""
+    out, _ = await set_fields(
+        {"due": {"source": "{{trigger.when}}",
+                 "transform": ["add_hours:2", "format_date:%H:%M"]}},
+        trigger={"when": "2026-08-20T09:30:00"},
+    )
+    assert out["due"] == "11:30"
+
+
+async def test_a_chain_argument_can_come_from_a_variable():
+    out, _ = await set_fields(
+        {"due": {"source": "{{trigger.when}}",
+                 "transform": [{"name": "add_hours", "args": "{{trigger.offset}}"},
+                               {"name": "format_date", "args": "%H:%M"}]}},
+        trigger={"when": "2026-08-20T09:30:00", "offset": 5},
+    )
+    assert out["due"] == "14:30"
+
+
+async def test_a_chain_reports_which_step_failed():
+    """Ordering the pair the wrong way round is the easy mistake to make: a
+    time of day is no longer a date you can add hours to."""
+    with pytest.raises(StepExecutionError) as exc:
+        await set_fields(
+            {"due": {"source": "{{trigger.when}}",
+                     "transform": [{"name": "format_date", "args": "%H:%M"},
+                                   {"name": "add_hours", "args": "2"}]}},
+            trigger={"when": "2026-08-20T09:30:00"},
+        )
+    assert "'due'" in str(exc.value)
+    assert "add_hours" in str(exc.value)
+
+
+async def test_a_nameless_chain_step_is_rejected():
+    with pytest.raises(StepExecutionError) as exc:
+        await set_fields(
+            {"due": {"source": "{{trigger.when}}", "transform": [{"args": "2"}]}},
+            trigger={"when": "2026-08-20T09:30:00"},
+        )
+    assert "no name" in str(exc.value)

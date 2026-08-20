@@ -3,13 +3,22 @@
 import { Plus, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 
+/** One step of a transform chain, as stored when a field has more than one. */
+export interface ChainStep {
+  name: string
+  args?: string
+}
+
 /**
  * One computed field. A row is stored as a plain string when no transform is
  * chosen, so a workflow built before transforms existed round-trips unchanged.
+ *
+ * `transform` widens to a list only when a second transform is added, so a
+ * single-transform field keeps the shape it has always had on disk.
  */
 export interface FieldSpec {
   source?: string
-  transform?: string
+  transform?: string | ChainStep[]
   args?: string
   default?: string
 }
@@ -144,6 +153,12 @@ const TRANSFORMS: TransformOption[] = [
 
 const GROUPS = ['Numbers', 'Formatting', 'Text', 'Lists', 'Convert']
 
+/** Transforms that move a date rather than present one. */
+const DATE_TRANSFORMS = new Set(['add_days', 'add_hours'])
+
+/** Transforms that turn a date into something readable. */
+const DATE_PRESENTERS = new Set(['format_date', 'to_string'])
+
 function optionFor(transform: string | undefined): TransformOption | undefined {
   return TRANSFORMS.find((t) => t.value === (transform || ''))
 }
@@ -151,6 +166,38 @@ function optionFor(transform: string | undefined): TransformOption | undefined {
 /** Read a row in either storage shape. */
 function toSpec(value: string | FieldSpec): FieldSpec {
   return typeof value === 'string' ? { source: value } : value || {}
+}
+
+/**
+ * A field's transforms as an ordered list, whichever way they were stored.
+ *
+ * Chains exist because one transform cannot both work a value out and present
+ * it: Add hours hands back a date object, and it takes Format as date after it
+ * to become something a caller can be told.
+ */
+export function chainOf(spec: FieldSpec): ChainStep[] {
+  const raw = spec.transform
+  if (!raw) return []
+  if (typeof raw === 'string') return [{ name: raw, args: spec.args }]
+  return raw.filter((step) => step && step.name)
+}
+
+/** Store a chain in the narrowest shape that holds it. */
+export function fromChain(chain: ChainStep[]): Pick<FieldSpec, 'transform' | 'args'> {
+  const steps = chain.filter((step) => step.name)
+  if (steps.length === 0) return {}
+  // One transform keeps the original two-key shape, so nothing that predates
+  // chains is rewritten just by being opened.
+  if (steps.length === 1) {
+    return steps[0].args
+      ? { transform: steps[0].name, args: steps[0].args }
+      : { transform: steps[0].name }
+  }
+  return {
+    transform: steps.map((step) =>
+      step.args ? { name: step.name, args: step.args } : { name: step.name }
+    ),
+  }
 }
 
 /**
@@ -198,6 +245,23 @@ export function FieldMapField({
     )
   }
 
+  /** Replace one position in a field's transform chain. */
+  const setStep = (index: number, position: number, patch: Partial<ChainStep>) => {
+    const chain = chainOf(toSpec(entries[index][1]))
+    const next = [...chain]
+    const current = next[position] ?? { name: '' }
+    next[position] = { ...current, ...patch }
+
+    // Clearing a transform drops its argument, and drops everything after it:
+    // a chain with a hole in the middle is not a chain.
+    if (patch.name === '') next.length = position
+    else if (patch.name && patch.name !== current.name) next[position].args = ''
+
+    // `args: undefined` from the spread would survive a JSON round trip as a
+    // key, so rebuild through fromChain rather than patching in place.
+    update(index, { transform: undefined, args: undefined, ...fromChain(next) })
+  }
+
   const remove = (index: number) => {
     write(entries.filter((_, i) => i !== index))
   }
@@ -216,7 +280,10 @@ export function FieldMapField({
 
       {entries.map(([name, raw], index) => {
         const spec = toSpec(raw)
-        const option = optionFor(spec.transform)
+        const chain = chainOf(spec)
+        // One empty slot is offered after the last chosen transform, so a
+        // second step is one click away and never more than that.
+        const slots = [...chain, { name: '', args: '' }].slice(0, 3)
 
         return (
           <div key={index} className="space-y-1.5 rounded-md border p-2.5">
@@ -244,38 +311,60 @@ export function FieldMapField({
               className="h-8 text-xs"
             />
 
-            <div className="flex gap-1.5">
-              <select
-                value={spec.transform ?? ''}
-                onChange={(e) =>
-                  // Dropping the transform drops its argument too, so a stale
-                  // "amount" cannot ride along into an unrelated transform.
-                  update(index, { transform: e.target.value, args: '' })
-                }
-                className="h-8 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="">No transform — use as-is</option>
-                {GROUPS.map((group) => (
-                  <optgroup key={group} label={group}>
-                    {TRANSFORMS.filter((t) => t.group === group).map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+            {slots.map((step, position) => {
+              const option = optionFor(step.name)
+              // The follow-on slot only appears once the one before it is set.
+              if (position > 0 && !chain[position - 1]?.name) return null
 
-              {option?.arg && (
-                <Input
-                  value={spec.args ?? ''}
-                  placeholder={option.argPlaceholder ?? option.arg}
-                  onChange={(e) => update(index, { args: e.target.value })}
-                  className="h-8 flex-1 text-xs"
-                  title={option.arg}
-                />
+              return (
+                <div key={position} className="flex items-center gap-1.5">
+                  {position > 0 && (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      then
+                    </span>
+                  )}
+                  <select
+                    value={step.name}
+                    onChange={(e) =>
+                      // Dropping the transform drops its argument too, so a
+                      // stale "amount" cannot ride along into an unrelated one.
+                      setStep(index, position, { name: e.target.value })
+                    }
+                    className="h-8 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    <option value="">
+                      {position === 0 ? 'No transform — use as-is' : 'then… (optional)'}
+                    </option>
+                    {GROUPS.map((group) => (
+                      <optgroup key={group} label={group}>
+                        {TRANSFORMS.filter((t) => t.group === group).map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+
+                  {option?.arg && (
+                    <Input
+                      value={step.args ?? ''}
+                      placeholder={option.argPlaceholder ?? option.arg}
+                      onChange={(e) => setStep(index, position, { args: e.target.value })}
+                      className="h-8 flex-1 text-xs"
+                      title={option.arg}
+                    />
+                  )}
+                </div>
+              )
+            })}
+
+            {chainOf(spec).some((step) => DATE_TRANSFORMS.has(step.name)) &&
+              !DATE_PRESENTERS.has(chain[chain.length - 1]?.name ?? '') && (
+                <p className="text-[11px] text-muted-foreground">
+                  Add “Format as date” after this to choose how it reads.
+                </p>
               )}
-            </div>
           </div>
         )
       })}
