@@ -7,14 +7,21 @@ API keys) live in their own routers.
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.core.security import get_password_hash, verify_password
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate, PasswordChange
+from app.services.storage import (
+    MAX_AVATAR_BYTES,
+    StorageError,
+    delete_avatar,
+    store_avatar,
+)
 
 router = APIRouter()
 
@@ -83,3 +90,73 @@ async def delete_my_account(
     current_user.is_active = False
     current_user.deleted_at = datetime.utcnow()
     await db.commit()
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_my_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Replace the authenticated user's profile picture with an uploaded image.
+
+    The upload is decoded, flattened, resized and re-encoded before it is
+    stored, so what lands in the bucket is a plain PNG built from pixels — no
+    EXIF (a phone photo carries GPS), no trailing payload, no SVG.
+
+    Reading is capped rather than trusting ``Content-Length``, which the client
+    controls: we stop at one byte past the limit instead of buffering whatever
+    arrives.
+    """
+    raw = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(raw) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Image is too large. Choose one under "
+                f"{MAX_AVATAR_BYTES // (1024 * 1024)}MB."
+            ),
+        )
+
+    previous = current_user.avatar_url
+    try:
+        current_user.avatar_url = store_avatar(
+            current_user.id,
+            raw,
+            file.content_type,
+            # This API's own origin. The locally-stored file is served by *this*
+            # app, not by the frontend, so the URL has to be absolute or the
+            # browser looks for it on the frontend's origin and gets a 404.
+            public_base=settings.API_BASE_URL or str(request.base_url).rstrip("/"),
+        )
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    current_user.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(current_user)
+
+    # Only after the new one is committed — a failed delete must not cost the
+    # user the picture they just uploaded.
+    delete_avatar(previous)
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def delete_my_avatar(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove the profile picture and fall back to the initials placeholder."""
+    previous = current_user.avatar_url
+    current_user.avatar_url = None
+    current_user.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(current_user)
+
+    delete_avatar(previous)
+    return current_user

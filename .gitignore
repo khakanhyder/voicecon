@@ -109,3 +109,6 @@ recordings/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Locally-stored uploads (avatars). Production uses S3 — see app/services/storage.py
+backend/uploads/

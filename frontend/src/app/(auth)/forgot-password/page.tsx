@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { ArrowLeft, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
+import { ArrowLeft, Loader2, Lock, Mail } from 'lucide-react'
 import { authService } from '@/lib/auth'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { useAuthStore } from '@/store/authStore'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
+import { PasswordInput } from '@/components/ui/password-input'
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#243275] focus:ring-3 focus:ring-[#243275]/15 disabled:opacity-50'
@@ -29,7 +30,6 @@ export default function ForgotPasswordPage() {
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   //: Per-field messages; `error` above stays for whole-form failures.
   const [errors, setErrors] = useState<{
@@ -205,27 +205,17 @@ export default function ForgotPasswordPage() {
             <label htmlFor="password" className="block text-base font-semibold text-slate-800">
               New password
             </label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="password"
-                {...fieldErrorProps('password', errors.password)}
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Choose a new password"
-                required
-                disabled={isResetting}
-                className={`${inputClass} pl-10 pr-10`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <PasswordInput
+              id="password"
+              {...fieldErrorProps('password', errors.password)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Choose a new password"
+              required
+              disabled={isResetting}
+              leftIcon={<Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />}
+              className={`${inputClass} pl-10`}
+            />
               <FieldError id="password-error" message={errors.password} />
             <p className="text-xs text-slate-500">At least 8 characters.</p>
           </div>
@@ -237,20 +227,17 @@ export default function ForgotPasswordPage() {
             >
               Confirm new password
             </label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="confirmPassword"
-                {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter your new password"
-                required
-                disabled={isResetting}
-                className={`${inputClass} pl-10`}
-              />
-            </div>
+            <PasswordInput
+              id="confirmPassword"
+              {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter your new password"
+              required
+              disabled={isResetting}
+              leftIcon={<Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />}
+              className={`${inputClass} pl-10`}
+            />
               <FieldError id="confirmPassword-error" message={errors.confirmPassword} />
           </div>
 

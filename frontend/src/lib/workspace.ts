@@ -120,4 +120,17 @@ export const workspaceService = {
     await apiClient.post(API_ENDPOINTS.WORKSPACE_LEAVE)
     setActiveWorkspaceId(null)
   },
+
+  /**
+   * Deactivate the current workspace. Owner only.
+   *
+   * The server soft-deletes so calls, recordings and invoices stay
+   * attributable, and refuses to remove your last workspace. Clearing the
+   * stored id afterwards forces the next request to resolve a live one rather
+   * than sending a header pointing at the workspace just deactivated.
+   */
+  async remove(): Promise<void> {
+    await apiClient.delete(API_ENDPOINTS.WORKSPACE_DELETE)
+    setActiveWorkspaceId(null)
+  },
 }

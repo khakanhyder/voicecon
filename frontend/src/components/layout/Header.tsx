@@ -37,6 +37,7 @@ const pageTitles: Record<
   '/dashboard/settings/profile': { title: 'Profile', description: 'Update your personal information' },
   '/dashboard/settings/billing': { title: 'Billing', description: 'Manage your subscription and payments' },
   '/dashboard/settings/team': { title: 'Team', description: 'Manage team members and roles' },
+  '/dashboard/settings/workspace': { title: 'Workspace', description: 'Manage this workspace' },
   '/dashboard/settings/api-keys': { title: 'API Keys', description: 'Manage API access credentials' },
 }
 

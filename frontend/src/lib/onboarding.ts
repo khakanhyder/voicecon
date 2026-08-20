@@ -39,13 +39,57 @@ export interface SubscriptionResponse {
   trial_end: string | null
 }
 
+/**
+ * The company profile captured at onboarding and editable afterwards from
+ * Settings → Profile → Company Profile.
+ */
+export interface CompanyProfile {
+  id: string
+  organization_id: string
+  company_name: string
+  industry_type: string | null
+  company_size: string | null
+  company_url: string | null
+  assistant_name: string | null
+  preferred_language: string
+  assistant_instructions: string | null
+  phone_number: string | null
+  onboarding_completed: boolean
+  onboarding_step: string
+}
+
 export interface OnboardingStatus {
   onboarding_completed: boolean
   step: 'company' | 'pricing' | 'billing' | 'done'
   has_company_profile: boolean
   has_subscription: boolean
-  company: Record<string, unknown> | null
+  company: CompanyProfile | null
 }
+
+// The option lists behind the company form's selects. Exported so the
+// onboarding screen and the settings screen offer the same choices — two
+// copies would drift, and a value saved on one screen would then be
+// unselectable on the other.
+export const INDUSTRY_TYPES = [
+  'Business',
+  'Real Estate',
+  'Healthcare',
+  'E-commerce',
+  'Finance',
+  'Education',
+  'Technology',
+  'Other',
+]
+export const COMPANY_SIZES = ['1 - 10', '10 - 40', '40 - 100', '100 - 500', '500+']
+export const LANGUAGES = [
+  'English',
+  'Spanish',
+  'French',
+  'German',
+  'Arabic',
+  'Hindi',
+  'Portuguese',
+]
 
 export type BillingPeriod = 'monthly' | 'yearly'
 

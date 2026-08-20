@@ -148,6 +148,35 @@ export const authService = {
     return data
   },
 
+  /**
+   * Upload a new profile picture.
+   *
+   * The server validates and re-encodes the image, so the URL it returns is
+   * the source of truth — never optimistically keep a local object URL.
+   */
+  async uploadAvatar(file: File): Promise<User> {
+    const body = new FormData()
+    body.append('file', file)
+    const { data } = await apiClient.post<User>('/api/v1/users/me/avatar', body, {
+      // The client defaults to application/json. Clearing it lets the browser
+      // set multipart/form-data *with the boundary*, which the server needs to
+      // parse the parts at all.
+      headers: { 'Content-Type': undefined },
+    })
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(data))
+    }
+    return data
+  },
+
+  async removeAvatar(): Promise<User> {
+    const { data } = await apiClient.delete<User>('/api/v1/users/me/avatar')
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(data))
+    }
+    return data
+  },
+
   async changePassword(params: { current_password?: string; new_password: string }) {
     await apiClient.post('/api/v1/users/me/change-password', params)
   },

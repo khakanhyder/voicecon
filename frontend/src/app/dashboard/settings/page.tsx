@@ -52,6 +52,21 @@ export default function SettingsPage() {
           </div>
         </Link>
 
+        <Link href="/dashboard/settings/workspace">
+           <div className="group rounded-2xl border border-slate-200 bg-white p-6 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)] transition-all cursor-pointer h-full relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-[#106959] opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center gap-4 mb-3">
+              <div className="w-12 h-12 rounded-[10px] bg-[#0F6A59]/10 flex items-center justify-center text-[#106959] group-hover:scale-110 transition-transform">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+              </div>
+              <h3 className="text-[18px] font-bold font-poppins text-[#000000]">Workspace</h3>
+            </div>
+            <p className="text-black/60 font-poppins text-[14px] leading-relaxed">
+              Rename this workspace, review its details, or leave and delete it.
+            </p>
+          </div>
+        </Link>
+
         <Link href="/dashboard/settings/api-keys">
            <div className="group rounded-2xl border border-slate-200 bg-white p-6 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)] transition-all cursor-pointer h-full relative overflow-hidden">
             <div className="absolute top-0 left-0 w-1 h-full bg-[#106959] opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -349,6 +349,16 @@ try:
 except Exception as e:
     logger.warning(f"Could not mount recordings directory: {e}")
 
+# Serve locally-stored uploads (avatars). Only used when S3 is not configured —
+# see app/services/storage.py. On a PaaS this directory must be a mounted
+# volume or a redeploy takes every uploaded avatar with it.
+try:
+    _uploads_dir = os.path.join(os.path.dirname(__file__), '..', 'uploads')
+    os.makedirs(_uploads_dir, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+except Exception as e:
+    logger.warning(f"Could not mount uploads directory: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn

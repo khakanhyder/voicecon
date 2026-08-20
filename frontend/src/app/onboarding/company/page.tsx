@@ -10,6 +10,9 @@ import { BrandPanel } from '@/components/auth/BrandPanel'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { isPlausiblePhoneNumber, normalizeWebsiteUrl } from '@/lib/validation'
 import {
+  COMPANY_SIZES,
+  INDUSTRY_TYPES,
+  LANGUAGES,
   onboardingService,
   type AvailableNumber,
   type ClaimedNumber,
@@ -17,18 +20,6 @@ import {
   type TelephonyProvider,
 } from '@/lib/onboarding'
 
-const INDUSTRY_TYPES = [
-  'Business',
-  'Real Estate',
-  'Healthcare',
-  'E-commerce',
-  'Finance',
-  'Education',
-  'Technology',
-  'Other',
-]
-const COMPANY_SIZES = ['1 - 10', '10 - 40', '40 - 100', '100 - 500', '500+']
-const LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Arabic', 'Hindi', 'Portuguese']
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
   { code: '+44', flag: '🇬🇧' },

@@ -8,7 +8,8 @@ import { authService } from '@/lib/auth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
-import { BadgeCheck, Eye, EyeOff, Loader2, Mail, Lock, Phone, User } from 'lucide-react'
+import { PasswordInput } from '@/components/ui/password-input'
+import { BadgeCheck, Loader2, Mail, Lock, Phone, User } from 'lucide-react'
 
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
@@ -29,7 +30,6 @@ export default function RegisterPage() {
     phone: '',
   })
   const [dialCode, setDialCode] = useState('+1')
-  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   //: Per-field messages, shown under the field they belong to. The form-level
   //: `error` above stays for things that belong to the form as a whole (a
@@ -362,28 +362,18 @@ export default function RegisterPage() {
             <label htmlFor="password" className="block text-base font-semibold text-slate-800">
               Password
             </label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="Choose a password"
-                required
-                disabled={isRegistering}
-                {...fieldErrorProps('password', errors.password)}
-                className={`${inputClass} pl-10 pr-10 ${errors.password ? errorInputClass : ''}`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <PasswordInput
+              id="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              placeholder="Choose a password"
+              required
+              disabled={isRegistering}
+              leftIcon={<Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />}
+              {...fieldErrorProps('password', errors.password)}
+              className={`${inputClass} pl-10 ${errors.password ? errorInputClass : ''}`}
+            />
             <FieldError id="password-error" message={errors.password} />
           </div>
           <div className="space-y-1.5">
@@ -393,21 +383,18 @@ export default function RegisterPage() {
             >
               Confirm Password
             </label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                placeholder="Re-enter your password"
-                required
-                disabled={isRegistering}
-                {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
-                className={`${inputClass} pl-10 ${errors.confirmPassword ? errorInputClass : ''}`}
-              />
-            </div>
+            <PasswordInput
+              id="confirmPassword"
+              name="confirmPassword"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              placeholder="Re-enter your password"
+              required
+              disabled={isRegistering}
+              leftIcon={<Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />}
+              {...fieldErrorProps('confirmPassword', errors.confirmPassword)}
+              className={`${inputClass} pl-10 ${errors.confirmPassword ? errorInputClass : ''}`}
+            />
             <FieldError id="confirmPassword-error" message={errors.confirmPassword} />
           </div>
         </div>

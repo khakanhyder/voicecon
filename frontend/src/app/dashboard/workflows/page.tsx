@@ -184,8 +184,8 @@ export default function WorkflowsPage() {
       {workflows.length === 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <div className="mx-auto max-w-md space-y-6">
-            <div className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl bg-[#0F6A590A] border border-slate-200 p-3 shadow-sm">
-              <img src="/brand/workflow.png" alt="Workflow icon" className="w-full h-full object-contain mix-blend-multiply opacity-90" />
+            <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-2xl bg-[#0F6A590A] border border-slate-200 p-3 shadow-sm">
+              <GitBranch className="h-8 w-8 text-[#106959]" />
             </div>
             <div>
               <h2 className="text-[24px] font-bold text-[#000000] mb-2 font-poppins">No workflows yet</h2>

@@ -39,7 +39,7 @@ describe('uncontrolled', () => {
     const user = userEvent.setup()
     render(<Basic defaultValue="general" />)
 
-    await user.click(screen.getByRole('button', { name: 'Voice' }))
+    await user.click(screen.getByRole('tab', { name: 'Voice' }))
 
     expect(screen.getByText('Voice settings')).toBeInTheDocument()
     expect(screen.queryByText('General settings')).not.toBeInTheDocument()
@@ -75,7 +75,7 @@ describe('controlled', () => {
     const onValueChange = vi.fn()
     render(<Basic value="general" onValueChange={onValueChange} />)
 
-    await user.click(screen.getByRole('button', { name: 'Voice' }))
+    await user.click(screen.getByRole('tab', { name: 'Voice' }))
 
     expect(onValueChange).toHaveBeenCalledWith('voice')
     expect(screen.getByText('General settings')).toBeInTheDocument()
@@ -90,18 +90,19 @@ describe('controlled', () => {
     }
     render(<Controlled />)
 
-    await user.click(screen.getByRole('button', { name: 'Voice' }))
+    await user.click(screen.getByRole('tab', { name: 'Voice' }))
 
     expect(screen.getByText('Voice settings')).toBeInTheDocument()
   })
 })
 
 describe('triggers', () => {
-  it('renders real buttons', () => {
-    // Keyboard activation and focus order come from the element.
+  it('renders real buttons under the tab role', () => {
+    // role="tab" is the ARIA semantics; the element underneath stays a real
+    // <button> so keyboard activation and focus order come for free.
     render(<Basic defaultValue="general" />)
 
-    expect(screen.getByRole('button', { name: 'General' }).tagName).toBe('BUTTON')
+    expect(screen.getByRole('tab', { name: 'General' }).tagName).toBe('BUTTON')
   })
 
   it('does not submit a surrounding form', async () => {
@@ -115,7 +116,7 @@ describe('triggers', () => {
       </form>
     )
 
-    await user.click(screen.getByRole('button', { name: 'Voice' }))
+    await user.click(screen.getByRole('tab', { name: 'Voice' }))
 
     expect(onSubmit).not.toHaveBeenCalled()
   })
@@ -124,8 +125,8 @@ describe('triggers', () => {
     const user = userEvent.setup()
     render(<Basic defaultValue="general" />)
 
-    const general = screen.getByRole('button', { name: 'General' })
-    const voice = screen.getByRole('button', { name: 'Voice' })
+    const general = screen.getByRole('tab', { name: 'General' })
+    const voice = screen.getByRole('tab', { name: 'Voice' })
     expect(general.className).not.toBe(voice.className)
 
     await user.click(voice)
@@ -142,5 +143,39 @@ describe('triggers', () => {
     await user.keyboard('{Enter}')
 
     expect(screen.getByText('Voice settings')).toBeInTheDocument()
+  })
+})
+
+describe('accessibility wiring', () => {
+  it('exposes tablist / tab / tabpanel semantics', () => {
+    render(<Basic defaultValue="general" />)
+
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getByRole('tabpanel')).toBeInTheDocument()
+  })
+
+  it('marks only the active tab as selected', async () => {
+    const user = userEvent.setup()
+    render(<Basic defaultValue="general" />)
+
+    expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Voice' })).toHaveAttribute('aria-selected', 'false')
+
+    await user.click(screen.getByRole('tab', { name: 'Voice' }))
+
+    expect(screen.getByRole('tab', { name: 'Voice' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('points each tab at the panel it controls', () => {
+    // A screen reader user moving into the panel needs to hear which tab it
+    // belongs to, and vice versa.
+    render(<Basic defaultValue="general" />)
+
+    const tab = screen.getByRole('tab', { name: 'General' })
+    const panel = screen.getByRole('tabpanel')
+
+    expect(tab).toHaveAttribute('aria-controls', panel.id)
+    expect(panel).toHaveAttribute('aria-labelledby', tab.id)
   })
 })

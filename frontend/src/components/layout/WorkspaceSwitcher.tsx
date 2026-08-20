@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 /**
  * Workspace switcher for the sidebar.
  *
@@ -13,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Building2, Check, ChevronsUpDown, Plus } from 'lucide-react'
+import { Building2, Check, ChevronsUpDown, Plus , Settings} from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/api'
@@ -163,6 +165,14 @@ export function WorkspaceSwitcher({ collapsed, panelBackground }: WorkspaceSwitc
               </button>
             ))}
           </div>
+          <Link
+            href="/dashboard/settings/workspace"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2.5 border-t border-white/10 px-3 py-2.5 font-poppins text-[13px] text-white/85 transition-colors hover:bg-white/10"
+          >
+            <Settings className="h-4 w-4" />
+            Workspace settings
+          </Link>
           <button
             type="button"
             onClick={handleCreate}

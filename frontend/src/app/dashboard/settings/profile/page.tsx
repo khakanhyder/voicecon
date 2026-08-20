@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
+import { AvatarUploader } from '@/components/ui/avatar-uploader'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/store/authStore'
@@ -96,6 +98,32 @@ export default function ProfileSettingsPage() {
     }
   }
 
+  // Uploading is its own request, not part of the form save: the file goes to
+  // storage and the row is updated server-side, so the URL it returns is
+  // authoritative and gets folded straight back into the form state.
+  const handleAvatarUpload = async (file: File) => {
+    try {
+      const updated = await authService.uploadAvatar(file)
+      setUser(updated)
+      setFormData((f) => ({ ...f, avatar_url: updated.avatar_url || '' }))
+      toast.success('Profile picture updated')
+    } catch (err) {
+      toast.error(getErrorMessage(err))
+      throw err
+    }
+  }
+
+  const handleAvatarRemove = async () => {
+    try {
+      const updated = await authService.removeAvatar()
+      setUser(updated)
+      setFormData((f) => ({ ...f, avatar_url: '' }))
+      toast.success('Profile picture removed')
+    } catch (err) {
+      toast.error(getErrorMessage(err))
+    }
+  }
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     if (pw.new_password.length < 8) {
@@ -145,8 +173,6 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="space-y-6">
-
-
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Personal Information */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
@@ -228,20 +254,19 @@ export default function ProfileSettingsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Profile Picture</h2>
 
-          <div className="flex items-center gap-4">
-            {formData.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={formData.avatar_url}
-                alt="Avatar"
-                className="h-20 w-20 rounded-full object-cover"
-              />
-            ) : (
-              <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center text-2xl font-semibold text-primary">
-                {formData.full_name.charAt(0).toUpperCase() || 'U'}
-              </div>
-            )}
-            <div className="flex-1 space-y-2">
+          <AvatarUploader
+            src={formData.avatar_url || null}
+            name={formData.full_name}
+            onUpload={handleAvatarUpload}
+            onRemove={handleAvatarRemove}
+            disabled={saving}
+          />
+
+          <details className="pt-1">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-slate-700">
+              Or paste an image URL
+            </summary>
+            <div className="mt-3 space-y-2">
               <Label htmlFor="avatarUrl" className="text-[14px] font-bold text-[#000000] font-poppins block">Avatar Image URL</Label>
               <Input
                 id="avatarUrl"
@@ -250,10 +275,11 @@ export default function ProfileSettingsPage() {
                 onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
                 className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
               <p className="text-xs text-muted-foreground">
-                Paste a public image URL. Saved with your profile.
+                Kept for pictures already hosted elsewhere — a Google account
+                photo, for instance. Saved with the rest of the form.
               </p>
             </div>
-          </div>
+          </details>
         </div>
 
         <div>
@@ -269,9 +295,8 @@ export default function ProfileSettingsPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="curPw" className="text-[14px] font-bold text-[#000000] font-poppins block">Current Password</Label>
-            <Input
+            <PasswordInput
               id="curPw"
-              type="password"
               value={pw.current_password}
               onChange={(e) => setPw({ ...pw, current_password: e.target.value })}
               placeholder="Leave blank if none set"
@@ -279,18 +304,16 @@ export default function ProfileSettingsPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="newPw" className="text-[14px] font-bold text-[#000000] font-poppins block">New Password</Label>
-            <Input
+            <PasswordInput
               id="newPw"
-              type="password"
               value={pw.new_password}
               onChange={(e) => setPw({ ...pw, new_password: e.target.value })}
               className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPw" className="text-[14px] font-bold text-[#000000] font-poppins block">Confirm New Password</Label>
-            <Input
+            <PasswordInput
               id="confirmPw"
-              type="password"
               value={pw.confirm}
               onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
               className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />

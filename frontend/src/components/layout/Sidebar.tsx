@@ -34,6 +34,7 @@ import {
   Users,
   Key,
   Sliders,
+  Building2,
 } from 'lucide-react'
 
 /** Sidebar palette — brand green (#0F6A59). */
@@ -80,6 +81,9 @@ const settingsNav = {
       permission: PERMISSIONS.billingRead,
     },
     { name: 'Team', href: '/dashboard/settings/team', icon: Users },
+    // No permission gate: a member cannot rename or delete, but this is
+    // where they leave a workspace, so hiding it would strand them.
+    { name: 'Workspace', href: '/dashboard/settings/workspace', icon: Building2 },
     {
       name: 'API Keys',
       href: '/dashboard/settings/api-keys',
