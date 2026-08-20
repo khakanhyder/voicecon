@@ -76,8 +76,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         ]
         response.headers["Permissions-Policy"] = ", ".join(permissions_directives)
 
-        # Remove server information
-        response.headers.pop("Server", None)
+        # Remove server information.
+        #
+        # This was `response.headers.pop("Server", None)`, which raises
+        # AttributeError — Starlette's MutableHeaders implements __delitem__ but
+        # not pop. Every response through this middleware would have 500'd, which
+        # is solid evidence it was never actually installed until now.
+        if "server" in response.headers:
+            del response.headers["Server"]
 
         return response
 

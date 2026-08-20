@@ -382,13 +382,17 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="space-y-2.5">
+        {/* flex+gap, not space-y: these children are <Link>s, which render an
+            inline <a>, and an inline element ignores the vertical margin
+            space-y sets — the cards ended up flush against each other. gap
+            spaces flex items regardless of their display. */}
+        <div className="flex flex-col gap-3">
           {isLoading
             ? [1, 2, 3, 4].map(i => (
               <div key={i} className="h-13 rounded-lg bg-slate-100 animate-pulse" style={{ height: '52px' }} />
             ))
             : checklistSteps.map((step, i) => (
-              <Link key={step.title} href={step.href}>
+              <Link key={step.title} href={step.href} className="block">
                 <div className={`flex items-center gap-4 rounded-lg border px-4 py-3 transition-all group ${step.done
                   ? 'border-[#0F6A59]/20 bg-[#0F6A59]/[0.06]'
                   : 'border-slate-200 bg-slate-50 hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/[0.04]'

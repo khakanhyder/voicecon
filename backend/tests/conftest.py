@@ -49,6 +49,14 @@ settings.RATE_LIMIT_ENABLED = False
 settings.ENCRYPTION_SECRET_KEY = "test-only-encryption-key-not-a-real-secret"
 settings.ENCRYPTION_SALT = "00112233445566778899aabbccddeeff"
 
+# Outbound workflow/tool requests are blocked from reaching private and loopback
+# addresses, because a user supplies those URLs and the response comes back in
+# the step result — that is an SSRF read primitive against the cloud metadata
+# endpoint. Several tests legitimately need it: they bind a real HTTP server on
+# 127.0.0.1 and drive a webhook step at it. Production cannot set this — the
+# boot guard in app.core.config refuses to start with it enabled.
+settings.EGRESS_ALLOW_PRIVATE = True
+
 from app.core.dependencies import get_current_user
 from app.database import Base, get_db
 from app.main import app

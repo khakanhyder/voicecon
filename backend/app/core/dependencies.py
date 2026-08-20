@@ -26,7 +26,7 @@ from jose import JWTError
 
 from app.database import get_db
 from app.core.config import settings
-from app.core.security import decode_token
+from app.core.security import decode_token, token_version_matches
 from app.core.exceptions import credentials_exception
 from app.core import permissions as perms
 from app.core.api_keys import API_KEY_HEADER, authenticate_api_key, looks_like_api_key
@@ -90,6 +90,11 @@ async def _user_from_jwt(token: str, db: AsyncSession):
         raise credentials_exception()
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+    if not token_version_matches(payload, user):
+        # Signed out everywhere, password changed, or password reset since this
+        # token was issued. Indistinguishable from any other invalid credential
+        # on purpose — the client's job is to re-authenticate either way.
+        raise credentials_exception()
     return user
 
 

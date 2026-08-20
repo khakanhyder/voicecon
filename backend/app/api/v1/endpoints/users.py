@@ -73,6 +73,15 @@ async def change_my_password(
             )
 
     current_user.hashed_password = get_password_hash(payload.new_password)
+    # Changing a password is how someone responds to "I think another person
+    # has access to my account", so it has to end that access. Without this the
+    # old password stopped working while every session it had already opened
+    # carried on untouched for up to 30 days.
+    #
+    # The caller's own token is invalidated too, so the client must sign in
+    # again with the new password — which is the expected outcome of this
+    # action, not a side effect.
+    current_user.token_version = (current_user.token_version or 0) + 1
     await db.commit()
 
 

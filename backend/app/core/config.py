@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     # restarts, or previously-encrypted stored credentials become undecryptable.
     ENCRYPTION_SALT: Optional[str] = None
 
+    #: Permit outbound workflow/tool requests to private and loopback addresses.
+    #:
+    #: Exists for the test suite, which binds a real HTTP server on 127.0.0.1
+    #: and drives a workflow webhook step at it. Off by default, and
+    #: ``check_production_secrets`` refuses to start if it is ever on in
+    #: production — a flag that disables an SSRF control is only safe if it
+    #: cannot reach the environment the control exists to protect.
+    EGRESS_ALLOW_PRIVATE: bool = False
+
     #: Key for encrypting stored integration credentials (OAuth tokens,
     #: per-connection API keys) in ``services/integrations/credential_manager``.
     #:
@@ -377,6 +386,14 @@ def check_production_secrets(s: "Settings") -> None:
         problems.append(
             "ENCRYPTION_SALT is not set. It must be a stable per-deployment "
             "value — changing it makes existing encrypted values unreadable."
+        )
+
+    if s.EGRESS_ALLOW_PRIVATE:
+        problems.append(
+            "EGRESS_ALLOW_PRIVATE is enabled. That is a test-suite affordance: "
+            "it lets a user-supplied workflow URL reach loopback and private "
+            "addresses, including the cloud metadata endpoint. It must never be "
+            "set in production."
         )
 
     if problems:

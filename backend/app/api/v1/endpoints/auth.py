@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.core.config import settings
+from app.core.dependencies import get_current_user
 from app.core.security import (
     EMAIL_VERIFICATION_TOKEN_MINUTES,
     verify_password,
@@ -23,6 +24,7 @@ from app.core.security import (
     create_email_verification_token,
     create_refresh_token,
     decode_token,
+    token_version_matches,
     verify_email_verification_token,
 )
 from app.core.exceptions import credentials_exception, bad_request_exception
@@ -66,8 +68,12 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 def _login_response_for(user: User, is_new: bool = False) -> LoginResponse:
     """Issue access + refresh tokens for an authenticated user."""
     return LoginResponse(
-        access_token=create_access_token(subject=str(user.id)),
-        refresh_token=create_refresh_token(subject=str(user.id)),
+        access_token=create_access_token(
+            subject=str(user.id), token_version=user.token_version
+        ),
+        refresh_token=create_refresh_token(
+            subject=str(user.id), token_version=user.token_version
+        ),
         token_type="bearer",
         user={
             "id": str(user.id),
@@ -252,6 +258,10 @@ async def reset_password(
         raise bad_request_exception("That code is not valid. Request a new one.")
 
     user.hashed_password = get_password_hash(payload.new_password)
+    # Whoever prompted this reset may already hold a token for the account —
+    # that is the usual reason someone resets a password they still know. Bump
+    # the version so every outstanding session dies with the old password.
+    user.token_version = (user.token_version or 0) + 1
     # Someone who forgot their password has very likely just failed to sign in
     # five times, which is exactly what the lockout counts. Without this they
     # complete the reset, are handed a session, and are then refused at the
@@ -419,8 +429,12 @@ async def login(
     await db.commit()
 
     # Create tokens
-    access_token = create_access_token(subject=str(user.id))
-    refresh_token = create_refresh_token(subject=str(user.id))
+    access_token = create_access_token(
+        subject=str(user.id), token_version=user.token_version
+    )
+    refresh_token = create_refresh_token(
+        subject=str(user.id), token_version=user.token_version
+    )
 
     return LoginResponse(
         access_token=access_token,
@@ -468,9 +482,20 @@ async def refresh_token(
     if not user or not user.is_active:
         raise credentials_exception()
 
+    # A refresh token outlives an access token many times over, so this is the
+    # check that actually makes "sign out everywhere" and "reset my password"
+    # mean something: without it a stolen refresh token keeps minting fresh
+    # access tokens for its full 30 days regardless of what the owner does.
+    if not token_version_matches(payload, user):
+        raise credentials_exception()
+
     # Create new tokens
-    access_token = create_access_token(subject=str(user.id))
-    new_refresh_token = create_refresh_token(subject=str(user.id))
+    access_token = create_access_token(
+        subject=str(user.id), token_version=user.token_version
+    )
+    new_refresh_token = create_refresh_token(
+        subject=str(user.id), token_version=user.token_version
+    )
 
     return LoginResponse(
         access_token=access_token,
@@ -539,11 +564,30 @@ async def oauth_providers():
 
 
 @router.post("/logout")
-async def logout():
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Logout user.
+    Sign out of **every** session for this account.
 
-    Note: With JWT, logout is primarily handled client-side by removing tokens.
-    This endpoint is provided for consistency and future enhancements (e.g., token blacklisting).
+    This used to return a message and do nothing at all, on the reasoning that
+    a JWT is stateless so logout belongs to the client. That reasoning holds
+    only while the client is the one you trust — it is exactly wrong for the
+    case logout exists to cover, which is a token somewhere you no longer
+    control: a shared machine, a stolen laptop, a session you don't recognise.
+    Clearing localStorage in *this* browser does nothing about any of those.
+
+    Incrementing ``token_version`` invalidates every token issued for this
+    account, this one included, so the client must sign in again afterwards.
+
+    That is a deliberate choice of "sign out everywhere" over per-device
+    logout. Per-device would need server-side session records; this is one
+    integer, and for an account-compromise response it is the behaviour you
+    want anyway.
     """
-    return {"message": "Successfully logged out"}
+    current_user.token_version = (current_user.token_version or 0) + 1
+    await db.commit()
+
+    logger.info(f"All sessions revoked for user {current_user.id}")
+    return {"message": "Signed out of all sessions"}

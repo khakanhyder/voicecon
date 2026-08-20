@@ -4,7 +4,8 @@ Pydantic schemas for User models.
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
+from app.core.passwords import PasswordPolicyError, validate_password
 from app.schemas._types import NonBlankName
 
 
@@ -40,10 +41,28 @@ class UserUpdate(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    """Schema for changing the current user's password."""
+    """Schema for changing the current user's password.
+
+    Backs ``POST /users/me/change-password``. Registration, reset and forgot all
+    run the shared policy in ``app.core.passwords``; this path only checked
+    ``min_length=8``, so a password the sign-up form would have refused —
+    ``password123`` — could be set from Settings. It also skipped the 72-byte
+    bcrypt ceiling, which silently truncates rather than erroring.
+
+    (``schemas.auth.ChangePasswordRequest`` carries the same validator but is
+    not wired to any route; this is the schema the endpoint actually uses.)
+    """
     # Optional so social-login users (no existing password) can set one.
     current_password: Optional[str] = None
     new_password: str = Field(..., min_length=8, description="New password (min 8 chars)")
+
+    @model_validator(mode="after")
+    def _check_password(self):
+        try:
+            validate_password(self.new_password)
+        except PasswordPolicyError as e:
+            raise ValueError(str(e)) from e
+        return self
 
 
 class UserInDB(UserBase):

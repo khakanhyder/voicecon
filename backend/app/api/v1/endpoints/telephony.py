@@ -61,13 +61,32 @@ def _public_webhook_url(request: Request) -> str:
     if request.url.query:
         target = f"{target}?{request.url.query}"
 
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+
     if settings.TWILIO_PUBLIC_BASE_URL:
         base = settings.TWILIO_PUBLIC_BASE_URL.rstrip("/")
+        # Twilio signs the URL it actually requested. If the configured base
+        # says http:// but the call arrived over https, every signature is
+        # computed against the wrong string and *all* webhooks fail — which
+        # looks like a credentials problem, not a one-character config typo.
+        # The scheme is observable, so trust it over the static setting rather
+        # than failing the call.
+        scheme, sep, remainder = base.partition("://")
+        if sep and scheme != forwarded_proto:
+            logger.warning(
+                "TWILIO_PUBLIC_BASE_URL is configured as %s:// but this webhook "
+                "arrived over %s://. Using %s:// to match what Twilio signed — "
+                "correct the setting to silence this.",
+                scheme,
+                forwarded_proto,
+                forwarded_proto,
+            )
+            base = f"{forwarded_proto}://{remainder}"
         return f"{base}{target}"
-    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
     if host:
-        return f"{proto}://{host}{target}"
+        return f"{forwarded_proto}://{host}{target}"
     return str(request.url)
 
 
@@ -118,19 +137,36 @@ async def validate_twilio_request(request: Request, form_data, db: AsyncSession)
     """
     Validate the X-Twilio-Signature on a webhook request.
 
-    Returns True (allow) when validation is disabled or no auth token can be
-    found — there is nothing to validate against in that case, so local and
-    credential-less environments are unaffected. Otherwise the signature must
-    match the account that owns the number the call is for.
+    Returns True (allow) when validation is disabled, or — **outside production
+    only** — when no auth token can be found, so local and credential-less
+    environments are unaffected. Otherwise the signature must match the account
+    that owns the number the call is for.
+
+    The "no token" case used to allow the request everywhere, which made these
+    endpoints unauthenticated in production whenever a webhook named a number
+    absent from ``phone_numbers``, or whose stored credentials failed to
+    decrypt. They are also exempt from rate limiting, on the stated grounds
+    that they carry their own authentication — so when this fell through, they
+    carried none at all. Forged status callbacks could then write call records,
+    durations and billed minutes.
     """
     if not settings.TWILIO_VALIDATE_WEBHOOKS:
         return True
 
     tokens = await _candidate_auth_tokens(db, form_data)
     if not tokens:
+        if settings.is_production:
+            logger.error(
+                "Rejecting webhook: no Twilio auth token available for this "
+                "number and no TWILIO_AUTH_TOKEN configured, so the signature "
+                "cannot be verified. Set TWILIO_AUTH_TOKEN, or connect the "
+                "number's Twilio account."
+            )
+            return False
         logger.warning(
             "Twilio webhook signature not validated: no auth token available for "
-            "this number and no TWILIO_AUTH_TOKEN configured"
+            "this number and no TWILIO_AUTH_TOKEN configured (allowed outside "
+            "production only)"
         )
         return True
 

@@ -49,10 +49,20 @@ def get_password_hash(password: str) -> str:
     return hashed.decode('utf-8')
 
 
+#: Claim carrying the issuing user's ``token_version``.
+#:
+#: A JWT cannot be withdrawn once signed, so revocation has to be something the
+#: server checks at use time. Every token records the version the account held
+#: when it was issued; bumping ``User.token_version`` leaves every outstanding
+#: token stale. See the column's docstring in app.models.user.
+TOKEN_VERSION_CLAIM = "tv"
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,
-    scopes: Optional[list] = None
+    scopes: Optional[list] = None,
+    token_version: int = 0,
 ) -> str:
     """
     Create a JWT access token.
@@ -61,6 +71,8 @@ def create_access_token(
         subject: The subject of the token (usually user ID)
         expires_delta: Optional custom expiration time
         scopes: Optional list of scopes/permissions
+        token_version: The user's current ``token_version``, so the token can be
+            invalidated later by incrementing it.
 
     Returns:
         Encoded JWT token
@@ -75,7 +87,8 @@ def create_access_token(
     to_encode = {
         "exp": expire,
         "sub": str(subject),
-        "type": "access"
+        "type": "access",
+        TOKEN_VERSION_CLAIM: int(token_version or 0),
     }
 
     if scopes:
@@ -91,7 +104,8 @@ def create_access_token(
 
 def create_refresh_token(
     subject: Union[str, Any],
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    token_version: int = 0,
 ) -> str:
     """
     Create a JWT refresh token.
@@ -99,6 +113,9 @@ def create_refresh_token(
     Args:
         subject: The subject of the token (usually user ID)
         expires_delta: Optional custom expiration time
+        token_version: The user's current ``token_version``. This matters most
+            here — a refresh token lives for 30 days, so without it a stolen one
+            outlives any password change made in response to the theft.
 
     Returns:
         Encoded JWT token
@@ -113,7 +130,8 @@ def create_refresh_token(
     to_encode = {
         "exp": expire,
         "sub": str(subject),
-        "type": "refresh"
+        "type": "refresh",
+        TOKEN_VERSION_CLAIM: int(token_version or 0),
     }
 
     encoded_jwt = jwt.encode(
@@ -143,6 +161,23 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def token_version_matches(payload: dict, user: Any) -> bool:
+    """Whether ``payload`` was issued before the user last revoked their sessions.
+
+    Tokens minted before this claim existed carry no ``tv``. Those are treated
+    as version 0, which is also the column default — so deploying this does not
+    sign everyone out. Anyone whose ``token_version`` is later incremented is
+    then correctly locked out of their old tokens.
+    """
+    presented = payload.get(TOKEN_VERSION_CLAIM, 0)
+    current = getattr(user, "token_version", 0) or 0
+    try:
+        return int(presented or 0) == int(current)
+    except (TypeError, ValueError):
+        # A non-numeric claim is not something we issued.
+        return False
 
 
 #: Minutes a proof-of-verified-email token stays usable. Long enough to finish

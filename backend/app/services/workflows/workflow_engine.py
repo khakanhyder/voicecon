@@ -562,7 +562,16 @@ class WorkflowEngine:
 
         try:
             # Initialize context
-            context = WorkflowContext(trigger_data, channel=channel)
+            # The workspace this run acts inside. Steps that resolve a stored
+            # record from an id in their config scope the lookup to it, so a
+            # workflow cannot reach another organization's integrations or
+            # tools. Taken from the workflow itself, never from step config or
+            # trigger data — both are attacker-controlled.
+            context = WorkflowContext(
+                trigger_data,
+                channel=channel,
+                organization_id=workflow.organization_id,
+            )
 
             # Load the flow as a graph. v1 workflows (a flat ordered list) are
             # migrated on read, so both formats execute through one code path.

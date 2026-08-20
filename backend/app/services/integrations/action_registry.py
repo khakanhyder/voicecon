@@ -1189,10 +1189,25 @@ def get_actions_for_connector(connector_slug: str) -> List[Dict[str, Any]]:
 
 
 def get_action_schema(connector_slug: str, action: str) -> Dict[str, Any]:
-    """Return the parameter schema for a specific connector action."""
-    for a in INTEGRATION_ACTIONS.get(connector_slug, []):
-        if a["action"] == action:
-            return a
+    """Return the parameter schema for a specific connector action.
+
+    Slugs exist in two spellings. ``CONNECTOR_CLASS_MAP`` and ``ACTION_ADAPTERS``
+    both carry an underscored alias (``google_calendar``) alongside the
+    canonical hyphenated slug (``google-calendar``), but ``INTEGRATION_ACTIONS``
+    is keyed only by the canonical one. A connection stored under the alias
+    therefore found no schema at all — so ``strip_ui_only_parameters`` removed
+    nothing and the schema-derived defaults never applied. Normalising here
+    fixes every caller at once, and lets the action allowlist in the workflow
+    action step treat this registry as authoritative.
+    """
+    candidates = [connector_slug]
+    if "_" in connector_slug:
+        candidates.append(connector_slug.replace("_", "-"))
+
+    for slug in candidates:
+        for a in INTEGRATION_ACTIONS.get(slug, []):
+            if a["action"] == action:
+                return a
     return {}
 
 

@@ -16,6 +16,7 @@ import logging
 
 from app.core.config import settings
 from app.middleware.rate_limit import init_rate_limit_middleware
+from app.middleware.security_headers import init_security_headers_middleware
 from app.database import init_db, close_db
 from app.core.entitlement_guard import EntitlementError
 from app.core.exceptions import VoiceconException
@@ -161,6 +162,13 @@ _PUBLIC_CHAT_PREFIXES = ("/api/v1/chat/public/", "/api/v1/chat/widget.js")
 # This module shipped uninstalled — nothing ever called it — so until now the
 # API had no throttling at all.
 init_rate_limit_middleware(app, settings.REDIS_URL)
+
+# Security headers. This module was written but never imported — the same way
+# the rate limiter above shipped uninstalled — so every response went out with
+# no CSP, no HSTS, no X-Frame-Options and no X-Content-Type-Options. Registered
+# here rather than left as dead code that makes the posture look better than it
+# is when someone greps for it.
+init_security_headers_middleware(app)
 
 # CORS Middleware
 app.add_middleware(

@@ -768,13 +768,30 @@ class FunctionExecutor:
 
         try:
             if t == "api_request":
-                url = cfg.get("url") or parameters.get("url")
+                # The target comes from the tool's *configuration* only.
+                # It used to fall back to `parameters.get("url")`, and those
+                # parameters are what the model extracted from a conversation —
+                # so a caller who could steer the agent could choose the address
+                # this server connects to, with the tool's own headers attached.
+                # Where a request goes is a configuration decision, not
+                # something to infer from speech.
+                url = cfg.get("url")
                 if not url:
                     raise ValueError("No URL configured for api_request tool")
+
+                from app.core.egress import UnsafeURLError, assert_safe_url
+
+                try:
+                    assert_safe_url(url)
+                except UnsafeURLError as exc:
+                    raise ValueError(f"api_request url rejected: {exc}")
+
                 method = cfg.get("method", "POST").upper()
                 headers = {**cfg.get("headers", {})}
                 body = {**cfg.get("body", {}), **parameters}
-                async with httpx.AsyncClient(timeout=30) as client:
+                # follow_redirects defaults to False in httpx, but state it:
+                # a redirect to an internal address would bypass the check above.
+                async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
                     resp = await client.request(method, url, headers=headers, json=body)
                     result = {"status_code": resp.status_code, "body": resp.text[:2000]}
 

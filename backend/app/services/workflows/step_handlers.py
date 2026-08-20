@@ -179,6 +179,7 @@ class WorkflowContext:
         self,
         trigger_data: Optional[Dict[str, Any]] = None,
         channel: Optional[Any] = None,
+        organization_id: Optional[uuid.UUID] = None,
     ):
         """
         Initialize workflow context.
@@ -188,7 +189,20 @@ class WorkflowContext:
             channel: Execution channel for voice steps (speak/ask/transfer/end).
                 Defaults to a SimulatedChannel so a flow is always runnable —
                 e.g. a "Run" from the dashboard, where there is no live call.
+            organization_id: The workspace this run belongs to. Steps that look
+                up a stored record by an id taken from step config MUST scope
+                that lookup to it.
+
+                This context previously carried no tenant identity at all, which
+                meant the integration and tool steps loaded rows by bare id: a
+                user could name *another organization's* connection or tool in
+                their own workflow and the step would execute it, using that
+                organization's decrypted credentials and returning the response.
+                Scoping is only possible if the org travels with the run, which
+                is what this field is for.
         """
+        self.organization_id = organization_id
+
         self.variables = {
             "trigger": trigger_data or {},
             "steps": {},
@@ -421,14 +435,30 @@ class ActionStepHandler(BaseStepHandler):
             from sqlalchemy import select
             from app.models.integration import IntegrationConnection, IntegrationConnector
 
-            # Get connection and connector
+            # Get connection and connector.
+            #
+            # Scoped to the running workflow's organization. Without this, the
+            # bare id from step config selected any connection on the platform,
+            # and the step then executed against that tenant's decrypted OAuth
+            # tokens and returned the response — cross-tenant read and write
+            # through someone else's credentials.
+            if context.organization_id is None:
+                raise StepExecutionError(
+                    "Action step cannot resolve a connection without a workspace "
+                    "context"
+                )
+
             query = select(IntegrationConnection).where(
-                IntegrationConnection.id == connection_id
+                IntegrationConnection.id == connection_id,
+                IntegrationConnection.organization_id == context.organization_id,
             )
             result = await self.db.execute(query)
             connection = result.scalar_one_or_none()
 
             if not connection:
+                # Deliberately identical to the genuinely-missing case: telling
+                # the caller a connection exists but belongs to someone else
+                # confirms the id, which is exactly what a probe is looking for.
                 raise StepExecutionError(f"Connection {connection_id} not found")
 
             # Get connector
@@ -465,6 +495,20 @@ class ActionStepHandler(BaseStepHandler):
 
             try:
                 # Execute action
+                # The registry is the allowlist, not merely a source of parameter
+                # defaults. `hasattr` alone let step config name *any* attribute
+                # on the connector — including internal helpers never meant to be
+                # reachable from a workflow — because a connector with no schema
+                # for the action simply fell through with `accepted = None`.
+                from app.services.integrations.action_registry import (
+                    get_action_schema as _lookup_action,
+                )
+
+                if not _lookup_action(connector.slug, action):
+                    raise StepExecutionError(
+                        f"Action '{action}' is not available on {connector.slug}"
+                    )
+
                 if not hasattr(connector_instance, action):
                     raise StepExecutionError(f"Action {action} not found on connector")
 
@@ -1424,9 +1468,24 @@ class ToolStepHandler(BaseStepHandler):
             from sqlalchemy import select
             from app.models.tool import Tool
 
-            result = await self.db.execute(select(Tool).where(Tool.id == uuid.UUID(tool_id)))
+            # Scoped to the running workflow's organization — a tool carries its
+            # own URL and authorization headers, so executing another tenant's
+            # tool ran their request with their secrets and returned the body.
+            if context.organization_id is None:
+                raise StepExecutionError(
+                    "Tool step cannot resolve a tool without a workspace context"
+                )
+
+            result = await self.db.execute(
+                select(Tool).where(
+                    Tool.id == uuid.UUID(tool_id),
+                    Tool.organization_id == context.organization_id,
+                )
+            )
             tool = result.scalar_one_or_none()
             if not tool:
+                # Same message whether it is missing or someone else's, so the
+                # error cannot be used to confirm that an id exists.
                 raise StepExecutionError(f"Tool {tool_id} not found")
 
             from app.services.function_executor import get_function_executor
@@ -1469,6 +1528,19 @@ class WebhookStepHandler(BaseStepHandler):
             if not url.startswith(("http://", "https://")):
                 raise StepExecutionError(f"Webhook url must be http(s): {url}")
 
+            # The URL is author-supplied and interpolated from run data, so it
+            # can name anything this container can route to. The response body
+            # is returned in the step result, which made an unrestricted fetch a
+            # read primitive against the cloud metadata endpoint and every
+            # internal service. Redirects are disabled below for the same reason
+            # — a public URL can 302 to a private one after this check.
+            from app.core.egress import UnsafeURLError, assert_safe_url
+
+            try:
+                assert_safe_url(url)
+            except UnsafeURLError as exc:
+                raise StepExecutionError(f"Webhook url rejected: {exc}")
+
             method = str(config.get("method", "POST")).upper()
             # A JSON body keeps its types — that is the whole point, so the
             # receiving API gets 42 and not "42". Headers and query strings are
@@ -1493,6 +1565,10 @@ class WebhookStepHandler(BaseStepHandler):
                     headers=headers or None,
                     json=body if method in ("POST", "PUT", "PATCH") and body else None,
                     params=params if method == "GET" else None,
+                    # A checked public URL can still redirect to an internal
+                    # one, and the redirect target is never validated. Following
+                    # redirects would reopen exactly what assert_safe_url closed.
+                    allow_redirects=False,
                 ) as resp:
                     text = await resp.text()
                     try:

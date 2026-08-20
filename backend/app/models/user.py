@@ -4,7 +4,7 @@ User, Organization, and Authentication models.
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import Boolean, Column, DateTime, String, Text, ForeignKey, JSON, Uuid
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, ForeignKey, JSON, Uuid
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.database import Base
@@ -39,6 +39,24 @@ class User(Base):
     # Status flags
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Bumped to invalidate every token already issued for this account.
+    #
+    # JWTs are self-contained: once signed, the server has no say in whether one
+    # is still good. That meant logout did nothing, and — worse — a password
+    # reset did nothing either. Someone who had been phished could change their
+    # password and the attacker kept a valid refresh token for another 30 days,
+    # which is the opposite of what every user expects that action to do.
+    #
+    # Every token carries this number as a `tv` claim, checked on each request
+    # and on refresh. Incrementing it is therefore "sign out everywhere", and it
+    # is what logout, password change and password reset all now do.
+    #
+    # Cheap by design: one integer on a row already loaded to authenticate the
+    # request, so revocation costs no extra query and no shared denylist.
+    token_version: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
 
     # The workspace this user is currently working inside. A user may belong to
     # several organizations; this is the one their API calls resolve to until
