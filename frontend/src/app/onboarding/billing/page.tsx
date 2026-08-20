@@ -37,11 +37,26 @@ const stripeFieldStyle: StripeCardNumberElementOptions['style'] = {
     color: '#ffffff',
     fontSize: '14px',
     fontFamily: 'inherit',
+    // Each Stripe field is an iframe whose height comes from this line-height.
+    // Left unset it collapses to the font's own leading, which is what made the
+    // expiry and CVC boxes visibly shorter than the card number beside them.
+    lineHeight: '24px',
     '::placeholder': { color: 'rgba(255,255,255,0.5)' },
     iconColor: '#ffffff',
   },
   invalid: { color: '#fca5a5', iconColor: '#fca5a5' },
 }
+
+/**
+ * The shell around a Stripe field.
+ *
+ * A fixed height rather than padding: the three boxes wrap iframes of differing
+ * intrinsic heights (the card number's also carries the card badge), so equal
+ * padding did not produce equal boxes. Pinning the height and centring the
+ * contents makes them match by construction.
+ */
+const cardFieldBox =
+  'flex h-12 items-center rounded-lg border border-white/20 bg-white/5 px-3'
 
 function priceFor(period: 'monthly' | 'yearly', monthly: number, yearly: number | null) {
   return period === 'yearly' ? (yearly ?? monthly * 12 * 0.75) : monthly
@@ -89,7 +104,7 @@ function CheckoutForm() {
   const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
-  const { selectedPlan, billingPeriod, setBillingPeriod, reset } = useOnboardingStore()
+  const { selectedPlan, billingPeriod, setBillingPeriod, finish } = useOnboardingStore()
   const [country, setCountry] = useState(COUNTRIES[0])
   const [authorize, setAuthorize] = useState(false)
   const [agree, setAgree] = useState(false)
@@ -135,12 +150,14 @@ function CheckoutForm() {
       })
     },
     onSuccess: async () => {
-      reset()
       // Re-read the plan before leaving. The entitlement store loads once per
       // session, so a workspace that was trialling a moment ago would otherwise
       // arrive at the dashboard still showing trial limits and the trial
-      // banner until the next full page load.
+      // banner until the next full page load. Clearing the selection waits
+      // until after this — it unmounts the form, and there is no reason to
+      // blank the page while a request is still in flight.
       await useEntitlementStore.getState().refresh()
+      finish()
       toast.success('Subscription activated! Welcome to Voicecon.')
       router.push('/dashboard')
     },
@@ -152,7 +169,7 @@ function CheckoutForm() {
     mutationFn: () =>
       onboardingService.startTrial({ plan_id: selectedPlan?.id, billing_period: billingPeriod }),
     onSuccess: () => {
-      reset()
+      finish()
       toast.success(`Your ${trialDays}-day free trial has started!`)
       router.push('/dashboard')
     },
@@ -206,7 +223,7 @@ function CheckoutForm() {
         style={{ background: 'linear-gradient(160deg, #1f6a5f 0%, #15463f 100%)' }}
       >
         <label className="mb-1.5 block text-xs font-medium text-white/80">Card Number</label>
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2.5">
+        <div className={`${cardFieldBox} mb-4 gap-2`}>
           <div className="flex-1">
             <CardNumberElement
               options={{ style: stripeFieldStyle, placeholder: 'Card Number' }}
@@ -220,14 +237,18 @@ function CheckoutForm() {
         <div className="mb-4 grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/80">Expiration date</label>
-            <div className="rounded-lg border border-white/20 bg-white/5 px-3 py-2.5">
-              <CardExpiryElement options={{ style: stripeFieldStyle }} />
+            <div className={cardFieldBox}>
+              <div className="flex-1">
+                <CardExpiryElement options={{ style: stripeFieldStyle }} />
+              </div>
             </div>
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/80">Security code</label>
-            <div className="rounded-lg border border-white/20 bg-white/5 px-3 py-2.5">
-              <CardCvcElement options={{ style: stripeFieldStyle }} />
+            <div className={cardFieldBox}>
+              <div className="flex-1">
+                <CardCvcElement options={{ style: stripeFieldStyle }} />
+              </div>
             </div>
           </div>
         </div>
@@ -236,7 +257,7 @@ function CheckoutForm() {
         <select
           value={country}
           onChange={(e) => setCountry(e.target.value)}
-          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2.5 text-sm text-white outline-none [&>option]:text-slate-900"
+          className="h-12 w-full rounded-lg border border-white/20 bg-white/5 px-3 text-sm text-white outline-none [&>option]:text-slate-900"
         >
           {COUNTRIES.map((c) => (
             <option key={c} value={c}>
@@ -331,13 +352,15 @@ function CheckoutForm() {
 
 export default function BillingPage() {
   const router = useRouter()
-  const { selectedPlan } = useOnboardingStore()
+  const { selectedPlan, completed } = useOnboardingStore()
   const stripePromise = useMemo(() => getStripe(), [])
 
-  // If the user lands here without choosing a plan, send them to pricing.
+  // If the user lands here without choosing a plan, send them to pricing —
+  // unless they have just finished, in which case the empty selection is the
+  // expected end state and the page is on its way to the dashboard.
   useEffect(() => {
-    if (!selectedPlan) router.replace('/onboarding/pricing')
-  }, [selectedPlan, router])
+    if (!selectedPlan && !completed) router.replace('/onboarding/pricing')
+  }, [selectedPlan, completed, router])
 
   if (!selectedPlan) return null
 

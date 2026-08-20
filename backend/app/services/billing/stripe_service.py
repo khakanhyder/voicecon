@@ -3,13 +3,30 @@ Stripe billing integration service.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 import uuid
 import logging
 
 import stripe
+
+
+def utc_from_timestamp(epoch: Optional[int]) -> Optional[datetime]:
+    """Convert a Stripe epoch to the naive **UTC** datetime the columns hold.
+
+    The bare ``datetime.fromtimestamp(epoch)`` this replaces read the epoch in
+    the *server's* local
+    zone. Every date in this module is compared against ``datetime.utcnow()``,
+    so on a host that is not set to UTC a subscription's period start and end
+    land hours out of step with the clock that decides whether it has expired —
+    and the renewal date shown to the customer is wrong by the same offset.
+    Containers happen to run UTC today, which is why this never bit; that is a
+    property of the deployment, not of the code.
+    """
+    if epoch is None:
+        return None
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).replace(tzinfo=None)
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,16 +234,16 @@ class StripeService:
             stripe_customer_id=stripe_customer_id,
             status=stripe_subscription.status,
             billing_period="monthly",
-            current_period_start=datetime.fromtimestamp(
+            current_period_start=utc_from_timestamp(
                 stripe_subscription.current_period_start
             ),
-            current_period_end=datetime.fromtimestamp(
+            current_period_end=utc_from_timestamp(
                 stripe_subscription.current_period_end
             ),
-            trial_start=datetime.fromtimestamp(stripe_subscription.trial_start)
+            trial_start=utc_from_timestamp(stripe_subscription.trial_start)
             if stripe_subscription.trial_start
             else None,
-            trial_end=datetime.fromtimestamp(stripe_subscription.trial_end)
+            trial_end=utc_from_timestamp(stripe_subscription.trial_end)
             if stripe_subscription.trial_end
             else None,
         )
@@ -645,17 +662,17 @@ class StripeService:
         invoice.total = Decimal(stripe_invoice.total) / 100
         invoice.invoice_pdf = stripe_invoice.invoice_pdf
         invoice.hosted_invoice_url = stripe_invoice.hosted_invoice_url
-        invoice.period_start = datetime.fromtimestamp(
+        invoice.period_start = utc_from_timestamp(
             stripe_invoice.period_start
         )
-        invoice.period_end = datetime.fromtimestamp(stripe_invoice.period_end)
+        invoice.period_end = utc_from_timestamp(stripe_invoice.period_end)
         invoice.due_date = (
-            datetime.fromtimestamp(stripe_invoice.due_date)
+            utc_from_timestamp(stripe_invoice.due_date)
             if stripe_invoice.due_date
             else None
         )
         invoice.paid_at = (
-            datetime.fromtimestamp(stripe_invoice.status_transitions.paid_at)
+            utc_from_timestamp(stripe_invoice.status_transitions.paid_at)
             if stripe_invoice.status_transitions.paid_at
             else None
         )
@@ -876,9 +893,9 @@ class StripeService:
         period_start = data.get("period_start")
         period_end = data.get("period_end")
         if period_start:
-            subscription.current_period_start = datetime.fromtimestamp(period_start)
+            subscription.current_period_start = utc_from_timestamp(period_start)
         if period_end:
-            subscription.current_period_end = datetime.fromtimestamp(period_end)
+            subscription.current_period_end = utc_from_timestamp(period_end)
 
         await billing_events.record_event(
             db,
@@ -965,10 +982,10 @@ class StripeService:
 
         previous_status = subscription.status
         subscription.status = data["status"]
-        subscription.current_period_start = datetime.fromtimestamp(
+        subscription.current_period_start = utc_from_timestamp(
             data["current_period_start"]
         )
-        subscription.current_period_end = datetime.fromtimestamp(
+        subscription.current_period_end = utc_from_timestamp(
             data["current_period_end"]
         )
         subscription.cancel_at_period_end = bool(data.get("cancel_at_period_end", False))
@@ -1086,7 +1103,22 @@ class StripeService:
             plan.stripe_product_id = product_id
 
         interval = "year" if billing_period == "yearly" else "month"
-        if interval == "year" and plan.price_yearly:
+        if interval == "year":
+            # Never fall back to the monthly amount here. That silently charged
+            # one month's price for a *year* of service, against a pricing page
+            # that had already quoted the yearly figure (it renders a 25%-off
+            # estimate when the column is empty). Refusing surfaces the missing
+            # price to an operator instead of billing the wrong number.
+            if not plan.price_yearly:
+                from fastapi import HTTPException, status
+
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Yearly billing is not available for this plan yet. "
+                        "Choose monthly, or contact support."
+                    ),
+                )
             amount = int(Decimal(plan.price_yearly) * 100)
         else:
             amount = int(Decimal(plan.price_monthly) * 100)

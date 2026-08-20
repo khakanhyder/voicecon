@@ -12,7 +12,7 @@ stopped paying must always be able to reach the page where it can start again.
 
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
@@ -40,6 +40,7 @@ from app.models.subscription import (
     PaymentFailure,
 )
 from app.services.billing import StripeService, catalog, get_stripe_service, get_usage_reader, events
+from app.services.billing.stripe_service import utc_from_timestamp
 from app.services.billing.entitlements import (
     get_entitlement_service,
     invalidate_entitlements,
@@ -718,7 +719,10 @@ class StartTrialRequest(BaseModel):
     plan_id: Optional[uuid.UUID] = Field(
         None, description="Optional plan to trial; defaults to the trialable plan"
     )
-    billing_period: str = Field("monthly", description="monthly | yearly")
+    billing_period: Literal["monthly", "yearly"] = Field(
+        "monthly",
+        description="monthly | yearly",
+    )
 
 
 class CheckoutRequest(BaseModel):
@@ -726,7 +730,10 @@ class CheckoutRequest(BaseModel):
 
     plan_id: uuid.UUID = Field(..., description="Selected subscription plan")
     payment_method_id: str = Field(..., description="Stripe PaymentMethod id (pm_…)")
-    billing_period: str = Field("monthly", description="monthly | yearly")
+    billing_period: Literal["monthly", "yearly"] = Field(
+        "monthly",
+        description="monthly | yearly",
+    )
 
 
 class ChangePlanRequest(BaseModel):
@@ -1380,8 +1387,8 @@ async def checkout(
         )
 
     now = datetime.utcnow()
-    period_start = datetime.fromtimestamp(stripe_subscription.current_period_start)
-    period_end = datetime.fromtimestamp(stripe_subscription.current_period_end)
+    period_start = utc_from_timestamp(stripe_subscription.current_period_start)
+    period_end = utc_from_timestamp(stripe_subscription.current_period_end)
 
     if existing is not None:
         # 5a. Convert in place: the trial ends here and the paid plan takes over.
