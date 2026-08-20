@@ -26,10 +26,26 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
 
     # Security
-    SECRET_KEY: str = Field(default="change-me-in-production-use-a-long-random-string", description="Secret key for JWT tokens")
+    #: The placeholder every fresh checkout starts with. Named so the
+    #: production guard below can recognise it rather than matching a literal
+    #: in two places that could drift apart.
+    DEFAULT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
+
+    SECRET_KEY: str = Field(default=DEFAULT_SECRET_KEY, description="Secret key for JWT tokens")
     # Salt for deriving the credential-encryption key. MUST be stable across
     # restarts, or previously-encrypted stored credentials become undecryptable.
     ENCRYPTION_SALT: Optional[str] = None
+
+    #: Key for encrypting stored integration credentials (OAuth tokens,
+    #: per-connection API keys) in ``services/integrations/credential_manager``.
+    #:
+    #: This was previously undeclared, so it was read via ``os.getenv`` with a
+    #: hardcoded literal fallback — which meant a deployment that never set it
+    #: encrypted every tenant's third-party credentials under a key committed to
+    #: this repository. Declaring it here puts it in ``.env`` resolution like
+    #: every other setting, and lets ``check_production_secrets`` refuse to boot
+    #: without it.
+    ENCRYPTION_SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
@@ -303,8 +319,84 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "development"
 
 
+#: Shortest secret we will accept in production. Not a strength measure — it
+#: only catches a value someone typed by hand instead of generating.
+MIN_SECRET_LENGTH = 32
+
+
+class InsecureConfiguration(RuntimeError):
+    """Production is configured with a secret that cannot be trusted."""
+
+
+def check_production_secrets(s: "Settings") -> None:
+    """Refuse to serve production traffic on placeholder or missing secrets.
+
+    Both of these fail *silently* otherwise, which is what makes them dangerous:
+
+    * ``SECRET_KEY`` left at its default means anyone who has read this repo can
+      forge an access token for any user id. Nothing in the request path can
+      detect that — a forged token verifies correctly.
+    * ``ENCRYPTION_SECRET_KEY`` unset used to fall back to a literal in
+      ``credential_manager``. Encryption still "worked", so no error ever
+      surfaced; the stored ciphertext was simply decryptable by anyone with the
+      source and a copy of the database.
+
+    A failed boot is a loud, immediate, recoverable problem. Either of the above
+    reaching production is a quiet, indefinite one. This follows the same
+    reasoning as the un-caught router import in ``app.main``.
+    """
+    if not s.is_production:
+        return
+
+    problems: List[str] = []
+
+    if s.SECRET_KEY == s.DEFAULT_SECRET_KEY:
+        problems.append(
+            "SECRET_KEY is still the placeholder from .env.example. Anyone can "
+            "forge a login token for any account until it is changed."
+        )
+    elif len(s.SECRET_KEY) < MIN_SECRET_LENGTH:
+        problems.append(
+            f"SECRET_KEY is only {len(s.SECRET_KEY)} characters; it must be at "
+            f"least {MIN_SECRET_LENGTH}."
+        )
+
+    if not s.ENCRYPTION_SECRET_KEY:
+        problems.append(
+            "ENCRYPTION_SECRET_KEY is not set. Stored integration credentials "
+            "(OAuth tokens, per-connection API keys) would be encrypted with a "
+            "key published in this repository."
+        )
+    elif len(s.ENCRYPTION_SECRET_KEY) < MIN_SECRET_LENGTH:
+        problems.append(
+            f"ENCRYPTION_SECRET_KEY is only {len(s.ENCRYPTION_SECRET_KEY)} "
+            f"characters; it must be at least {MIN_SECRET_LENGTH}."
+        )
+
+    if not s.ENCRYPTION_SALT:
+        problems.append(
+            "ENCRYPTION_SALT is not set. It must be a stable per-deployment "
+            "value — changing it makes existing encrypted values unreadable."
+        )
+
+    if problems:
+        raise InsecureConfiguration(
+            "Refusing to start in production with insecure configuration:\n"
+            + "\n".join(f"  - {p}" for p in problems)
+            + "\n\nGenerate each missing value with:\n"
+            "  python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
+            "and set it in the environment. ENCRYPTION_SECRET_KEY and "
+            "ENCRYPTION_SALT must never change once credentials are stored "
+            "without re-encrypting them first — see scripts/reencrypt_credentials.py."
+        )
+
+
 # Create global settings instance
 settings = Settings()
+
+# Fails the boot rather than the request. Runs at import, so it happens before
+# the app binds a port and before the platform can mark the deploy healthy.
+check_production_secrets(settings)
 
 
 def env_value(name: str, default: Optional[str] = None) -> Optional[str]:

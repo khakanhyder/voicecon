@@ -40,6 +40,15 @@ from app.core.config import settings
 # Playwright `api` project covers it against a live server — so it is off.
 settings.RATE_LIMIT_ENABLED = False
 
+# Credential encryption has no default any more. It used to fall back to a
+# secret hardcoded in the source, which meant a deployment that never set
+# ENCRYPTION_SECRET_KEY encrypted every tenant's OAuth tokens under a key
+# published in this repository — so the fallback was removed and an unset key
+# now raises. Tests still need *a* key; these values are fixtures, deliberately
+# obvious as such, and are never used anywhere real.
+settings.ENCRYPTION_SECRET_KEY = "test-only-encryption-key-not-a-real-secret"
+settings.ENCRYPTION_SALT = "00112233445566778899aabbccddeeff"
+
 from app.core.dependencies import get_current_user
 from app.database import Base, get_db
 from app.main import app

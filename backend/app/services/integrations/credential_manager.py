@@ -28,6 +28,75 @@ class CredentialDecryptionError(Exception):
     pass
 
 
+#: PBKDF2 rounds. Unchanged from the original derivation on purpose — raising it
+#: would change the derived key and orphan every credential already stored.
+_KDF_ITERATIONS = 100_000
+
+#: What the secret used to fall back to when ``ENCRYPTION_SECRET_KEY`` was unset.
+#: Kept only so the re-encryption script can read the old ciphertext; nothing in
+#: the request path may use it.
+LEGACY_DEFAULT_SECRET = 'default-secret-key-change-in-production'
+
+#: The salt that was hardcoded alongside it, for the same reason.
+LEGACY_SALT = b'voicecon-integration-salt'
+
+
+def derive_key(secret: str, salt: bytes) -> bytes:
+    """Derive a Fernet key from a secret and salt via PBKDF2-HMAC-SHA256."""
+    kdf = PBKDF2(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=_KDF_ITERATIONS,
+        backend=default_backend(),
+    )
+    return base64.urlsafe_b64encode(kdf.derive(secret.encode()))
+
+
+def _require_secret() -> str:
+    """The configured encryption secret, or refuse to encrypt anything.
+
+    There is deliberately no fallback. The previous default meant a deployment
+    that never set this still encrypted successfully — under a key committed to
+    this repository — so the misconfiguration produced working software and no
+    signal. Raising is the only way this failure becomes visible.
+    """
+    secret = settings.ENCRYPTION_SECRET_KEY or os.getenv('ENCRYPTION_SECRET_KEY')
+    if not secret:
+        raise CredentialEncryptionError(
+            "ENCRYPTION_SECRET_KEY is not configured. Integration credentials "
+            "cannot be encrypted or decrypted without it. Generate one with "
+            "`python -c \"import secrets; print(secrets.token_urlsafe(48))\"`."
+        )
+    if secret == LEGACY_DEFAULT_SECRET:
+        raise CredentialEncryptionError(
+            "ENCRYPTION_SECRET_KEY is set to the old hardcoded default, which is "
+            "public. Set a generated value and re-encrypt existing credentials "
+            "with scripts/reencrypt_credentials.py."
+        )
+    return secret
+
+
+def _require_salt() -> bytes:
+    """The per-deployment salt.
+
+    ``ENCRYPTION_SALT`` is a hex string so it survives an env var round-trip
+    intact. It must stay stable for the life of the stored data.
+    """
+    raw = settings.ENCRYPTION_SALT or os.getenv('ENCRYPTION_SALT')
+    if not raw:
+        raise CredentialEncryptionError(
+            "ENCRYPTION_SALT is not configured. Generate one with "
+            "`python -c \"import secrets; print(secrets.token_hex(16))\"`."
+        )
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        # Accept a non-hex value rather than failing a deployment that already
+        # stored data under it; the bytes just have to be reproducible.
+        return raw.encode()
+
+
 class CredentialManager:
     """
     Manages secure encryption and decryption of integration credentials.
@@ -55,29 +124,15 @@ class CredentialManager:
             return self._encryption_key
 
         try:
-            # Get secret key from environment
-            secret_key = getattr(settings, 'ENCRYPTION_SECRET_KEY', None) or os.getenv(
-                'ENCRYPTION_SECRET_KEY',
-                'default-secret-key-change-in-production'  # Default for development
+            self._encryption_key = derive_key(
+                secret=_require_secret(),
+                salt=_require_salt(),
             )
+            logger.info("Credential encryption key derived successfully")
+            return self._encryption_key
 
-            # Generate encryption key from secret using PBKDF2
-            salt = b'voicecon-integration-salt'  # Fixed salt for deterministic key
-
-            kdf = PBKDF2(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=100000,
-                backend=default_backend()
-            )
-
-            key = base64.urlsafe_b64encode(kdf.derive(secret_key.encode()))
-            self._encryption_key = key
-
-            logger.info("Encryption key generated successfully")
-            return key
-
+        except CredentialEncryptionError:
+            raise
         except Exception as e:
             logger.error(f"Failed to generate encryption key: {e}", exc_info=True)
             raise CredentialEncryptionError(f"Failed to generate encryption key: {str(e)}")

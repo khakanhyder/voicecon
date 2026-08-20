@@ -284,6 +284,9 @@ class TestTokenExpiry:
 
 
 class TestCredentialManager:
+    # The encryption key these tests need is set suite-wide in tests/conftest.py,
+    # alongside the rate-limit switch, for the reason documented there.
+
     def test_string_round_trips(self):
         manager = CredentialManager()
 

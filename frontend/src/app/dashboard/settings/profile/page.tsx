@@ -174,6 +174,38 @@ export default function ProfileSettingsPage() {
   return (
     <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-8">
+     {/* Avatar */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 className="text-xl font-semibold">Profile Picture</h2>
+
+          <AvatarUploader
+            src={formData.avatar_url || null}
+            name={formData.full_name}
+            onUpload={handleAvatarUpload}
+            onRemove={handleAvatarRemove}
+            disabled={saving}
+          />
+
+          <details className="pt-1">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-slate-700">
+              Or paste an image URL
+            </summary>
+            <div className="mt-3 space-y-2">
+              <Label htmlFor="avatarUrl" className="text-[14px] font-bold text-[#000000] font-poppins block">Avatar Image URL</Label>
+              <Input
+                id="avatarUrl"
+                placeholder="https://…/avatar.png"
+                value={formData.avatar_url}
+                onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
+                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
+              <p className="text-xs text-muted-foreground">
+                Kept for pictures already hosted elsewhere — a Google account
+                photo, for instance. Saved with the rest of the form.
+              </p>
+            </div>
+          </details>
+        </div>
+
         {/* Personal Information */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Personal Information</h2>
@@ -250,37 +282,7 @@ export default function ProfileSettingsPage() {
           </div>
         </div>
 
-        {/* Avatar */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Profile Picture</h2>
-
-          <AvatarUploader
-            src={formData.avatar_url || null}
-            name={formData.full_name}
-            onUpload={handleAvatarUpload}
-            onRemove={handleAvatarRemove}
-            disabled={saving}
-          />
-
-          <details className="pt-1">
-            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-slate-700">
-              Or paste an image URL
-            </summary>
-            <div className="mt-3 space-y-2">
-              <Label htmlFor="avatarUrl" className="text-[14px] font-bold text-[#000000] font-poppins block">Avatar Image URL</Label>
-              <Input
-                id="avatarUrl"
-                placeholder="https://…/avatar.png"
-                value={formData.avatar_url}
-                onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
-              <p className="text-xs text-muted-foreground">
-                Kept for pictures already hosted elsewhere — a Google account
-                photo, for instance. Saved with the rest of the form.
-              </p>
-            </div>
-          </details>
-        </div>
+       
 
         <div>
           <Button type="submit" size="lg" disabled={saving}>
