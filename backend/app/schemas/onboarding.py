@@ -1,11 +1,18 @@
 """
 Pydantic schemas for the post-signup onboarding flow.
 """
+import re
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: A hostname label: alphanumeric, inner hyphens allowed.
+_HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+#: A public TLD is alphabetic — this is what rules out "acme.123" and bare words.
+_TLD = re.compile(r"^[a-z]{2,}$")
 
 
 class CompanyProfileRequest(BaseModel):
@@ -58,6 +65,48 @@ class CompanyProfileRequest(BaseModel):
         if isinstance(value, str) and not value.strip():
             return None
         return value.strip() if isinstance(value, str) else value
+
+    @field_validator("company_url")
+    @classmethod
+    def _company_url_is_a_website(cls, value: Optional[str]) -> Optional[str]:
+        """
+        Reject a "website" that is not one, and store it with a scheme.
+
+        The field is optional, but when it is filled in it ends up on the
+        company profile and is rendered as a link. Without this, a bare word
+        typed into the onboarding form ("dcsdcs") saved happily and only turned
+        up later as a link that goes nowhere. Accepts what people type —
+        ``acme.com``, ``www.acme.com`` — and normalizes to ``https://acme.com``.
+        Only http(s) is allowed, so a stored ``javascript:`` URL can never be
+        rendered into an href.
+        """
+        if value is None:
+            return None
+
+        candidate = value if "://" in value else f"https://{value}"
+        parsed = urlparse(candidate)
+
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Website must start with http:// or https://")
+
+        host = (parsed.hostname or "").lower()
+        labels = host.split(".")
+        if (
+            len(labels) < 2
+            or not all(_HOST_LABEL.match(label) for label in labels)
+            or not _TLD.match(labels[-1])
+        ):
+            raise ValueError("Enter a valid website, e.g. www.acme.com")
+
+        # A trailing slash on a bare domain is noise in a field the user reads back.
+        path = "" if parsed.path == "/" else parsed.path
+        netloc = f"{host}:{parsed.port}" if parsed.port else host
+        rebuilt = f"{parsed.scheme}://{netloc}{path}"
+        if parsed.query:
+            rebuilt += f"?{parsed.query}"
+        if parsed.fragment:
+            rebuilt += f"#{parsed.fragment}"
+        return rebuilt
 
 
 class CompanyProfileResponse(BaseModel):

@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import { Check, ChevronDown, Loader2, Phone, Search } from 'lucide-react'
 import { VoiceconLogo } from '@/lib/icons'
 import { BrandPanel } from '@/components/auth/BrandPanel'
+import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
+import { isPlausiblePhoneNumber, normalizeWebsiteUrl } from '@/lib/validation'
 import {
   onboardingService,
   type AvailableNumber,
@@ -99,6 +101,10 @@ export default function CompanyInformationPage() {
     phone_number: '',
   })
   const [dialCode, setDialCode] = useState('+1')
+  // Per-field messages, rendered under the field they belong to. A toast was
+  // wrong for this: it names a field the user then has to go find, it covers
+  // the form while they look, and it can only ever report one problem.
+  const [errors, setErrors] = useState<Partial<Record<keyof typeof form, string>>>({})
 
   // ── Claiming a number on a carrier account ──────────────────────────────
   const [providers, setProviders] = useState<TelephonyProvider[]>([])
@@ -111,8 +117,12 @@ export default function CompanyInformationPage() {
   const [claiming, setClaiming] = useState<string | null>(null)
   const [claimed, setClaimed] = useState<ClaimedNumber | null>(null)
 
-  const set = (key: keyof typeof form) => (value: string) =>
+  const set = (key: keyof typeof form) => (value: string) => {
     setForm((f) => ({ ...f, [key]: value }))
+    // Clear as soon as they start fixing it — leaving the message up while the
+    // field is being corrected reads as "still wrong".
+    setErrors((e) => (e[key] ? { ...e, [key]: undefined } : e))
+  }
 
   // Offer number-buying only if there is actually an account to buy on.
   useEffect(() => {
@@ -190,17 +200,64 @@ export default function CompanyInformationPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.company_name.trim()) {
-      toast.error('Company name is required')
+
+    // Every field is checked and every failure is reported at once, under the
+    // field it belongs to. The API enforces all of this again — these checks
+    // exist to answer immediately, not to be the gate.
+    const found: typeof errors = {}
+
+    const companyName = form.company_name.trim()
+    if (!companyName) {
+      found.company_name = 'Enter your company name'
+    } else if (companyName.length < 2) {
+      found.company_name = 'Company name is too short'
+    }
+
+    // Optional, but if it is filled in it has to be a website. It is stored on
+    // the profile and later rendered as a link, so a bare word like "dcsdcs"
+    // becomes a broken link nobody notices until a customer clicks it.
+    let companyUrl: string | null = null
+    try {
+      companyUrl = normalizeWebsiteUrl(form.company_url)
+    } catch (err: any) {
+      found.company_url = err.message
+    }
+
+    const assistantName = form.assistant_name.trim()
+    if (assistantName && assistantName.length < 2) {
+      found.assistant_name = 'Assistant name is too short'
+    }
+
+    // Only a hand-typed number needs checking; a claimed one is already E.164.
+    if (!claimed && form.phone_number.trim() && !isPlausiblePhoneNumber(form.phone_number)) {
+      found.phone_number = 'Enter a valid phone number'
+    }
+
+    setErrors(found)
+    const firstInvalid = (
+      ['company_name', 'company_url', 'assistant_name', 'phone_number'] as const
+    ).find((field) => found[field])
+    if (firstInvalid) {
+      document.getElementById(firstInvalid)?.focus()
       return
     }
+
+    // Show the canonical form back to the user, so what they see saved is what
+    // was actually stored ("acme.com" → "https://acme.com").
+    if (companyUrl && companyUrl !== form.company_url) {
+      setForm((f) => ({ ...f, company_url: companyUrl as string }))
+    }
+
     mutation.mutate({
       ...form,
+      company_name: companyName,
+      company_url: companyUrl ?? undefined,
+      assistant_name: assistantName || undefined,
       // A claimed number is already in E.164 and must not be re-prefixed.
       phone_number: claimed
         ? claimed.phone_number
-        : form.phone_number
-          ? `${dialCode} ${form.phone_number}`.trim()
+        : form.phone_number.trim()
+          ? `${dialCode} ${form.phone_number.trim()}`
           : undefined,
     })
   }
@@ -217,17 +274,24 @@ export default function CompanyInformationPage() {
         <h1 className="text-[28px] font-medium md:font-bold text-slate-900">Company Information</h1>
         <p className="mt-1 text-sm text-slate-500">Tell us about your company and assistant</p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+        {/* noValidate: errors are rendered under each field instead of in the
+            browser's own bubble — see components/ui/field-error.tsx. */}
+        <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Company Name</label>
+              <label className={labelClass} htmlFor="company_name">
+                Company Name
+              </label>
               <input
-                className={inputClass}
+                id="company_name"
+                className={`${inputClass} ${errors.company_name ? errorInputClass : ''}`}
                 placeholder="Acme Inc."
                 value={form.company_name}
                 onChange={(e) => set('company_name')(e.target.value)}
                 disabled={mutation.isPending}
+                {...fieldErrorProps('company_name', errors.company_name)}
               />
+              <FieldError id="company_name-error" message={errors.company_name} />
             </div>
             <div>
               <label className={labelClass}>Industry Type</label>
@@ -248,14 +312,22 @@ export default function CompanyInformationPage() {
               />
             </div>
             <div>
-              <label className={labelClass}>Company URL</label>
+              <label className={labelClass} htmlFor="company_url">
+                Company URL<span className="text-slate-400"> (Optional)</span>
+              </label>
               <input
-                className={inputClass}
+                id="company_url"
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                className={`${inputClass} ${errors.company_url ? errorInputClass : ''}`}
                 placeholder="www.acme.com"
                 value={form.company_url}
                 onChange={(e) => set('company_url')(e.target.value)}
                 disabled={mutation.isPending}
+                {...fieldErrorProps('company_url', errors.company_url)}
               />
+              <FieldError id="company_url-error" message={errors.company_url} />
             </div>
           </div>
 
@@ -269,14 +341,19 @@ export default function CompanyInformationPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Assistant Name</label>
+              <label className={labelClass} htmlFor="assistant_name">
+                Assistant Name
+              </label>
               <input
-                className={inputClass}
+                id="assistant_name"
+                className={`${inputClass} ${errors.assistant_name ? errorInputClass : ''}`}
                 placeholder="e.g. Aria, Max, Sales Assistant"
                 value={form.assistant_name}
                 onChange={(e) => set('assistant_name')(e.target.value)}
                 disabled={mutation.isPending}
+                {...fieldErrorProps('assistant_name', errors.assistant_name)}
               />
+              <FieldError id="assistant_name-error" message={errors.assistant_name} />
             </div>
             <div>
               <label className={labelClass}>Preferred Language</label>
@@ -484,14 +561,19 @@ export default function CompanyInformationPage() {
                       </select>
                     </div>
                     <input
-                      className={`${inputClass} flex-1`}
+                      id="phone_number"
+                      type="tel"
+                      inputMode="tel"
+                      className={`${inputClass} flex-1 ${errors.phone_number ? errorInputClass : ''}`}
                       placeholder="(301) 798 1897"
                       value={form.phone_number}
                       onChange={(e) => set('phone_number')(e.target.value)}
                       disabled={mutation.isPending}
+                      {...fieldErrorProps('phone_number', errors.phone_number)}
                     />
                   </div>
                 )}
+                <FieldError id="phone_number-error" message={errors.phone_number} />
               </>
             )}
           </div>
