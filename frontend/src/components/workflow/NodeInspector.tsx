@@ -301,6 +301,24 @@ function SettingsTab({
   )
 }
 
+/**
+ * Show a JSON field as editable text, whichever way it was stored.
+ *
+ * The builder writes these fields as text, but a workflow created through the
+ * API holds the parsed object, and both are valid on the wire — the engine
+ * accepts either.
+ */
+export function asJsonText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return ''
+  }
+}
+
+
 function FieldControl({
   field,
   value,
@@ -381,7 +399,11 @@ function FieldControl({
           id={id}
           rows={field.type === 'json' ? 4 : 3}
           className={field.type === 'json' ? 'font-mono text-xs' : undefined}
-          value={(value as string) ?? ''}
+          // A workflow built through the API stores the parsed value here, not
+          // text. Handing an object straight to a textarea renders it as
+          // "[object Object]", and the first keystroke saved that back over the
+          // real headers — so show it as the JSON it is.
+          value={asJsonText(value)}
           placeholder={field.placeholder}
           onChange={(e) => onChange(e.target.value)}
         />

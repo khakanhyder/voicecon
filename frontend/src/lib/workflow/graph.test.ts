@@ -275,6 +275,34 @@ describe('validateFlow', () => {
     )
   })
 
+  it('accepts a JSON field that already holds parsed JSON', () => {
+    // A workflow created through the API stores the object, not the text for
+    // it. Both are valid on the wire, and JSON.parse on an object stringifies
+    // it to "[object Object]" first — which reported every such webhook as
+    // broken while it ran perfectly well.
+    const nodes = [
+      trigger(),
+      flowNode('a', 'webhook', {
+        url: 'https://example.com/hook',
+        headers: {},
+        body: { city: 'Austin' },
+      }),
+    ]
+
+    expect(validateFlow(nodes, [edge('t', 'a')])).toEqual([])
+  })
+
+  it('still reports a JSON field whose text does not parse', () => {
+    const nodes = [
+      trigger(),
+      flowNode('a', 'webhook', { url: 'https://example.com/hook', headers: '{oops' }),
+    ]
+
+    expect(validateFlow(nodes, [edge('t', 'a')])).toContainEqual(
+      expect.objectContaining({ nodeId: 'a', severity: 'error' })
+    )
+  })
+
   it('reports a node unreachable from the trigger', () => {
     const nodes = [
       trigger(),

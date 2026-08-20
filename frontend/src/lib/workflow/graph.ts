@@ -209,6 +209,12 @@ export function validateFlow(nodes: FlowNode[], edges: Edge[]): Issue[] {
       if (field.type !== 'json') continue
       const raw = node.data.config?.[field.name]
       if (!raw) continue
+      // The field holds either the text someone typed in the builder or, for a
+      // workflow created through the API, the parsed value itself. Only text
+      // needs parsing: an object already *is* the thing that text would have
+      // produced, and JSON.parse stringifies it to "[object Object]" first,
+      // which reported every such step as broken.
+      if (typeof raw !== 'string') continue
       try {
         JSON.parse(raw)
       } catch {
