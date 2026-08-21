@@ -110,6 +110,83 @@ export default function ExecutionPage() {
         caller a question they already answered is worse than failing.
       </Callout>
 
+      <H3 id="sync-retry-cap">Retries are capped during a call</H3>
+      <P>
+        A <C>sync</C> run has somebody waiting on it — usually a caller, silent on the line —
+        so the workflow&rsquo;s configured backoff is overridden while it runs that way.
+      </P>
+      <Table
+        headers={['Setting', 'Async run', 'Sync run']}
+        widths={['w-[28%]', 'w-[24%]']}
+        rows={[
+          [<C>max_retries</C>, 'As configured, up to 10', <>At most <Strong>1</Strong> retry</>],
+          [<C>retry_delay</C>, 'As configured', <>At most <Strong>2 seconds</Strong></>],
+        ]}
+      />
+      <P>
+        This is why a mid-call workflow with <C>max_retries: 3</C> and <C>retry_delay: 60</C>{' '}
+        does not pause for three minutes — it makes one extra attempt after two seconds and
+        then reports the failure. Three minutes of dead air would end the call long before the
+        third attempt.
+      </P>
+      <Callout kind="tip" title="Design the failure, do not wait it out">
+        If a mid-call step can fail, give the graph somewhere to go: follow it with a{' '}
+        <A href="/docs/nodes/logic#condition">Branch</A> on the result and a{' '}
+        <A href="/docs/nodes/conversation#speak">Speak</A> node that says so honestly, or a{' '}
+        <A href="/docs/nodes/conversation#transfer">Transfer</A> to a human. A caller told
+        &ldquo;I can&rsquo;t reach that system right now, let me put you through&rdquo; has a
+        far better call than one held in silence.
+      </Callout>
+
+      <H3 id="per-node-settings">Per-node overrides</H3>
+      <P>
+        The settings above are workflow-wide. A single node can override them through its{' '}
+        <C>settings</C> object in the workflow definition — useful when one step talks to a
+        service with different characteristics from the rest.
+      </P>
+      <Table
+        headers={['Setting', 'Effect']}
+        widths={['w-[32%]']}
+        rows={[
+          [
+            <C>{'settings.on_error'}</C>,
+            <>
+              <C>continue</C> or <C>stop</C> for this node alone, overriding the
+              workflow&rsquo;s <C>error_handling</C>.
+            </>,
+          ],
+          [
+            <C>{'settings.retry.enabled'}</C>,
+            <>
+              Turns retrying on for a node that would not normally retry, or off for one that
+              would.
+            </>,
+          ],
+          [<C>{'settings.retry.max_tries'}</C>, <>Retry count for this node.</>],
+          [<C>{'settings.retry.delay_seconds'}</C>, <>Wait between this node&rsquo;s attempts.</>],
+          [
+            <C>{'settings.retry.backoff'}</C>,
+            <>
+              <C>fixed</C> (the default) waits the same each time; <C>exponential</C> doubles
+              the wait on every attempt, which is kinder to a service that is already
+              struggling.
+            </>,
+          ],
+          [
+            <C>{'settings.timeout_seconds'}</C>,
+            <>
+              Abandon this step if it has not finished in time. The step is marked failed —
+              a timeout is not retried.
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="note" title="These are definition-level, not builder fields">
+        The inspector does not show them; set them on the node in the workflow definition
+        through the <A href="/docs/api#workflows-endpoints">API</A>. The sync caps above still
+        apply on top of whatever a node asks for.
+      </Callout>
+
       <H2 id="execution-history">Execution history</H2>
       <P>
         Every run is recorded, whether it came from a test, a schedule, a webhook, or an

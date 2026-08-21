@@ -92,8 +92,8 @@ export default function NewAgentPage() {
       </div>
 
       {/* Editor + rail */}
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
-        <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
+        <div className="min-w-0 space-y-5">
           {tabIndex === -1 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
               <p className="text-sm font-medium text-slate-700">{activeLabel} is configured after the assistant exists</p>
@@ -120,7 +120,7 @@ export default function NewAgentPage() {
           </div>
         </div>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <AgentIdentityFields form={form} set={set} />
 
           <button

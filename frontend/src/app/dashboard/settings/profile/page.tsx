@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,18 +13,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/store/authStore'
 import { authService } from '@/lib/auth'
 import { getErrorMessage } from '@/lib/api'
-
-const TIMEZONES = [
-  ['UTC', 'UTC'],
-  ['America/New_York', 'Eastern Time (ET)'],
-  ['America/Chicago', 'Central Time (CT)'],
-  ['America/Denver', 'Mountain Time (MT)'],
-  ['America/Los_Angeles', 'Pacific Time (PT)'],
-  ['Europe/London', 'London (GMT)'],
-  ['Europe/Paris', 'Paris (CET)'],
-  ['Asia/Karachi', 'Karachi (PKT)'],
-  ['Asia/Tokyo', 'Tokyo (JST)'],
-]
 
 export default function ProfileSettingsPage() {
   const router = useRouter()
@@ -37,7 +26,6 @@ export default function ProfileSettingsPage() {
     phone_number: '',
     company_name: '',
     avatar_url: '',
-    timezone: 'UTC',
     bio: '',
   })
 
@@ -56,7 +44,6 @@ export default function ProfileSettingsPage() {
       phone_number: u.phone_number || '',
       company_name: u.company_name || '',
       avatar_url: u.avatar_url || '',
-      timezone: u.timezone || 'UTC',
       bio: u.bio || '',
     })
 
@@ -86,7 +73,6 @@ export default function ProfileSettingsPage() {
         phone_number: formData.phone_number || null,
         company_name: formData.company_name || null,
         avatar_url: formData.avatar_url || null,
-        timezone: formData.timezone,
         bio: formData.bio || null,
       })
       setUser(updated)
@@ -260,29 +246,15 @@ export default function ProfileSettingsPage() {
               rows={4}
               className="w-full rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 py-2 text-[14px]" />
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            Timezone and language moved to{' '}
+            <Link href="/dashboard/settings" className="font-semibold text-[#106959] hover:underline">
+              Settings → General
+            </Link>
+            .
+          </p>
         </div>
-
-        {/* Preferences */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Preferences</h2>
-
-          <div className="space-y-2">
-            <Label htmlFor="timezone" className="text-[14px] font-bold text-[#000000] font-poppins block">Timezone</Label>
-            <select
-              id="timezone" className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"
-              value={formData.timezone}
-              onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-            >
-              {TIMEZONES.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-       
 
         <div>
           <Button type="submit" size="lg" disabled={saving}>

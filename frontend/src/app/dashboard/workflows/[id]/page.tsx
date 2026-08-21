@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import {
+  describeTrigger,
+  getTriggerDescriptor,
+} from '@/lib/workflow/triggerTypes'
 import { toast } from 'sonner'
 
 import { useConfirm } from '@/hooks/use-confirm'
@@ -355,16 +359,42 @@ export default function WorkflowDetailPage() {
           <div className="space-y-3">
             <div className="flex justify-between items-center pb-2 border-b">
               <span className="text-sm text-muted-foreground">Type</span>
-              <span className="font-medium capitalize">{workflow.trigger_type.replace('_', ' ')}</span>
+              <span className="font-medium">
+                {getTriggerDescriptor(workflow.trigger_type).label}
+              </span>
             </div>
 
+            {/*
+              * A sentence rather than the raw config blob. "Every Friday at
+              * 17:30 Asia/Karachi" is the question someone opens this page to
+              * answer; `{"schedule_type":"cron","cron_expression":"30 17 * * 5"}`
+              * makes them decode it themselves.
+              */}
+            <p className="text-sm">
+              {describeTrigger(workflow.trigger_type, workflow.trigger_config)}
+            </p>
+
+            {workflow.trigger_type === 'webhook' &&
+              workflow.trigger_config?.webhook_key && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="text-sm font-medium">Webhook URL</div>
+                  <code className="block break-all rounded bg-muted p-2 text-[11px]">
+                    {API_ENDPOINTS.WORKFLOW_WEBHOOK(
+                      workflow.trigger_config.webhook_key
+                    )}
+                  </code>
+                </div>
+              )}
+
             {Object.keys(workflow.trigger_config || {}).length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Configuration:</div>
-                <pre className="text-xs bg-muted p-3 rounded overflow-auto">
+              <details className="pt-1">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  Raw configuration
+                </summary>
+                <pre className="mt-2 overflow-auto rounded bg-muted p-3 text-xs">
                   {JSON.stringify(workflow.trigger_config, null, 2)}
                 </pre>
-              </div>
+              </details>
             )}
           </div>
         </div>

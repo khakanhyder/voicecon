@@ -15,6 +15,8 @@ export type FieldType =
   | 'nodeRef'
   /** Picks one of the org's connected integrations. */
   | 'connection'
+  /** Picks one of the workspace's configured tools. */
+  | 'tool'
   /** Picks an action on the connection chosen in `dependsOn`. */
   | 'connectionAction'
   /** Editable list of key -> value assignments. */
@@ -48,11 +50,28 @@ export interface FieldDescriptor {
   dependsOn?: string
 }
 
+/**
+ * Where a step appears in the palette.
+ *
+ * `default` — always listed.
+ * `advanced` — behind the palette's "Advanced" toggle. For steps that solve a
+ *   real problem but are the wrong first answer: Logic held eight of the
+ *   seventeen step types, and a beginner scanning it for "how do I check
+ *   something" had to rule out Merge, Loop and Calculate first.
+ * `hidden` — never offered, but still fully supported. This is how a step is
+ *   retired without breaking the workflows already using it: existing nodes
+ *   keep their descriptor, so they render, run and stay editable — unlike an
+ *   outright removal, which drops them to `UNKNOWN_NODE` and forces a rebuild.
+ */
+export type PaletteVisibility = 'default' | 'advanced' | 'hidden'
+
 export interface NodeDescriptor {
   type: string
   label: string
   description: string
-  category: 'Trigger' | 'Conversation' | 'Logic' | 'Actions' | 'AI'
+  category: 'Trigger' | 'Conversation' | 'Logic' | 'Actions' | 'AI' | 'Notes'
+  /** Palette placement. Defaults to `default` when absent. */
+  palette?: PaletteVisibility
   /** Tailwind classes for the node's icon chip. */
   accent: string
   /** Lucide icon name, resolved in the icon map. */
@@ -282,6 +301,12 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     label: 'Filter',
     description: 'Continue only when a condition holds',
     category: 'Logic',
+    // Retired from the palette: Filter is Branch with its `false` output left
+    // unconnected, and offering both made "which one checks a value?" a
+    // three-way choice (Branch, Switch, Filter) in a single category. Kept
+    // fully working so the workflows already using it keep running and stay
+    // editable — see `PaletteVisibility`.
+    palette: 'hidden',
     accent: 'bg-lime-500',
     icon: 'FilterIcon',
     outputs: OUT,
@@ -299,10 +324,17 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
         label: 'Operator',
         type: 'select',
         default: 'equals',
+        // Deliberately identical to Branch's list. It used to be a subset of
+        // it — no not_contains, starts_with or ends_with — so a flow built with
+        // Branch could not be expressed with Filter, for no reason anyone
+        // could see. The engine supported all ten either way.
         options: [
           { value: 'equals', label: 'equals' },
           { value: 'not_equals', label: 'does not equal' },
           { value: 'contains', label: 'contains' },
+          { value: 'not_contains', label: 'does not contain' },
+          { value: 'starts_with', label: 'starts with' },
+          { value: 'ends_with', label: 'ends with' },
           { value: 'greater_than', label: 'is greater than' },
           { value: 'less_than', label: 'is less than' },
           { value: 'is_empty', label: 'is empty' },
@@ -319,6 +351,9 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
             'equals',
             'not_equals',
             'contains',
+            'not_contains',
+            'starts_with',
+            'ends_with',
             'greater_than',
             'less_than',
           ],
@@ -336,6 +371,7 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     label: 'Merge',
     description: 'Join parallel branches back together',
     category: 'Logic',
+    palette: 'advanced',
     accent: 'bg-fuchsia-500',
     icon: 'GitMerge',
     outputs: OUT,
@@ -349,6 +385,7 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     label: 'Loop Over Items',
     description: 'Run steps once per item in a list',
     category: 'Logic',
+    palette: 'advanced',
     accent: 'bg-emerald-600',
     icon: 'Repeat',
     outputs: [
@@ -409,7 +446,11 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
   tool: {
     type: 'tool',
     label: 'Run Tool',
-    description: 'Execute a configured tool or function',
+    // These three descriptions are written as a set. All three call something
+    // outside the workflow, and describing each by its mechanism left the
+    // reader to work out which one they wanted; each now names the case it is
+    // for instead.
+    description: 'A tool you built in the Tools section',
     category: 'Actions',
     accent: 'bg-orange-500',
     icon: 'Wrench',
@@ -418,21 +459,22 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     fields: [
       {
         name: 'tool_id',
-        label: 'Tool ID',
-        type: 'text',
+        label: 'Tool',
+        type: 'tool',
         required: true,
-        placeholder: 'tool_xxxxxxxx',
-        help: 'Find tool IDs in the Tools section.',
+        help: 'Tools you have created in the Tools section.',
       },
       { name: 'parameters', label: 'Parameters (JSON)', type: 'json', default: '{}' },
     ],
-    summary: (c) => c.tool_id || 'No tool selected',
+    // The descriptor has no access to the tool list, and a bare UUID tells the
+    // reader nothing, so the canvas reports only whether one is chosen.
+    summary: (c) => (c.tool_id ? 'Runs a configured tool' : 'No tool selected'),
   },
 
   webhook: {
     type: 'webhook',
     label: 'Webhook',
-    description: 'Call an external HTTP endpoint',
+    description: 'Any other URL — send an HTTP request',
     category: 'Actions',
     accent: 'bg-cyan-500',
     icon: 'Globe',
@@ -502,7 +544,7 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
   action: {
     type: 'action',
     label: 'Integration',
-    description: 'Run an action on a connected app',
+    description: 'An app you connected, like Slack or HubSpot',
     category: 'Actions',
     accent: 'bg-indigo-500',
     icon: 'Plug',
@@ -566,6 +608,7 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     label: 'Calculate',
     description: 'Work out a number from other values',
     category: 'Logic',
+    palette: 'advanced',
     accent: 'bg-zinc-600',
     icon: 'Calculator',
     outputs: OUT,
@@ -615,6 +658,30 @@ export const NODE_TYPES: Record<string, NodeDescriptor> = {
     summary: (c) => `Wait ${c.delay_seconds ?? 0}s`,
   },
 
+  note: {
+    type: 'note',
+    label: 'Note',
+    description: 'A comment on the canvas — does not run',
+    category: 'Notes',
+    accent: 'bg-yellow-500',
+    icon: 'StickyNote',
+    // No handles at all: a note is annotation, not a step. Giving it an input
+    // would let someone wire it into the flow, and the engine has no handler
+    // for it — so it must be impossible to connect rather than merely unwise.
+    outputs: NONE,
+    hasInput: false,
+    fields: [
+      {
+        name: 'text',
+        label: 'Note',
+        type: 'textarea',
+        placeholder: 'Why this branch exists, what to check before changing it…',
+        help: 'Only visible in the builder. Nothing here affects a run.',
+      },
+    ],
+    summary: (c) => c.text || 'Empty note',
+  },
+
   end: {
     type: 'end',
     label: 'End Call',
@@ -641,7 +708,26 @@ export const PALETTE_CATEGORIES: NodeDescriptor['category'][] = [
   'Logic',
   'Actions',
   'AI',
+  'Notes',
 ]
+
+/** Where this step sits in the palette. */
+export function paletteVisibility(
+  descriptor: NodeDescriptor
+): PaletteVisibility {
+  return descriptor.palette ?? 'default'
+}
+
+/**
+ * Steps that never execute.
+ *
+ * The engine has no handler for these, so they must be excluded from anything
+ * that reasons about the flow — validation, reachability, and the graph sent
+ * to the API on save.
+ */
+export function isAnnotation(type: string): boolean {
+  return type === 'note'
+}
 
 /**
  * Descriptor shown for a node type this build no longer knows about — a flow

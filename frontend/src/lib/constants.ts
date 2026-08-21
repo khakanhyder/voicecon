@@ -65,6 +65,16 @@ export const API_ENDPOINTS = {
   WORKFLOW_EXECUTE: (id: string) => `${API_BASE}/api/v1/workflows/${id}/execute`,
   WORKFLOW_EXECUTIONS: (id: string) => `${API_BASE}/api/v1/workflows/${id}/executions`,
   WORKFLOW_VALIDATE: (id: string) => `${API_BASE}/api/v1/workflows/${id}/validate`,
+  // Public: the URL an external system posts to in order to fire a
+  // webhook-triggered workflow. Shown to the user, not called by the app.
+  WORKFLOW_WEBHOOK: (key: string) => `${API_BASE}/api/v1/workflows/webhook/${key}`,
+
+  // Marketplace templates
+  WORKFLOW_TEMPLATES: `${API_BASE}/api/v1/marketplace/templates/workflows`,
+  WORKFLOW_TEMPLATE: (slug: string) =>
+    `${API_BASE}/api/v1/marketplace/templates/workflows/${slug}`,
+  WORKFLOW_TEMPLATE_INSTALL: (slug: string) =>
+    `${API_BASE}/api/v1/marketplace/templates/workflows/${slug}/install`,
 
   // Analytics
   ANALYTICS: `${API_BASE}/api/v1/analytics`,

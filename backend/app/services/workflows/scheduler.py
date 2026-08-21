@@ -7,6 +7,7 @@ import logging
 import asyncio
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from sqlalchemy import select, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,31 @@ logger = logging.getLogger(__name__)
 #: ``_check_interval_schedule`` uses it to decide how much slack to allow so
 #: intervals don't systematically slip a whole poll.
 POLL_INTERVAL_SECONDS = 30
+
+
+def _resolve_timezone(name: Optional[str]) -> ZoneInfo:
+    """
+    Look up an IANA zone, falling back to UTC.
+
+    The zone is free text in the trigger config, so a typo must not stop the
+    workflow from ever running — UTC is the behaviour that predates the
+    setting, which makes it the safe default.
+    """
+    if not name:
+        return ZoneInfo("UTC")
+
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning(f"Unknown schedule timezone {name!r}; falling back to UTC")
+        return ZoneInfo("UTC")
+
+
+def _to_zone(value: datetime, tz: ZoneInfo) -> datetime:
+    """Read a stored naive-UTC datetime as an aware datetime in ``tz``."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(tz)
 
 
 class WorkflowScheduler:
@@ -273,24 +299,32 @@ class WorkflowScheduler:
             return False
 
         try:
-            # Get last execution time
+            # Evaluate the expression in the workflow's own zone.
+            #
+            # Everything stored here is naive UTC (``datetime.utcnow`` and
+            # ``last_executed_at``), so "every day at 09:00" used to mean 09:00
+            # UTC no matter where the user was. Shifting into the configured
+            # zone before matching, and back out afterwards, makes the wall
+            # clock the user picked the one that fires — including across a
+            # daylight-saving change, which croniter handles on aware values.
+            tz = _resolve_timezone(config.get("timezone"))
+            local_now = _to_zone(now, tz)
+
             last_execution = workflow.last_executed_at
 
             if last_execution is None:
-                # Never executed, check if should trigger now
-                cron = croniter(cron_expression, now)
-                next_run = cron.get_prev(datetime)
+                # Never executed: fire if an occurrence fell within the last
+                # poll, so a newly activated workflow does not wait a whole
+                # cycle.
+                cron = croniter(cron_expression, local_now)
+                previous_run = cron.get_prev(datetime)
 
-                # If next run is within last minute, trigger
-                if (now - next_run).total_seconds() < 60:
-                    return True
-            else:
-                # Check if cron has triggered since last execution
-                cron = croniter(cron_expression, last_execution)
-                next_run = cron.get_next(datetime)
+                return (local_now - previous_run).total_seconds() < 60
 
-                if next_run <= now:
-                    return True
+            cron = croniter(cron_expression, _to_zone(last_execution, tz))
+            next_run = cron.get_next(datetime)
+
+            return next_run <= local_now
 
         except Exception as e:
             logger.error(f"Error parsing cron expression: {e}")

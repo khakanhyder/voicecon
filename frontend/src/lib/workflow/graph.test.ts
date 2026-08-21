@@ -13,11 +13,19 @@ import { describe, expect, it } from 'vitest'
 import {
   apiToFlow,
   autoLayout,
+  flowNodeComponent,
   flowToApi,
   validateFlow,
   type ApiGraph,
   type FlowNode,
 } from './graph'
+import {
+  NODE_TYPES,
+  PALETTE_CATEGORIES,
+  getDescriptor,
+  isKnownNodeType,
+  paletteVisibility,
+} from './nodeTypes'
 
 function apiNode(overrides: Partial<ApiGraph['nodes'][number]> = {}) {
   return {
@@ -402,5 +410,174 @@ describe('validateFlow', () => {
     ])
 
     expect(issues.some((i) => /loop/i.test(i.message))).toBe(false)
+  })
+})
+
+describe('the Run Tool node', () => {
+  it('picks a tool rather than asking for a pasted id', () => {
+    // The field was free text whose placeholder read "tool_xxxxxxxx", while
+    // the engine parses the value as a UUID and the Tools page prints no id
+    // anywhere — so the node could not be configured correctly from the UI.
+    const field = getDescriptor('tool').fields.find((f) => f.name === 'tool_id')
+    expect(field?.type).toBe('tool')
+    expect(field?.required).toBe(true)
+    expect(field?.placeholder).toBeUndefined()
+  })
+
+  it('reports on the canvas whether a tool is chosen', () => {
+    const { summary } = getDescriptor('tool')
+    expect(summary({})).toBe('No tool selected')
+    // A bare UUID on the canvas node tells the reader nothing.
+    expect(summary({ tool_id: '7f4a…' })).not.toContain('7f4a')
+  })
+})
+
+describe('the node registry', () => {
+  it('has no Code node, and has the nodes that replaced it', () => {
+    expect(isKnownNodeType('code')).toBe(false)
+    expect(isKnownNodeType('transform')).toBe(true)
+    expect(isKnownNodeType('calculate')).toBe(true)
+  })
+
+  it('gives a retired node type a descriptor with no fields', () => {
+    // Falling back to another node's descriptor would read the stored config
+    // against the wrong fields and discard it on the next save.
+    const retired = getDescriptor('code')
+    expect(retired.fields).toEqual([])
+    expect(retired.label).toBe('Unsupported step')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+describe('notes are annotations, not steps', () => {
+  const note = (): FlowNode => ({
+    id: 'note1',
+    type: 'noteNode',
+    position: { x: 0, y: 0 },
+    data: {
+      label: 'Note',
+      nodeType: 'note',
+      config: { text: 'Check with billing before changing this' },
+      settings: {},
+    },
+  })
+
+  const trigger = (): FlowNode => ({
+    id: 't1',
+    type: 'triggerNode',
+    position: { x: 0, y: 0 },
+    data: { label: 'Trigger', nodeType: 'trigger', config: {}, settings: {} },
+  })
+
+  const speak = (): FlowNode => ({
+    id: 's1',
+    type: 'stepNode',
+    position: { x: 0, y: 0 },
+    data: {
+      label: 'Say hi',
+      nodeType: 'speak',
+      config: { message: 'Hello' },
+      settings: {},
+    },
+  })
+
+  it('renders through its own component, which has no handles', () => {
+    expect(flowNodeComponent('note')).toBe('noteNode')
+    expect(flowNodeComponent('trigger')).toBe('triggerNode')
+    expect(flowNodeComponent('speak')).toBe('stepNode')
+  })
+
+  it('does not count as a step, so a note-only canvas is still empty', () => {
+    const issues = validateFlow([trigger(), note()], [])
+    expect(issues.map((i) => i.message)).toContain('Workflow has no steps yet')
+  })
+
+  it('is not reported as unconnected — it is unconnected by design', () => {
+    const edges: Edge[] = [
+      {
+        id: 'e1',
+        source: 't1',
+        target: 's1',
+        sourceHandle: 'out',
+        targetHandle: 'in',
+      },
+    ]
+    const issues = validateFlow([trigger(), speak(), note()], edges)
+
+    expect(issues.filter((i) => i.nodeId === 'note1')).toHaveLength(0)
+    expect(issues).toHaveLength(0)
+  })
+
+  it('survives the save round trip with its text intact', () => {
+    const api = flowToApi([note()], [])
+    expect(api.nodes[0]).toMatchObject({
+      id: 'note1',
+      type: 'note',
+      config: { text: 'Check with billing before changing this' },
+    })
+    expect(apiToFlow(api).nodes[0].data.config.text).toBe(
+      'Check with billing before changing this'
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Palette
+// ---------------------------------------------------------------------------
+
+describe('palette placement', () => {
+  it('retires Filter from the palette without breaking it', () => {
+    // Hiding, not deleting: workflows already using Filter must keep running
+    // and stay editable. Dropping the descriptor would strand them on
+    // UNKNOWN_NODE and force a rebuild.
+    expect(paletteVisibility(NODE_TYPES.filter)).toBe('hidden')
+    expect(isKnownNodeType('filter')).toBe(true)
+    expect(NODE_TYPES.filter.fields.length).toBeGreaterThan(0)
+  })
+
+  it('gives Filter the same operators as Branch', () => {
+    const operators = (type: string) =>
+      NODE_TYPES[type].fields
+        .find((f) => f.name === 'operator')!
+        .options!.map((o) => o.value)
+
+    expect(operators('filter')).toEqual(operators('condition'))
+  })
+
+  it('moves the rarely-needed Logic steps behind Advanced', () => {
+    for (const type of ['merge', 'loop', 'calculate']) {
+      expect(paletteVisibility(NODE_TYPES[type])).toBe('advanced')
+    }
+  })
+
+  it('leaves the everyday steps in the default palette', () => {
+    for (const type of ['speak', 'ask', 'condition', 'switch', 'transform', 'delay']) {
+      expect(paletteVisibility(NODE_TYPES[type])).toBe('default')
+    }
+  })
+
+  it('describes the three "call something external" steps distinguishably', () => {
+    // All three call outside the workflow. Describing each by its mechanism
+    // left the reader to work out which one they wanted.
+    const descriptions = ['tool', 'webhook', 'action'].map(
+      (t) => NODE_TYPES[t].description
+    )
+    expect(new Set(descriptions).size).toBe(3)
+    expect(NODE_TYPES.action.description).toMatch(/connected/i)
+    expect(NODE_TYPES.tool.description).toMatch(/Tools section/i)
+  })
+
+  it('lists every category a descriptor uses', () => {
+    const used = new Set(
+      Object.values(NODE_TYPES)
+        .filter((d) => d.type !== 'trigger')
+        .map((d) => d.category)
+    )
+    for (const category of used) {
+      expect(PALETTE_CATEGORIES).toContain(category)
+    }
   })
 })

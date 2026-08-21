@@ -14,10 +14,12 @@ class Tool(Base):
     organization_id = Column(Uuid(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    # Category: phone_call | assistant | integration
+    # Category: workflow | phone_call | assistant | integration
     category = Column(String(50), nullable=False, default="integration")
-    # Type: transfer_call | hang_up | leave_voicemail | dtmf | send_sms | sip_request |
-    #       handoff | query_knowledge_base | api_request | mcp | slack | google_sheets | google_calendar
+    # Type: workflow | transfer_call | hang_up | leave_voicemail | dtmf | send_sms |
+    #       sip_request | handoff | query_knowledge_base | connected_integration |
+    #       api_request | mcp | slack | google_sheets | google_calendar | gohighlevel |
+    #       custom_tool
     tool_type = Column(String(50), nullable=False)
     config = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True)

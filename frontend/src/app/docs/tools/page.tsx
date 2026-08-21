@@ -150,13 +150,117 @@ export default function ToolsPage() {
 
       <H2 id="testing-a-tool">Testing a tool</H2>
       <P>
-        Each tool has a <Strong>Test</Strong> action. Supply parameter values and it runs for
-        real, returning success or failure, the response body, and elapsed time.
+        Each tool has a <Strong>Test</Strong> action. Supply parameter values and it reports
+        success or failure, the response, and elapsed time.
       </P>
-      <Callout kind="warning" title="Tests are real">
-        Testing a Send Text tool sends an actual SMS. Testing a CRM tool creates an actual
-        record. Use test numbers and sandbox connections.
+
+      <P>
+        What Test actually does depends on the family, because some tools have nothing to act
+        on outside a live call.
+      </P>
+      <Table
+        headers={['Tool types', 'What Test does']}
+        widths={['w-[34%]']}
+        rows={[
+          [
+            <>
+              <A href="/docs/tools/integration#api-request">API Request</A>,{' '}
+              <A href="/docs/tools/integration#custom-tool">Custom Tool</A>,{' '}
+              <A href="/docs/tools/integration#mcp">MCP</A>,{' '}
+              <A href="/docs/tools/integration#slack">Slack</A>
+            </>,
+            <>
+              <Strong>Sends the real request</Strong>, through exactly the same code a live
+              call uses — same headers, same authentication, same body template, same
+              destination checks. A tool that passes here behaves the same way on the phone.
+            </>,
+          ],
+          [
+            <><A href="/docs/tools/phone-call">Phone call tools</A>, Handoff</>,
+            'Reports that there is no live call to act on. Nothing is dialled, transferred, or texted.',
+          ],
+          [
+            <A href="/docs/tools/workflow">Run Workflow</A>,
+            <>
+              Declines, because running it would run the whole workflow with its side effects.
+              Use the builder&rsquo;s <Strong>Run</Strong> button, which shows every step.
+            </>,
+          ],
+          [
+            <A href="/docs/tools/assistant#query-knowledge-base">Query Knowledge Base</A>,
+            <>
+              Declines, and points at the knowledge base&rsquo;s own{' '}
+              <A href="/docs/knowledge-base#testing-retrieval">Test retrieval</A> panel, which
+              shows the matched passages and their scores.
+            </>,
+          ],
+          [
+            <A href="/docs/tools/integration#connected-integration">Connected Integration</A>,
+            <>
+              Declines, and points at <A href="/docs/integrations#testing-a-connection">
+              Integrations</A>, where the connection itself can be checked.
+            </>,
+          ],
+        ]}
+      />
+
+      <Callout kind="warning" title="A passing test is a real request">
+        For the four HTTP types above, Test hits your endpoint for real. If that endpoint
+        creates a record, charges a card, or posts to a channel people read, it will do so.
+        Point them at a sandbox while you are still building.
       </Callout>
+
+      <H3 id="reading-a-test-result">Reading the result</H3>
+      <P>
+        The four HTTP types return the same shape, and it is the same shape later workflow
+        steps read.
+      </P>
+      <Table
+        headers={['Field', 'Is']}
+        widths={['w-[22%]']}
+        rows={[
+          [<C>status_code</C>, <>The HTTP status — <C>200</C>, <C>404</C>, <C>500</C>.</>],
+          [<C>ok</C>, <>Whether the status was a success. This is what to branch on.</>],
+          [<C>json</C>, <>The parsed response, when the endpoint returned JSON. Reach into it with dots.</>],
+          [<C>body</C>, <>The raw response text, capped at 2,000 characters. Present either way, so a non-JSON error page is still visible.</>],
+        ]}
+      />
+      <Callout kind="tip" title="A 500 is not a failed tool">
+        <C>success</C> means the request was made and answered. If your endpoint replied{' '}
+        <C>500</C>, the tool succeeded and <C>ok</C> is <C>false</C> — check{' '}
+        <C>status_code</C> and <C>body</C> to see what your server said.
+      </Callout>
+
+      <H3>When a test fails</H3>
+      <P>
+        The message names what to change, rather than reporting an internal error:
+      </P>
+      <Table
+        headers={['Message', 'Means']}
+        widths={['w-[42%]']}
+        rows={[
+          [
+            <C>Headers is not valid JSON: …</C>,
+            'The field names the line and column. Usually a trailing comma or a missing quote.',
+          ],
+          [
+            <C>… url rejected: …</C>,
+            <>
+              The destination is not a public address. See{' '}
+              <A href="/docs/tools/integration#api-request-limits">Where it may connect</A>.
+            </>,
+          ],
+          [
+            <C>Bearer authentication is selected but no token is set</C>,
+            'An auth mode was chosen and its credential left blank.',
+          ],
+          [
+            <C>The request timed out</C>,
+            'Your endpoint did not answer in time. Raise the timeout, or check it is reachable.',
+          ],
+        ]}
+      />
+
       <P>
         A tool that passes its test but never fires on a call is not a configuration problem —
         it is a naming and description problem. Rewrite the description to name the situation.

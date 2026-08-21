@@ -1,7 +1,7 @@
 import { DocPage, docMetadata } from '@/components/docs/DocPage'
 import { CodeBlock } from '@/components/docs/CodeBlock'
 import {
-  A, C, Callout, H2, LI, P, ParamTable, Strong, Table, UL,
+  A, C, Callout, H2, H3, LI, P, ParamTable, Strong, Table, UL,
 } from '@/components/docs/prose'
 
 export const metadata = docMetadata('/docs/workflows/triggers')
@@ -51,33 +51,63 @@ export default function TriggersPage() {
       </P>
 
       <H2 id="schedule">Schedule</H2>
-      <P>Runs on a recurring timetable, with no caller involved.</P>
+      <P>
+        Runs on a timetable, with no caller involved. There are three kinds, chosen with{' '}
+        <C>schedule_type</C>.
+      </P>
       <ParamTable
         params={[
           {
-            name: 'cron',
-            type: 'string',
+            name: 'schedule_type',
+            type: 'enum',
             required: true,
             description: (
               <>
-                Standard five-field cron expression. <C>0 9 * * 1-5</C> is 09:00 on weekdays;{' '}
-                <C>*/15 * * * *</C> is every fifteen minutes.
+                <C>cron</C>, <C>interval</C>, or <C>one_time</C>. Each needs its own companion
+                field below.
               </>
             ),
           },
           {
-            name: 'timezone',
-            type: 'IANA zone',
-            default: 'UTC',
+            name: 'cron_expression',
+            type: 'string',
             description: (
               <>
-                The zone the expression is read in. Set this to your business timezone or
-                &ldquo;9am&rdquo; will drift by an hour twice a year.
+                Required when <C>schedule_type</C> is <C>cron</C>. A standard five-field cron
+                expression: <C>0 9 * * 1-5</C> is 09:00 on weekdays, <C>*/15 * * * *</C> is
+                every fifteen minutes. Rejected at save time if it does not parse.
+              </>
+            ),
+          },
+          {
+            name: 'interval_seconds',
+            type: 'number',
+            description: (
+              <>
+                Required when <C>schedule_type</C> is <C>interval</C>. A positive whole number
+                of seconds between runs — simpler than cron when you just want &ldquo;every
+                ten minutes&rdquo;.
+              </>
+            ),
+          },
+          {
+            name: 'scheduled_at',
+            type: 'ISO 8601 datetime',
+            description: (
+              <>
+                Required when <C>schedule_type</C> is <C>one_time</C>. Runs once, then never
+                again — e.g. <C>2026-09-01T09:00:00Z</C>.
               </>
             ),
           },
         ]}
       />
+      <Callout kind="warning" title="Schedules run in UTC">
+        Cron expressions are evaluated in UTC; there is no timezone setting. Convert your
+        local time yourself — 09:00 London in winter is <C>0 9 * * *</C>, and in summer it is{' '}
+        <C>0 8 * * *</C>. If the hour matters, either accept the seasonal drift or use two
+        workflows with date-bounded schedules.
+      </Callout>
       <Callout kind="warning" title="Scheduled runs have no caller">
         Conversation nodes — Speak, Ask, Transfer, End Call — have nobody to talk to on a
         scheduled run. Keep scheduled workflows to Logic and Action nodes.
@@ -86,33 +116,49 @@ export default function TriggersPage() {
       <H2 id="webhook">Webhook</H2>
       <P>
         Gives the workflow a URL. Any system that can send an HTTP request can start it, and
-        the request body arrives as the trigger data.
+        the request body arrives as the trigger data. The endpoint is public — the key in the
+        path is what authorises the call.
       </P>
+      <CodeBlock
+        language="Starting a workflow by webhook"
+        code={`POST https://<your-host>/api/v1/workflows/webhook/<webhook_key>
+Content-Type: application/json
+
+{ "order_id": 4021, "status": "shipped" }`}
+      />
       <ParamTable
         params={[
           {
-            name: 'url',
+            name: 'webhook_key',
             type: 'string',
-            description: 'Generated for you when you select this trigger. Copy it into the sending system.',
-          },
-          {
-            name: 'secret',
-            type: 'string',
+            required: true,
             description: (
               <>
-                Shared secret for verifying the sender. Set it whenever the URL is known
-                outside your organisation — an unauthenticated webhook URL is an open door.
+                The shared secret that authorises a request, and the last path segment of the
+                URL above. At least 16 characters; a 32-byte random key is generated for you
+                when you create a webhook workflow without supplying one.
               </>
             ),
           },
           {
-            name: 'method',
-            type: 'enum',
-            default: 'POST',
-            description: 'The HTTP method the endpoint accepts.',
+            name: 'allowed_ips',
+            type: 'string[]',
+            description: (
+              <>
+                Optional source-IP allowlist. When present, a request from any other address
+                is refused even with the right key.
+              </>
+            ),
           },
         ]}
       />
+
+      <Callout kind="warning" title="No key means no runs">
+        A webhook workflow with no <C>webhook_key</C> configured never fires — requests are
+        refused rather than accepted. That is deliberate: treating a missing key as &ldquo;no
+        check needed&rdquo; would let anyone who found the public endpoint run your workflow.
+        If your webhook workflow appears to do nothing, this is the first thing to check.
+      </Callout>
       <P>
         A request body of <C>{'{"order_id": 4021, "status": "shipped"}'}</C> makes{' '}
         <C>{'{{trigger.order_id}}'}</C> the number <C>4021</C> — types are preserved, not
@@ -130,7 +176,8 @@ export default function TriggersPage() {
         <LI>Post a notification so a human can listen in if needed.</LI>
       </UL>
       <P>
-        Trigger data includes the call id, direction, from and to numbers, and the agent.
+        Trigger data is the same shape for both call triggers — see{' '}
+        <A href="#call-trigger-data">what a call trigger passes in</A>.
       </P>
       <Callout kind="note" title="This does not shape the call">
         A call-started workflow cannot speak to the caller — the agent is already handling
@@ -150,16 +197,66 @@ export default function TriggersPage() {
         <LI>Alert a supervisor when sentiment came back negative.</LI>
       </UL>
       <P>
-        Trigger data carries the full call record: duration, status, transcript, summary,
-        sentiment, intent, topics, and cost.
+        By this point the transcript, intent, and sentiment have been worked out, so they are
+        all available to the workflow.
       </P>
       <CodeBlock
         language="Filtering to the calls you care about"
         code={`Trigger (call_completed)
-  → Filter: trigger.duration_seconds greater_than 30
-  → Filter: trigger.sentiment_label equals negative
+  → Filter: trigger.duration greater_than 30
+  → Filter: trigger.sentiment equals negative
   → Integration: create a follow-up task`}
       />
+
+      <H3 id="call-trigger-data">What a call trigger passes in</H3>
+      <P>
+        Both call triggers deliver the same fixed set of fields. Anything not listed here is
+        not available — reach for it and you get an empty value.
+      </P>
+      <Table
+        headers={['Reference', 'Is']}
+        widths={['w-[34%]']}
+        rows={[
+          [<C>{'{{trigger.call_id}}'}</C>, 'The call’s id in Voicecon.'],
+          [<C>{'{{trigger.call_sid}}'}</C>, 'The carrier’s own id for the call.'],
+          [<C>{'{{trigger.status}}'}</C>, 'How the call ended — completed, failed, no-answer, and so on.'],
+          [<C>{'{{trigger.duration}}'}</C>, 'Length in seconds.'],
+          [<C>{'{{trigger.agent_id}}'}</C>, 'Which agent handled it.'],
+          [<C>{'{{trigger.phone_number}}'}</C>, 'The number on the other end.'],
+          [<C>{'{{trigger.transcript}}'}</C>, 'The conversation as text.'],
+          [<C>{'{{trigger.intent}}'}</C>, 'The detected intent.'],
+          [<C>{'{{trigger.sentiment}}'}</C>, 'The detected sentiment.'],
+          [<C>{'{{trigger.metadata}}'}</C>, 'Any extra data attached to the call. Reach into it with dots.'],
+          [<C>{'{{trigger.triggered_at}}'}</C>, 'When the trigger fired, as an ISO 8601 timestamp.'],
+        ]}
+      />
+
+      <H3 id="call-trigger-filters">Firing on only some calls</H3>
+      <P>
+        Both call triggers accept a <C>filters</C> object, so the workflow starts only for
+        calls that match. Filtering here is cheaper than starting every run and stopping it
+        with a <A href="/docs/nodes/logic#filter">Filter</A> node — though the Filter node is
+        the right tool for anything these do not cover.
+      </P>
+      <Table
+        headers={['Filter', 'Matches when']}
+        widths={['w-[24%]']}
+        rows={[
+          [<C>status</C>, 'The call’s status is exactly this.'],
+          [<C>duration_min</C>, 'The call lasted at least this many seconds.'],
+          [<C>duration_max</C>, 'The call lasted no more than this many seconds.'],
+          [<C>agent_id</C>, 'This agent handled the call.'],
+          [<C>phone_number</C>, 'The number matches.'],
+          [<C>sentiment</C>, 'The detected sentiment matches.'],
+          [<C>intent</C>, 'The detected intent matches.'],
+          [<C>keywords</C>, 'The transcript contains the given words.'],
+        ]}
+      />
+      <Callout kind="note" title="No filters means every call">
+        A call trigger with no <C>filters</C> fires for every call in the workspace. On a busy
+        line that is a lot of runs — add at least a <C>duration_min</C> so hang-ups and
+        wrong numbers do not each create a CRM record.
+      </Callout>
 
       <H2 id="integration-event">Integration event</H2>
       <P>

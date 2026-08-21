@@ -115,8 +115,8 @@ Model:   invokes book_appointment({
       <Callout kind="tip" title="Prefer strings for spoken values">
         Callers say &ldquo;next Tuesday&rdquo;, &ldquo;the twelfth&rdquo;, &ldquo;tomorrow
         afternoon&rdquo;. Declaring a date as a <C>string</C> and normalising it downstream —
-        in a <A href="/docs/nodes/logic#code">Code node</A> or on your own server — works far
-        better than hoping the model produces a clean ISO date from speech.
+        in a <A href="/docs/nodes/logic#transform">Set Fields</A> node or on your own server —
+        works far better than hoping the model produces a clean ISO date from speech.
       </Callout>
 
       <Callout kind="warning" title="Objects and arrays are hard to speak">

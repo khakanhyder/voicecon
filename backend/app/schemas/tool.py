@@ -10,9 +10,11 @@ class ToolCreate(BaseModel):
     name: NonBlankName = Field(...)
     description: Optional[str] = None
     tool_type: str = Field(..., description=(
+        "workflow: workflow | "
         "phone_call: transfer_call | hang_up | leave_voicemail | dtmf | send_sms | sip_request | "
         "assistant: handoff | query_knowledge_base | "
-        "integration: api_request | mcp | slack | google_sheets | google_calendar"
+        "integration: connected_integration | api_request | mcp | slack | google_sheets | "
+        "google_calendar | gohighlevel | custom_tool"
     ))
     category: str = Field(default="integration")
     config: Dict[str, Any] = Field(default_factory=dict)

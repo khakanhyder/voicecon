@@ -157,8 +157,8 @@ export default function WorkflowsPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-5">
-            <div className="flex items-center gap-6 text-[13px] font-semibold overflow-x-auto">
+          <div className="mb-4 flex items-center justify-between gap-3 border-b border-gray-100 pb-3">
+            <div className="flex min-w-0 flex-1 items-center gap-6 overflow-x-auto pb-3 text-[13px] font-semibold">
               {['All Workflows', 'Active', 'Inactive', 'Manual', 'Webhooks'].map(tab => (
                 <button 
                   key={tab}

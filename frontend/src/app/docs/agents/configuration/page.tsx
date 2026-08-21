@@ -135,11 +135,13 @@ TOOLS
           {
             name: 'llm_model',
             type: 'string',
-            default: 'gpt-4',
             description: (
               <>
                 The model within that provider. The picker annotates each with approximate
-                latency — the number to optimise for on voice.
+                latency — the number to optimise for on voice. A new agent created in the
+                editor starts on the first model of the chosen provider (
+                <C>gpt-5.4-nano</C> for OpenAI); one created through the API without naming a
+                model falls back to <C>gpt-4</C>, so set it explicitly there.
               </>
             ),
           },
@@ -202,7 +204,7 @@ TOOLS
         rows={[
           [
             'Default starting point',
-            <><C>gpt-4.1-mini</C> or <C>claude-haiku-4-5</C></>,
+            <><C>gpt-5.4-nano</C> or <C>claude-haiku-4-5</C></>,
             'Sub-400ms, capable enough for most conversational work.',
           ],
           [

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { redirect } from 'next/navigation';
+import { redirect, useRouter } from 'next/navigation';
 import {
   Store,
   Search,
@@ -49,6 +49,7 @@ export default function MarketplaceDisabled() {
 }
 
 function MarketplacePage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'agents' | 'workflows'>('agents');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,10 +94,16 @@ function MarketplacePage() {
         });
         toast.success('Template installed successfully!');
       } else {
-        await apiClient.post(`/api/v1/marketplace/templates/workflows/${slug}/install`, {
-          customizations: {},
-        });
-        toast.success('Template installed successfully!');
+        // Installing a workflow template creates an inactive workflow that
+        // still needs its connections picked, so it ends in the builder rather
+        // than back on this page with nothing to show for the click.
+        const res = await apiClient.post<{ created_workflow_id: string }>(
+          `/api/v1/marketplace/templates/workflows/${slug}/install`,
+          { customizations: {} }
+        );
+        toast.success('Workflow created from template. Finish setting it up here.');
+        router.push(`/dashboard/workflows/${res.data.created_workflow_id}/builder`);
+        return;
       }
       // Refresh templates to update install count
       fetchTemplates();

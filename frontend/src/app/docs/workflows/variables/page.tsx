@@ -159,9 +159,9 @@ Result:       "Amount: true"       ← lowercase JSON spelling, not Python's Tru
             'The key of each row',
           ],
           [
-            <A href="/docs/nodes/logic#code">Code</A>,
-            'Each key of the returned object',
-            'The object’s keys',
+            <A href="/docs/nodes/logic#calculate">Calculate</A>,
+            'One variable per calculation row',
+            'The row’s name',
           ],
           [
             <A href="/docs/nodes/ai">AI Response</A>,

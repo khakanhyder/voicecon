@@ -4,7 +4,12 @@
  */
 import type { Edge, Node } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
-import { getDescriptor, isKnownNodeType, outputsFor } from './nodeTypes'
+import {
+  getDescriptor,
+  isAnnotation,
+  isKnownNodeType,
+  outputsFor,
+} from './nodeTypes'
 
 export interface NodeSettings {
   on_error?: 'stop' | 'continue'
@@ -50,6 +55,14 @@ export interface FlowNodeData extends Record<string, unknown> {
   /** Execution status overlaid after a test run. */
   status?: 'running' | 'success' | 'failed' | 'skipped'
   error?: string | null
+  /**
+   * Trigger node only: plain-English description of how the workflow starts.
+   *
+   * Overlaid by the canvas from the workflow's trigger config, which lives
+   * outside the graph. Not persisted — `flowToApi` reads only the fields the
+   * API defines.
+   */
+  triggerSummary?: string
 }
 
 export type FlowNode = Node<FlowNodeData>
@@ -64,8 +77,10 @@ export const NODE_HEIGHT = 92
 export function apiToFlow(graph: ApiGraph): { nodes: FlowNode[]; edges: Edge[] } {
   const nodes: FlowNode[] = (graph.nodes || []).map((n) => ({
     id: n.id,
-    // Every node renders through one component; the descriptor drives its look.
-    type: n.type === 'trigger' ? 'triggerNode' : 'stepNode',
+    // Steps all render through one component, driven by the descriptor. The
+    // trigger and notes are structurally different — no input handle, no
+    // handles at all — so they get their own.
+    type: flowNodeComponent(n.type),
     position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
     data: {
       label: n.name,
@@ -107,6 +122,13 @@ export function flowToApi(nodes: FlowNode[], edges: Edge[]): ApiGraph {
       targetHandle: e.targetHandle ?? 'in',
     })),
   }
+}
+
+/** Which React Flow component renders this node type. */
+export function flowNodeComponent(nodeType: string): string {
+  if (nodeType === 'trigger') return 'triggerNode'
+  if (isAnnotation(nodeType)) return 'noteNode'
+  return 'stepNode'
 }
 
 function branchLabel(handle?: string | null): string | undefined {
@@ -167,7 +189,11 @@ export interface Issue {
 export function validateFlow(nodes: FlowNode[], edges: Edge[]): Issue[] {
   const issues: Issue[] = []
 
-  if (nodes.filter((n) => n.data.nodeType !== 'trigger').length === 0) {
+  const steps = nodes.filter(
+    (n) => n.data.nodeType !== 'trigger' && !isAnnotation(n.data.nodeType)
+  )
+
+  if (steps.length === 0) {
     issues.push({
       nodeId: null,
       message: 'Workflow has no steps yet',
@@ -180,6 +206,7 @@ export function validateFlow(nodes: FlowNode[], edges: Edge[]): Issue[] {
   // flow saved earlier). Surfaced as an error because the run would fail at
   // that step anyway; better to say so while it can still be replaced.
   for (const node of nodes) {
+    if (isAnnotation(node.data.nodeType)) continue
     if (!isKnownNodeType(node.data.nodeType)) {
       issues.push({
         nodeId: node.id,
@@ -243,6 +270,9 @@ export function validateFlow(nodes: FlowNode[], edges: Edge[]): Issue[] {
 
   for (const node of nodes) {
     if (node.data.nodeType === 'trigger') continue
+    // A note has no handles, so it is unconnected by construction. Warning
+    // about it would make every documented workflow report a problem.
+    if (isAnnotation(node.data.nodeType)) continue
     if (!reachable.has(node.id)) {
       issues.push({
         nodeId: node.id,

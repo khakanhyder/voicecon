@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import {
+  ChevronDown,
+  ChevronRight,
   HelpCircle,
+  StickyNote,
   Clock,
   Calculator,
   Braces,
@@ -26,6 +29,7 @@ import {
 import {
   NODE_TYPES,
   PALETTE_CATEGORIES,
+  paletteVisibility,
   type NodeDescriptor,
 } from '@/lib/workflow/nodeTypes'
 import { cn } from '@/lib/utils'
@@ -49,6 +53,7 @@ const ICONS: Record<string, LucideIcon> = {
   Sparkles,
   Clock,
   PhoneOff,
+  StickyNote,
 }
 
 interface NodePaletteProps {
@@ -64,25 +69,47 @@ interface NodePaletteProps {
  */
 export function NodePalette({ onAdd }: NodePaletteProps) {
   const [query, setQuery] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const searching = query.trim().length > 0
 
   const grouped = useMemo(() => {
     const term = query.trim().toLowerCase()
     const result: { category: string; items: NodeDescriptor[] }[] = []
 
     for (const category of PALETTE_CATEGORIES) {
-      const items = Object.values(NODE_TYPES).filter(
-        (d) =>
-          d.category === category &&
-          d.type !== 'trigger' &&
-          (!term ||
-            d.label.toLowerCase().includes(term) ||
-            d.description.toLowerCase().includes(term))
-      )
+      const items = Object.values(NODE_TYPES).filter((d) => {
+        if (d.category !== category || d.type === 'trigger') return false
+
+        const visibility = paletteVisibility(d)
+        // Hidden steps are retired: still supported for flows that use them,
+        // never offered for new ones. Search does not resurface them, or
+        // "retired" would only mean "harder to find".
+        if (visibility === 'hidden') return false
+        // Searching is an explicit request for a specific step, so it looks
+        // everywhere. Collapsing Advanced is about what a beginner *browses*
+        // past, not about hiding capability from someone who knows the name.
+        if (visibility === 'advanced' && !showAdvanced && !term) return false
+
+        if (!term) return true
+        return (
+          d.label.toLowerCase().includes(term) ||
+          d.description.toLowerCase().includes(term)
+        )
+      })
       if (items.length) result.push({ category, items })
     }
 
     return result
-  }, [query])
+  }, [query, showAdvanced])
+
+  const advancedCount = useMemo(
+    () =>
+      Object.values(NODE_TYPES).filter(
+        (d) => paletteVisibility(d) === 'advanced'
+      ).length,
+    []
+  )
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-card">
@@ -152,6 +179,28 @@ export function NodePalette({ onAdd }: NodePaletteProps) {
           </div>
         ))}
       </div>
+
+      {/*
+        * Advanced steps (Merge, Loop, Calculate) are real but rarely the right
+        * first answer, and Logic held eight of seventeen step types before
+        * this. Hidden while browsing, always found by search.
+        */}
+      {!searching && (
+        <div className="border-t px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent"
+          >
+            {showAdvanced ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            {showAdvanced ? 'Hide' : 'Show'} advanced steps ({advancedCount})
+          </button>
+        </div>
+      )}
 
       <div className="border-t p-3">
         <p className="text-[11px] leading-relaxed text-muted-foreground">

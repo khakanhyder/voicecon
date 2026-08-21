@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, Wrench, Plus, Loader2, Trash2, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X, PhoneCall, ToggleLeft, ToggleRight } from 'lucide-react'
+import { ArrowLeft, Search, Wrench, Plus, Loader2, Trash2, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X, PhoneCall, ToggleLeft, ToggleRight, Link2, Puzzle, Users } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,12 @@ const TOOL_TYPE_META: Record<string, { label: string; icon: React.ComponentType<
   slack:                { label: 'Slack',                icon: MessageSquare,  category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
   google_sheets:        { label: 'Google Sheets',        icon: Sheet,          category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
   google_calendar:      { label: 'Google Calendar',      icon: Calendar,       category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
+  // These three were missing, so a tool of any of these types rendered with a
+  // generic spanner and its raw slug ("connected_integration") as its label —
+  // on the one screen where you pick which tools an agent may call.
+  connected_integration: { label: 'Connected Integration', icon: Link2,        category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
+  gohighlevel:          { label: 'GoHighLevel',           icon: Users,         category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
+  custom_tool:          { label: 'Custom Tool',           icon: Puzzle,        category: 'integration',  color: 'text-blue-600',    bg: 'bg-blue-50' },
 }
 
 interface Tool { id: string; name: string; description: string | null; tool_type: string; category: string; is_active: boolean }
@@ -376,8 +382,8 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-5">
       {/* Create a tool without leaving the agent */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-700">Tools</h3>
           <p className="text-xs text-slate-400">
             Tools let this agent trigger workflows and actions during a conversation.
@@ -386,7 +392,7 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
         {!creating && (
           <button
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 rounded-lg gradient-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg gradient-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 sm:w-auto"
           >
             <Plus className="h-3.5 w-3.5" />
             New tool
@@ -427,7 +433,7 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
                   <button
                     onClick={() => unassign(a.tool_id)}
                     disabled={assigning === a.tool_id}
-                    className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition-all disabled:opacity-50"
+                    className="flex flex-shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition-all disabled:opacity-50"
                   >
                     {assigning === a.tool_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     Remove
@@ -459,7 +465,7 @@ function AgentToolsTab({ agentId }: { agentId: string }) {
                   <button
                     onClick={() => assign(t.id)}
                     disabled={assigning === t.id}
-                    className="flex items-center gap-1 rounded-lg gradient-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-all disabled:opacity-50"
+                    className="flex flex-shrink-0 items-center gap-1 rounded-lg gradient-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-all disabled:opacity-50"
                   >
                     {assigning === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                     Add
@@ -644,7 +650,7 @@ export default function AgentDetailPage() {
     <div className="space-y-5 animate-pulse">
       <div className="h-8 w-56 bg-slate-200 rounded-xl" />
       <div className="h-10 w-full bg-slate-100 rounded-xl" />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
         <div className="h-96 bg-slate-100 rounded-2xl" />
         <div className="h-72 bg-slate-100 rounded-2xl" />
       </div>
@@ -676,7 +682,7 @@ export default function AgentDetailPage() {
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold text-slate-900 leading-tight">Assistant</h1>
               <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
                 isActive
@@ -692,16 +698,16 @@ export default function AgentDetailPage() {
         </div>
 
         {/* Agent actions */}
-        <div className="flex flex-wrap items-center gap-2 xl:flex-shrink-0">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center xl:flex-shrink-0">
           <button
             type="button"
             onClick={() => setPanelOpen(true)}
-            className="flex items-center gap-2 rounded-xl bg-[#0F6A59] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c]"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0F6A59] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c] sm:w-auto"
           >
             <PhoneCall className="h-4 w-4" /> Test Call
           </button>
-          <Link href={`/dashboard/agents/${agentId}/test`}>
-            <button type="button" className="rounded-xl border border-[#0F6A59] px-4 py-2.5 text-sm font-medium text-[#0F6A59] transition-colors hover:bg-[#0F6A59]/5">
+          <Link href={`/dashboard/agents/${agentId}/test`} className="w-full sm:w-auto">
+            <button type="button" className="w-full rounded-xl border border-[#0F6A59] px-4 py-2.5 text-sm font-medium text-[#0F6A59] transition-colors hover:bg-[#0F6A59]/5">
               Talk to Assistant
             </button>
           </Link>
@@ -709,7 +715,7 @@ export default function AgentDetailPage() {
             type="button"
             onClick={handleToggle}
             disabled={isToggling}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
           >
             {isActive
               ? <ToggleRight className="h-4 w-4 text-emerald-600" />
@@ -720,7 +726,7 @@ export default function AgentDetailPage() {
             type="button"
             onClick={handleDelete}
             disabled={isDeleting}
-            className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 transition-all hover:bg-red-100 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 transition-all hover:bg-red-100 disabled:opacity-50 sm:w-auto"
           >
             <Trash2 className="h-4 w-4" />
             {isDeleting ? 'Deleting…' : 'Delete'}
@@ -744,22 +750,22 @@ export default function AgentDetailPage() {
       </div>
 
       {/* Editor + rail */}
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
-        <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
+        <div className="min-w-0 space-y-5">
           {isToolsTab ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentToolsTab agentId={agentId} />
             </div>
           ) : isKnowledgeTab ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentKnowledgeTab agentId={agentId} />
             </div>
           ) : isWidgetTab ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentWidgetTab agentId={agentId} />
             </div>
           ) : isCallsTab ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentCallsTab agentId={agentId} />
             </div>
           ) : (
@@ -785,7 +791,7 @@ export default function AgentDetailPage() {
           )}
         </div>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           {!isCustomTab && <AgentIdentityFields form={form} set={set} />}
 
           <button

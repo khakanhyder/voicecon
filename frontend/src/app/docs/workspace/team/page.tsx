@@ -1,6 +1,6 @@
 import { DocPage, docMetadata } from '@/components/docs/DocPage'
 import {
-  A, C, Callout, H2, LI, P, Strong, Table, UL,
+  A, C, Callout, H2, H3, LI, P, Strong, Table, UL,
 } from '@/components/docs/prose'
 
 export const metadata = docMetadata('/docs/workspace/team')
@@ -112,6 +112,92 @@ export default function TeamPage() {
         A connection made with an individual&rsquo;s OAuth login can stop working when their
         access is revoked at the provider. Reconnect anything they owned as a service account
         first. See <A href="/docs/integrations#connecting-oauth">Integrations</A>.
+      </Callout>
+
+      <H2 id="workspace-settings">Workspace settings</H2>
+      <P>
+        <Strong>Settings</Strong> → <Strong>Workspace</Strong> is where the workspace itself
+        is administered, as opposed to the people in it. Everyone can open it, because it is
+        also where you leave a workspace — but what you can do there depends on your role.
+      </P>
+
+      <H3>General</H3>
+      <Table
+        headers={['Setting', 'What it is', 'Who can change it']}
+        widths={['w-[22%]', 'w-[46%]']}
+        rows={[
+          [
+            <Strong>Name</Strong>,
+            <>
+              Shown in the workspace switcher and on the invitations you send. Renaming takes
+              effect everywhere immediately — no reload needed. Minimum two characters.
+            </>,
+            'Owner, admin',
+          ],
+          [
+            <Strong>Workspace ID</Strong>,
+            <>
+              The workspace&rsquo;s slug. Stable — it does not change when you rename the
+              workspace. Quote it when contacting support.
+            </>,
+            <em>Read-only</em>,
+          ],
+          [<Strong>Your role</Strong>, 'Your role in this workspace, not your role elsewhere.', <em>Read-only</em>],
+          [<Strong>Members</Strong>, <>How many people are in it. The list itself lives under <Strong>Team</Strong>.</>, <em>Read-only</em>],
+          [<Strong>Owner</Strong>, 'The owner’s email — who to ask when you need something only an owner can do.', <em>Read-only</em>],
+          [<Strong>Created</Strong>, 'When the workspace was created.', <em>Read-only</em>],
+        ]}
+      />
+      <Callout kind="note" title="Renaming is cosmetic; the ID is not">
+        The name is a label and can change as often as you like. The workspace ID is what
+        identifies the workspace underneath, so anything that referenced it keeps working
+        across a rename.
+      </Callout>
+
+      <H3>Danger zone</H3>
+      <Table
+        headers={['Action', 'What happens', 'Who']}
+        widths={['w-[20%]', 'w-[50%]']}
+        rows={[
+          [
+            <Strong>Leave workspace</Strong>,
+            <>
+              Removes you from it. You lose access to everything inside, and need a fresh
+              invitation to return. What you built stays behind.
+            </>,
+            'Everyone except the owner',
+          ],
+          [
+            <Strong>Delete workspace</Strong>,
+            <>
+              Agents, workflows and phone numbers stop working immediately. Call history and
+              invoices are kept so your records stay complete. Not undoable from the
+              dashboard.
+            </>,
+            'Owner only',
+          ],
+        ]}
+      />
+      <UL>
+        <LI>
+          <Strong>The owner cannot leave.</Strong> Leaving would strand the workspace with
+          nobody able to administer it, so transfer ownership first — see below — and then
+          leave as an admin.
+        </LI>
+        <LI>
+          <Strong>You cannot leave or delete your last workspace.</Strong> You would have
+          nowhere to work. Create or join another one first; the page says so rather than
+          letting you discover it from an error.
+        </LI>
+        <LI>
+          Both actions ask for confirmation, and both take effect at once — there is no grace
+          period and no undo button.
+        </LI>
+      </UL>
+      <Callout kind="danger" title="Deleting takes the phone numbers with it">
+        Numbers attached to a deleted workspace stop routing calls. If the number matters,
+        release it deliberately or move the work to another workspace before deleting — a
+        caller dialling a dead number is the part of this nobody notices until it is too late.
       </Callout>
 
       <H2 id="ownership">Transferring ownership</H2>

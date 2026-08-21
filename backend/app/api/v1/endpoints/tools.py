@@ -11,7 +11,6 @@ import uuid
 import time
 from datetime import datetime
 from typing import Optional, List
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
@@ -21,6 +20,7 @@ from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
 from app.models.agent import Agent
 from app.models.tool import Tool, AgentToolAssignment
+from app.services.tools.http_tools import HTTP_TOOL_TYPES, run_http_tool
 from app.schemas.tool import (
     ToolCreate, ToolUpdate, ToolResponse, ToolListResponse,
     AgentToolAssignmentResponse, ToolTestRequest, ToolTestResponse,
@@ -279,50 +279,76 @@ async def _get_agent_or_404(agent_id: str, org_id: uuid.UUID, db: AsyncSession) 
     return agent
 
 
+#: What "Test" reports for a tool it deliberately does not execute, and why.
+#: These need a live call, a workspace connection, or would cause real side
+#: effects that pressing a button in a form should not.
+_NOT_TESTABLE = {
+    "transfer_call": "Transfers happen on a live call; there is nothing to transfer here.",
+    "hang_up": "Hanging up needs a live call.",
+    "leave_voicemail": "Leaving a voicemail needs a live call.",
+    "dtmf": "Sending tones needs a live call.",
+    "send_sms": "Sending a text needs a live call to take the number from.",
+    "sip_request": "A SIP request needs a live call.",
+    "handoff": "A handoff needs a live call to hand off.",
+    "query_knowledge_base": (
+        "Use the knowledge base's own Test retrieval panel, which shows the "
+        "matched passages and their scores."
+    ),
+    "workflow": (
+        "Running this would run the whole workflow, side effects included. "
+        "Use the workflow builder's Run button, which shows every step."
+    ),
+    "google_sheets": (
+        "Google Sheets tools run through a connected integration. Connect "
+        "Google Sheets under Integrations and recreate this as a Connected "
+        "Integration tool."
+    ),
+    "google_calendar": (
+        "Google Calendar tools run through a connected integration. Connect "
+        "Google Calendar under Integrations and recreate this as a Connected "
+        "Integration tool."
+    ),
+    "gohighlevel": (
+        "GoHighLevel tools run through a connected integration. Connect "
+        "GoHighLevel under Integrations and recreate this as a Connected "
+        "Integration tool."
+    ),
+    "integration": (
+        "Test a connected integration from the Integrations page, where the "
+        "connection itself can be checked."
+    ),
+    "connected_integration": (
+        "Test a connected integration from the Integrations page, where the "
+        "connection itself can be checked."
+    ),
+}
+
+
 async def _execute_tool(tool: Tool, params: dict) -> dict:
-    """Execute a tool based on its type. Returns result dict."""
+    """Execute a tool for the builder's "Test" button.
+
+    The HTTP-shaped types go through exactly the same code as a live call, so a
+    tool that passes here behaves the same way on the phone. This used to be a
+    second implementation, and the two drifted: the copy here still took its URL
+    from the caller-supplied ``params`` — an authenticated user could point it
+    at the cloud metadata endpoint and read the response out of the test result
+    — and it still unpacked config fields the form stores as text, which raised
+    ``TypeError`` for every tool whose headers had been edited.
+
+    Args:
+        tool: The tool to exercise
+        params: Sample parameters supplied by whoever pressed Test
+
+    Returns:
+        A result dict for the test panel
+    """
     cfg = tool.config or {}
     t = tool.tool_type
 
-    if t == "api_request":
-        url = cfg.get("url") or params.get("url")
-        if not url:
-            raise ValueError("No URL configured for api_request tool")
-        method = cfg.get("method", "POST").upper()
-        headers = {**cfg.get("headers", {})}
-        body = {**cfg.get("body", {}), **params}
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.request(method, url, headers=headers, json=body)
-            return {"status_code": resp.status_code, "body": resp.text[:2000]}
+    if t in HTTP_TOOL_TYPES:
+        return await run_http_tool(t, cfg, params or {})
 
-    elif t == "slack":
-        webhook_url = cfg.get("webhook_url")
-        if not webhook_url:
-            raise ValueError("No webhook_url configured for Slack tool")
-        message = params.get("message") or cfg.get("default_message", "Voicecon notification")
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(webhook_url, json={"text": message})
-            return {"status_code": resp.status_code, "ok": resp.text == "ok"}
+    if t in _NOT_TESTABLE:
+        return {"simulated": True, "tool_type": t, "note": _NOT_TESTABLE[t]}
 
-    elif t in ("transfer_call", "hang_up", "leave_voicemail", "dtmf", "send_sms", "sip_request"):
-        # These are telephony actions — validated during call, not testable in isolation
-        return {"simulated": True, "tool_type": t, "config": cfg}
-
-    elif t == "handoff":
-        return {"simulated": True, "destination": cfg.get("destination"), "message": cfg.get("message")}
-
-    elif t == "query_knowledge_base":
-        return {"simulated": True, "knowledge_base_id": cfg.get("knowledge_base_id")}
-
-    elif t in ("google_sheets", "google_calendar"):
-        return {"simulated": True, "note": f"{t} requires OAuth credentials — configure in Integrations"}
-
-    elif t == "mcp":
-        server_url = cfg.get("server_url")
-        if not server_url:
-            raise ValueError("No server_url configured for MCP tool")
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(server_url, json={"tool": cfg.get("tool_name"), "params": params})
-            return {"status_code": resp.status_code, "body": resp.text[:2000]}
-
-    return {"executed": True, "tool_type": t}
+    return {"simulated": True, "tool_type": t, "note": "This tool type has no test action."}

@@ -9,6 +9,7 @@ import re
 import secrets
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +77,18 @@ class TriggerValidator:
                 croniter(config["cron_expression"])
             except Exception as e:
                 raise TriggerError(f"Invalid cron expression: {str(e)}")
+
+            # The scheduler evaluates cron in this zone. Rejecting an unknown
+            # name here means the user sees the typo while they are editing,
+            # rather than silently getting UTC runs weeks later.
+            if config.get("timezone"):
+                try:
+                    ZoneInfo(config["timezone"])
+                except (ZoneInfoNotFoundError, ValueError):
+                    raise TriggerError(
+                        f"Unknown timezone: {config['timezone']}. "
+                        "Use an IANA name such as UTC or Europe/London."
+                    )
 
         elif schedule_type == "interval":
             if "interval_seconds" not in config:
@@ -224,7 +237,15 @@ class VoiceEventTriggerHandler(BaseTriggerHandler):
         Returns:
             True if event matches all filters
         """
-        filters = config.get("filters", {})
+        filters = dict(config.get("filters") or {})
+
+        # Older workflows stored the agent filter at the top level of the
+        # config, where nothing read it — so the workflow fired for every
+        # agent's calls regardless of the one chosen. Honour that shape rather
+        # than requiring a data migration; the builder writes `filters` now, so
+        # this only affects rows saved before the fix.
+        if "agent_id" not in filters and config.get("agent_id"):
+            filters["agent_id"] = config["agent_id"]
 
         # No filters means trigger on all events
         if not filters:

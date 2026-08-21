@@ -20,8 +20,26 @@ from sqlalchemy import select
 from app.models.agent import AgentFunction
 from app.models.call import CallLog
 from app.models.tool import Tool, AgentToolAssignment
+from app.services.tools.config import ToolConfigError
+from app.services.tools.http_tools import HTTP_TOOL_TYPES, run_http_tool
 
 logger = logging.getLogger(__name__)
+
+
+#: Tool types the builder offers but which have no executor of their own. They
+#: are configured through Integrations and run as `connected_integration`, so
+#: reaching one here means the tool was created against the wrong type.
+#:
+#: These used to fall through to a generic ``{"executed": True}``, which the
+#: agent reported to the caller as success — "I've added that to your
+#: spreadsheet" when nothing had been written anywhere. Failing is the honest
+#: answer, and it names the fix.
+_CONNECTOR_BACKED_TOOL_TYPES = {
+    "google_sheets": "Google Sheets",
+    "google_calendar": "Google Calendar",
+    "gohighlevel": "GoHighLevel",
+}
+
 
 # OpenAI requires tool function names to match ^[a-zA-Z0-9_-]+$. Anything else
 # (spaces, brackets, punctuation) gets a 400 that fails the whole turn.
@@ -767,66 +785,8 @@ class FunctionExecutor:
         t = tool.tool_type
 
         try:
-            if t == "api_request":
-                # The target comes from the tool's *configuration* only.
-                # It used to fall back to `parameters.get("url")`, and those
-                # parameters are what the model extracted from a conversation —
-                # so a caller who could steer the agent could choose the address
-                # this server connects to, with the tool's own headers attached.
-                # Where a request goes is a configuration decision, not
-                # something to infer from speech.
-                url = cfg.get("url")
-                if not url:
-                    raise ValueError("No URL configured for api_request tool")
-
-                from app.core.egress import UnsafeURLError, assert_safe_url
-
-                try:
-                    assert_safe_url(url)
-                except UnsafeURLError as exc:
-                    raise ValueError(f"api_request url rejected: {exc}")
-
-                method = cfg.get("method", "POST").upper()
-                headers = {**cfg.get("headers", {})}
-                body = {**cfg.get("body", {}), **parameters}
-                # follow_redirects defaults to False in httpx, but state it:
-                # a redirect to an internal address would bypass the check above.
-                async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-                    resp = await client.request(method, url, headers=headers, json=body)
-                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
-
-            elif t == "slack":
-                webhook_url = cfg.get("webhook_url")
-                if not webhook_url:
-                    raise ValueError("No webhook_url configured for Slack tool")
-                msg = parameters.get("message") or cfg.get("default_message", "Voicecon agent notification")
-                async with httpx.AsyncClient(timeout=10) as client:
-                    resp = await client.post(webhook_url, json={"text": msg})
-                    result = {"status_code": resp.status_code, "ok": resp.text == "ok"}
-
-            elif t == "mcp":
-                server_url = cfg.get("server_url")
-                if not server_url:
-                    raise ValueError("No server_url configured for MCP tool")
-                async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.post(server_url, json={"tool": cfg.get("tool_name"), "params": parameters})
-                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
-
-            elif t == "custom_tool":
-                url = cfg.get("url")
-                if not url:
-                    raise ValueError("No URL configured for custom_tool")
-                method = cfg.get("method", "POST").upper()
-                headers = {**cfg.get("headers", {})}
-                if cfg.get("auth_type") == "bearer" and cfg.get("auth_token"):
-                    headers["Authorization"] = f"Bearer {cfg['auth_token']}"
-                elif cfg.get("auth_type") == "basic" and cfg.get("username") and cfg.get("password"):
-                    import base64
-                    creds = base64.b64encode(f"{cfg['username']}:{cfg['password']}".encode()).decode()
-                    headers["Authorization"] = f"Basic {creds}"
-                async with httpx.AsyncClient(timeout=cfg.get("timeout", 30)) as client:
-                    resp = await client.request(method, url, headers=headers, json=parameters)
-                    result = {"status_code": resp.status_code, "body": resp.text[:2000]}
+            if t in HTTP_TOOL_TYPES:
+                result = await run_http_tool(t, cfg, parameters)
 
             elif t in ("transfer_call", "hang_up", "leave_voicemail", "dtmf", "send_sms", "sip_request"):
                 # Telephony actions — return structured action for the call handler to interpret
@@ -878,16 +838,49 @@ class FunctionExecutor:
                     cfg, parameters, db, channel=channel
                 )
 
+            elif t in _CONNECTOR_BACKED_TOOL_TYPES:
+                app_name = _CONNECTOR_BACKED_TOOL_TYPES[t]
+                raise ToolConfigError(
+                    f"{app_name} tools run through a connected integration. "
+                    f"Connect {app_name} under Integrations, then recreate this "
+                    f"tool as a Connected Integration so it can use those "
+                    f"credentials."
+                )
+
             else:
-                result = {"executed": True, "tool_type": t, "parameters": parameters}
+                # An unrecognised type reported success and did nothing, so the
+                # agent told the caller the job was done. Say what happened
+                # instead — a tool that cannot run is a configuration problem,
+                # not a silent no-op.
+                raise ToolConfigError(
+                    f"'{t}' tools cannot be executed. Recreate this tool with a "
+                    f"supported type."
+                )
 
             execution_time = int((time.time() - start_time) * 1000)
             logger.info(f"Global tool {tool.name} ({t}) executed in {execution_time}ms")
             return {"success": True, "tool_name": tool.name, "result": result, "execution_time_ms": execution_time}
 
+        except ToolConfigError as e:
+            # Already phrased for whoever filled in the form; it reaches them in
+            # the Test panel and in the call's tool result.
+            execution_time = int((time.time() - start_time) * 1000)
+            logger.warning(f"Global tool {tool.name} ({t}) misconfigured: {e}")
+            return {"success": False, "tool_name": tool.name, "error": str(e), "execution_time_ms": execution_time}
+
+        except httpx.TimeoutException:
+            execution_time = int((time.time() - start_time) * 1000)
+            logger.warning(f"Global tool {tool.name} ({t}) timed out after {execution_time}ms")
+            return {
+                "success": False,
+                "tool_name": tool.name,
+                "error": "The request timed out. Raise the tool's timeout, or check the endpoint is reachable.",
+                "execution_time_ms": execution_time,
+            }
+
         except Exception as e:
             execution_time = int((time.time() - start_time) * 1000)
-            logger.error(f"Global tool {tool.name} ({t}) failed: {e}")
+            logger.error(f"Global tool {tool.name} ({t}) failed: {e}", exc_info=True)
             return {"success": False, "tool_name": tool.name, "error": str(e), "execution_time_ms": execution_time}
 
 

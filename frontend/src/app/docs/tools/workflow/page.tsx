@@ -84,6 +84,13 @@ export default function WorkflowToolsPage() {
         returns immediately and the agent has nothing to report.
       </Callout>
 
+      <Callout kind="note" title="Retries are shortened while a caller waits">
+        In a <C>sync</C> run a failing step gets one retry after two seconds, whatever the
+        workflow&rsquo;s <C>max_retries</C> and <C>retry_delay</C> say — a minute of backoff
+        would be a minute of silence. Plan for the failure in the graph instead; see{' '}
+        <A href="/docs/workflows/execution#sync-retry-cap">Retries are capped during a call</A>.
+      </Callout>
+
       <H2 id="holding-line">Avoiding dead air</H2>
       <P>
         A workflow that calls two APIs can take several seconds. On a phone line, silence that

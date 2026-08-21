@@ -33,7 +33,7 @@ const pageTitles: Record<
   '/dashboard/integrations': { title: 'Integrations', description: 'Connect your apps and services' },
   '/dashboard/analytics': { title: 'Analytics', description: 'Insights and performance metrics' },
   '/dashboard/marketplace': { title: 'Marketplace', description: 'Templates and pre-built agents' },
-  '/dashboard/settings': { title: 'Settings', description: 'Manage your account and preferences' },
+  '/dashboard/settings': { title: 'General', description: 'Your preferences and an overview of this account' },
   '/dashboard/settings/profile': { title: 'Profile', description: 'Update your personal information' },
   '/dashboard/settings/billing': { title: 'Billing', description: 'Manage your subscription and payments' },
   '/dashboard/settings/team': { title: 'Team', description: 'Manage team members and roles' },

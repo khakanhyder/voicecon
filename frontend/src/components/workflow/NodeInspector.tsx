@@ -14,6 +14,7 @@ import {
 import type { FlowNode, NodeSettings } from '@/lib/workflow/graph'
 import { ActionParametersField } from './fields/ActionParametersField'
 import { ConnectionActionField, ConnectionField } from './fields/ConnectionFields'
+import { ToolField } from './fields/ToolField'
 import { KeyValueField } from './fields/KeyValueField'
 import { RulesField } from './fields/RulesField'
 import { InputsField } from './fields/InputsField'
@@ -24,6 +25,7 @@ import {
   ExpressionInput,
   type DataPath,
 } from './fields/ExpressionInput'
+import { TriggerConfig, type TriggerState } from './TriggerConfig'
 import { cn } from '@/lib/utils'
 
 interface NodeInspectorProps {
@@ -33,6 +35,20 @@ interface NodeInspectorProps {
   onChangeSettings: (settings: NodeSettings) => void
   /** Values this node may reference, for autocomplete and the data picker. */
   dataPaths: DataPath[]
+  /**
+   * How the workflow starts, edited on the trigger node.
+   *
+   * Not part of the graph — the workflow row owns it — so it is threaded in
+   * from the page rather than read off the node.
+   */
+  trigger?: {
+    value: TriggerState
+    /** The trigger as last persisted, for the "still running" warning. */
+    saved: TriggerState | null
+    /** Whether the workflow is active; an inactive one ignores its trigger. */
+    isActive: boolean
+    onChange: (trigger: TriggerState) => void
+  }
   onDuplicate: () => void
   onDelete: () => void
   onClose: () => void
@@ -50,6 +66,7 @@ export function NodeInspector({
   onChangeConfig,
   onChangeSettings,
   dataPaths,
+  trigger,
   onDuplicate,
   onDelete,
   onClose,
@@ -115,6 +132,18 @@ export function NodeInspector({
               />
             </div>
 
+            {isTrigger && trigger && (
+              <>
+                <TriggerConfig
+                  trigger={trigger.value}
+                  savedTrigger={trigger.saved}
+                  isActive={trigger.isActive}
+                  onChange={trigger.onChange}
+                />
+                <div className="border-t pt-1" />
+              </>
+            )}
+
             {descriptor.fields
               .filter((field) => isFieldVisible(field, config))
               .map((field) => (
@@ -149,10 +178,9 @@ export function NodeInspector({
               />
             )}
 
-            {isTrigger && (
+            {isTrigger && !trigger && (
               <p className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                How this workflow is triggered (webhook, schedule, call ended)
-                is set in the workflow settings.
+                How this workflow is triggered is set on the workflow itself.
               </p>
             )}
           </>
@@ -345,6 +373,12 @@ function FieldControl({
 
       {field.type === 'connection' ? (
         <ConnectionField
+          id={id}
+          value={(value as string) ?? ''}
+          onChange={onChange}
+        />
+      ) : field.type === 'tool' ? (
+        <ToolField
           id={id}
           value={(value as string) ?? ''}
           onChange={onChange}

@@ -58,7 +58,7 @@ function formatTotalTime(seconds: number) {
  * Every card carries the sidebar's brand green (#0F6A59) — only the glyph
  * rotates, so a wall of agents reads as one family.
  */
-const CARD_ACCENT = { border: 'border-l-[#0F6A59]', bg: 'bg-[#0F6A59]/10', text: 'text-[#0F6A59]' }
+const CARD_ACCENT = { bg: 'bg-[#0F6A59]/10', text: 'text-[#0F6A59]' }
 
 const cardStyles = [Headphones, User, ShoppingCart, Calendar, HelpCircle].map(Icon => ({ ...CARD_ACCENT, Icon }))
 
@@ -88,7 +88,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
 
   if (viewMode === 'list') {
     return (
-      <div className={`group bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col xl:flex-row xl:items-center shadow-sm hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all overflow-hidden p-4 gap-4 xl:gap-6`}>
+      <div className={`group bg-white rounded-xl border border-slate-200 flex flex-col xl:flex-row xl:items-center shadow-sm hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] transition-all overflow-hidden p-4 gap-4 xl:gap-6`}>
         {/* Icon and Name */}
         <div className="flex items-start gap-4 xl:w-1/3 cursor-pointer" onClick={onClick}>
           <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
@@ -171,7 +171,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-      className={`group cursor-pointer bg-white rounded-xl border-y border-r border-l-4 ${style.border} border-t-slate-200 border-r-slate-200 border-b-slate-200 flex flex-col justify-between shadow-sm hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40 transition-all overflow-hidden p-5`}
+      className={`group cursor-pointer bg-white rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40 transition-all overflow-hidden p-5`}
     >
       <div>
         <div className="flex items-start justify-between mb-4">

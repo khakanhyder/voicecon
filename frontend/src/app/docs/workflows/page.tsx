@@ -1,7 +1,7 @@
 import { DocPage, docMetadata } from '@/components/docs/DocPage'
 import { Chain, Figure } from '@/components/docs/Diagram'
 import {
-  A, C, Callout, H2, H3, LI, P, Step, Steps, Strong, Table, UL,
+  A, Badge, C, Callout, H2, H3, LI, P, Step, Steps, Strong, Table, UL,
 } from '@/components/docs/prose'
 
 export const metadata = docMetadata('/docs/workflows')
@@ -148,16 +148,81 @@ export default function WorkflowsPage() {
 
       <H2 id="validation">Validation</H2>
       <P>
-        Validation runs before a workflow executes and reports structural problems the builder
-        cannot prevent while you are mid-edit.
+        The builder checks the graph continuously and lists what it finds. Problems come in
+        two weights: <Strong>errors</Strong>, which will stop the run, and{' '}
+        <Strong>warnings</Strong>, which are usually a mistake but will not by themselves
+        prevent execution.
       </P>
-      <UL>
-        <LI><Strong>Unreachable nodes</Strong> — nothing connects to them, so they never run.</LI>
-        <LI><Strong>Missing required fields</Strong> — a Webhook with no URL, an Ask with no variable.</LI>
-        <LI><Strong>Dangling edges</Strong> — an edge pointing at a node that has been deleted.</LI>
-        <LI><Strong>Cycles</Strong> outside a Loop node, which would never terminate.</LI>
-        <LI><Strong>Unconnected handles</Strong> on a Branch or Switch, leaving a path with nowhere to go.</LI>
-      </UL>
+
+      <Table
+        headers={['Reported', 'Weight', 'Means']}
+        widths={['w-[26%]', 'w-[14%]']}
+        rows={[
+          [
+            <Strong>Required field missing</Strong>,
+            <Badge tone="rose">Error</Badge>,
+            'A Webhook with no URL, an Ask with no variable to save into.',
+          ],
+          [
+            <Strong>Field is not valid JSON</Strong>,
+            <Badge tone="rose">Error</Badge>,
+            <>A headers or body field that does not parse — usually a trailing comma or a missing quote.</>,
+          ],
+          [
+            <Strong>Step no longer supported</Strong>,
+            <Badge tone="rose">Error</Badge>,
+            <>
+              A node type this build has retired, kept from an older version of the flow. See{' '}
+              <A href="#retired-steps">below</A>.
+            </>,
+          ],
+          [
+            <Strong>Workflow contains a loop</Strong>,
+            <Badge tone="rose">Error</Badge>,
+            <>
+              Edges form a cycle, so the run would never finish. To repeat work, use the{' '}
+              <A href="/docs/nodes/logic#loop">Loop Over Items</A> node rather than wiring a
+              step back to an earlier one.
+            </>,
+          ],
+          [
+            <Strong>Not connected to the flow</Strong>,
+            <Badge tone="amber">Warning</Badge>,
+            'Nothing reaches the node from the trigger, so it never runs.',
+          ],
+          [
+            <Strong>Output not connected</Strong>,
+            <Badge tone="amber">Warning</Badge>,
+            <>
+              A node with more than one output — Branch, Switch, Loop — has a handle going
+              nowhere. That path of the run stops there.
+            </>,
+          ],
+          [
+            <Strong>Workflow has no steps yet</Strong>,
+            <Badge tone="amber">Warning</Badge>,
+            'Only a trigger on the canvas.',
+          ],
+        ]}
+      />
+
+      <H3 id="retired-steps">Steps that are no longer supported</H3>
+      <P>
+        A workflow saved against an older build can contain a node type this one has removed —
+        the Code node, which ran a Python or JavaScript snippet, is the one you are most likely
+        to meet. Those nodes render as <Strong>Unsupported step</Strong> and are flagged as an
+        error, because the run would fail at that step anyway.
+      </P>
+      <P>
+        Opening one shows no fields, deliberately: reading its stored configuration against a
+        different node&rsquo;s fields would discard it the moment you saved. Replace it
+        instead — most Code nodes were doing arithmetic or reshaping a value, which{' '}
+        <A href="/docs/nodes/logic#calculate">Calculate</A> and{' '}
+        <A href="/docs/nodes/logic#transform">Set Fields</A> now do between them — then delete
+        the old node. For anything genuinely requiring code, call your own endpoint with a{' '}
+        <A href="/docs/nodes/actions#webhook">Webhook</A>.
+      </P>
+
       <Callout kind="warning" title="Validation checks shape, not correctness">
         It confirms the graph can run. It cannot tell you that <C>{'{{trigger.emial}}'}</C> is
         a typo, or that your Branch compares against the wrong value. Only a test run reveals

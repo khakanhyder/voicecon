@@ -1,7 +1,7 @@
 import { DocPage, docMetadata } from '@/components/docs/DocPage'
 import { CodeBlock } from '@/components/docs/CodeBlock'
 import {
-  A, C, Callout, H2, H3, LI, Meta, P, ParamTable, RefHeader, Strong, Table, UL,
+  A, C, Callout, H2, H3, H4, LI, Meta, P, ParamTable, RefHeader, Strong, Table, UL,
 } from '@/components/docs/prose'
 
 export const metadata = docMetadata('/docs/nodes/logic')
@@ -219,7 +219,8 @@ RIGHT — narrowest first
       </Callout>
 
       <RefHeader id="transform" name="Set Fields" chip="Logic" tone="amber">
-        Builds or reshapes named values for later steps.
+        Builds or reshapes named values for later steps. This is the workhorse node — it
+        totals lists, formats money and dates, tidies text, and shortens long references.
       </RefHeader>
       <Meta label="Outputs"><C>out</C></Meta>
 
@@ -227,19 +228,184 @@ RIGHT — narrowest first
         params={[
           {
             name: 'transformations',
-            type: 'key/value map',
+            type: 'field map',
             default: '{}',
             description: (
               <>
-                Each row is a name and an expression. Every name becomes a top-level variable
-                available to later steps as <C>{'{{name}}'}</C>.
+                One row per field you want to create. Every row&rsquo;s name becomes a
+                top-level variable available to later steps as <C>{'{{name}}'}</C>.
               </>
             ),
           },
         ]}
       />
 
-      <P>Three jobs this node does well:</P>
+      <H3>What a row contains</H3>
+      <P>
+        Each row in the editor has a name, a source, and up to three transforms applied in
+        order.
+      </P>
+      <Table
+        headers={['Part', 'What you put there']}
+        widths={['w-[22%]']}
+        rows={[
+          [
+            <Strong>Name</Strong>,
+            <>
+              What the result is called. Later steps use it as <C>{'{{name}}'}</C> — no{' '}
+              <C>steps.</C> prefix needed, because Set Fields publishes at the top level.
+            </>,
+          ],
+          [
+            <Strong>Source</Strong>,
+            <>
+              Where the value comes from: a reference like <C>{'{{trigger.orders}}'}</C>, a
+              literal like <C>Gold</C>, or a mix of both. Leave the transforms empty and the
+              source is simply stored under the name.
+            </>,
+          ],
+          [
+            <Strong>Transform</Strong>,
+            <>
+              What to do with the value — chosen from the dropdown, not typed. Some
+              transforms reveal an argument box beside them (a currency, a number of decimal
+              places, a field name).
+            </>,
+          ],
+          [
+            <Strong>then…</Strong>,
+            <>
+              A second and third transform, each fed the previous one&rsquo;s result. The
+              slot only appears once the one before it is set.
+            </>,
+          ],
+        ]}
+      />
+
+      <H3 id="transform-library">The transform library</H3>
+      <P>
+        Thirty transforms in five groups. The <Strong>Argument</Strong> column is what the box
+        beside the dropdown asks for; a dash means the transform takes none.
+      </P>
+
+      <H4>Numbers</H4>
+      <Table
+        headers={['Transform', 'Does', 'Argument']}
+        widths={['w-[24%]', 'w-[46%]']}
+        rows={[
+          [<Strong>Sum of</Strong>, 'Adds a field up across a list — an order total, a month of charges.', <>Field to add up. Blank for a plain list of numbers.</>],
+          [<Strong>Average of</Strong>, 'Mean of a field across a list.', 'Field to average'],
+          [<Strong>Largest of</Strong>, 'Highest value of a field across a list.', 'Field to compare'],
+          [<Strong>Smallest of</Strong>, 'Lowest value of a field across a list.', 'Field to compare'],
+          [<Strong>Round</Strong>, 'Rounds to a number of decimal places.', 'Decimal places'],
+          [<Strong>Round down</Strong>, 'Rounds towards zero.', '—'],
+          [<Strong>Round up</Strong>, 'Rounds away from zero.', '—'],
+          [<Strong>Absolute value</Strong>, 'Drops the minus sign.', '—'],
+        ]}
+      />
+
+      <H4>Formatting</H4>
+      <Table
+        headers={['Transform', 'Does', 'Argument']}
+        widths={['w-[24%]', 'w-[46%]']}
+        rows={[
+          [<Strong>Format as money</Strong>, <>Renders a number as currency — <C>1240.5</C> becomes <C>$1,240.50</C>.</>, <>Currency code, e.g. <C>USD</C></>],
+          [<Strong>Format as number</Strong>, 'Fixed decimal places with thousands separators.', 'Decimal places'],
+          [<Strong>Format as date</Strong>, <>Renders a date the way you want it read out.</>, <>Pattern, e.g. <C>%d %b %Y</C></>],
+          [<Strong>Add days to date</Strong>, 'Moves a date forward (or back, with a negative number).', 'Days'],
+          [<Strong>Add hours to date</Strong>, 'Moves a time forward or back.', 'Hours'],
+        ]}
+      />
+
+      <Callout kind="warning" title="Date maths needs a formatter after it">
+        <Strong>Add days</Strong> and <Strong>Add hours</Strong> hand back a date, not
+        something a caller can be told. On their own they produce ISO text like{' '}
+        <C>2026-08-28T14:30:00</C>. Chain <Strong>Format as date</Strong> after them to choose
+        how it reads. The editor prompts you when you forget.
+      </Callout>
+
+      <H4>Text</H4>
+      <Table
+        headers={['Transform', 'Does', 'Argument']}
+        widths={['w-[24%]', 'w-[46%]']}
+        rows={[
+          [<Strong>UPPERCASE</Strong>, 'Everything upper case.', '—'],
+          [<Strong>lowercase</Strong>, 'Everything lower case. Useful before a comparison.', '—'],
+          [<Strong>Capitalise first letter</Strong>, 'First letter up, rest untouched.', '—'],
+          [<Strong>Title Case</Strong>, 'Capitalises each word — names, company names.', '—'],
+          [<Strong>Remove extra spaces</Strong>, 'Trims the ends and collapses runs of spaces.', '—'],
+          [<Strong>Shorten to</Strong>, 'Cuts text to a maximum length.', 'Characters'],
+        ]}
+      />
+
+      <H4>Lists</H4>
+      <Table
+        headers={['Transform', 'Does', 'Argument']}
+        widths={['w-[24%]', 'w-[46%]']}
+        rows={[
+          [<Strong>Count items</Strong>, <>How many are in the list — &ldquo;you have {'{{order_count}}'} open orders&rdquo;.</>, '—'],
+          [<Strong>First item</Strong>, 'The first entry. Handy for a search that returns matches in relevance order.', '—'],
+          [<Strong>Last item</Strong>, 'The last entry — the most recent, where the list is chronological.', '—'],
+          [<Strong>Join into text</Strong>, <>Turns a list into one readable string.</>, <>Separator, e.g. <C>, </C></>],
+          [<Strong>Extract field from each</Strong>, <>Pulls one field out of every item, giving a list of just those values.</>, 'Field name'],
+        ]}
+      />
+
+      <H4>Convert</H4>
+      <Table
+        headers={['Transform', 'Does', 'Argument']}
+        widths={['w-[24%]', 'w-[46%]']}
+        rows={[
+          [<Strong>To whole number</Strong>, 'Turns text into an integer, so numeric comparisons work.', '—'],
+          [<Strong>To decimal number</Strong>, 'Turns text into a decimal.', '—'],
+          [<Strong>To text</Strong>, 'Turns anything into a string.', '—'],
+        ]}
+      />
+
+      <Callout kind="note" title="Why this list is shorter than it could be">
+        Every transform here takes at most one argument that fits in a single box. The engine
+        supports a few more whose argument is itself a mini-format, and those are deliberately
+        left out of the dropdown rather than dressed up — if you need one, a{' '}
+        <A href="/docs/nodes/actions#webhook">Webhook</A> to your own endpoint is the honest
+        answer.
+      </Callout>
+
+      <H3 id="transform-chains">Chaining transforms</H3>
+      <P>
+        One transform often cannot both work a value out <em>and</em> present it. Chains solve
+        that: pick a transform, then pick another in the <C>then…</C> slot beneath it, up to
+        three in total. Each step is handed the previous step&rsquo;s result.
+      </P>
+
+      <CodeBlock
+        language="Three chains that come up constantly"
+        code={`order_total
+  source     {{steps.n_4c1f.orders}}
+  transform  Sum of            → amount
+  then       Format as money   → USD
+  result     "$1,240.50"
+
+callback_time
+  source     {{trigger.triggered_at}}
+  transform  Add hours to date → 2
+  then       Format as date    → %-I:%M %p
+  result     "3:45 PM"
+
+top_item
+  source     {{steps.n_4c1f.orders}}
+  transform  Extract field from each → product_name
+  then       First item
+  then       Title Case
+  result     "Wireless Headphones"`}
+      />
+
+      <Callout kind="tip" title="Clearing a step clears what follows">
+        Setting a transform slot back to &ldquo;No transform&rdquo; drops every step after it
+        too. A chain with a hole in the middle is not a chain, so the editor removes the tail
+        rather than silently skipping a gap.
+      </Callout>
+
+      <H3>Three jobs this node does well</H3>
       <UL>
         <LI>
           <Strong>Shorten a reference.</Strong> Turn{' '}
@@ -247,8 +413,8 @@ RIGHT — narrowest first
           then use the short name everywhere.
         </LI>
         <LI>
-          <Strong>Compose a value.</Strong> Join first and last names, build a message, format
-          a reference number.
+          <Strong>Compose or reshape a value.</Strong> Join first and last names, total a list
+          of orders, format a date the way a caller expects to hear it.
         </LI>
         <LI>
           <Strong>Mark a checkpoint.</Strong> Capture what mattered at a point in a long
@@ -257,9 +423,26 @@ RIGHT — narrowest first
       </UL>
 
       <Callout kind="tip" title="Watch the type rule">
-        A row whose value is <em>only</em> a reference keeps that value&rsquo;s type. A row
+        A row whose source is <em>only</em> a reference keeps that value&rsquo;s type. A row
         that combines references with text produces a string. See{' '}
         <A href="/docs/workflows/variables#type-preservation">Type preservation</A>.
+      </Callout>
+
+      <Callout kind="warning" title="A missing value stops the step — on purpose">
+        If the source resolves to nothing, most transforms fail with a message naming the
+        field and the transform, rather than quietly producing a blank. The exceptions are the
+        list transforms — <Strong>Sum of</Strong>, <Strong>Average of</Strong>,{' '}
+        <Strong>Count items</Strong> and friends — because &ldquo;no orders&rdquo; genuinely
+        does total zero. If the step fails, check that the step producing the source actually
+        ran first.
+      </Callout>
+
+      <Callout kind="note" title="Defaults, for workflows built through the API">
+        A field written through the <A href="/docs/api#workflows-endpoints">API</A> may carry
+        a <C>default</C>, which stands in when the source resolves to nothing — before the
+        transforms run, so <C>Format as money</C> with a default of <C>0</C> formats the zero
+        instead of failing. The builder has no box for it; add it in the workflow definition
+        if you need one.
       </Callout>
 
       <RefHeader id="calculate" name="Calculate" chip="Logic" tone="amber">

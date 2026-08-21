@@ -22,6 +22,7 @@ import {
   Repeat,
   Sparkles,
   Split,
+  StickyNote,
   Volume2,
   Wrench,
   type LucideIcon,
@@ -49,6 +50,7 @@ const ICONS: Record<string, LucideIcon> = {
   Sparkles,
   Clock,
   PhoneOff,
+  StickyNote,
 }
 
 const HANDLE_CLASS =
@@ -213,7 +215,9 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
           <p className="truncate text-sm font-semibold leading-tight">
             {nodeData.label || 'When workflow runs'}
           </p>
-          <p className="text-xs text-muted-foreground">Trigger</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {nodeData.triggerSummary || 'Trigger'}
+          </p>
         </div>
       </div>
 
@@ -223,3 +227,39 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
 }
 
 export const TriggerNode = memo(TriggerNodeComponent)
+
+/**
+ * A note: canvas annotation, not a step.
+ *
+ * Rendered separately from `WorkflowNode` for two reasons. It has no handles,
+ * so it cannot be wired into a flow the engine would then have to run; and its
+ * whole content is prose, which the shared node truncates to a single line —
+ * a note you cannot read is not worth writing.
+ */
+function NoteNodeComponent({ data, selected }: NodeProps) {
+  const nodeData = data as FlowNodeData
+  const text = String(nodeData.config?.text ?? '')
+
+  return (
+    <div
+      className={cn(
+        'w-[280px] rounded-xl border border-dashed bg-yellow-50 p-3 shadow-sm transition-all dark:bg-yellow-500/10',
+        selected
+          ? 'border-yellow-500 ring-2 ring-yellow-500/20'
+          : 'border-yellow-500/50 hover:border-yellow-500'
+      )}
+    >
+      <div className="mb-1.5 flex items-center gap-1.5 text-yellow-700 dark:text-yellow-500">
+        <StickyNote className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate text-[11px] font-semibold uppercase tracking-wide">
+          {nodeData.label || 'Note'}
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-yellow-900 dark:text-yellow-200/90">
+        {text || 'Double-click to write a note.'}
+      </p>
+    </div>
+  )
+}
+
+export const NoteNode = memo(NoteNodeComponent)

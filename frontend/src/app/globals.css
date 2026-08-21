@@ -151,6 +151,18 @@
 }
 
 @layer utilities {
+  /* Horizontal strips that scroll by touch or trackpad but shouldn't show a
+     bar under the pills. Referenced by the integrations category rail, which
+     asked for this class before it existed. */
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .sidebar-bg {
     background-color: hsl(var(--sidebar-bg));
   }

@@ -26,12 +26,14 @@ import {
   Undo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { TriggerNode, WorkflowNode } from './WorkflowNode'
+import { NoteNode, TriggerNode, WorkflowNode } from './WorkflowNode'
 import { WorkflowEdge } from './WorkflowEdge'
 import { NodePalette } from './NodePalette'
 import { NodeInspector } from './NodeInspector'
+import type { TriggerState } from './TriggerConfig'
 import {
   autoLayout,
+  flowNodeComponent,
   validateFlow,
   type FlowNode,
   type Issue,
@@ -39,10 +41,15 @@ import {
   NODE_WIDTH,
 } from '@/lib/workflow/graph'
 import { defaultConfig, getDescriptor, newNodeId } from '@/lib/workflow/nodeTypes'
+import { describeTrigger } from '@/lib/workflow/triggerTypes'
 import { buildDataPaths } from './fields/ExpressionInput'
 import { cn } from '@/lib/utils'
 
-const nodeTypes = { stepNode: WorkflowNode, triggerNode: TriggerNode }
+const nodeTypes = {
+  stepNode: WorkflowNode,
+  triggerNode: TriggerNode,
+  noteNode: NoteNode,
+}
 const edgeTypes = { workflowEdge: WorkflowEdge }
 
 interface Snapshot {
@@ -62,6 +69,19 @@ interface WorkflowCanvasProps {
   registerSelect?: (fn: (nodeId: string) => void) => void
   /** View-only: no palette, no editing, no inspector. Used by history replay. */
   readOnly?: boolean
+  /**
+   * The workflow's trigger, edited through the trigger node's inspector.
+   *
+   * Passed through rather than stored in the graph: `trigger_type` and
+   * `trigger_config` are columns on the workflow, and duplicating them into a
+   * node would create two sources of truth that drift.
+   */
+  trigger?: TriggerState
+  /** The trigger as last persisted, for the "still running" warning. */
+  savedTrigger?: TriggerState | null
+  /** Whether the workflow is active; an inactive one ignores its trigger. */
+  workflowIsActive?: boolean
+  onTriggerChange?: (trigger: TriggerState) => void
 }
 
 export function WorkflowCanvas(props: WorkflowCanvasProps) {
@@ -81,6 +101,10 @@ function CanvasInner({
   runStatus,
   registerSelect,
   readOnly = false,
+  trigger,
+  savedTrigger,
+  workflowIsActive = true,
+  onTriggerChange,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initialEdges)
@@ -169,6 +193,35 @@ function CanvasInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runStatus])
 
+  // Show how the workflow starts on the trigger node itself. Overlaid the same
+  // way run status is, and for the same reason: it is derived state, not an
+  // edit, so it must not mark the graph dirty or enter the history stack.
+  const triggerSummary = trigger
+    ? describeTrigger(trigger.type, trigger.config)
+    : null
+
+  useEffect(() => {
+    if (triggerSummary === null) return
+
+    setNodes((current) => {
+      if (
+        current.every(
+          (n) =>
+            n.data.nodeType !== 'trigger' ||
+            n.data.triggerSummary === triggerSummary
+        )
+      ) {
+        return current
+      }
+      suppressDirty.current = true
+      return current.map((n) =>
+        n.data.nodeType === 'trigger'
+          ? { ...n, data: { ...n.data, triggerSummary } }
+          : n
+      )
+    })
+  }, [triggerSummary, setNodes])
+
   // ---- validation -------------------------------------------------------
   const issues: Issue[] = useMemo(() => validateFlow(nodes, edges), [nodes, edges])
   const errorCount = issues.filter((i) => i.severity === 'error').length
@@ -192,7 +245,7 @@ function CanvasInner({
           ...current,
           {
             id,
-            type: 'stepNode',
+            type: flowNodeComponent(type),
             position: position ?? { x: 320, y: fallback + 160 },
             data: {
               label: descriptor.label,
@@ -320,7 +373,7 @@ function CanvasInner({
         ...current,
         {
           id,
-          type: 'stepNode',
+          type: flowNodeComponent(type),
           position: midpoint,
           data: {
             label: descriptor.label,
@@ -606,6 +659,16 @@ function CanvasInner({
             updateNode(selectedNode.id, { settings })
           }
           dataPaths={dataPaths}
+          trigger={
+            trigger && onTriggerChange
+              ? {
+                  value: trigger,
+                  saved: savedTrigger ?? null,
+                  isActive: workflowIsActive,
+                  onChange: onTriggerChange,
+                }
+              : undefined
+          }
           onDuplicate={() => duplicateNode(selectedNode.id)}
           onDelete={() => deleteNode(selectedNode.id)}
           onClose={() => setSelectedId(null)}

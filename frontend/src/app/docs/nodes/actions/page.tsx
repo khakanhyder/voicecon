@@ -23,12 +23,13 @@ export default function ActionNodesPage() {
         params={[
           {
             name: 'tool_id',
-            type: 'string',
+            type: 'tool',
             required: true,
             description: (
               <>
-                The tool to run. Find ids in the <Strong>Tools</Strong> section — they look
-                like <C>tool_xxxxxxxx</C>.
+                The tool to run, chosen from a dropdown of everything in the{' '}
+                <Strong>Tools</Strong> section. The list is scoped to this workspace, which is
+                what the engine enforces when the step runs.
               </>
             ),
           },
@@ -58,10 +59,45 @@ export default function ActionNodesPage() {
 // The other two are whole-value → they keep their real types.`}
       />
 
+      <H3>Reading what the tool returned</H3>
+      <P>
+        The result is stored under the node&rsquo;s id, like any other step. For the HTTP tool
+        types — <A href="/docs/tools/integration#api-request">API Request</A>, Custom Tool,
+        MCP and Slack — that result has a{' '}
+        <A href="/docs/tools/integration#api-request-result">known shape</A>:
+      </P>
+      <CodeBlock
+        language="Branching on a tool's result"
+        code={`{{steps.n_7fa21b30.ok}}            → true    ← branch on this
+{{steps.n_7fa21b30.status_code}}   → 200
+{{steps.n_7fa21b30.json.ticket}}   → 4021    (a number)
+
+# A Branch on {{steps.n_7fa21b30.ok}} equals false is how you catch an
+# endpoint that answered but refused — a 404 or a 422.`}
+      />
+      <Callout kind="tip" title="A failed step and an unhappy response are different">
+        The step fails when the request could not be made or answered at all. An endpoint that
+        replies <C>500</C> answered, so the step succeeds and <C>ok</C> is <C>false</C>. If
+        the difference matters, branch on <C>ok</C> rather than relying on the step failing.
+      </Callout>
+
       <Callout kind="note" title="Same tool, two callers">
         A tool assigned to an agent is invoked by the model when it judges the moment right.
         The same tool run from this node is invoked because <em>you</em> put it in the graph.
         Configure it once; both paths use it.
+      </Callout>
+
+      <Callout kind="warning" title="A deleted tool leaves the step broken">
+        Deleting a tool does not update the workflows that use it. The picker keeps the
+        missing entry visible and flags it, rather than quietly blanking the field, so the
+        step is obvious the next time you open it — but the run fails there until you choose
+        another.
+      </Callout>
+
+      <Callout kind="note" title="Moving a workflow between workspaces">
+        A workflow can only run tools owned by the workspace it runs in. Import one elsewhere
+        and its Run Tool steps point at ids that do not exist there — recreate the tools in
+        the new workspace and pick them again.
       </Callout>
 
       <RefHeader id="webhook" name="Webhook" chip="Actions" tone="violet">
@@ -139,6 +175,35 @@ Response: { "status": "ok", "results": [ { "id": 12, "email": "ada@example.com" 
         held outside the graph.
       </Callout>
 
+      <H3>Which destinations are allowed</H3>
+      <P>
+        The URL must be <C>http</C> or <C>https</C>, and it must resolve to a public internet
+        address. A step aimed at a private or internal address is rejected before the request
+        is made, with <C>Webhook url rejected</C> naming the reason.
+      </P>
+      <Table
+        headers={['Refused', 'Examples']}
+        widths={['w-[34%]']}
+        rows={[
+          [<Strong>Loopback</Strong>, <><C>localhost</C>, <C>127.0.0.1</C>, <C>::1</C></>],
+          [<Strong>Private ranges</Strong>, <><C>10.x.x.x</C>, <C>172.16–31.x.x</C>, <C>192.168.x.x</C></>],
+          [<Strong>Link-local</Strong>, <><C>169.254.169.254</C> — the cloud metadata endpoint</>],
+          [<Strong>Other schemes</Strong>, <><C>file:</C>, <C>ftp:</C>, <C>gopher:</C> and anything else</>],
+        ]}
+      />
+      <P>
+        <Strong>Redirects are not followed.</Strong> A <C>301</C> or <C>302</C> comes back as
+        the response rather than being chased, because a permitted public URL could otherwise
+        redirect the request inward. If your endpoint redirects, point the node at the final
+        URL.
+      </P>
+      <Callout kind="note" title="Reaching a service on your own network">
+        There is no allowlist to add an internal host to. Expose the endpoint on a public
+        address with its own authentication, or put a small public relay in front of it — the
+        restriction applies to every workflow on the platform and is not configurable per
+        workspace.
+      </Callout>
+
       <RefHeader id="action" name="Integration" chip="Actions" tone="violet">
         Runs a named action on one of your connected apps.
       </RefHeader>
@@ -182,6 +247,14 @@ Response: { "status": "ok", "results": [ { "id": 12, "email": "ada@example.com" 
           },
         ]}
       />
+
+      <Callout kind="warning" title="Connections and actions are both checked">
+        The connection must belong to the workspace the workflow runs in, and the action must
+        be one the connector publishes — the names in the{' '}
+        <A href="/docs/integrations/catalog">catalog</A>. Anything else is refused rather than
+        attempted, so a hand-edited workflow definition cannot reach a connector method that
+        was never meant to be callable from a graph.
+      </Callout>
 
       <H3>Resource pickers</H3>
       <P>

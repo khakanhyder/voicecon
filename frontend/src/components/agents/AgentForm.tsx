@@ -486,7 +486,7 @@ function SliderField({ label, value, min, max, step, format, onChange, hints }: 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-[#0F6A59]' : 'bg-slate-300'}`}>
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-[#0F6A59]' : 'bg-slate-300'}`}>
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`}/>
     </button>
   )
@@ -505,21 +505,21 @@ function SectionCard({ title, subtitle, icon: Icon, children, hint }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex w-full items-start justify-between gap-3 px-6 pt-5 pb-4 text-left"
+        className="flex w-full items-start justify-between gap-3 px-4 pt-5 pb-4 text-left sm:px-6"
       >
-        <div className="flex items-start gap-2.5">
+        <div className="flex min-w-0 items-start gap-2.5">
           {Icon && <Icon className="mt-1 h-5 w-5 flex-shrink-0 text-[#0F6A59]" />}
           <div>
-            <h2 className="text-[20px] font-bold text-[#000000] font-poppins leading-tight">{title}</h2>
+            <h2 className="text-[17px] font-bold text-[#000000] font-poppins leading-tight sm:text-[20px]">{title}</h2>
             {subtitle && <p className="mt-1 text-[12px] font-medium text-[#000000] font-poppins">{subtitle}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {hint && <span className="text-xs text-slate-400">{hint}</span>}
+        <div className="flex flex-shrink-0 items-center gap-3">
+          {hint && <span className="hidden text-xs text-slate-400 sm:inline">{hint}</span>}
           <ChevronUp className={`h-6 w-6 flex-shrink-0 text-[#106959] transition-transform ${open ? '' : 'rotate-180'}`} />
         </div>
       </button>
-      {open && <div className="px-6 pb-6 space-y-6">{children}</div>}
+      {open && <div className="space-y-6 px-4 pb-6 sm:px-6">{children}</div>}
     </div>
   )
 }
@@ -648,9 +648,9 @@ export function AgentTabContent({ tab, form, set }: {
 
   if (tab === 'basic') {
     return (
-      <div className="flex flex-col w-[85%]">
+      <div className="flex w-full flex-col">
         <SectionCard title="Model" subtitle="Configure the behaviour of the assistant">
-          <div className="grid gap-x-6 gap-y-6 lg:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-6 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             {/* Left column */}
             <div className="space-y-6">
               <div className="space-y-2">
@@ -750,7 +750,7 @@ export function AgentTabContent({ tab, form, set }: {
   }
 
   if (tab === 'llm') return (
-    <div className="flex flex-col w-[85%]">
+    <div className="flex w-full flex-col">
       <SectionCard title="LLM Selection" subtitle="Pick the model that powers the conversation" icon={Cpu} hint={`${LLM_PROVIDERS.length} providers`}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -807,7 +807,7 @@ export function AgentTabContent({ tab, form, set }: {
     const defaultVoiceId = currentVoices[0]?.value || '21m00Tcm4TlvDq8ikWAM'
 
     return (
-    <div className="flex flex-col w-[85%]">
+    <div className="flex w-full flex-col">
       <SectionCard title="Voice Selection" subtitle="Choose how the assistant sounds" icon={Volume2} hint={`${TTS_PROVIDERS.length} providers`}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -868,9 +868,9 @@ export function AgentTabContent({ tab, form, set }: {
     const sttModels = STT_MODELS[form.stt_provider] || STT_MODELS.deepgram
     const defaultSttModel = sttModels[0]?.value || 'nova-2'
     return (
-    <div className="flex flex-col w-[85%]">
+    <div className="flex w-full flex-col">
       <SectionCard title="Transcriber" subtitle="Speech-to-text engine for incoming audio" icon={Mic} hint={`${STT_PROVIDERS.length} providers`}>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
             <Select value={form.stt_provider || 'deepgram'} onValueChange={v => { set('stt_provider', v); set('stt_model', (STT_MODELS[v] || STT_MODELS.deepgram)[0]?.value || 'nova-2') }}>
@@ -913,10 +913,10 @@ export function AgentTabContent({ tab, form, set }: {
   }
 
   if (tab === 'conversation') return (
-    <div className="flex flex-col w-[85%]">
+    <div className="flex w-full flex-col">
       <SectionCard title="Conversation" subtitle="Turn-taking and call limits" icon={MessageSquare}>
-      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div>
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-slate-800">Allow Interruptions (Barge-in)</p>
           <p className="text-xs text-slate-400 mt-0.5">User can speak while agent is talking</p>
         </div>
@@ -938,15 +938,15 @@ export function AgentTabContent({ tab, form, set }: {
   )
 
   if (tab === 'advanced') return (
-    <div className="flex flex-col w-[85%]">
+    <div className="flex w-full flex-col">
       <SectionCard title="Advanced" subtitle="Extra signal processing and analysis" icon={Settings}>
       {[
         { key: 'background_noise_reduction', label: 'Background Noise Reduction', desc: 'Filter background noise from audio input' },
         { key: 'sentiment_analysis_enabled', label: 'Sentiment Analysis',          desc: 'Detect user sentiment in real-time during calls' },
         { key: 'emotion_detection_enabled',  label: 'Emotion Detection',           desc: 'Analyze emotional tone from voice patterns' },
       ].map(({ key, label, desc }) => (
-        <div key={key} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div>
+        <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="min-w-0">
             <p className="text-sm font-medium text-slate-800">{label}</p>
             <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
           </div>
@@ -968,7 +968,7 @@ export function AgentTabContent({ tab, form, set }: {
  */
 export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; onChange: (tab: AgentTabId) => void }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+    <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {AGENT_TABS.map(({ id, label }) => {
         const active = activeTab === id
         return (
@@ -977,7 +977,7 @@ export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; on
             type="button"
             onClick={() => onChange(id)}
             title={label}
-            className={`whitespace-nowrap rounded-3xl px-4 py-2 text-[15px] font-poppins transition-colors ${
+            className={`whitespace-nowrap rounded-3xl px-3 py-2 text-[14px] font-poppins transition-colors sm:px-4 sm:text-[15px] ${
               active
                 ? 'bg-[#106959] font-semibold text-white'
                 : 'font-medium text-[#000000] hover:bg-slate-100'

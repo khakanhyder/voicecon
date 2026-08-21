@@ -104,7 +104,7 @@ export default function CallsPage() {
         {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 border-l-[3px] border-l-[#0F6A59] p-5 hover:border-slate-300 hover:shadow-md transition-all duration-200">
+            <div key={card.label} className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 p-5 hover:border-slate-300 hover:shadow-md transition-all duration-200">
 
               <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-[10px] bg-[#0F6A59]/10">
                 <Icon className="h-6 w-6 text-[#0F6A59]" />

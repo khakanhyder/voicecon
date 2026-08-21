@@ -9,7 +9,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
-import { useAgentOptions } from '@/hooks/useAgentOptions'
 import { toast } from 'sonner'
 
 interface Workflow {
@@ -35,16 +34,11 @@ export default function EditWorkflowPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    triggerType: 'webhook',
-    agentId: '',
     executionMode: 'sequential',
     errorHandling: 'stop',
     maxRetries: 3,
     retryDelay: 60,
   })
-  const { agents, isLoading: agentsLoading } = useAgentOptions(
-    formData.triggerType === 'call_completed'
-  )
 
   useEffect(() => {
     if (workflowId) {
@@ -60,8 +54,6 @@ export default function EditWorkflowPage() {
       setFormData({
         name: workflow.name,
         description: workflow.description || '',
-        triggerType: workflow.trigger_type,
-        agentId: workflow.trigger_config?.agent_id || '',
         executionMode: workflow.execution_mode,
         errorHandling: workflow.error_handling,
         maxRetries: workflow.max_retries,
@@ -81,10 +73,13 @@ export default function EditWorkflowPage() {
     setIsLoading(true)
 
     try {
+      // trigger_config is deliberately absent: the trigger is edited on the
+      // builder's trigger node. Sending it from here previously reset it to
+      // `{}` on every save, which silently wiped a workflow's schedule or
+      // webhook key whenever its name was edited.
       await apiClient.patch(API_ENDPOINTS.WORKFLOW(workflowId), {
         name: formData.name,
         description: formData.description,
-        trigger_config: formData.agentId ? { agent_id: formData.agentId } : {},
         error_handling: formData.errorHandling,
         max_retries: formData.maxRetries,
         retry_delay: formData.retryDelay,
@@ -139,65 +134,6 @@ export default function EditWorkflowPage() {
                 rows={3}
               />
             </div>
-          </div>
-        </div>
-
-        {/* Trigger Configuration */}
-        <div className="rounded-lg border bg-card p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Trigger Configuration</h2>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="triggerType">Trigger Type</Label>
-              <Select
-                value={formData.triggerType}
-                onValueChange={(value) => setFormData({ ...formData, triggerType: value })}
-                disabled
-              >
-                <SelectTrigger id="triggerType">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="webhook">Webhook</SelectItem>
-                  <SelectItem value="schedule">Schedule</SelectItem>
-                  <SelectItem value="call_completed">Call Completed</SelectItem>
-                  <SelectItem value="integration_event">Integration Event</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">
-                Trigger type cannot be changed after creation
-              </p>
-            </div>
-
-            {formData.triggerType === 'call_completed' && (
-              <div className="space-y-2">
-                <Label htmlFor="agentId">Agent</Label>
-                <Select
-                  value={formData.agentId}
-                  onValueChange={(value) => setFormData({ ...formData, agentId: value })}
-                >
-                  <SelectTrigger id="agentId">
-                    <SelectValue
-                      placeholder={
-                        agentsLoading ? 'Loading agents…' : 'Select an agent'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!agentsLoading && agents.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No agents yet — create one first to trigger on its calls.
-                  </p>
-                )}
-              </div>
-            )}
           </div>
         </div>
 

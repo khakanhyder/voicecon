@@ -39,6 +39,20 @@ TERMINAL_TYPES = {"end", "transfer"}
 #: engine will refuse to run.
 KNOWN_STEP_TYPES = frozenset(t.value for t in StepType)
 
+#: Node types that live on the canvas but never execute.
+#:
+#: A Note is a comment the author leaves for whoever edits the workflow next.
+#: It is not a step: there is no handler for it, and it must never be treated
+#: as one — not reported as an unsupported step type, not warned about for
+#: being unconnected (it is always unconnected, by design), and skipped by the
+#: executor if a hand-built graph ever points an edge at one.
+ANNOTATION_TYPES = frozenset({"note"})
+
+
+def is_annotation(node_type: Optional[str]) -> bool:
+    """Is this a canvas annotation rather than an executable step?"""
+    return node_type in ANNOTATION_TYPES
+
 HANDLE_IN = "in"
 HANDLE_OUT = "out"
 HANDLE_TRUE = "true"
@@ -532,7 +546,11 @@ def validate_graph(graph: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
     # with, rather than reporting a healthy graph that cannot execute.
     for node in nodes:
         node_type = node.get("type")
-        if node_type != "trigger" and node_type not in KNOWN_STEP_TYPES:
+        if (
+            node_type != "trigger"
+            and not is_annotation(node_type)
+            and node_type not in KNOWN_STEP_TYPES
+        ):
             errors.append({
                 "nodeId": node["id"],
                 "message": (
@@ -572,7 +590,7 @@ def validate_graph(graph: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
                 stack.append(edge["target"])
 
     for node in nodes:
-        if node.get("type") == "trigger":
+        if node.get("type") == "trigger" or is_annotation(node.get("type")):
             continue
         if node["id"] not in reachable:
             warnings.append(

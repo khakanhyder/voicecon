@@ -88,24 +88,24 @@ export const IntegrationCard: React.FC<IntegrationCardProps> = ({ integration, o
     switch (integration.status) {
       case 'connected':
         return (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-medium ml-2">
-            <CheckCircle className="w-3 h-3" />
+          <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+            <CheckCircle className="h-3 w-3" />
             Connected
-          </div>
+          </span>
         );
       case 'error':
         return (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full text-[11px] font-medium ml-2">
-            <AlertCircle className="w-3 h-3" />
+          <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">
+            <AlertCircle className="h-3 w-3" />
             Error
-          </div>
+          </span>
         );
       case 'pending':
         return (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-medium ml-2">
-            <Clock className="w-3 h-3" />
+          <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <Clock className="h-3 w-3" />
             Pending
-          </div>
+          </span>
         );
       default:
         return null;
@@ -125,24 +125,22 @@ export const IntegrationCard: React.FC<IntegrationCardProps> = ({ integration, o
     >
       <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
         {/* Icon sits in a white rounded tile, per the design */}
-        <div className="flex h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white">
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white sm:h-12 sm:w-12">
           {iconUrl && !iconFailed ? (
             <img
               src={iconUrl}
               alt={`${integration.name} icon`}
-              className="h-4 w-4 sm:h-5 sm:w-5 object-contain"
+              className="h-6 w-6 object-contain sm:h-7 sm:w-7"
               onError={() => setIconFailed(true)}
             />
           ) : (
-            <span className="text-base sm:text-lg leading-none">{integration.icon}</span>
+            <span className="text-xl leading-none sm:text-2xl">{integration.icon}</span>
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center min-w-0 flex-1">
-          <h3 className="text-black text-[14px] sm:text-[18px] tracking-wide truncate" style={{ fontFamily: 'Poppins, sans-serif' }}>{integration.name}</h3>
-          <div className="mt-1 sm:mt-0">
-            {getStatusBadge()}
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <h3 className="max-w-full truncate text-[15px] tracking-wide text-black sm:text-[18px]" style={{ fontFamily: 'Poppins, sans-serif' }}>{integration.name}</h3>
+          {getStatusBadge()}
         </div>
       </div>
 

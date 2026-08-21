@@ -94,8 +94,58 @@ export default function TroubleshootingPage() {
       <H3>It fires but fails</H3>
       <P>
         Different problem. Run the tool&rsquo;s <Strong>Test</Strong> action with sample
-        values. If it fails there, it is a configuration problem — check the URL,
-        authentication, and whether required parameters are actually being collected.
+        values — for the HTTP tool types that sends the same request a live call would, so a
+        failure there is reproducible in front of you. The messages below name what to change.
+      </P>
+
+      <H3>&ldquo;Headers is not valid JSON&rdquo; / &ldquo;Body Template is not valid JSON&rdquo;</H3>
+      <P>
+        The field holds text that does not parse, and the message gives the line and column.
+        Nearly always a trailing comma after the last entry, a missing closing brace, or
+        single quotes where JSON needs double ones.
+      </P>
+
+      <H3>&ldquo;… url rejected&rdquo;</H3>
+      <P>
+        The destination is not a public address. Loopback, private ranges and the cloud
+        metadata address are refused, and redirects are not followed. See{' '}
+        <A href="/docs/tools/integration#api-request-limits">Where it may connect</A>.
+      </P>
+
+      <H3>The endpoint returns 401, and the credentials look right</H3>
+      <P>
+        Check that the auth mode is actually selected — the credential fields only appear once
+        you choose one, and a mode with a blank credential now fails the tool outright rather
+        than sending an unauthenticated request. If you are hand-assembling an{' '}
+        <C>Authorization</C> header in an{' '}
+        <A href="/docs/tools/integration#api-request">API Request</A> tool, consider a{' '}
+        <A href="/docs/tools/integration#custom-tool">Custom Tool</A> instead, where auth is a
+        structured field.
+      </P>
+
+      <H3>The receiving API stored a literal {'{{placeholder}}'}</H3>
+      <P>
+        The reference did not resolve, which means the parameter was not collected under that
+        name. Check the spelling against the tool&rsquo;s{' '}
+        <A href="/docs/tools/parameters">declared parameters</A> — an unresolved reference is
+        sent as <C>null</C>, so a literal placeholder arriving means the template names
+        something that does not exist.
+      </P>
+
+      <H3>&ldquo;… tools run through a connected integration&rdquo;</H3>
+      <P>
+        The tool was created as a Google Sheets, Google Calendar, or GoHighLevel type. Those
+        predate the connector system and have no credentials of their own. Connect the app
+        under <A href="/docs/integrations">Integrations</A> and rebuild the tool as a{' '}
+        <A href="/docs/tools/integration#connected-integration">Connected Integration</A>.
+      </P>
+
+      <H3>The agent said it worked, and nothing happened</H3>
+      <P>
+        If this is an older tool of one of the three types just above, that is exactly what it
+        did — those reported success without acting. They now fail with the message above
+        instead. Rebuild the tool as a Connected Integration and the agent will report the real
+        outcome.
       </P>
 
       <H2 id="workflow-issues">A workflow fails</H2>
@@ -143,6 +193,76 @@ export default function TroubleshootingPage() {
       <P>
         Parallel branches converged on it directly. Put a{' '}
         <A href="/docs/nodes/logic#merge">Merge</A> node in front of it.
+      </P>
+
+      <H3>&ldquo;This step type is no longer available&rdquo;</H3>
+      <P>
+        The workflow contains a node this build has retired — the Code node, in almost every
+        case. It shows as <Strong>Unsupported step</Strong> and blocks the run. Rebuild what it
+        did with <A href="/docs/nodes/logic#calculate">Calculate</A> or{' '}
+        <A href="/docs/nodes/logic#transform">Set Fields</A>, or call your own endpoint with a{' '}
+        <A href="/docs/nodes/actions#webhook">Webhook</A>, then delete the old node. See{' '}
+        <A href="/docs/workflows#retired-steps">Steps that are no longer supported</A>.
+      </P>
+
+      <H3>&ldquo;Webhook url rejected&rdquo;</H3>
+      <P>
+        The address is not publicly routable. <C>localhost</C>, <C>10.x</C>, <C>192.168.x</C>,{' '}
+        <C>169.254.x</C> and the like are refused, and redirects are not followed — so a public
+        URL that <C>302</C>s to an internal one fails here too. Point the node at the final
+        public address. See{' '}
+        <A href="/docs/nodes/actions#webhook">Which destinations are allowed</A>.
+      </P>
+
+      <H3>&ldquo;Tool … not found&rdquo; or &ldquo;Connection … not found&rdquo;</H3>
+      <P>
+        The id names something outside this workspace — usually because the workflow was
+        copied from another one. The message is identical whether the record is missing or
+        belongs to someone else, so recreate the tool or connection here rather than hunting
+        for the difference.
+      </P>
+
+      <H3>&ldquo;Action &lsquo;x&rsquo; is not available on …&rdquo;</H3>
+      <P>
+        The action name is not one the connector publishes. Pick it from the dropdown rather
+        than typing it, and check the{' '}
+        <A href="/docs/integrations/catalog">catalog</A> for the exact spelling.
+      </P>
+
+      <H3>Set Fields says a field &ldquo;has no value to work on&rdquo;</H3>
+      <P>
+        The row&rsquo;s source resolved to nothing, and its transform cannot run on an absent
+        value. Either the step that was meant to produce it did not run, or the reference is
+        mistyped. The message names the field and the transform — start there.
+      </P>
+
+      <H3>A date comes out as 2026-08-28T14:30:00</H3>
+      <P>
+        <Strong>Add days</Strong> and <Strong>Add hours</Strong> return a date, not a phrase.
+        Chain <Strong>Format as date</Strong> after them to choose how it reads. See{' '}
+        <A href="/docs/nodes/logic#transform-chains">Chaining transforms</A>.
+      </P>
+
+      <H3>A mid-call workflow gives up too quickly</H3>
+      <P>
+        It is not ignoring your settings. A <C>sync</C> run caps retries at one attempt after
+        two seconds, because the alternative is dead air on the line. Handle the failure in the
+        graph instead of waiting it out — see{' '}
+        <A href="/docs/workflows/execution#sync-retry-cap">Retries are capped during a call</A>.
+      </P>
+
+      <H3>A webhook-triggered workflow never fires</H3>
+      <P>
+        Check it has a <C>webhook_key</C>. A webhook workflow without one refuses every
+        request rather than accepting them, so it looks identical to nothing arriving. See{' '}
+        <A href="/docs/workflows/triggers#webhook">Webhook triggers</A>.
+      </P>
+
+      <H3>A scheduled workflow runs at the wrong hour</H3>
+      <P>
+        Cron expressions are evaluated in UTC and there is no timezone setting, so a local
+        schedule shifts when daylight saving does. Convert to UTC yourself. See{' '}
+        <A href="/docs/workflows/triggers#schedule">Schedule triggers</A>.
       </P>
 
       <H2 id="integration-issues">An integration breaks</H2>

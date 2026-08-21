@@ -312,6 +312,19 @@ class GraphExecutor:
         """Run one node under the concurrency limit."""
         async with self._semaphore:
             node = self.nodes[node_id]
+
+            # A Note is a comment on the canvas, not a step, and no handler
+            # exists for it. The builder gives it no handles so nothing can
+            # normally reach it — but a graph built through the API can point
+            # an edge anywhere, and "your workflow died on a comment" is a
+            # baffling way to find that out. Pass straight through instead.
+            if graph_utils.is_annotation(node.get("type")):
+                return NodeOutcome(
+                    status="success",
+                    result={"skipped": "annotation"},
+                    handles=[graph_utils.HANDLE_OUT],
+                )
+
             return await self.run_node(node)
 
 

@@ -111,8 +111,16 @@ class WorkflowTemplate(Base):
 
     # Workflow Configuration
     version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.0.0")
-    workflow_definition: Mapped[dict] = mapped_column(JSON, nullable=False)  # Complete workflow
-    trigger_config: Mapped[dict] = mapped_column(JSON, nullable=False)  # Trigger configuration
+    #: A v2 graph — {schema_version, nodes, edges} — copied verbatim into
+    #: ``workflows.workflow_steps`` on install.
+    workflow_definition: Mapped[dict] = mapped_column(JSON, nullable=False)
+    #: How the installed workflow starts. Stored separately from the config
+    #: because installing has to set both columns on the workflow, and a config
+    #: alone does not say which validator or handler it belongs to.
+    trigger_type: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="manual"
+    )
+    trigger_config: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     # Visual Assets
     icon: Mapped[Optional[str]] = mapped_column(String(500))
