@@ -12,34 +12,37 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 
-from app.database import Base
+# The app's own session factory, deliberately, rather than a second engine
+# built here from `os.getenv("DATABASE_URL")`.
+#
+# `app.database` normalizes the URL — `postgresql://` becomes
+# `postgresql+asyncpg://`, `postgres://` likewise — because that is the form
+# deployments actually set. Building an async engine from the raw value fails
+# with "The asyncio extension requires an async driver", which reads like a
+# dependency problem rather than a URL scheme, and the old hardcoded fallback
+# meant a *missing* variable seeded some other database instead of saying so.
+from app.database import AsyncSessionLocal, DATABASE_URL
 from app.models.template import AgentTemplate, WorkflowTemplate
 from app.services.templates import AGENT_TEMPLATES, WORKFLOW_TEMPLATES
-import os
+
+
+def _redacted(url: str) -> str:
+    """The database URL with any password removed, for logging."""
+    if "@" not in url:
+        return url
+    scheme, _, rest = url.partition("://")
+    credentials, _, host = rest.rpartition("@")
+    user = credentials.split(":", 1)[0]
+    return f"{scheme}://{user}:***@{host}"
 
 
 async def seed_templates():
     """Seed templates into database."""
+    print(f"Connecting to database: {_redacted(DATABASE_URL)}")
 
-    # Get database URL from environment
-    database_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/voicecon"
-    )
-
-    print(f"Connecting to database: {database_url}")
-
-    # Create engine and session
-    engine = create_async_engine(database_url, echo=True)
-    async_session = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-
-    async with async_session() as session:
+    async with AsyncSessionLocal() as session:
         try:
             print("\n" + "=" * 80)
             print("SEEDING AGENT TEMPLATES")
@@ -109,7 +112,9 @@ async def seed_templates():
             await session.rollback()
             raise
         finally:
-            await engine.dispose()
+            # The engine belongs to `app.database` and may be reused by
+            # anything else importing it, so it is not disposed here.
+            pass
 
 
 def main():
