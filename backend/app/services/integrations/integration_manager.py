@@ -5,6 +5,7 @@ Manages integration connections, authentication, and operations.
 """
 import logging
 import json
+import uuid
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -26,6 +27,28 @@ logger = logging.getLogger(__name__)
 class IntegrationError(Exception):
     """Raised when integration operation fails."""
     pass
+
+
+def _as_uuid(value: Any) -> Any:
+    """Coerce an id to UUID, leaving unparseable input alone.
+
+    Ids travel through this service as strings while the columns are UUID
+    typed. That is fine for an INSERT, which coerces, but a WHERE clause
+    comparing a UUID column to a string does not match on every driver.
+    """
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return value
+
+
+#: Provider errors that mean the authorisation is gone for good rather than
+#: the provider having a bad minute. Anything else is treated as transient and
+#: leaves the connection alone, so a blip does not tell the user to reconnect.
+_DEAD_AUTHORISATION = ("invalid_grant", "invalid_client", "unauthorized_client",
+                       "400 bad request", "401 unauthorized")
 
 
 class ConnectionTestError(Exception):
@@ -79,6 +102,74 @@ class IntegrationManager:
         if self.http_client:
             await self.http_client.aclose()
             self.http_client = None
+
+    async def _existing_connection(
+        self,
+        connector: IntegrationConnector,
+        user_id: str,
+        organization_id: str,
+        db: AsyncSession,
+    ) -> Optional[IntegrationConnection]:
+        """The connection this user already has for this app, if any.
+
+        Newest first, so a workspace that accumulated duplicates before
+        reconnect reused rows converges on one of them instead of adding
+        another on every authorisation.
+
+        Args:
+            connector: Integration connector
+            user_id: User ID
+            organization_id: Organization ID
+            db: Database session
+
+        Returns:
+            The existing connection, or None for a first-time connect
+        """
+        result = await db.execute(
+            select(IntegrationConnection)
+            .where(
+                and_(
+                    IntegrationConnection.organization_id == _as_uuid(organization_id),
+                    IntegrationConnection.connector_id == connector.id,
+                    IntegrationConnection.user_id == _as_uuid(user_id),
+                )
+            )
+            .order_by(IntegrationConnection.created_at.desc())
+        )
+        return result.scalars().first()
+
+    async def _mark_authorisation_dead(
+        self,
+        connection: IntegrationConnection,
+        connector: IntegrationConnector,
+        db: AsyncSession,
+        detail: str,
+    ) -> None:
+        """Record that an app's authorisation is gone and must be renewed.
+
+        Without this the connection kept reporting itself as "active" while
+        every call through it failed, so the dashboard said Connected and the
+        only symptom was a stack trace deep inside an unrelated workflow step.
+
+        Args:
+            connection: The connection whose refresh was rejected
+            connector: Its connector, for the message
+            db: Database session
+            detail: The provider's own explanation
+        """
+        connection.status = "expired"
+        connection.last_error = (
+            f"{connector.name} authorisation is no longer valid and the connection "
+            f"must be renewed on the Integrations page. Provider said: {detail}"
+        )
+        connection.error_count = (connection.error_count or 0) + 1
+        connection.updated_at = datetime.utcnow()
+        try:
+            await db.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            # Never let bookkeeping mask the real failure being reported.
+            logger.error(f"Could not record expired connection: {exc}")
+            await db.rollback()
 
     async def initiate_oauth_flow(
         self,
@@ -240,7 +331,46 @@ class IntegrationManager:
             # Calculate token expiry
             token_expires_at = self.oauth_handler.calculate_token_expiry(expires_in)
 
-            # Create connection
+            # Reconnecting has to land on the SAME row. Every workflow step,
+            # tool and agent names a connection by its id, so inserting a new
+            # row on reconnect silently orphaned all of them: the Integrations
+            # page showed "Connected" while everything that used the app kept
+            # calling the dead connection it was still pointing at.
+            connection = await self._existing_connection(
+                connector=connector,
+                user_id=user_id,
+                organization_id=organization_id,
+                db=db,
+            )
+
+            if connection:
+                connection.access_token_encrypted = encrypted_tokens["access_token_encrypted"]
+                connection.refresh_token_encrypted = encrypted_tokens.get(
+                    "refresh_token_encrypted"
+                )
+                connection.token_expires_at = token_expires_at
+                connection.integration_metadata = {
+                    "token_type": token_data.get("token_type", "Bearer")
+                }
+                # Whatever went wrong before is fixed by definition — we just
+                # completed a fresh authorisation.
+                connection.status = "active"
+                connection.is_active = True
+                connection.last_error = None
+                connection.error_count = 0
+                if connection_name:
+                    connection.name = connection_name
+                connection.updated_at = datetime.utcnow()
+
+                await db.commit()
+                await db.refresh(connection)
+
+                logger.info(
+                    f"OAuth reconnect completed for {connector.name}, "
+                    f"reusing connection {connection.id}"
+                )
+                return connection
+
             connection = IntegrationConnection(
                 user_id=user_id,
                 organization_id=organization_id,
@@ -341,6 +471,37 @@ class IntegrationManager:
 
             connection.status = "active"
             connection.last_sync_at = datetime.utcnow()
+
+            # Re-entering a key is a reconnect, and has to keep the id the
+            # workflows already name — same reason as the OAuth path above.
+            existing = await self._existing_connection(
+                connector=connector,
+                user_id=user_id,
+                organization_id=organization_id,
+                db=db,
+            )
+
+            if existing:
+                existing.api_key_encrypted = connection.api_key_encrypted
+                existing.auth_data_encrypted = connection.auth_data_encrypted
+                existing.config = connection.config
+                existing.status = "active"
+                existing.is_active = True
+                existing.last_error = None
+                existing.error_count = 0
+                existing.last_sync_at = connection.last_sync_at
+                if connection_name:
+                    existing.name = connection_name
+                existing.updated_at = datetime.utcnow()
+
+                await db.commit()
+                await db.refresh(existing)
+
+                logger.info(
+                    f"API key reconnect for {connector.name}, "
+                    f"reusing connection {existing.id}"
+                )
+                return existing
 
             db.add(connection)
             await db.commit()
@@ -618,7 +779,21 @@ class IntegrationManager:
 
         except OAuth2Error as e:
             logger.error(f"OAuth2 error during refresh: {e}", exc_info=True)
-            raise IntegrationError(f"Token refresh failed: {str(e)}")
+            detail = str(e)
+
+            # A rejected refresh is usually permanent — the user revoked access,
+            # or the provider expired it (Google does this after seven days
+            # while an OAuth app is still in "Testing"). Say which it is, and
+            # say what to do, rather than surfacing a bare 400 from a step three
+            # layers down. Transient provider trouble leaves the connection be.
+            if any(marker in detail.lower() for marker in _DEAD_AUTHORISATION):
+                await self._mark_authorisation_dead(connection, connector, db, detail)
+                raise IntegrationError(
+                    f"{connector.name} is no longer authorised — reconnect it on the "
+                    f"Integrations page. ({detail})"
+                )
+
+            raise IntegrationError(detail)
 
         except Exception as e:
             logger.error(f"Failed to refresh token: {e}", exc_info=True)

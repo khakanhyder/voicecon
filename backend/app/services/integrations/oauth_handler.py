@@ -18,6 +18,30 @@ from app.services.integrations.credential_manager import get_credential_manager
 logger = logging.getLogger(__name__)
 
 
+def _provider_error(response: "httpx.Response") -> str:
+    """Turn a token-endpoint rejection into something a human can act on.
+
+    ``raise_for_status`` reports only "Client error '400 Bad Request'", while
+    the body is where the provider actually says *why* — ``invalid_grant``,
+    "Token has been expired or revoked". Callers key off that text to tell a
+    dead authorisation apart from a provider having a bad minute, so it has to
+    survive as far as the error message.
+    """
+    detail = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = " ".join(
+                str(payload[key]) for key in ("error", "error_description")
+                if payload.get(key)
+            )
+    except Exception:  # pragma: no cover - non-JSON error body
+        pass
+    if not detail:
+        detail = (response.text or "").strip()[:200]
+    return f"HTTP {response.status_code}{': ' + detail if detail else ''}"
+
+
 class OAuth2Error(Exception):
     """Raised when OAuth2 flow fails."""
     pass
@@ -240,7 +264,8 @@ class OAuth2Handler:
 
             response = await client.post(token_url, headers=headers, **kwargs)
 
-            response.raise_for_status()
+            if response.is_error:
+                raise OAuth2Error(_provider_error(response))
 
             token_data = response.json()
 
@@ -260,6 +285,10 @@ class OAuth2Handler:
                 exc_info=True,
             )
             raise OAuth2Error(f"Token exchange failed: {str(e)} — {detail}")
+
+        except OAuth2Error:
+            # Already carries the provider's own explanation.
+            raise
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during token exchange: {e}", exc_info=True)
@@ -327,7 +356,8 @@ class OAuth2Handler:
 
             response = await client.post(token_url, headers=headers, **kwargs)
 
-            response.raise_for_status()
+            if response.is_error:
+                raise OAuth2Error(_provider_error(response))
 
             token_data = response.json()
 
@@ -336,6 +366,10 @@ class OAuth2Handler:
 
             logger.info("Successfully refreshed token")
             return token_data
+
+        except OAuth2Error:
+            # Already carries the provider's own explanation.
+            raise
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during token refresh: {e}", exc_info=True)

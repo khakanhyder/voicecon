@@ -11,6 +11,7 @@ No network: `_get_http_client` is replaced with a stub that returns canned
 responses.
 """
 import json
+import uuid
 from datetime import datetime, timedelta
 
 import httpx
@@ -414,3 +415,300 @@ class TestSingletons:
         same handler that issued the state.
         """
         assert get_oauth_handler() is get_oauth_handler()
+
+
+# ── Test doubles for the integration manager ────────────────────────────────
+
+
+class _FakeConnector:
+    """Just enough connector for the OAuth paths."""
+
+    def __init__(self, slug="fake-app", name="Fake App"):
+        self.id = uuid.uuid4()
+        self.slug = slug
+        self.name = name
+        self.auth_type = "oauth2"
+        self.auth_config = {}
+
+
+class _FakeConnection:
+    """A stand-in for the IntegrationConnection row."""
+
+    def __init__(self, **overrides):
+        self.id = uuid.uuid4()
+        self.user_id = uuid.uuid4()
+        self.organization_id = uuid.uuid4()
+        self.connector_id = None
+        self.name = "Fake App Connection"
+        self.status = "active"
+        self.is_active = True
+        self.last_error = None
+        self.error_count = 0
+        self.access_token_encrypted = None
+        self.refresh_token_encrypted = None
+        self.token_expires_at = None
+        self.integration_metadata = {}
+        self.updated_at = None
+        self.created_at = datetime.utcnow()
+        for key, value in overrides.items():
+            setattr(self, key, value)
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _FakeSession:
+    """Async session double that returns one preloaded row."""
+
+    def __init__(self, existing):
+        self._existing = existing
+        self.added = []
+        self.committed = 0
+        self.rolled_back = 0
+
+    async def execute(self, *_args, **_kwargs):
+        return _FakeResult(self._existing)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.committed += 1
+
+    async def rollback(self):
+        self.rolled_back += 1
+
+    async def refresh(self, *_args, **_kwargs):
+        return None
+
+
+def _stub_oauth_completion(manager, monkeypatch, connector, user_id):
+    """Make complete_oauth_flow reach the connection-writing step offline."""
+    monkeypatch.setattr(
+        manager.oauth_handler, "verify_state",
+        lambda state: (True, {"connector_id": str(connector.id), "user_id": user_id}),
+    )
+
+    async def fake_exchange(**_kwargs):
+        return {"access_token": "new-access", "refresh_token": "new-refresh",
+                "expires_in": 3600, "token_type": "Bearer"}
+
+    monkeypatch.setattr(manager.oauth_handler, "exchange_code_for_token", fake_exchange)
+    monkeypatch.setattr(
+        "app.services.integrations.oauth_providers.resolve_client_credentials",
+        lambda slug, config: {"token_url": "https://example.com/token",
+                              "client_id": "id", "client_secret": "secret",
+                              "token_style": "form"},
+    )
+
+
+def _stub_refresh_failure(manager, monkeypatch, detail):
+    """Make refresh_token fail the way a provider rejection does."""
+    monkeypatch.setattr(
+        "app.services.integrations.oauth_providers.resolve_client_credentials",
+        lambda slug, config: {"token_url": "https://example.com/token",
+                              "client_id": "id", "client_secret": "secret",
+                              "token_style": "form"},
+    )
+    monkeypatch.setattr(manager.credential_manager, "decrypt", lambda value: "plain-refresh")
+
+    async def fake_refresh(**_kwargs):
+        raise OAuth2Error(detail)
+
+    monkeypatch.setattr(manager.oauth_handler, "refresh_access_token", fake_refresh)
+
+# ── Reconnecting an app ─────────────────────────────────────────────────────
+
+
+class TestReconnectKeepsTheSameConnection:
+    """
+    Reconnecting must land on the row the workflows already name.
+
+    Every workflow step, tool and agent stores a connection *id*. Inserting a
+    new row on reconnect left all of them pointing at the dead one, so the
+    Integrations page read "Connected" while every call through the app failed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reconnect_updates_the_existing_row(self, monkeypatch):
+        from app.services.integrations.integration_manager import IntegrationManager
+
+        manager = IntegrationManager()
+        connector = _FakeConnector()
+        existing = _FakeConnection(
+            status="expired", last_error="dead", error_count=4,
+            access_token_encrypted="old-access",
+        )
+        db = _FakeSession(existing)
+        user_id = str(existing.user_id)
+        _stub_oauth_completion(manager, monkeypatch, connector, user_id)
+
+        result = await manager.complete_oauth_flow(
+            connector=connector, code="c", state="s", redirect_uri="r",
+            user_id=user_id, organization_id=str(existing.organization_id),
+            db=db,
+        )
+
+        assert result is existing, "reconnect created a second connection"
+        assert db.added == [], "nothing should be inserted on a reconnect"
+        assert result.access_token_encrypted != "old-access"
+        # A fresh authorisation clears whatever went wrong before it.
+        assert result.status == "active"
+        assert result.last_error is None
+        assert result.error_count == 0
+
+    @pytest.mark.asyncio
+    async def test_first_connect_still_creates_a_row(self, monkeypatch):
+        from app.services.integrations.integration_manager import IntegrationManager
+
+        manager = IntegrationManager()
+        connector = _FakeConnector()
+        db = _FakeSession(None)
+        user_id = str(uuid.uuid4())
+        _stub_oauth_completion(manager, monkeypatch, connector, user_id)
+
+        result = await manager.complete_oauth_flow(
+            connector=connector, code="c", state="s", redirect_uri="r",
+            user_id=user_id, organization_id=str(uuid.uuid4()), db=db,
+        )
+
+        assert db.added == [result]
+        assert result.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_re_entering_an_api_key_also_reuses_the_row(self, monkeypatch):
+        """The same trap on the API-key path — Trello and Slack go through it."""
+        from app.services.integrations.integration_manager import IntegrationManager
+
+        manager = IntegrationManager()
+        connector = _FakeConnector()
+        connector.auth_type = "api_key"
+        existing = _FakeConnection(status="error", last_error="bad key", error_count=2)
+        db = _FakeSession(existing)
+
+        async def fake_test(connection, connector, db=None):
+            return {"success": True, "message": "ok"}
+
+        monkeypatch.setattr(manager, "test_connection", fake_test)
+
+        result = await manager.connect_with_api_key(
+            connector=connector, api_key="new-key",
+            user_id=str(existing.user_id),
+            organization_id=str(existing.organization_id), db=db,
+        )
+
+        assert result is existing
+        assert db.added == []
+        assert result.status == "active"
+        assert result.last_error is None
+        assert result.error_count == 0
+
+
+# ── A refresh the provider rejects ──────────────────────────────────────────
+
+
+class TestExpiredAuthorisationIsVisible:
+    """
+    A dead refresh token has to show up on the connection, not only in a stack
+    trace inside whatever workflow happened to run next.
+    """
+
+    @pytest.mark.asyncio
+    async def test_invalid_grant_marks_the_connection_expired(self, monkeypatch):
+        from app.services.integrations import integration_manager as im
+
+        manager = im.IntegrationManager()
+        connector = _FakeConnector()
+        connection = _FakeConnection(refresh_token_encrypted="enc-refresh")
+        db = _FakeSession(connection)
+        _stub_refresh_failure(
+            manager, monkeypatch,
+            "HTTP 400: invalid_grant Token has been expired or revoked.")
+
+        with pytest.raises(im.IntegrationError) as exc:
+            await manager.refresh_token(connection=connection, connector=connector, db=db)
+
+        assert connection.status == "expired"
+        assert connection.error_count == 1
+        assert "Integrations page" in connection.last_error
+        # The message names the app, the fix, and the provider's own reason.
+        assert "Fake App" in str(exc.value)
+        assert "reconnect" in str(exc.value).lower()
+        assert "invalid_grant" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_a_provider_outage_does_not_demand_a_reconnect(self, monkeypatch):
+        """A bad minute at the provider is not a revoked authorisation."""
+        from app.services.integrations import integration_manager as im
+
+        manager = im.IntegrationManager()
+        connector = _FakeConnector()
+        connection = _FakeConnection(refresh_token_encrypted="enc-refresh")
+        db = _FakeSession(connection)
+        _stub_refresh_failure(manager, monkeypatch, "HTTP 503: service unavailable")
+
+        with pytest.raises(im.IntegrationError):
+            await manager.refresh_token(connection=connection, connector=connector, db=db)
+
+        assert connection.status == "active", "a transient error must not expire the connection"
+        assert connection.last_error is None
+
+
+class TestProviderErrorIsReadable:
+    """
+    raise_for_status reports only "Client error '400 Bad Request'". The body is
+    where the provider says *why*, and that is what tells a revoked token apart
+    from a provider outage.
+    """
+
+    def test_the_providers_own_words_survive(self):
+        from app.services.integrations.oauth_handler import _provider_error
+
+        request = httpx.Request("POST", "https://oauth2.googleapis.com/token")
+        response = httpx.Response(
+            400,
+            json={"error": "invalid_grant",
+                  "error_description": "Token has been expired or revoked."},
+            request=request,
+        )
+
+        detail = _provider_error(response)
+        assert "invalid_grant" in detail
+        assert "expired or revoked" in detail
+        assert "400" in detail
+
+    def test_a_non_json_body_still_reports_something(self):
+        from app.services.integrations.oauth_handler import _provider_error
+
+        request = httpx.Request("POST", "https://example.com/token")
+        response = httpx.Response(500, text="upstream exploded", request=request)
+
+        assert "500" in _provider_error(response)
+        assert "upstream exploded" in _provider_error(response)
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_refresh_reaches_the_caller_intact(self):
+        """The message must not be re-wrapped on the way out."""
+        handler = _stub_token_endpoint(
+            OAuth2Handler(),
+            json_body={"error": "invalid_grant", "error_description": "revoked"},
+            status_code=400,
+        )
+
+        with pytest.raises(OAuth2Error) as exc:
+            await handler.refresh_access_token(
+                token_url="https://example.com/token", client_id="id",
+                client_secret="secret", refresh_token="old",
+            )
+
+        assert "invalid_grant" in str(exc.value)
+        # It used to arrive as "Token refresh failed: Token refresh failed: …"
+        assert str(exc.value).count("Token refresh failed") <= 1
