@@ -8,6 +8,11 @@ import { IntegrationCard } from '@/components/integrations/IntegrationCard';
 import { Input } from '@/components/ui/input';
 import { apiClient } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
+import {
+  buildConnectionMap,
+  type ApiConnection,
+  type ConnectionHealth,
+} from '@/lib/integrations/connectionMap';
 
 interface Integration {
   id: string;
@@ -21,13 +26,6 @@ interface Integration {
   connectedAt?: string;
   features: string[];
   popular: boolean;
-}
-
-interface ApiConnection {
-  id: string;
-  status: string;
-  connector: { slug: string };
-  created_at: string;
 }
 
 // Static catalog — icons, features, and metadata that aren't stored in the DB
@@ -106,7 +104,7 @@ export default function IntegrationsPage() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   // slug → { connectionId, status }
   const [connectionMap, setConnectionMap] = useState<
-    Record<string, { connectionId: string; status: 'connected' | 'error' | 'pending' }>
+    Record<string, { connectionId: string; status: ConnectionHealth }>
   >({});
   const [loading, setLoading] = useState(true);
 
@@ -115,20 +113,7 @@ export default function IntegrationsPage() {
       const res = await apiClient.get<{ connections: ApiConnection[]; total: number }>(
         API_ENDPOINTS.INTEGRATION_CONNECTIONS
       );
-      const map: typeof connectionMap = {};
-      for (const conn of res.data.connections) {
-        if (conn.status === 'disconnected') continue;
-        const slug = conn.connector?.slug;
-        if (!slug) continue;
-        const s =
-          conn.status === 'active'
-            ? 'connected'
-            : conn.status === 'error' || conn.status === 'expired'
-              ? 'error'
-              : 'pending';
-        map[slug] = { connectionId: conn.id, status: s };
-      }
-      setConnectionMap(map);
+      setConnectionMap(buildConnectionMap(res.data.connections));
     } catch {
       // API not available; fall back to empty — no localStorage
     } finally {
