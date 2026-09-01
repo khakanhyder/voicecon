@@ -18,6 +18,13 @@ import { Crown, Mail, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { useAuthStore } from '@/store/authStore'
@@ -50,6 +57,12 @@ const ROLE_RANK: Record<string, number> = { viewer: 0, member: 1, admin: 2, owne
 
 /** Roles that can be handed out. "owner" is never among them — see the transfer flow. */
 const ASSIGNABLE_ROLES = ['admin', 'member', 'viewer']
+
+const selectTriggerClass =
+  'w-full sm:w-[140px] h-[45px] rounded-xl border border-slate-200 bg-white px-3 text-[14px] font-poppins text-[#000000] outline-none transition-colors hover:border-slate-300 focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 data-[state=open]:border-[#0F6A59] data-[state=open]:ring-2 data-[state=open]:ring-[#0F6A59]/15'
+
+const selectTriggerClassSmall =
+  'flex-1 sm:w-[140px] sm:flex-none h-[40px] rounded-xl border border-slate-200 bg-white px-3 text-[14px] font-poppins text-[#000000] outline-none transition-colors hover:border-slate-300 focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 data-[state=open]:border-[#0F6A59] data-[state=open]:ring-2 data-[state=open]:ring-[#0F6A59]/15'
 
 function initials(member: { name: string | null; email: string }) {
   const base = member.name || member.email
@@ -239,17 +252,18 @@ export default function TeamSettingsPage() {
             </div>
             <div className="space-y-2 w-full sm:w-auto">
               <Label htmlFor="role" className="text-[14px] font-bold text-[#000000] font-poppins block">Role</Label>
-              <select
-                id="role" className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              >
-                {assignableRoles.map((r) => (
-                  <option key={r} value={r} className="capitalize">
-                    {r}
-                  </option>
-                ))}
-              </select>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id="role" className={selectTriggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableRoles.map((r) => (
+                    <SelectItem key={r} value={r} className="capitalize">
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button type="submit" disabled={inviting} className="w-full sm:w-auto h-[45px]">
               {inviting ? 'Sending…' : 'Send Invite'}
@@ -350,24 +364,29 @@ export default function TeamSettingsPage() {
                   </div>
                   <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 w-full sm:w-auto">
                     {editable ? (
-                      <select className="flex-1 sm:w-auto h-[40px] rounded-xl border border-slate-200 bg-white text-[#000000] font-poppins px-3 text-[14px]"
+                      <Select
                         value={member.role}
                         disabled={busyId === member.id}
-                        onChange={(e) => handleRoleChange(member, e.target.value)}
+                        onValueChange={(value) => handleRoleChange(member, value)}
                       >
-                        {/* Keep the member's current role in the list even if we
-                            couldn't have assigned it ourselves. */}
-                        {Array.from(new Set([...assignableRoles, member.role])).map((r) => (
-                          <option
-                            key={r}
-                            value={r}
-                            className="capitalize"
-                            disabled={!assignableRoles.includes(r)}
-                          >
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger className={selectTriggerClassSmall}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Keep the member's current role in the list even if we
+                              couldn't have assigned it ourselves. */}
+                          {Array.from(new Set([...assignableRoles, member.role])).map((r) => (
+                            <SelectItem
+                              key={r}
+                              value={r}
+                              className="capitalize"
+                              disabled={!assignableRoles.includes(r)}
+                            >
+                              {r}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <div className="flex-1 sm:flex-none sm:text-right">
                         <p className="text-sm font-medium capitalize">{member.role}</p>

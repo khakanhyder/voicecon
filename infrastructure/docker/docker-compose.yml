@@ -46,6 +46,8 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ../../backend:/app
+      - uploads_data:/app/uploads
+      - recordings_data:/app/recordings
     ports:
       - "8000:8000"
     environment:
@@ -77,6 +79,8 @@ services:
     command: celery -A app.workers.celery_app worker --loglevel=info
     volumes:
       - ../../backend:/app
+      - uploads_data:/app/uploads
+      - recordings_data:/app/recordings
     environment:
       - DATABASE_URL=postgresql://voicecon_user:voicecon_password_dev@postgres:5432/voicecon
       - REDIS_URL=redis://redis:6379/0
@@ -103,6 +107,8 @@ services:
     command: celery -A app.workers.celery_app beat --loglevel=info
     volumes:
       - ../../backend:/app
+      - uploads_data:/app/uploads
+      - recordings_data:/app/recordings
     environment:
       - DATABASE_URL=postgresql://voicecon_user:voicecon_password_dev@postgres:5432/voicecon
       - REDIS_URL=redis://redis:6379/0
@@ -143,6 +149,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:
+  recordings_data:
 
 networks:
   voicecon_network:

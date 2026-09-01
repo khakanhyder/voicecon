@@ -16,7 +16,6 @@ import {
   Plug,
   GitBranch,
   BarChart3,
-  // Store, // Marketplace feature temporarily disabled
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -56,8 +55,6 @@ const navigation = [
   { name: 'Workflows', href: '/dashboard/workflows', icon: GitBranch },
   { name: 'Integrations', href: '/dashboard/integrations', icon: Plug },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-  // Marketplace feature temporarily disabled
-  // { name: 'Marketplace', href: '/dashboard/marketplace', icon: Store },
 ]
 
 /**

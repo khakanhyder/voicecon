@@ -32,7 +32,6 @@ const pageTitles: Record<
   '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new', permission: PERMISSIONS.workflowsWrite } },
   '/dashboard/integrations': { title: 'Integrations', description: 'Connect your apps and services' },
   '/dashboard/analytics': { title: 'Analytics', description: 'Insights and performance metrics' },
-  '/dashboard/marketplace': { title: 'Marketplace', description: 'Templates and pre-built agents' },
   '/dashboard/settings': { title: 'General', description: 'Your preferences and an overview of this account' },
   '/dashboard/settings/profile': { title: 'Profile', description: 'Update your personal information' },
   '/dashboard/settings/billing': { title: 'Billing', description: 'Manage your subscription and payments' },

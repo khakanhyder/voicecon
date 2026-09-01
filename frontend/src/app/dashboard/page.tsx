@@ -7,7 +7,7 @@ import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import {
   Bot, Phone, Plug, GitBranch, BarChart3, ArrowRight,
-  TrendingUp, Zap, Clock, CheckCircle2, Plus, Store,
+  TrendingUp, Zap, Clock, CheckCircle2, Plus,
 } from 'lucide-react'
 
 interface DashboardStats {
@@ -72,14 +72,6 @@ const quickActions = [
     href: '/dashboard/workflows/new',
     accent: ACCENTS.cyan,
     badge: null,
-  },
-  {
-    title: 'Browse Marketplace',
-    description: 'Pre-built templates to get started fast',
-    icon: Store,
-    href: '/dashboard/marketplace',
-    accent: ACCENTS.amber,
-    badge: 'New',
   },
 ]
 

@@ -9,6 +9,7 @@ forgotten-password flow.
 from datetime import datetime
 import logging
 import uuid as _uuid
+import os
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
