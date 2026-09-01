@@ -15,7 +15,7 @@ BASE_LAYOUT = """
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08);">
-        <tr><td style="background:linear-gradient(135deg,#1168d4 0%,#1a85ff 100%);padding:22px 28px;">
+        <tr><td style="background:#0F6A59;padding:22px 28px;">
           <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.01em;">{{ brand }}</span>
         </td></tr>
         <tr><td style="padding:32px 28px 8px;">
@@ -43,7 +43,7 @@ INVITATION_BODY = """
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
   <tr>
     <td style="padding-right:10px;">
-      <a href="{{ accept_url }}" style="display:inline-block;background:#1168d4;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
+      <a href="{{ accept_url }}" style="display:inline-block;background:#0F6A59;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
         Accept invitation
       </a>
     </td>
@@ -56,7 +56,7 @@ INVITATION_BODY = """
 </table>
 <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
   This invitation expires on {{ expires_human }}. If the buttons don't work, copy and paste this link into your browser:<br>
-  <a href="{{ accept_url }}" style="color:#1168d4;word-break:break-all;">{{ accept_url }}</a>
+  <a href="{{ accept_url }}" style="color:#0F6A59;word-break:break-all;">{{ accept_url }}</a>
 </p>
 """
 
@@ -97,7 +97,7 @@ BILLING_NOTICE_BODY = """
 {% endif %}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
   <tr><td>
-    <a href="{{ action_url }}" style="display:inline-block;background:#1168d4;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
+    <a href="{{ action_url }}" style="display:inline-block;background:#0F6A59;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
       {{ action_label }}
     </a>
   </td></tr>
