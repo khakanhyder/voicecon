@@ -120,6 +120,7 @@ def normalize_avatar(raw: bytes, content_type: Optional[str]) -> Tuple[bytes, st
 
 def _store_s3(key: str, data: bytes, content_type: str) -> str:
     import boto3
+    from botocore.config import Config
 
     client = boto3.client(
         "s3",
@@ -127,6 +128,7 @@ def _store_s3(key: str, data: bytes, content_type: str) -> str:
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         region_name=settings.AWS_REGION,
         endpoint_url=settings.AWS_ENDPOINT_URL,
+        config=Config(s3={'addressing_style': 'virtual'}),
     )
     client.put_object(
         Bucket=settings.AWS_S3_BUCKET,
@@ -212,6 +214,7 @@ def delete_avatar(url: Optional[str]) -> None:
         is_custom_url = settings.AWS_PUBLIC_URL and url.startswith(settings.AWS_PUBLIC_URL.rstrip("/"))
         if s3_enabled() and (is_aws_url or is_custom_url):
             import boto3
+            from botocore.config import Config
 
             if is_custom_url:
                 base = settings.AWS_PUBLIC_URL.rstrip("/")
@@ -224,6 +227,7 @@ def delete_avatar(url: Optional[str]) -> None:
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 region_name=settings.AWS_REGION,
                 endpoint_url=settings.AWS_ENDPOINT_URL,
+                config=Config(s3={'addressing_style': 'virtual'}),
             ).delete_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Could not delete old avatar {url}: {exc}")
