@@ -44,6 +44,7 @@ export function AvatarUploader({
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string>()
   const [preview, setPreview] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
 
   // Revoke on unmount as well as after each upload: an object URL pins the
   // whole file in memory until it is released.
@@ -91,6 +92,13 @@ export function AvatarUploader({
   }
 
   const shown = preview ?? src
+
+  // A stored picture can stop resolving — the file was on a container disk that
+  // a redeploy replaced, or the URL was written before the origin was right.
+  // Fall back to the initials the user would see with no picture at all, rather
+  // than the browser's broken-image glyph. Reset per URL so a fresh upload is
+  // given its own chance to load.
+  useEffect(() => setUnreachable(false), [shown])
   const initial = name.trim().charAt(0).toUpperCase() || 'U'
   const interactive = !disabled && !busy
 
@@ -119,9 +127,14 @@ export function AvatarUploader({
             dragging ? 'ring-2 ring-[#0F6A59] ring-offset-2' : ''
           } ${interactive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
         >
-          {shown ? (
+          {shown && !unreachable ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={shown} alt="" className="h-full w-full object-cover" />
+            <img
+              src={shown}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setUnreachable(true)}
+            />
           ) : (
             <span className="flex h-full w-full items-center justify-center bg-[#0F6A59]/10 text-2xl font-semibold text-[#106959]">
               {initial}

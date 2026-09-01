@@ -108,6 +108,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const currentWorkspace = useWorkspaceStore((s) => s.current)
   const [collapsed, setCollapsed] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const [avatarBroken, setAvatarBroken] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(
     pathname?.startsWith('/dashboard/settings') ?? false
   )
@@ -116,6 +117,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   useEffect(() => {
     onMobileClose()
   }, [pathname])
+
+  // A newly uploaded picture gets its own chance to load
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [user?.avatar_url])
 
   // Keep the Settings group open while browsing its sub-pages
   useEffect(() => {
@@ -282,9 +288,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           style={{ background: SIDEBAR.panel }}
         >
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 text-sm font-semibold text-white">
-            {user?.avatar_url ? (
+            {user?.avatar_url && !avatarBroken ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+              <img
+                src={user.avatar_url}
+                alt=""
+                className="h-full w-full object-cover"
+                // A picture that no longer resolves shows the initials instead
+                // of a broken-image glyph in the corner of every page.
+                onError={() => setAvatarBroken(true)}
+              />
             ) : user?.full_name ? (
               user.full_name[0].toUpperCase()
             ) : (

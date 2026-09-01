@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.core.security import get_password_hash, verify_password
+from app.core.urls import public_base_url
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate, PasswordChange
 from app.services.storage import (
@@ -137,8 +137,10 @@ async def upload_my_avatar(
             file.content_type,
             # This API's own origin. The locally-stored file is served by *this*
             # app, not by the frontend, so the URL has to be absolute or the
-            # browser looks for it on the frontend's origin and gets a 404.
-            public_base=settings.API_BASE_URL or str(request.base_url).rstrip("/"),
+            # browser looks for it on the frontend's origin and gets a 404 —
+            # and it has to carry the scheme the *browser* used, or an https
+            # dashboard refuses to load an http image.
+            public_base=public_base_url(request),
         )
     except StorageError as exc:
         raise HTTPException(

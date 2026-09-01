@@ -6,7 +6,7 @@
  * cases without a round-trip, and must never leave the UI showing a picture
  * that failed to save.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -120,6 +120,19 @@ describe('AvatarUploader', () => {
     await user.upload(fileInput(), png())
 
     await waitFor(() => expect(onUpload).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows the initial when the stored picture no longer loads', async () => {
+    // The file behind a stored URL can go away — a container disk replaced by a
+    // redeploy, a URL written with the wrong origin. Better the initials than
+    // the browser's broken-image glyph.
+    setup({ src: 'https://cdn.example.com/gone.png' })
+
+    const img = document.querySelector('img') as HTMLImageElement
+    fireEvent.error(img)
+
+    await waitFor(() => expect(screen.getByText('S')).toBeInTheDocument())
+    expect(document.querySelector('img')).toBeNull()
   })
 
   it('cannot be used while disabled', async () => {

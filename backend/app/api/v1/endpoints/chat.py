@@ -20,6 +20,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, get_current_org_id
+from app.core.urls import public_base_url
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.chat import ChatMessage, ChatSession, ChatWidget
@@ -188,7 +189,7 @@ async def _resolve_session(
 
 
 def _embed_snippet(public_key: str, request: Request) -> str:
-    base = str(request.base_url).rstrip("/")
+    base = public_base_url(request)
     return (
         f'<script src="{base}/api/v1/chat/widget.js" '
         f'data-voicecon-key="{public_key}" async></script>'
@@ -371,7 +372,7 @@ async def widget_script(request: Request):
     """
     from fastapi.responses import Response
 
-    base = str(request.base_url).rstrip("/")
+    base = public_base_url(request)
     js = _WIDGET_JS.replace("__API_BASE__", base)
     return Response(
         content=js,

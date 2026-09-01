@@ -364,6 +364,19 @@ try:
     _uploads_dir = os.path.join(os.path.dirname(__file__), '..', 'uploads')
     os.makedirs(_uploads_dir, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
+    # Said out loud at boot because the failure is otherwise invisible until a
+    # redeploy: uploads succeed, and then every avatar in the product turns
+    # into a broken image at once with nothing in the logs to explain it.
+    from app.services.storage import s3_enabled
+
+    if settings.is_production and not s3_enabled():
+        logger.warning(
+            "Avatars are being stored on the container filesystem at %s. "
+            "Configure AWS_S3_BUCKET, or mount that path as a persistent "
+            "volume — otherwise a redeploy deletes every uploaded picture.",
+            os.path.abspath(_uploads_dir),
+        )
 except Exception as e:
     logger.warning(f"Could not mount uploads directory: {e}")
 
