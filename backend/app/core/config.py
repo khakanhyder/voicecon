@@ -248,6 +248,8 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_S3_BUCKET: Optional[str] = None
     AWS_REGION: str = "us-east-1"
+    AWS_ENDPOINT_URL: Optional[str] = None
+    AWS_PUBLIC_URL: Optional[str] = None
 
     # Celery
     CELERY_BROKER_URL: Optional[str] = None

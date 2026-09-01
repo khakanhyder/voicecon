@@ -126,6 +126,7 @@ def _store_s3(key: str, data: bytes, content_type: str) -> str:
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         region_name=settings.AWS_REGION,
+        endpoint_url=settings.AWS_ENDPOINT_URL,
     )
     client.put_object(
         Bucket=settings.AWS_S3_BUCKET,
@@ -137,6 +138,9 @@ def _store_s3(key: str, data: bytes, content_type: str) -> str:
         # stale — the URL changes instead of the content.
         CacheControl="public, max-age=31536000, immutable",
     )
+    if settings.AWS_PUBLIC_URL:
+        base = settings.AWS_PUBLIC_URL.rstrip("/")
+        return f"{base}/{key}"
     return f"https://{settings.AWS_S3_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
 
 
@@ -204,15 +208,22 @@ def delete_avatar(url: Optional[str]) -> None:
                 os.remove(path)
             return
 
-        if s3_enabled() and settings.AWS_S3_BUCKET and f"{settings.AWS_S3_BUCKET}.s3." in url:
+        is_aws_url = settings.AWS_S3_BUCKET and f"{settings.AWS_S3_BUCKET}.s3." in url
+        is_custom_url = settings.AWS_PUBLIC_URL and url.startswith(settings.AWS_PUBLIC_URL.rstrip("/"))
+        if s3_enabled() and (is_aws_url or is_custom_url):
             import boto3
 
-            key = url.split(".amazonaws.com/", 1)[-1]
+            if is_custom_url:
+                base = settings.AWS_PUBLIC_URL.rstrip("/")
+                key = url[len(base) + 1:]
+            else:
+                key = url.split(".amazonaws.com/", 1)[-1]
             boto3.client(
                 "s3",
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 region_name=settings.AWS_REGION,
+                endpoint_url=settings.AWS_ENDPOINT_URL,
             ).delete_object(Bucket=settings.AWS_S3_BUCKET, Key=key)
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Could not delete old avatar {url}: {exc}")

@@ -369,7 +369,9 @@ try:
     # Manual file server to bypass any StaticFiles path resolution issues
     @app.get("/uploads/{file_path:path}")
     async def serve_upload(file_path: str):
-        full_path = os.path.join(_uploads_dir, file_path)
+        full_path = os.path.abspath(os.path.join(_uploads_dir, file_path))
+        if not full_path.startswith(os.path.abspath(_uploads_dir)):
+            return JSONResponse(status_code=403, content={"error": "Access denied"})
         if os.path.exists(full_path) and os.path.isfile(full_path):
             return FileResponse(full_path)
         return JSONResponse(status_code=404, content={"error": "File not found", "path": full_path, "exists": os.path.exists(full_path)})
