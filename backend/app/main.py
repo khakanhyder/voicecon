@@ -361,7 +361,8 @@ except Exception as e:
 # see app/services/storage.py. On a PaaS this directory must be a mounted
 # volume or a redeploy takes every uploaded avatar with it.
 try:
-    _uploads_dir = os.path.join(os.path.dirname(__file__), '..', 'uploads')
+    from app.services.storage import _local_root
+    _uploads_dir = _local_root()
     os.makedirs(_uploads_dir, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
