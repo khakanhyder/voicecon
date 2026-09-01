@@ -10,12 +10,17 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select, and_
+import logging
+
 from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.security import get_password_hash, verify_password
 from app.core.urls import public_base_url
-from app.models.user import User
+from app.models.user import User, Organization
+from app.models.subscription import Subscription, LIVE_STATUSES, STATUS_CANCELED
 from app.schemas.user import UserResponse, UserUpdate, PasswordChange
+from app.services.billing import StripeService, get_stripe_service
 from app.services.storage import (
     MAX_AVATAR_BYTES,
     StorageError,
@@ -24,6 +29,7 @@ from app.services.storage import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -95,9 +101,57 @@ async def delete_my_account(
     We deactivate rather than hard-delete so historical calls/agents remain
     attributable and the action is reversible by support. The user can no longer
     authenticate once ``is_active`` is False.
+    
+    This also bumps the token version to immediately invalidate any outstanding sessions,
+    and deactivates any organizations where the user is the owner, canceling any active 
+    subscriptions on those organizations to prevent further billing.
     """
+    now = datetime.utcnow()
     current_user.is_active = False
-    current_user.deleted_at = datetime.utcnow()
+    current_user.deleted_at = now
+    
+    # Invalidate all existing tokens immediately
+    current_user.token_version = (current_user.token_version or 0) + 1
+
+    # Find organizations where this user is the owner
+    result = await db.execute(
+        select(Organization).where(Organization.owner_id == current_user.id)
+    )
+    organizations = result.scalars().all()
+    
+    for org in organizations:
+        org.is_active = False
+        org.updated_at = now
+        
+        # Check for live subscriptions in this organization
+        sub_result = await db.execute(
+            select(Subscription).where(
+                and_(
+                    Subscription.organization_id == org.id,
+                    Subscription.status.in_(LIVE_STATUSES),
+                )
+            )
+        )
+        subscriptions = sub_result.scalars().all()
+        for subscription in subscriptions:
+            trial_without_stripe = subscription.stripe_subscription_id is None
+            if trial_without_stripe:
+                subscription.status = STATUS_CANCELED
+                subscription.canceled_at = now
+                subscription.ended_at = now
+                subscription.current_period_end = min(subscription.current_period_end, now)
+            else:
+                try:
+                    stripe_service = await get_stripe_service()
+                    await stripe_service.cancel_subscription(
+                        db=db, subscription_id=subscription.id, immediate=True
+                    )
+                    await db.refresh(subscription)
+                    subscription.canceled_at = subscription.canceled_at or now
+                    subscription.cancel_at_period_end = False
+                except Exception as e:
+                    logger.error("Failed to cancel Stripe subscription %s for org %s: %s", subscription.id, org.id, e)
+
     await db.commit()
 
 

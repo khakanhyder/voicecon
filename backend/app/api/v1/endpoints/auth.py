@@ -206,8 +206,8 @@ async def forgot_password(
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    if user is None:
-        logger.info(f"Password reset requested for unknown address {email}")
+    if user is None or not user.is_active:
+        logger.info(f"Password reset requested for unknown or inactive address {email}")
         return SendEmailCodeResponse(message=generic, expires_in_minutes=CODE_TTL_MINUTES)
 
     try:
@@ -253,7 +253,7 @@ async def reset_password(
 
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if user is None:
+    if user is None or not user.is_active:
         # Only reachable if the account was deleted between request and reset.
         raise bad_request_exception("That code is not valid. Request a new one.")
 

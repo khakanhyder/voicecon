@@ -55,6 +55,12 @@ class SMTPProvider(EmailProvider):
         mime["Subject"] = message.subject
         mime["From"] = _from_header(message)
         mime["To"] = formataddr((message.to_name or "", message.to))
+        
+        import email.utils
+        mime["Date"] = email.utils.formatdate(localtime=True)
+        domain = settings.SERVER_HOST or "voicecon.ai"
+        mime["Message-ID"] = email.utils.make_msgid(domain=domain)
+        
         if message.reply_to:
             mime["Reply-To"] = message.reply_to
         if message.text:
