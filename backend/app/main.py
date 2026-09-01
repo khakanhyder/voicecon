@@ -362,9 +362,20 @@ except Exception as e:
 # volume or a redeploy takes every uploaded avatar with it.
 try:
     from app.services.storage import _local_root
+    from fastapi.responses import FileResponse
     _uploads_dir = _local_root()
     os.makedirs(_uploads_dir, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+    
+    # Manual file server to bypass any StaticFiles path resolution issues
+    @app.get("/uploads/{file_path:path}")
+    async def serve_upload(file_path: str):
+        full_path = os.path.join(_uploads_dir, file_path)
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            return FileResponse(full_path)
+        return JSONResponse(status_code=404, content={"error": "File not found", "path": full_path, "exists": os.path.exists(full_path)})
+
+    # We keep the StaticFiles mount as a fallback, but the route above will intercept requests first.
+    app.mount("/uploads_fallback", StaticFiles(directory=_uploads_dir), name="uploads_fallback")
 
     # Said out loud at boot because the failure is otherwise invisible until a
     # redeploy: uploads succeed, and then every avatar in the product turns
