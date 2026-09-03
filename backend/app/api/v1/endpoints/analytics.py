@@ -204,7 +204,7 @@ async def get_call_metrics(
         logger.error(f"Error getting call metrics: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get call metrics: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -276,7 +276,7 @@ async def get_agent_metrics(
         logger.error(f"Error getting agent metrics: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get agent metrics: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -343,7 +343,7 @@ async def get_integration_metrics(
         logger.error(f"Error getting integration metrics: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get integration metrics: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -391,7 +391,7 @@ async def get_daily_summary(
         logger.error(f"Error getting daily summary: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get daily summary: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -432,7 +432,7 @@ async def get_realtime_metrics(
         logger.error(f"Error getting real-time metrics: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get real-time metrics: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -472,7 +472,7 @@ async def trigger_aggregation(
         logger.error(f"Error triggering aggregation: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to trigger aggregation: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -547,5 +547,5 @@ async def get_dashboard_summary(
         logger.error(f"Error getting dashboard summary: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get dashboard summary: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )

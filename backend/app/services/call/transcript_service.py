@@ -356,18 +356,17 @@ class TranscriptService:
         """
         Analyze sentiment of transcript.
 
-        Placeholder implementation.
-        In production, use sentiment analysis models.
+        Not yet implemented — returns None so the dashboard can hide the metric
+        rather than presenting a hardcoded value as real analysis (M-02).
 
         Args:
             transcript: List of transcript entries
 
         Returns:
-            Tuple of (sentiment label, sentiment score)
+            Tuple of (sentiment label, sentiment score), both None until implemented
         """
-        # TODO: Implement real sentiment analysis
-        # For now, return neutral
-        return "neutral", 0.5
+        # TODO: Implement real sentiment analysis using an NLP model.
+        return None, None
 
     async def search_transcripts(
         self,

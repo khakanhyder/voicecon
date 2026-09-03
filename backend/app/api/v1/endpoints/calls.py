@@ -239,7 +239,7 @@ async def create_call(
             await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initiate call: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
     return call

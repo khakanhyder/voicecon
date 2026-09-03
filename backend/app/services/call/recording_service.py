@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import aiofiles
 import hashlib
+import httpx
 
 from app.core.config import settings
 from app.services.telephony.twilio_service import get_twilio_service
@@ -72,23 +73,15 @@ class RecordingService:
                 logger.error(f"Recording not found: {recording_sid}")
                 return None
 
-            # Download recording file
             recording_url = recording_data["url"]
-
-            # TODO: Implement actual download from Twilio
-            # For now, just return the URL
-            # In production, you'd use:
-            # async with httpx.AsyncClient() as client:
-            #     response = await client.get(recording_url)
-            #     audio_data = response.content
-
-            # Generate filename
             filename = self._generate_filename(call_id, recording_sid)
             filepath = self.storage_path / filename
 
-            # Save to local storage
-            # async with aiofiles.open(filepath, 'wb') as f:
-            #     await f.write(audio_data)
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(recording_url)
+                response.raise_for_status()
+                async with aiofiles.open(filepath, 'wb') as f:
+                    await f.write(response.content)
 
             logger.info(f"Recording downloaded: {filepath}")
 

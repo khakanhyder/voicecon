@@ -262,11 +262,11 @@ async def claim_phone_number(
         logger.error(f"Onboarding purchase failed for {payload.phone_number}: {e}")
         raise HTTPException(status_code=502, detail=str(e))
     except (WebhookUrlNotConfigured, NumberNotRecordedError) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     except Exception as e:
         logger.error(f"Error claiming phone number: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Failed to claim phone number: {str(e)}"
+            status_code=500, detail="An internal error occurred. Please try again."
         )
 
     # Show the claimed number back on the company form when it reloads.

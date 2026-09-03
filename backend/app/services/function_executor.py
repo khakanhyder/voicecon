@@ -115,7 +115,7 @@ class FunctionExecutor:
         if self.http_client is None:
             self.http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(30.0, connect=5.0),  # 30s total, 5s connect
-                follow_redirects=True,
+                follow_redirects=False,  # B-01: redirects bypass the egress guard
                 limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
             )
         return self.http_client
@@ -327,6 +327,19 @@ class FunctionExecutor:
         """
         if not function.webhook_url:
             raise FunctionExecutionError(f"Function {function.name} has no webhook URL")
+
+        # B-01: Validate the destination before connecting. Without this, any
+        # authenticated user could point a function webhook at the cloud
+        # metadata endpoint (169.254.169.254) or internal services and read the
+        # reflected response — a full read SSRF.
+        from app.core.egress import UnsafeURLError, assert_safe_url
+
+        try:
+            assert_safe_url(function.webhook_url)
+        except UnsafeURLError as exc:
+            raise FunctionExecutionError(
+                f"Webhook URL rejected: {exc}"
+            )
 
         client = await self._get_http_client()
 

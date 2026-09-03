@@ -178,9 +178,9 @@ export default function RegisterPage() {
     <div className="w-full max-w-md px-1 lg:max-w-4xl">
       <div className="mb-7">
         <h1 className="text-[28px] font-medium text-slate-900 md:text-3xl md:font-bold">
-          Sign Up into your account
+          Create your account
         </h1>
-        <p className="mt-2 text-base text-[#000000]">Welcome back select method to login</p>
+        <p className="mt-2 text-base text-[#000000]">Get started by choosing a sign-up method.</p>
       </div>
 
       {/* Social signups */}
@@ -233,7 +233,7 @@ export default function RegisterPage() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="email" className="block text-base font-semibold text-slate-800">
-              Email Id :
+              Email address
             </label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -418,7 +418,7 @@ export default function RegisterPage() {
       </form>
 
       <p className="mt-5 text-sm text-[#000000]">
-        already have an account?{' '}
+        Already have an account?{' '}
         <Link href="/login" className="font-semibold text-brand-600 hover:text-brand-700">
           Sign in here.
         </Link>

@@ -87,7 +87,7 @@ async def create_agent(
         logger.error(f"Error creating agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -161,7 +161,7 @@ async def list_agents(
         logger.error(f"Error listing agents: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list agents: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -221,7 +221,7 @@ async def get_agent_stats(
         logger.error(f"Error building agent stats: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to load agent stats: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -269,7 +269,7 @@ async def get_agent(
         logger.error(f"Error getting agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -317,7 +317,7 @@ async def update_agent(
         logger.error(f"Error updating agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -358,7 +358,7 @@ async def delete_agent(
         logger.error(f"Error deleting agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -408,7 +408,7 @@ async def clone_agent(
         logger.error(f"Error cloning agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to clone agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -524,7 +524,7 @@ async def test_agent(
         logger.error(f"Error testing agent: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to test agent: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -574,7 +574,7 @@ async def agent_speak(
         raise
     except Exception as e:
         logger.error(f"Error synthesizing speech: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 class RespondRequest(BaseModel):
@@ -1187,7 +1187,7 @@ async def agent_transcribe(
         raise
     except Exception as e:
         logger.error(f"Error transcribing audio: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/templates/list")
@@ -1217,7 +1217,7 @@ async def list_templates(
         logger.error(f"Error listing templates: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list templates: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -1266,7 +1266,7 @@ async def create_from_template(
         logger.error(f"Error creating from template: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create from template: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -1333,7 +1333,7 @@ async def create_agent_function(
         raise
     except Exception as e:
         logger.error(f"Error creating function: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/{agent_id}/functions", response_model=List[AgentFunctionResponse])
@@ -1383,7 +1383,7 @@ async def list_agent_functions(
         raise
     except Exception as e:
         logger.error(f"Error listing functions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/{agent_id}/functions/{function_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1439,7 +1439,7 @@ async def delete_agent_function(
         raise
     except Exception as e:
         logger.error(f"Error deleting function: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # Function Testing Endpoint
@@ -1537,4 +1537,4 @@ async def test_function(
         raise
     except Exception as e:
         logger.error(f"Error testing function: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

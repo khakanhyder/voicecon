@@ -151,7 +151,7 @@ def _provider_http_error(e: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(e))
     if isinstance(e, NumberProviderError):
         return HTTPException(status_code=502, detail=str(e))
-    return HTTPException(status_code=500, detail=str(e))
+    return HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/providers", response_model=List[TelephonyProviderResponse])
@@ -182,7 +182,7 @@ async def list_phone_number_providers(
         logger.error(f"Error listing phone number providers: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list phone providers: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -231,7 +231,7 @@ async def search_phone_numbers(
         logger.error(f"Error searching phone numbers: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to search phone numbers: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -302,14 +302,14 @@ async def provision_phone_number(
         logger.error(f"Purchase failed for {provision_request.phone_number}: {e}")
         raise HTTPException(status_code=502, detail=str(e))
     except WebhookUrlNotConfigured as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     except NumberNotRecordedError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     except Exception as e:
         logger.error(f"Error provisioning phone number: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to provision phone number: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
     return _to_response(phone_number_record)
@@ -357,7 +357,7 @@ async def list_phone_numbers(
         logger.error(f"Error listing phone numbers: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list phone numbers: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -402,7 +402,7 @@ async def get_phone_number(
         logger.error(f"Error getting phone number: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get phone number: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -475,7 +475,7 @@ async def update_phone_number(
                     CREDENTIAL_SOURCE_KEY: resolved.option.source,
                 }
             except WebhookUrlNotConfigured as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
             except (NoTelephonyProviderError, NumberProviderError) as e:
                 raise _provider_http_error(e)
 
@@ -499,7 +499,7 @@ async def update_phone_number(
         logger.error(f"Error updating phone number: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update phone number: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -546,7 +546,7 @@ async def release_phone_number(
         logger.error(f"Error releasing phone number at carrier: {e}", exc_info=True)
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to release phone number: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
     try:
@@ -557,7 +557,7 @@ async def release_phone_number(
         logger.error(f"Error deleting phone number record: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to release phone number: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
     logger.info(f"Released phone number: {phone_number_id}")

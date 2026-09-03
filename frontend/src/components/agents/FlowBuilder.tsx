@@ -28,10 +28,12 @@ import { NodeToolbar } from './NodeToolbar';
 import { NodeConfigPanel } from './NodeConfigPanel';
 import { FlowValidation } from './FlowValidation';
 import { TemplateLibrary } from './TemplateLibrary';
+import { CallTestPanel, TestCallAgent } from './CallTestPanel';
 import { validateFlow } from '@/lib/flowValidation';
+import { apiClient } from '@/lib/api';
 import { useFlowHistory } from '@/hooks/useFlowHistory';
 import { Button } from '@/components/ui/button';
-import { Save, Play, FileJson, AlertCircle, Check, BookTemplate, Undo, Redo } from 'lucide-react';
+import { Save, FileJson, AlertCircle, Check, BookTemplate, Undo, Redo, Play } from 'lucide-react';
 
 // Custom node types
 const nodeTypes: NodeTypes = {
@@ -67,6 +69,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [testAgent, setTestAgent] = useState<TestCallAgent | null>(null);
   const autoSaveTimerRef = useRef<NodeJS.Timeout>();
   const isUndoRedoAction = useRef(false);
 
@@ -115,8 +119,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   // Validate flow on changes
   useEffect(() => {
-    const errors = validateFlow(nodes, edges);
-    setValidationErrors(errors);
+    const result = validateFlow(nodes, edges);
+    setValidationErrors(result.errors.map((e) => e.message));
   }, [nodes, edges]);
 
   const handleAutoSave = useCallback(async () => {
@@ -146,6 +150,8 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+
       // Prevent invalid connections
       const sourceNode = nodes.find((n) => n.id === connection.source);
       const targetNode = nodes.find((n) => n.id === connection.target);
@@ -165,7 +171,10 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
 
       // Add edge with custom styling
       const newEdge: Edge = {
-        ...connection,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle,
+        targetHandle: connection.targetHandle,
         id: `${connection.source}-${connection.target}`,
         type: 'smoothstep',
         animated: true,
@@ -228,9 +237,21 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const handleTestFlow = () => {
-    // TODO: Implement flow testing
-    console.log('Testing flow with nodes:', nodes, 'and edges:', edges);
+  const handleTestFlow = async () => {
+    // Save current flow state before testing
+    await handleAutoSave();
+    
+    if (agentId) {
+      try {
+        const res = await apiClient.get(`/api/v1/agents/${agentId}`);
+        setTestAgent(res.data);
+        setTestModalOpen(true);
+      } catch (error) {
+        console.error('Failed to load agent for testing:', error);
+      }
+    } else {
+      console.warn('Cannot test flow without a saved agent ID');
+    }
   };
 
   const handleApplyTemplate = useCallback(
@@ -351,7 +372,7 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
                 <FileJson className="w-4 h-4" />
                 Export
               </Button>
-              <Button variant="outline" onClick={handleTestFlow} className="gap-2">
+              <Button variant="outline" onClick={handleTestFlow} className="gap-2" disabled={!agentId}>
                 <Play className="w-4 h-4" />
                 Test Flow
               </Button>
@@ -401,8 +422,6 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
             <Controls />
             <MiniMap
               nodeStrokeWidth={3}
-              zoomable
-              pannable
               className="bg-white border border-gray-200 rounded-lg"
             />
 
@@ -438,6 +457,16 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         <TemplateLibrary
           onApplyTemplate={handleApplyTemplate}
           onClose={() => setShowTemplateLibrary(false)}
+        />
+      )}
+
+      {/* Test Call Drawer */}
+      {testAgent && agentId && (
+        <CallTestPanel
+          agent={testAgent}
+          agentId={agentId}
+          open={testModalOpen}
+          onClose={() => setTestModalOpen(false)}
         />
       )}
     </div>

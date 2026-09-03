@@ -427,8 +427,31 @@ async def upload_document(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    # Read file content
-    content = await file.read()
+    # M-06: Reject oversized uploads before reading into memory.
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
+    # Fast reject via header (can be spoofed, so defence-in-depth follows).
+    if file.size and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum upload size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB.",
+        )
+
+    # Stream-read with cap — defence against spoofed Content-Length.
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1 MB at a time
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum upload size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     # Extract text based on file type
     try:

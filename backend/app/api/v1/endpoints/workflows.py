@@ -178,7 +178,7 @@ async def create_workflow(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create workflow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -259,7 +259,7 @@ async def list_workflows(
         logger.error(f"Failed to list workflows: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list workflows: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -317,7 +317,7 @@ async def get_workflow(
         logger.error(f"Failed to get workflow: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -411,7 +411,7 @@ async def update_workflow(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update workflow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -472,7 +472,7 @@ async def delete_workflow(
         logger.error(f"Failed to delete workflow: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete workflow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -557,7 +557,7 @@ async def execute_workflow(
         logger.error(f"Failed to execute workflow: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute workflow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -644,7 +644,7 @@ async def list_workflow_executions(
         logger.error(f"Failed to list executions: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list executions: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -721,7 +721,7 @@ async def get_workflow_execution(
         logger.error(f"Failed to get execution: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get execution: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -854,7 +854,7 @@ async def get_workflow_stats(
         logger.error(f"Failed to get workflow stats: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get workflow stats: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -926,7 +926,7 @@ async def test_workflow_trigger(
         logger.error(f"Failed to test trigger: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to test trigger: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -1183,7 +1183,7 @@ async def trigger_webhook(
         logger.error(f"Webhook trigger failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Webhook trigger failed: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -1246,7 +1246,7 @@ async def trigger_voice_event(
         logger.error(f"Voice event trigger failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Voice event trigger failed: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -1297,5 +1297,5 @@ async def trigger_integration_event(
         logger.error(f"Integration event trigger failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Integration event trigger failed: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )

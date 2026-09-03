@@ -54,8 +54,8 @@ export default function LoginPage() {
   return (
     <div className="w-full max-w-md px-1">
       <div className="mb-7">
-        <h1 className="text-[28px] md:text-3xl font-medium md:font-bold text-slate-900">Login into your account</h1>
-        <p className="mt-2 text-base text-[#000000]">Welcome back select method to login</p>
+        <h1 className="text-[28px] md:text-3xl font-medium md:font-bold text-slate-900">Log in to your account</h1>
+        <p className="mt-2 text-base text-[#000000]">Welcome back! Select a method to sign in.</p>
       </div>
 
       {/* Social logins */}
@@ -79,7 +79,7 @@ export default function LoginPage() {
         {/* Email */}
         <div className="space-y-1.5">
           <label htmlFor="email" className="block text-base font-semibold text-slate-800">
-            Email Id :
+            Email address
           </label>
           <div className="relative">
             <input

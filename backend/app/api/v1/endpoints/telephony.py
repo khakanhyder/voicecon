@@ -817,7 +817,7 @@ async def initiate_outbound_call(
         logger.error(f"Error initiating outbound call: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to initiate call: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 
@@ -868,7 +868,7 @@ async def get_call_details(
         logger.error(f"Error fetching call details: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch call details: {str(e)}"
+            detail="An internal error occurred. Please try again."
         )
 
 

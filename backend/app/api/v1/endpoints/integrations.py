@@ -161,7 +161,7 @@ async def list_connectors(
         logger.error(f"Failed to list connectors: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list connectors: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -217,7 +217,7 @@ async def get_connector(
         logger.error(f"Failed to get connector: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get connector: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -301,7 +301,7 @@ async def initiate_oauth_flow(
         logger.error(f"Failed to initiate OAuth flow: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initiate OAuth flow: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -384,7 +384,7 @@ async def handle_oauth_callback(
         logger.error(f"Failed to handle OAuth callback: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to handle OAuth callback: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -476,7 +476,7 @@ async def refresh_oauth_token(
         logger.error(f"Failed to refresh token: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to refresh token: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -607,7 +607,7 @@ async def create_connection(
         logger.error(f"Failed to create connection: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create connection: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -682,7 +682,7 @@ async def list_connections(
         logger.error(f"Failed to list connections: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list connections: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -744,7 +744,7 @@ async def get_connection(
         logger.error(f"Failed to get connection: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get connection: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -817,7 +817,7 @@ async def update_connection(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update connection: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -876,7 +876,7 @@ async def disconnect_integration(
         logger.error(f"Failed to disconnect connection: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to disconnect connection: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -955,7 +955,7 @@ async def test_connection(
         logger.error(f"Failed to test connection: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to test connection: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -1075,7 +1075,7 @@ async def get_connection_stats(
         logger.error(f"Failed to get connection stats: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get connection stats: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
@@ -1176,7 +1176,7 @@ async def get_integration_usage(
         logger.error(f"Failed to get integration usage: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get integration usage: {str(e)}",
+            detail="An internal error occurred. Please try again.",
         )
 
 
