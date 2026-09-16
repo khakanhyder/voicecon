@@ -1,18 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { Mail } from 'lucide-react'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
+import { useAuthStore } from '@/store/authStore'
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
+  const router = useRouter()
+  const { isAuthenticated, isLoading } = useAuthStore()
+
+  // The app host's root redirects here, so a visitor who is already signed in
+  // should continue to the dashboard instead of seeing the form again.
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace('/dashboard')
+    }
+  }, [isAuthenticated, isLoading, router])
 
   /**
    * Check both fields and report everything that is wrong at once.

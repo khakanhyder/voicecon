@@ -30,11 +30,11 @@ export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
   if (!app || host === app.hostname) {
-    // App host: the bare root goes straight to the product (the dashboard
-    // layout sends signed-out visitors on to /login).
+    // App host: the bare root goes straight to login (the login page sends
+    // visitors who are already signed in on to /dashboard).
     const isLocal = host === 'localhost' || host === '127.0.0.1'
     if (app && pathname === '/' && !isLocal) {
-      return NextResponse.redirect(new URL('/dashboard', app), 307)
+      return NextResponse.redirect(new URL('/login', app), 307)
     }
     return NextResponse.next()
   }
