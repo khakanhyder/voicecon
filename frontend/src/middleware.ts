@@ -2,21 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // One frontend deployment answers on two kinds of host:
 //   - landing hosts (voicecon.ai, www.voicecon.ai) serve only the marketing page
-//   - the app host (NEXT_PUBLIC_APP_URL, e.g. app.voicecon.ai) serves the product
+//   - the app host (app.voicecon.ai) serves the product
 // Auth tokens live in localStorage, which is per-origin, so everything except
 // the landing page must be sent to the app host or sessions would split.
+//
+// These are deliberately not derived from NEXT_PUBLIC_APP_URL: NEXT_PUBLIC_*
+// values are frozen at build time, and a stale value in the deploy settings
+// once sent landing visitors to the old nip.io host.
+const APP_HOST = (process.env.NEXT_PUBLIC_APP_HOST || 'app.voicecon.ai').toLowerCase()
 const LANDING_HOSTS = (process.env.NEXT_PUBLIC_LANDING_HOSTS || 'voicecon.ai,www.voicecon.ai')
   .split(',')
   .map((h) => h.trim().toLowerCase())
   .filter(Boolean)
-
-function appOrigin(): URL | null {
-  try {
-    return process.env.NEXT_PUBLIC_APP_URL ? new URL(process.env.NEXT_PUBLIC_APP_URL) : null
-  } catch {
-    return null
-  }
-}
 
 function requestHost(request: NextRequest): string {
   // Behind Traefik the forwarded host is the one the visitor typed.
@@ -26,21 +23,19 @@ function requestHost(request: NextRequest): string {
 
 export function middleware(request: NextRequest) {
   const host = requestHost(request)
-  const app = appOrigin()
   const { pathname, search } = request.nextUrl
 
-  if (!app || host === app.hostname) {
-    // App host: the bare root goes straight to login (the login page sends
-    // visitors who are already signed in on to /dashboard).
-    const isLocal = host === 'localhost' || host === '127.0.0.1'
-    if (app && pathname === '/' && !isLocal) {
-      return NextResponse.redirect(new URL('/login', app), 307)
+  if (host === APP_HOST) {
+    // The bare root goes straight to login; the login page sends visitors who
+    // are already signed in on to /dashboard.
+    if (pathname === '/') {
+      return NextResponse.redirect(`https://${APP_HOST}/login`, 307)
     }
     return NextResponse.next()
   }
 
   if (LANDING_HOSTS.includes(host) && pathname !== '/') {
-    return NextResponse.redirect(new URL(`${pathname}${search}`, app), 307)
+    return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 307)
   }
 
   return NextResponse.next()
