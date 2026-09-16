@@ -36,6 +36,7 @@ from app.models.user import User, OrganizationMember, Organization
 from app.models.invitation import Invitation
 from app.schemas.invitation import InviteRequest, InvitationResponse
 from app.services.team import invitation_service
+from app.services.team.invitation_service import InvitationError
 
 router = APIRouter()
 
@@ -198,14 +199,14 @@ async def invite_member(
             email=payload.email,
             role=role,
         )
-    except ValueError as exc:
-        code = getattr(exc, "code", "")
+    except InvitationError as exc:
+        code = exc.code
         http_status = (
             status.HTTP_409_CONFLICT
             if code in ("already_member", "already_invited")
             else status.HTTP_400_BAD_REQUEST
         )
-        raise HTTPException(status_code=http_status, detail=str(exc))
+        raise HTTPException(status_code=http_status, detail=exc.public_message)
 
     return _invitation_response(invitation, workspace.user)
 

@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import UserFacingError
 from app.models.integration import IntegrationConnection, IntegrationConnector
 from app.models.user import User
 from app.services.integrations.credential_manager import get_credential_manager
@@ -70,11 +71,11 @@ def platform_connection_id(slug: str) -> str:
     return f"{PLATFORM_CONNECTION_PREFIX}{slug}"
 
 
-class NoTelephonyProviderError(Exception):
+class NoTelephonyProviderError(UserFacingError):
     """Raised when the user has no carrier available to buy numbers from."""
 
 
-class AmbiguousProviderError(Exception):
+class AmbiguousProviderError(UserFacingError):
     """Raised when several carriers are connected and none was chosen."""
 
 
@@ -380,7 +381,7 @@ def _connection_credentials(
     credential_manager = get_credential_manager()
 
     if not connection.api_key_encrypted:
-        raise NumberProviderError(
+        raise NumberProviderError.public(
             f"The {slug.title()} connection has no stored credentials. "
             f"Reconnect it under Integrations."
         )

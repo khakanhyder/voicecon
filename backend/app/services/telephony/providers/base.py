@@ -20,7 +20,39 @@ logger = logging.getLogger(__name__)
 
 
 class NumberProviderError(Exception):
-    """Raised when a carrier operation fails."""
+    """Raised when a carrier operation fails.
+
+    The message often carries the carrier's own error text or a transport
+    error, which belongs in the log, not in an API response. ``public_message``
+    is the sentence a client may see; endpoints fall back to a generic one when
+    it is unset.
+    """
+
+    def __init__(self, message: str, public_message: Optional[str] = None):
+        super().__init__(message)
+        self.public_message = public_message
+
+    @classmethod
+    def public(cls, message: str) -> "NumberProviderError":
+        """An error whose message was written for the user."""
+        return cls(message, public_message=message)
+
+
+def _carrier_rejection_message(name: str, status_code: int) -> str:
+    """What to tell the user when the carrier refused a request.
+
+    Picked by status class rather than echoing the carrier's body, which can
+    name internal resources and account identifiers.
+    """
+    if status_code in (401, 403):
+        return f"{name} rejected the stored credentials. Reconnect {name} under Integrations."
+    if status_code == 404:
+        return f"{name} could not find that number on the account."
+    if status_code == 429:
+        return f"{name} is rate-limiting requests. Wait a minute and try again."
+    if status_code >= 500:
+        return f"{name} is having problems right now. Try again shortly."
+    return f"{name} could not complete that request. The number may no longer be available — choose another and try again."
 
 
 @dataclass
@@ -171,7 +203,10 @@ class NumberProvider(ABC):
                 )
         except httpx.HTTPError as e:
             logger.error(f"[{self.slug}] transport error on {method} {url}: {e}")
-            raise NumberProviderError(f"{self.name} is unreachable: {e}")
+            raise NumberProviderError(
+                f"{self.name} is unreachable: {e}",
+                public_message=f"Could not reach {self.name}. Try again shortly.",
+            )
 
         if response.status_code >= 400:
             detail = self._extract_error(response)
@@ -179,7 +214,10 @@ class NumberProvider(ABC):
                 f"[{self.slug}] {method} {url} failed "
                 f"({response.status_code}): {detail}"
             )
-            raise NumberProviderError(f"{self.name}: {detail}")
+            raise NumberProviderError(
+                f"{self.name}: {detail}",
+                public_message=_carrier_rejection_message(self.name, response.status_code),
+            )
 
         if not expect_json or not response.content:
             return None
@@ -187,7 +225,10 @@ class NumberProvider(ABC):
         try:
             return response.json()
         except ValueError:
-            raise NumberProviderError(f"{self.name} returned a non-JSON response")
+            raise NumberProviderError(
+                f"{self.name} returned a non-JSON response",
+                public_message=f"{self.name} sent an unexpected response. Try again shortly.",
+            )
 
     @staticmethod
     def _extract_error(response: httpx.Response) -> str:

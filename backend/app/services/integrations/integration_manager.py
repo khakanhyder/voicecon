@@ -25,8 +25,21 @@ logger = logging.getLogger(__name__)
 
 
 class IntegrationError(Exception):
-    """Raised when integration operation fails."""
-    pass
+    """Raised when integration operation fails.
+
+    Many of these wrap a provider's reply or a caught exception, which must not
+    reach an API client. ``public_message`` is set only where the sentence was
+    written for the user; endpoints fall back to a generic message otherwise.
+    """
+
+    def __init__(self, message: str, public_message: Optional[str] = None):
+        super().__init__(message)
+        self.public_message = public_message
+
+    @classmethod
+    def public(cls, message: str) -> "IntegrationError":
+        """An error whose message is safe to show as is."""
+        return cls(message, public_message=message)
 
 
 def _as_uuid(value: Any) -> Any:
@@ -196,7 +209,7 @@ class IntegrationManager:
         try:
             # Verify connector uses OAuth2
             if connector.auth_type != "oauth2":
-                raise IntegrationError(f"Connector {connector.name} does not use OAuth2")
+                raise IntegrationError.public(f"{connector.name} does not connect with OAuth.")
 
             # Resolve OAuth config from the provider registry (public endpoints)
             # + environment (client credentials).
@@ -206,13 +219,13 @@ class IntegrationManager:
             client_id = oauth["client_id"]
 
             if not client_id:
-                raise IntegrationError(
+                raise IntegrationError.public(
                     f"{connector.name} is not configured for OAuth on this server. "
                     f"The administrator must register an OAuth app and set the client "
                     f"credentials (see the integration setup docs)."
                 )
             if not authorize_url:
-                raise IntegrationError(f"No authorize URL configured for {connector.name}")
+                raise IntegrationError.public(f"{connector.name} is not configured for OAuth on this server.")
 
             # Generate state
             state = self.oauth_handler.generate_state(
@@ -241,6 +254,9 @@ class IntegrationManager:
                 "authorization_url": authorization_url,
                 "state": state,
             }
+
+        except IntegrationError:
+            raise
 
         except Exception as e:
             logger.error(f"Failed to initiate OAuth flow: {e}", exc_info=True)
@@ -280,15 +296,15 @@ class IntegrationManager:
             # Verify state
             is_valid, state_data = self.oauth_handler.verify_state(state)
             if not is_valid or not state_data:
-                raise IntegrationError("Invalid or expired state parameter")
+                raise IntegrationError.public("This connection link has expired. Start connecting again.")
 
             # Verify connector ID matches
             if state_data["connector_id"] != str(connector.id):
-                raise IntegrationError("Connector ID mismatch")
+                raise IntegrationError.public("This connection link is for a different app. Start connecting again.")
 
             # Verify user ID matches
             if state_data["user_id"] != user_id:
-                raise IntegrationError("User ID mismatch")
+                raise IntegrationError.public("This connection link was started by a different account. Start connecting again.")
 
             # Resolve OAuth config (registry endpoints + env credentials).
             from app.services.integrations.oauth_providers import resolve_client_credentials
@@ -298,7 +314,7 @@ class IntegrationManager:
             client_secret = oauth["client_secret"]
 
             if not token_url or not client_id or not client_secret:
-                raise IntegrationError(
+                raise IntegrationError.public(
                     f"{connector.name} OAuth is not fully configured on this server "
                     f"(missing client credentials or token URL)."
                 )
@@ -393,7 +409,13 @@ class IntegrationManager:
 
         except OAuth2Error as e:
             logger.error(f"OAuth2 error: {e}", exc_info=True)
-            raise IntegrationError(f"OAuth2 error: {str(e)}")
+            raise IntegrationError(
+                f"OAuth2 error: {e}",
+                public_message=f"{connector.name} did not accept the authorisation. Try connecting again.",
+            )
+
+        except IntegrationError:
+            raise
 
         except Exception as e:
             logger.error(f"Failed to complete OAuth flow: {e}", exc_info=True)
@@ -430,7 +452,7 @@ class IntegrationManager:
         try:
             # Verify connector uses API key auth
             if connector.auth_type != "api_key":
-                raise IntegrationError(f"Connector {connector.name} does not use API key auth")
+                raise IntegrationError.public(f"{connector.name} does not connect with an API key.")
 
             # Encrypt API key
             encrypted_api_key = self.credential_manager.encrypt(api_key)
@@ -512,6 +534,9 @@ class IntegrationManager:
             return connection
 
         except ConnectionTestError:
+            raise
+
+        except IntegrationError:
             raise
 
         except Exception as e:
@@ -721,10 +746,10 @@ class IntegrationManager:
         try:
             # Verify OAuth2
             if connector.auth_type != "oauth2":
-                raise IntegrationError("Only OAuth2 connections can be refreshed")
+                raise IntegrationError.public("Only OAuth connections can be refreshed.")
 
             if not connection.refresh_token_encrypted:
-                raise IntegrationError("No refresh token available")
+                raise IntegrationError.public("This connection has no refresh token. Reconnect it on the Integrations page.")
 
             # Resolve OAuth config (registry endpoints + env credentials).
             from app.services.integrations.oauth_providers import resolve_client_credentials
@@ -734,7 +759,7 @@ class IntegrationManager:
             client_secret = oauth["client_secret"]
 
             if not token_url or not client_id or not client_secret:
-                raise IntegrationError(
+                raise IntegrationError.public(
                     f"{connector.name} OAuth is not fully configured on this server "
                     f"(missing client credentials or token URL)."
                 )
@@ -788,12 +813,19 @@ class IntegrationManager:
             # layers down. Transient provider trouble leaves the connection be.
             if any(marker in detail.lower() for marker in _DEAD_AUTHORISATION):
                 await self._mark_authorisation_dead(connection, connector, db, detail)
-                raise IntegrationError(
+                public = (
                     f"{connector.name} is no longer authorised — reconnect it on the "
-                    f"Integrations page. ({detail})"
+                    f"Integrations page."
                 )
+                raise IntegrationError(f"{public} ({detail})", public_message=public)
 
-            raise IntegrationError(detail)
+            raise IntegrationError(
+                detail,
+                public_message=f"{connector.name} could not refresh its access right now. Try again shortly.",
+            )
+
+        except IntegrationError:
+            raise
 
         except Exception as e:
             logger.error(f"Failed to refresh token: {e}", exc_info=True)

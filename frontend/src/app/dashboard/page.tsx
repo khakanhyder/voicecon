@@ -59,7 +59,7 @@ const quickActions = [
   },
   {
     title: 'Connect an App',
-    description: 'Sync with CRM, calendar, and 50+ tools',
+    description: 'Sync with CRM, calendar, and 30+ tools',
     icon: Plug,
     href: '/dashboard/integrations',
     accent: ACCENTS.teal,

@@ -141,11 +141,11 @@ async def send_email_code(
     except RateLimited as e:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(e),
+            detail=e.public_message,
             headers={"Retry-After": str(e.retry_after_seconds)},
         )
     except VerificationError as e:
-        raise bad_request_exception(str(e))
+        raise bad_request_exception(e.public_message)
 
     sent = await email_service.send_verification_code(
         to_email=email,
@@ -180,7 +180,7 @@ async def verify_email_code(
     try:
         await confirm_code(db, email, PURPOSE_EMAIL_VERIFICATION, payload.code)
     except VerificationError as e:
-        raise bad_request_exception(str(e))
+        raise bad_request_exception(e.public_message)
 
     return VerifyEmailCodeResponse(
         verified=True,
@@ -216,11 +216,11 @@ async def forgot_password(
     except RateLimited as e:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(e),
+            detail=e.public_message,
             headers={"Retry-After": str(e.retry_after_seconds)},
         )
     except VerificationError as e:
-        raise bad_request_exception(str(e))
+        raise bad_request_exception(e.public_message)
 
     await email_service.send_verification_code(
         to_email=email,
@@ -250,7 +250,7 @@ async def reset_password(
     try:
         await confirm_code(db, email, PURPOSE_PASSWORD_RESET, payload.code)
     except VerificationError as e:
-        raise bad_request_exception(str(e))
+        raise bad_request_exception(e.public_message)
 
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -527,7 +527,7 @@ async def google_auth(
         profile = await oauth.verify_google_code(payload.code, redirect_uri=payload.redirect_uri)
         user, is_new = await oauth.resolve_user(db, profile)
     except OAuthError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.public_message)
 
     return _login_response_for(user, is_new=is_new)
 
@@ -550,7 +550,7 @@ async def apple_auth(
         )
         user, is_new = await oauth.resolve_user(db, profile)
     except OAuthError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.public_message)
 
     return _login_response_for(user, is_new=is_new)
 

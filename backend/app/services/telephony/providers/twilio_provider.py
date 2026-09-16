@@ -32,7 +32,7 @@ class TwilioNumberProvider(NumberProvider):
 
     def validate_credentials(self) -> None:
         if not self.credentials.get("account_sid") or not self.credentials.get("auth_token"):
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Twilio credentials are incomplete. {self.credential_hint}"
             )
 
@@ -133,7 +133,7 @@ class TwilioNumberProvider(NumberProvider):
     ) -> bool:
         sid = provider_sid or await self._lookup_sid(phone_number)
         if not sid:
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Cannot release {phone_number}: no Twilio SID on record"
             )
 
@@ -155,7 +155,7 @@ class TwilioNumberProvider(NumberProvider):
     ) -> Dict[str, Any]:
         sid = provider_sid or await self._lookup_sid(phone_number)
         if not sid:
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Cannot update {phone_number}: no Twilio SID on record"
             )
 

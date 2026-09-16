@@ -99,7 +99,7 @@ async def call_websocket(
         try:
             await websocket.send_json({
                 "type": "error",
-                "message": str(e),
+                "message": "The call ended because of a server error. Please try again.",
             })
         except:
             pass

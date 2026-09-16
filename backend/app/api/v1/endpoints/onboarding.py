@@ -257,10 +257,13 @@ async def claim_phone_number(
             monthly_cost=payload.monthly_cost,
         )
     except (NoTelephonyProviderError, AmbiguousProviderError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=e.public_message)
     except NumberProviderError as e:
         logger.error(f"Onboarding purchase failed for {payload.phone_number}: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(
+            status_code=502,
+            detail=e.public_message or "The phone carrier could not complete that purchase. Please try again.",
+        )
     except (WebhookUrlNotConfigured, NumberNotRecordedError) as e:
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     except Exception as e:

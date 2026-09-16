@@ -19,6 +19,7 @@ from app.models.invitation import Invitation
 from app.models.user import User, Organization
 from app.schemas.invitation import PublicInvitationResponse, InvitationActionResponse
 from app.services.team import invitation_service
+from app.services.team.invitation_service import InvitationError
 
 router = APIRouter()
 
@@ -94,8 +95,8 @@ async def accept_invitation(
     org_id = invitation.organization_id
     try:
         membership = await invitation_service.accept_invitation(db, invitation, current_user)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except InvitationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.public_message)
 
     return InvitationActionResponse(
         status="accepted",

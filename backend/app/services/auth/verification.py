@@ -23,6 +23,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import UserFacingError
 from app.models.verification import (
     PURPOSE_EMAIL_VERIFICATION,
     PURPOSE_PASSWORD_RESET,
@@ -51,7 +52,7 @@ __all__ = [
 ]
 
 
-class VerificationError(Exception):
+class VerificationError(UserFacingError):
     """A code could not be issued or accepted. The message is user-facing."""
 
 

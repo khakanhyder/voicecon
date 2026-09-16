@@ -295,7 +295,7 @@ async def initiate_oauth_flow(
         logger.error(f"OAuth flow initiation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=e.public_message or "Could not start connecting this integration. Please try again.",
         )
     except Exception as e:
         logger.error(f"Failed to initiate OAuth flow: {e}", exc_info=True)
@@ -378,7 +378,7 @@ async def handle_oauth_callback(
         logger.error(f"OAuth callback error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=e.public_message or "Could not finish connecting this integration. Please try again.",
         )
     except Exception as e:
         logger.error(f"Failed to handle OAuth callback: {e}", exc_info=True)
@@ -470,7 +470,7 @@ async def refresh_oauth_token(
         logger.error(f"Token refresh error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=e.public_message or "Could not refresh this connection. Please try again.",
         )
     except Exception as e:
         logger.error(f"Failed to refresh token: {e}", exc_info=True)
@@ -592,16 +592,18 @@ async def create_connection(
     except HTTPException:
         raise
     except ConnectionTestError as e:
+        # The test result wraps whatever the provider or HTTP client said, so
+        # it is logged, and the user gets the thing they can act on.
         logger.error(f"Connection test failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Could not connect with those credentials. Check them and try again.",
         )
     except IntegrationError as e:
         logger.error(f"Connection creation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=e.public_message or "Could not create this connection. Please try again.",
         )
     except Exception as e:
         logger.error(f"Failed to create connection: {e}", exc_info=True)

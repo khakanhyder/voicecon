@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import UserFacingError
 from app.models.invitation import Invitation
 from app.models.notification import Notification, NOTIFY_TEAM_INVITATION
 from app.models.user import User, Organization, OrganizationMember
@@ -219,7 +220,18 @@ async def cancel_invitation(db: AsyncSession, invitation: Invitation) -> None:
         await db.commit()
 
 
-def _err(code: str, message: str) -> ValueError:
-    e = ValueError(message)
-    e.code = code  # type: ignore[attr-defined]
-    return e
+class InvitationError(UserFacingError, ValueError):
+    """An invitation cannot be created or accepted. The message is user-facing.
+
+    Still a ``ValueError`` for existing callers. Endpoints catch this class
+    rather than ``ValueError`` itself, which would also catch unrelated failures
+    and send their raw text to the client.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def _err(code: str, message: str) -> InvitationError:
+    return InvitationError(code, message)

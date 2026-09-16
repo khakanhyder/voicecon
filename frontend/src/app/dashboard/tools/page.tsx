@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { useConfirm } from '@/hooks/use-confirm'
+import { validateTool, RETIRED_TOOL_TYPES, type ToolErrors } from '@/lib/toolValidation'
 import {
   Wrench, Plus, Search, Phone, PhoneForwarded, PhoneOff,
   MessageSquare, Voicemail, Hash, ArrowLeftRight, Bot,
@@ -139,16 +140,21 @@ const INTEGRATION_TOOL_SLUGS: Record<string, { label: string; icon: string; tool
 
 // ── Shared UI primitives ──────────────────────────────────────────────────────
 
-function Field({ label, required, hint, children }: {
-  label: string; required?: boolean; hint?: string; children: React.ReactNode
+function Field({ label, required, hint, error, children }: {
+  label: string; required?: boolean; hint?: string; error?: string; children: React.ReactNode
 }) {
   return (
-    <div>
+    // `data-field-error` lets the form scroll to the first problem on save.
+    <div data-field-error={error ? true : undefined}>
       <label className="block text-[14px] font-bold font-poppins text-[#000000] mb-1">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
-      {children}
-      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+      <div className={error ? '[&_input]:!border-red-400 [&_textarea]:!border-red-400 [&_select]:!border-red-400' : undefined}>
+        {children}
+      </div>
+      {error
+        ? <p className="text-xs text-red-600 mt-1">{error}</p>
+        : hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
     </div>
   )
 }
@@ -164,7 +170,7 @@ function SI({ value, onChange, children }: { value: string; onChange: (v: string
 
 // ── Parameter builder ──────────────────────────────────────────────────────────
 
-function ParameterBuilder({ params, onChange }: { params: ToolParameter[]; onChange: (p: ToolParameter[]) => void }) {
+function ParameterBuilder({ params, onChange, errors = {} }: { params: ToolParameter[]; onChange: (p: ToolParameter[]) => void; errors?: ToolErrors }) {
   const add = () => onChange([...params, { name: '', type: 'string', description: '', required: false }])
   const upd = (i: number, u: Partial<ToolParameter>) => { const n = [...params]; n[i] = { ...n[i], ...u }; onChange(n) }
   const del = (i: number) => onChange(params.filter((_, idx) => idx !== i))
@@ -189,7 +195,7 @@ function ParameterBuilder({ params, onChange }: { params: ToolParameter[]; onCha
                 <button type="button" onClick={() => del(i)} className="rounded p-0.5 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"><X className="h-3.5 w-3.5" /></button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Name" required><TI value={p.name} onChange={v => upd(i, { name: v })} placeholder="customer_name" mono /></Field>
+                <Field label="Name" required error={errors[`param.${i}.name`]}><TI value={p.name} onChange={v => upd(i, { name: v })} placeholder="customer_name" mono /></Field>
                 <Field label="Type">
                   <SI value={p.type} onChange={v => upd(i, { type: v as ToolParameter['type'] })}>
                     <option value="string">string</option><option value="number">number</option>
@@ -219,10 +225,11 @@ function ParameterBuilder({ params, onChange }: { params: ToolParameter[]; onCha
 
 // ── Connected integration config ──────────────────────────────────────────────
 
-function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
+function ConnectedIntegrationConfig({ config, onCfg, onParams, errors }: {
   config: Record<string, string>
   onCfg: (k: string, v: string) => void
   onParams: (p: ToolParameter[]) => void
+  errors: ToolErrors
 }) {
   const [connections, setConnections] = useState<AvailableConnection[]>([])
   const [actions, setActions] = useState<AvailableAction[]>([])
@@ -293,7 +300,7 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
         <strong>AI Integration Tool</strong> — The AI will call this action on your connected integration during a live voice call whenever it decides to use this tool.
       </div>
 
-      <Field label="Connected Integration" required hint="Select which connected integration to use">
+      <Field label="Connected Integration" required hint="Select which connected integration to use" error={errors.connection_id}>
         <SI value={config.connection_id || ''} onChange={handleConnectionChange}>
           <option value="">— Select integration —</option>
           {connections.map(c => (
@@ -310,7 +317,7 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
             <Loader2 className="h-3.5 w-3.5 animate-spin" />Loading actions…
           </div>
         ) : (
-          <Field label="Action" required hint="What should the AI do with this integration?">
+          <Field label="Action" required hint="What should the AI do with this integration?" error={errors.action}>
             <SI value={config.action || ''} onChange={handleActionChange}>
               <option value="">— Select action —</option>
               {actions.map(a => (
@@ -363,9 +370,10 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams }: {
  * Config for a workflow-backed tool: pick the workflow it runs.
  * This is the agent → tool → workflow → apps chain.
  */
-function WorkflowToolConfig({ config, onCfg }: {
+function WorkflowToolConfig({ config, onCfg, errors }: {
   config: Record<string, string>
   onCfg: (k: string, v: string) => void
+  errors: ToolErrors
 }) {
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -378,7 +386,7 @@ function WorkflowToolConfig({ config, onCfg }: {
   }, [])
 
   return <div className="space-y-4">
-    <Field label="Workflow" required hint="The workflow this tool runs. Its inputs become the tool's parameters.">
+    <Field label="Workflow" required hint="The workflow this tool runs. Its inputs become the tool's parameters." error={errors.workflow_id}>
       <select
         value={config.workflow_id || ''}
         onChange={e => onCfg('workflow_id', e.target.value)}
@@ -395,139 +403,146 @@ function WorkflowToolConfig({ config, onCfg }: {
   </div>
 }
 
-function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
+/**
+ * Pick the knowledge base to search. This was a free-text ID box, which
+ * accepted any string and only failed when the agent searched mid-call.
+ */
+function KnowledgeBaseSelect({ value, onChange, error }: { value: string; onChange: (v: string) => void; error?: string }) {
+  const [bases, setBases] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    apiClient.get<{ id: string; name: string }[]>(API_ENDPOINTS.KNOWLEDGE_BASES)
+      .then(res => setBases(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setBases([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <Field label="Knowledge Base" required hint={!loading && bases.length === 0 ? 'No knowledge bases yet — create one under Knowledge Base first.' : 'The knowledge base the AI searches'} error={error}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={loading}
+        className="w-full h-[45px] rounded-xl bg-white border border-slate-200 px-3 font-poppins text-[14px] text-black outline-none appearance-none focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 transition-colors"
+      >
+        <option value="">{loading ? 'Loading knowledge bases…' : 'Select a knowledge base…'}</option>
+        {/* Keep a saved id visible even if the list no longer contains it, so the error below makes sense. */}
+        {value && !loading && !bases.some(b => b.id === value) && <option value={value}>Unknown ({value})</option>}
+        {bases.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
+    </Field>
+  )
+}
+
+function ToolConfigFields({ toolType, config, params, errors, onCfg, onParams }: {
   toolType: string
   config: Record<string, string>
   params: ToolParameter[]
+  errors: ToolErrors
   onCfg: (k: string, v: string) => void
   onParams: (p: ToolParameter[]) => void
 }) {
   const s = (k: string) => (v: string) => onCfg(k, v)
+  const e = errors
+  const paramBuilder = <ParameterBuilder params={params} onChange={onParams} errors={errors} />
 
   switch (toolType) {
     case 'workflow':
-      return <WorkflowToolConfig config={config} onCfg={onCfg} />
+      return <WorkflowToolConfig config={config} onCfg={onCfg} errors={errors} />
 
     case 'connected_integration':
-      return <ConnectedIntegrationConfig config={config} onCfg={onCfg} onParams={onParams} />
+      return <ConnectedIntegrationConfig config={config} onCfg={onCfg} onParams={onParams} errors={errors} />
 
     case 'transfer_call':
       return <div className="space-y-4">
-        <Field label="Transfer Destination" required hint="Phone number or SIP URI"><TI value={config.destination || ''} onChange={s('destination')} placeholder="+15551234567" /></Field>
+        <Field label="Transfer Destination" required hint="Phone number with country code, or a SIP URI" error={e.destination}><TI value={config.destination || ''} onChange={s('destination')} placeholder="+15551234567" /></Field>
         <Field label="Announcement message" hint="Spoken before transferring"><TI value={config.message || ''} onChange={s('message')} placeholder="Please hold while I connect you…" /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        {paramBuilder}
       </div>
 
     case 'leave_voicemail':
       return <div className="space-y-4">
-        <Field label="Voicemail Message" required><TA value={config.message || ''} onChange={s('message')} placeholder="Hello, this is an automated message…" rows={3} /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <Field label="Voicemail Message" required error={e.message}><TA value={config.message || ''} onChange={s('message')} placeholder="Hello, this is an automated message…" rows={3} /></Field>
+        {paramBuilder}
       </div>
 
     case 'send_sms':
       return <div className="space-y-4">
-        <Field label="Recipient Number" required><TI value={config.to || ''} onChange={s('to')} placeholder="+15551234567 or {{caller_number}}" /></Field>
-        <Field label="Message Template" required hint="Use {{variable}} for dynamic values"><TA value={config.message || ''} onChange={s('message')} placeholder="Hi {{name}}, your appointment is confirmed for {{date}}." rows={3} /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <Field label="Recipient Number" required hint="Phone number with country code, or {{caller_number}}" error={e.to}><TI value={config.to || ''} onChange={s('to')} placeholder="+15551234567 or {{caller_number}}" /></Field>
+        <Field label="Message Template" required hint="Use {{variable}} for dynamic values" error={e.message}><TA value={config.message || ''} onChange={s('message')} placeholder="Hi {{name}}, your appointment is confirmed for {{date}}." rows={3} /></Field>
+        {paramBuilder}
       </div>
 
     case 'dtmf':
       return <div className="space-y-4">
-        <Field label="DTMF Digits" required hint="Digits to press, e.g. 1 to select option 1"><TI value={config.digits || ''} onChange={s('digits')} placeholder="1234#" mono /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <Field label="DTMF Digits" required hint="Digits to press, e.g. 1 to select option 1" error={e.digits}><TI value={config.digits || ''} onChange={s('digits')} placeholder="1234#" mono /></Field>
+        {paramBuilder}
       </div>
 
     case 'sip_request':
       return <div className="space-y-4">
-        <Field label="SIP URI" required><TI value={config.sip_uri || ''} onChange={s('sip_uri')} placeholder="sip:user@domain.com" mono /></Field>
-        <Field label="Method"><SI value={config.method || 'INVITE'} onChange={s('method')}><option>INVITE</option><option>BYE</option><option>REFER</option></SI></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <Field label="SIP URI" required error={e.sip_uri}><TI value={config.sip_uri || ''} onChange={s('sip_uri')} placeholder="sip:user@domain.com" mono /></Field>
+        <Field label="Method" error={e.method}><SI value={config.method || 'INVITE'} onChange={s('method')}><option>INVITE</option><option>BYE</option><option>REFER</option></SI></Field>
+        {paramBuilder}
       </div>
 
     case 'handoff':
       return <div className="space-y-4">
-        <Field label="Destination Queue / Agent" required><TI value={config.destination || ''} onChange={s('destination')} placeholder="support-queue" /></Field>
+        <Field label="Destination Queue / Agent" required error={e.destination}><TI value={config.destination || ''} onChange={s('destination')} placeholder="support-queue" /></Field>
         <Field label="Handoff Message"><TI value={config.message || ''} onChange={s('message')} placeholder="Transferring you to a specialist…" /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        {paramBuilder}
       </div>
 
     case 'query_knowledge_base':
       return <div className="space-y-4">
-        <Field label="Knowledge Base ID" required><TI value={config.knowledge_base_id || ''} onChange={s('knowledge_base_id')} placeholder="kb_xxxxxxxx" mono /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <KnowledgeBaseSelect value={config.knowledge_base_id || ''} onChange={s('knowledge_base_id')} error={e.knowledge_base_id} />
+        {paramBuilder}
       </div>
 
     case 'api_request':
       return <div className="space-y-4">
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-2"><Field label="Server URL" required><TI value={config.url || ''} onChange={s('url')} placeholder="https://api.example.com/endpoint" mono /></Field></div>
-          <Field label="Method"><SI value={config.method || 'POST'} onChange={s('method')}><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></SI></Field>
+          <div className="col-span-2"><Field label="Server URL" required error={e.url}><TI value={config.url || ''} onChange={s('url')} placeholder="https://api.example.com/endpoint" mono /></Field></div>
+          <Field label="Method" error={e.method}><SI value={config.method || 'POST'} onChange={s('method')}><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></SI></Field>
         </div>
-        <Field label="Timeout (seconds)"><TI value={config.timeout || '20'} onChange={s('timeout')} placeholder="20" /></Field>
-        <Field label="Headers (JSON)" hint="Authorization, Content-Type, etc.">
-          <TA value={config.headers || '{\n  "Content-Type": "application/json"\n}'} onChange={s('headers')} placeholder={'{"Authorization":"Bearer TOKEN"}'} rows={4} mono />
+        <Field label="Timeout (seconds)" hint="Between 1 and 120" error={e.timeout}><TI value={config.timeout ?? '20'} onChange={s('timeout')} placeholder="20" /></Field>
+        <Field label="Headers (JSON)" hint="Authorization, Content-Type, etc." error={e.headers}>
+          <TA value={config.headers ?? '{\n  "Content-Type": "application/json"\n}'} onChange={s('headers')} placeholder={'{"Authorization":"Bearer TOKEN"}'} rows={4} mono />
         </Field>
-        <Field label="Body Template (JSON)" hint="Use {{param_name}} to insert AI-collected values">
-          <TA value={config.body || '{}'} onChange={s('body')} placeholder={'{\n  "name": "{{customer_name}}",\n  "email": "{{email}}"\n}'} rows={5} mono />
+        <Field label="Body Template (JSON)" hint="Use {{param_name}} to insert AI-collected values" error={e.body}>
+          <TA value={config.body ?? '{}'} onChange={s('body')} placeholder={'{\n  "name": "{{customer_name}}",\n  "email": "{{email}}"\n}'} rows={5} mono />
         </Field>
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
           <strong>Tip:</strong> Define parameters below to tell the AI what data to collect, then reference them as <code className="font-mono bg-blue-100 px-1 rounded">{'{{param_name}}'}</code> in the body template.
         </div>
-        <ParameterBuilder params={params} onChange={onParams} />
+        {paramBuilder}
       </div>
 
     case 'mcp':
       return <div className="space-y-4">
-        <Field label="MCP Server URL" required><TI value={config.server_url || ''} onChange={s('server_url')} placeholder="https://mcp.example.com" mono /></Field>
-        <Field label="Tool Name" required hint="The MCP tool function to invoke"><TI value={config.tool_name || ''} onChange={s('tool_name')} placeholder="search_crm" mono /></Field>
-        <Field label="Timeout (seconds)"><TI value={config.timeout || '20'} onChange={s('timeout')} placeholder="20" /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        <Field label="MCP Server URL" required error={e.server_url}><TI value={config.server_url || ''} onChange={s('server_url')} placeholder="https://mcp.example.com" mono /></Field>
+        <Field label="Tool Name" required hint="The MCP tool function to invoke" error={e.tool_name}><TI value={config.tool_name || ''} onChange={s('tool_name')} placeholder="search_crm" mono /></Field>
+        <Field label="Timeout (seconds)" hint="Between 1 and 120" error={e.timeout}><TI value={config.timeout ?? '20'} onChange={s('timeout')} placeholder="20" /></Field>
+        {paramBuilder}
       </div>
 
     case 'slack':
       return <div className="space-y-4">
-        <Field label="Slack Webhook URL" required hint="Get from Slack App → Incoming Webhooks"><TI value={config.webhook_url || ''} onChange={s('webhook_url')} placeholder="https://hooks.slack.com/services/T…/B…/…" mono /></Field>
-        <Field label="Message Template" required hint="Use {{variable}} for dynamic values"><TA value={config.message || ''} onChange={s('message')} placeholder="New lead from {{caller_name}}: {{summary}}" rows={3} /></Field>
+        <Field label="Slack Webhook URL" required hint="Get from Slack App → Incoming Webhooks" error={e.webhook_url}><TI value={config.webhook_url || ''} onChange={s('webhook_url')} placeholder="https://hooks.slack.com/services/T…/B…/…" mono /></Field>
+        <Field label="Message Template" required hint="Use {{variable}} for dynamic values" error={e.message}><TA value={config.message || ''} onChange={s('message')} placeholder="New lead from {{caller_name}}: {{summary}}" rows={3} /></Field>
         <Field label="Channel (optional)" hint="Override the default channel, e.g. #leads"><TI value={config.channel || ''} onChange={s('channel')} placeholder="#sales" /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        {paramBuilder}
       </div>
 
     case 'google_sheets':
-      return <div className="space-y-4">
-        <Field label="Spreadsheet ID" required hint="Found in the Google Sheets URL"><TI value={config.spreadsheet_id || ''} onChange={s('spreadsheet_id')} placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" mono /></Field>
-        <Field label="Sheet Name"><TI value={config.sheet_name || ''} onChange={s('sheet_name')} placeholder="Sheet1" /></Field>
-        <Field label="Row Template (JSON array)" hint="Values to append as a new row">
-          <TA value={config.row || ''} onChange={s('row')} placeholder={'["{{caller_name}}", "{{phone}}", "{{date}}"]'} rows={3} mono />
-        </Field>
-        <ParameterBuilder params={params} onChange={onParams} />
-      </div>
-
     case 'google_calendar':
-      return <div className="space-y-4">
-        <Field label="Calendar ID"><TI value={config.calendar_id || ''} onChange={s('calendar_id')} placeholder="primary" mono /></Field>
-        <Field label="Event Title Template"><TI value={config.title || ''} onChange={s('title')} placeholder="Appointment with {{customer_name}}" /></Field>
-        <Field label="Duration (minutes)"><TI value={config.duration || '30'} onChange={s('duration')} placeholder="30" /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
-      </div>
-
     case 'gohighlevel':
-      return <div className="space-y-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-          <strong>GoHighLevel CRM</strong> — Create contacts, update opportunities, and trigger automations from voice calls.
-        </div>
-        <Field label="API Key" required hint="Get from GHL Settings → API Keys"><TI value={config.api_key || ''} onChange={s('api_key')} placeholder="eyJhbGciOi…" mono /></Field>
-        <Field label="Location ID" required hint="Found in GHL Settings → Business Profile"><TI value={config.location_id || ''} onChange={s('location_id')} placeholder="ve9EPM428h8vShlRW1KT" mono /></Field>
-        <Field label="Action">
-          <SI value={config.action || 'create_contact'} onChange={s('action')}>
-            <option value="create_contact">Create Contact</option>
-            <option value="update_contact">Update Contact</option>
-            <option value="create_opportunity">Create Opportunity</option>
-            <option value="add_note">Add Note to Contact</option>
-            <option value="trigger_workflow">Trigger Workflow</option>
-          </SI>
-        </Field>
-        <Field label="Pipeline ID (for opportunities)" hint="Optional — required for Create Opportunity action"><TI value={config.pipeline_id || ''} onChange={s('pipeline_id')} placeholder="YlWd2wuCAZQVi18AI…" mono /></Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+      // Retired: the executor refuses these (they need a connection's
+      // credentials), so they can no longer be created or re-saved.
+      return <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <strong>This tool type is no longer supported.</strong>
+        <p className="mt-1 text-xs">Connect the app under <span className="font-medium">Integrations</span>, then create a <span className="font-medium">Connected Integration</span> tool to replace this one. You can still turn this tool off or delete it.</p>
       </div>
 
     case 'custom_tool':
@@ -536,11 +551,11 @@ function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
           <strong>Custom Tool</strong> — Define your own server webhook. The AI will call this URL with the parameters you define below whenever it invokes this tool.
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-2"><Field label="Server URL" required><TI value={config.url || ''} onChange={s('url')} placeholder="https://your-server.com/tool-handler" mono /></Field></div>
-          <Field label="Method"><SI value={config.method || 'POST'} onChange={s('method')}><option>POST</option><option>GET</option><option>PUT</option><option>PATCH</option></SI></Field>
+          <div className="col-span-2"><Field label="Server URL" required error={e.url}><TI value={config.url || ''} onChange={s('url')} placeholder="https://your-server.com/tool-handler" mono /></Field></div>
+          <Field label="Method" error={e.method}><SI value={config.method || 'POST'} onChange={s('method')}><option>POST</option><option>GET</option><option>PUT</option><option>PATCH</option></SI></Field>
         </div>
-        <Field label="Timeout (seconds)"><TI value={config.timeout || '20'} onChange={s('timeout')} placeholder="20" /></Field>
-        <Field label="Authentication">
+        <Field label="Timeout (seconds)" hint="Between 1 and 120" error={e.timeout}><TI value={config.timeout ?? '20'} onChange={s('timeout')} placeholder="20" /></Field>
+        <Field label="Authentication" error={e.auth_type}>
           <SI value={config.auth_type || 'none'} onChange={s('auth_type')}>
             <option value="none">No authentication</option>
             <option value="bearer">Bearer token</option>
@@ -549,24 +564,24 @@ function ToolConfigFields({ toolType, config, params, onCfg, onParams }: {
           </SI>
         </Field>
         {config.auth_type === 'bearer' && (
-          <Field label="Bearer Token"><TI value={config.auth_token || ''} onChange={s('auth_token')} placeholder="your-secret-token" mono /></Field>
+          <Field label="Bearer Token" required error={e.auth_token}><TI value={config.auth_token || ''} onChange={s('auth_token')} placeholder="your-secret-token" mono /></Field>
         )}
         {config.auth_type === 'basic' && (
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Username"><TI value={config.auth_user || ''} onChange={s('auth_user')} placeholder="user" /></Field>
-            <Field label="Password"><TI value={config.auth_pass || ''} onChange={s('auth_pass')} placeholder="pass" /></Field>
+            <Field label="Username" required error={e.auth_user}><TI value={config.auth_user || ''} onChange={s('auth_user')} placeholder="user" /></Field>
+            <Field label="Password" required error={e.auth_pass}><TI value={config.auth_pass || ''} onChange={s('auth_pass')} placeholder="pass" /></Field>
           </div>
         )}
         {config.auth_type === 'custom_header' && (
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Header name"><TI value={config.auth_header || ''} onChange={s('auth_header')} placeholder="X-API-Key" mono /></Field>
-            <Field label="Header value"><TI value={config.auth_value || ''} onChange={s('auth_value')} placeholder="your-key" mono /></Field>
+            <Field label="Header name" required error={e.auth_header}><TI value={config.auth_header || ''} onChange={s('auth_header')} placeholder="X-API-Key" mono /></Field>
+            <Field label="Header value" required error={e.auth_value}><TI value={config.auth_value || ''} onChange={s('auth_value')} placeholder="your-key" mono /></Field>
           </div>
         )}
-        <Field label="Extra Headers (JSON)" hint="Optional additional headers">
-          <TA value={config.headers || '{}'} onChange={s('headers')} placeholder='{"Content-Type": "application/json"}' rows={3} mono />
+        <Field label="Extra Headers (JSON)" hint="Optional additional headers" error={e.headers}>
+          <TA value={config.headers ?? '{}'} onChange={s('headers')} placeholder='{"Content-Type": "application/json"}' rows={3} mono />
         </Field>
-        <ParameterBuilder params={params} onChange={onParams} />
+        {paramBuilder}
       </div>
 
     case 'hang_up':
@@ -603,21 +618,53 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
     return []
   })
   const [saving, setSaving] = useState(false)
+  // Errors stay hidden until the first save attempt, then track every edit so a
+  // message disappears as soon as its field is fixed.
+  const [attempted, setAttempted] = useState(false)
+  const [serverErrors, setServerErrors] = useState<ToolErrors>({})
+  const formRef = useRef<HTMLDivElement>(null)
 
   const typeMeta = getTypeMeta(selectedType)
-  const setCfg = (k: string, v: string) => setConfig(prev => ({ ...prev, [k]: v }))
+  const setCfg = (k: string, v: string) => {
+    setConfig(prev => ({ ...prev, [k]: v }))
+    setServerErrors(prev => { if (!(k in prev)) return prev; const { [k]: _, ...rest } = prev; return rest })
+  }
+
+  const clientErrors = validateTool({ toolType: selectedType, name, description, config, params })
+  const errors: ToolErrors = attempted ? { ...serverErrors, ...clientErrors } : {}
+
+  const pickType = (type: string, label: string) => {
+    // Fields from a previously chosen type would otherwise be saved into this
+    // one — a Send Text's message riding along on a Transfer Call.
+    if (type !== selectedType) { setConfig({}); setParams([]); setServerErrors({}); setAttempted(false) }
+    setSelectedType(type)
+    if (!name.trim() || name === typeMeta?.label) setName(label)
+    setStep('configure')
+  }
 
   const buildPayload = () => {
     const paramSchema = params.length > 0 ? {
       type: 'object',
-      properties: Object.fromEntries(params.map(p => [p.name, { type: p.type, description: p.description, ...(p.enum && p.enum.length > 0 ? { enum: p.enum } : {}) }])),
-      required: params.filter(p => p.required).map(p => p.name),
+      properties: Object.fromEntries(params.map(p => {
+        const values = (p.enum || []).map(v => v.trim()).filter(Boolean)
+        return [p.name.trim(), { type: p.type, description: p.description, ...(values.length > 0 ? { enum: values } : {}) }]
+      })),
+      required: params.filter(p => p.required).map(p => p.name.trim()),
     } : undefined
     return { name: name.trim(), description: description.trim() || null, tool_type: selectedType, config: { ...config, ...(paramSchema ? { parameters: paramSchema } : {}) } }
   }
 
+  const showFirstError = (found: ToolErrors) => {
+    toast.error(Object.values(found)[0] || 'Please fix the highlighted fields')
+    requestAnimationFrame(() => {
+      formRef.current?.querySelector('[data-field-error]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
+
   const handleSave = async () => {
-    if (!name.trim()) { toast.error('Name is required'); return }
+    setAttempted(true)
+    setServerErrors({})
+    if (Object.keys(clientErrors).length > 0) { showFirstError(clientErrors); return }
     setSaving(true)
     try {
       const payload = buildPayload()
@@ -627,7 +674,17 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
       toast.success(isEdit ? 'Tool updated' : 'Tool created')
       onSaved(res.data)
       onClose()
-    } catch (err) { toast.error(getErrorMessage(err)) }
+    } catch (err) {
+      // The API re-checks everything, including things only it can know — a
+      // workflow or knowledge base deleted since this form loaded.
+      const fieldErrors = (err as { response?: { data?: { detail?: { errors?: ToolErrors } } } })?.response?.data?.detail?.errors
+      if (fieldErrors && typeof fieldErrors === 'object') {
+        setServerErrors(fieldErrors)
+        showFirstError(fieldErrors)
+      } else {
+        toast.error(getErrorMessage(err))
+      }
+    }
     finally { setSaving(false) }
   }
 
@@ -644,11 +701,13 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div ref={formRef} className="flex-1 overflow-y-auto p-6">
           {step === 'pick_type' ? (
             <div className="space-y-5">
               {Object.entries(TOOL_TYPES).map(([catKey, cat]) => {
                 const CatIcon = cat.icon
+                // Retired types stay in TOOL_TYPES so existing tools still render with their label.
+                const creatable = cat.tools.filter(t => !RETIRED_TOOL_TYPES.includes(t.type))
                 return (
                   <div key={catKey}>
                     <div className="flex items-center gap-2 mb-2.5">
@@ -656,10 +715,10 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
                       <span className="text-[12px] font-bold font-poppins text-[#000000] uppercase tracking-wide">{cat.label}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      {cat.tools.map(t => {
+                      {creatable.map(t => {
                         const TIcon = t.icon
                         return (
-                          <button key={t.type} onClick={() => { setSelectedType(t.type); setName(t.label); setStep('configure') }}
+                          <button key={t.type} onClick={() => pickType(t.type, t.label)}
                             className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-white text-left transition-all hover:border-slate-300 hover:bg-slate-50">
                             <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${cat.bg} border ${cat.border}`}>
                               <TIcon className={`h-3.5 w-3.5 ${cat.color}`} />
@@ -687,20 +746,25 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
                   <span className="text-slate-500">Type: <span className="font-medium text-slate-700">{typeMeta.label}</span></span>
                 </div>
               )}
-              <Field label="Tool Name" required><TI value={name} onChange={setName} placeholder="My Tool" /></Field>
-              <Field label="Description" hint="Tells the AI when to use this tool">
+              <Field label="Tool Name" required error={errors.name}><TI value={name} onChange={setName} placeholder="My Tool" /></Field>
+              <Field label="Description" required hint="Tells the AI when to use this tool" error={errors.description}>
                 <TA value={description} onChange={setDescription} placeholder="Use this tool to book an appointment. Collect the customer's name and preferred time." rows={2} />
               </Field>
               <div className="border-t border-slate-100" />
-              <ToolConfigFields toolType={selectedType} config={config} params={params} onCfg={setCfg} onParams={setParams} />
+              <ToolConfigFields toolType={selectedType} config={config} params={params} errors={errors} onCfg={setCfg} onParams={setParams} />
             </div>
           )}
         </div>
 
         {step === 'configure' && (
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 flex-shrink-0">
+            {attempted && Object.keys(errors).length > 0 && (
+              <p className="mr-auto text-xs text-red-600">
+                {Object.keys(errors).length === 1 ? '1 field needs attention' : `${Object.keys(errors).length} fields need attention`}
+              </p>
+            )}
             <button onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-4 h-[40px] font-poppins font-medium text-black hover:bg-slate-50 transition-colors">Cancel</button>
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSave} disabled={saving || RETIRED_TOOL_TYPES.includes(selectedType)}
               className="flex items-center gap-2 rounded-[8px] bg-[#106959] px-5 h-[40px] font-poppins font-semibold text-[14px] text-white hover:opacity-90 transition-all disabled:opacity-50">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : isEdit ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               {isEdit ? 'Save Changes' : 'Create Tool'}

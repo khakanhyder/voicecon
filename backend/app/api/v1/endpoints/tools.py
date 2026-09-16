@@ -21,6 +21,7 @@ from app.models.user import User, OrganizationMember
 from app.models.agent import Agent
 from app.models.tool import Tool, AgentToolAssignment
 from app.services.tools.http_tools import HTTP_TOOL_TYPES, run_http_tool
+from app.services.tools.validation import check_tool_references, validate_tool_config
 from app.schemas.tool import (
     ToolCreate, ToolUpdate, ToolResponse, ToolListResponse,
     AgentToolAssignmentResponse, ToolTestRequest, ToolTestResponse,
@@ -61,13 +62,9 @@ async def create_tool(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    # A workflow tool is only useful once it names a workflow — reject early
-    # rather than let the agent call a tool that can never do anything.
-    if data.tool_type == "workflow" and not (data.config or {}).get("workflow_id"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A workflow tool needs a workflow_id in its config.",
-        )
+    # Reject a tool that could never run, rather than let the agent call it
+    # mid-conversation and discover the missing destination then.
+    await _validate_tool(data.tool_type, data.config, data.description, org_id, db)
 
     category = TOOL_CATEGORIES.get(data.tool_type, data.category)
     tool = Tool(
@@ -139,6 +136,16 @@ async def update_tool(
 ):
     tool = await _get_tool_or_404(tool_id, org_id, db)
     update = data.model_dump(exclude_unset=True)
+    # Toggling a tool on or off leaves its configuration alone, so it is not
+    # re-checked — an older tool saved before validation can still be paused.
+    if "config" in update or "description" in update:
+        await _validate_tool(
+            tool.tool_type,
+            update.get("config", tool.config),
+            update.get("description", tool.description),
+            org_id,
+            db,
+        )
     for k, v in update.items():
         setattr(tool, k, v)
     tool.updated_at = datetime.utcnow()
@@ -253,6 +260,33 @@ async def remove_tool_from_agent(
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
+
+async def _validate_tool(
+    tool_type: str,
+    config: Optional[dict],
+    description: Optional[str],
+    org_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
+    """Raise 422 naming every field that stops this tool from working.
+
+    ``detail`` is a sentence (the first problem) so any client can show it as
+    is; ``errors`` maps each field to its message for a form to place inline.
+    """
+    errors = {}
+    # The description is how the model decides when to call the tool; without
+    # one the agent has no reason to ever use it.
+    if not (description or "").strip():
+        errors["description"] = "Description is required — it tells the AI when to use this tool."
+    errors.update(validate_tool_config(tool_type, config))
+    if not errors:
+        errors.update(await check_tool_references(tool_type, config, org_id, db))
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": next(iter(errors.values())), "errors": errors},
+        )
+
 
 async def _get_tool_or_404(tool_id: str, org_id: uuid.UUID, db: AsyncSession) -> Tool:
     result = await db.execute(

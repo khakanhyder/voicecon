@@ -27,6 +27,7 @@ from typing import Optional, Tuple
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
+from app.core.exceptions import UserFacingError
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ AVATAR_MAX_EDGE = 512
 MAX_AVATAR_PIXELS = 50_000_000
 
 
-class StorageError(Exception):
-    """Raised when a file cannot be accepted or cannot be persisted."""
+class StorageError(UserFacingError):
+    """Raised when a file cannot be accepted or cannot be persisted. The message is user-facing."""
 
 
 def _local_root() -> str:

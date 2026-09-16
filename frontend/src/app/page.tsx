@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { buttonVariants } from '@/components/ui/button'
 import { useAuthStore } from '@/store/authStore'
 
@@ -36,12 +35,12 @@ export default function HomePage() {
             <div className="text-2xl font-bold text-primary">Voicecon</div>
           </div>
           <nav className="flex items-center gap-4">
-            <Link href="/login" className={buttonVariants({ variant: 'ghost' })}>
+            <a href="/login" className={buttonVariants({ variant: 'ghost' })}>
               Login
-            </Link>
-            <Link href="/register" className={buttonVariants()}>
+            </a>
+            <a href="/register" className={buttonVariants()}>
               Get Started
-            </Link>
+            </a>
           </nav>
         </div>
       </header>
@@ -53,16 +52,16 @@ export default function HomePage() {
             Voice AI meets <span className="text-primary">Unlimited Integrations</span>
           </h1>
           <p className="mx-auto mb-8 max-w-2xl text-xl text-muted-foreground">
-            Create, deploy, and manage AI voice agents with seamless integrations to 50+ apps.
+            Create, deploy, and manage AI voice agents with seamless integrations to 30+ apps.
             Build powerful workflows without code.
           </p>
           <div className="flex items-center justify-center gap-4">
-            <Link href="/register" className={buttonVariants({ size: 'lg' })}>
+            <a href="/register" className={buttonVariants({ size: 'lg' })}>
               Start Building Free
-            </Link>
-            <Link href="/login" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
+            </a>
+            <a href="/login" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
               View Demo
-            </Link>
+            </a>
           </div>
         </section>
 
@@ -85,7 +84,7 @@ export default function HomePage() {
                 <div className="mb-4 h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
                   <svg className="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                 </div>
-                <h3 className="mb-2 text-xl font-semibold">50+ Integrations</h3>
+                <h3 className="mb-2 text-xl font-semibold">30+ Integrations</h3>
                 <p className="text-muted-foreground">
                   Connect with CRM, marketing tools, calendars, and more. Pre-built connectors
                   for Salesforce, HubSpot, Google, and hundreds more.

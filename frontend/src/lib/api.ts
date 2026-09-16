@@ -129,8 +129,19 @@ function firstValidationMessage(data: any): string | null {
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data
+    // Some endpoints answer with a structured detail — `{message, errors}` or
+    // `{detail, code}` — which rendered as "[object Object]" when returned as is.
+    const detail = data?.detail
+    const detailText =
+      typeof detail === 'string'
+        ? detail
+        : typeof detail?.message === 'string'
+          ? detail.message
+          : typeof detail?.detail === 'string'
+            ? detail.detail
+            : null
     return (
-      data?.detail ||
+      detailText ||
       firstValidationMessage(data) ||
       data?.message ||
       error.message ||

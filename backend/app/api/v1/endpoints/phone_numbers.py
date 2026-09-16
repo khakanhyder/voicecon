@@ -14,7 +14,7 @@ Integrations (Twilio, Telnyx). The carrier used for a number is recorded on the
 row so releases and webhook changes go back to the same account.
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NoReturn, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,15 +143,25 @@ def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
     )
 
 
-def _provider_http_error(e: Exception) -> HTTPException:
-    """Translate provider-resolution failures into meaningful HTTP errors."""
-    if isinstance(e, NoTelephonyProviderError):
-        return HTTPException(status_code=400, detail=str(e))
-    if isinstance(e, AmbiguousProviderError):
-        return HTTPException(status_code=400, detail=str(e))
+#: Shown when a carrier fails in a way that has no safe, specific sentence.
+CARRIER_ERROR = "The phone carrier could not complete that request. Please try again."
+
+
+def _raise_provider_error(e: Exception) -> NoReturn:
+    """Raise the HTTP error for a provider-resolution or carrier failure.
+
+    Raises rather than returning the exception, so a caller cannot forget the
+    ``raise`` and send the exception object back as a 200 body. Only messages
+    written for the user reach the client; carrier and transport detail stays
+    in the log.
+    """
+    if isinstance(e, (NoTelephonyProviderError, AmbiguousProviderError)):
+        raise HTTPException(status_code=400, detail=e.public_message)
     if isinstance(e, NumberProviderError):
-        return HTTPException(status_code=502, detail=str(e))
-    return HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+        logger.error(f"Carrier operation failed: {e}")
+        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
+    logger.error(f"Unexpected provider failure: {e}", exc_info=True)
+    raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/providers", response_model=List[TelephonyProviderResponse])
@@ -213,7 +223,7 @@ async def search_phone_numbers(
             db, org_id, slug=provider, connection_id=connection_id
         )
     except (NoTelephonyProviderError, AmbiguousProviderError, NumberProviderError) as e:
-        raise _provider_http_error(e)
+        _raise_provider_error(e)
 
     try:
         results = await resolved.provider.search_numbers(
@@ -226,7 +236,7 @@ async def search_phone_numbers(
 
     except NumberProviderError as e:
         logger.error(f"Carrier search failed on {resolved.slug}: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
     except Exception as e:
         logger.error(f"Error searching phone numbers: {e}", exc_info=True)
         raise HTTPException(
@@ -297,10 +307,10 @@ async def provision_phone_number(
             monthly_cost=provision_request.monthly_cost,
         )
     except (NoTelephonyProviderError, AmbiguousProviderError) as e:
-        raise _provider_http_error(e)
+        _raise_provider_error(e)
     except NumberProviderError as e:
         logger.error(f"Purchase failed for {provision_request.phone_number}: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
     except WebhookUrlNotConfigured as e:
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
     except NumberNotRecordedError as e:
@@ -477,7 +487,7 @@ async def update_phone_number(
             except WebhookUrlNotConfigured as e:
                 raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
             except (NoTelephonyProviderError, NumberProviderError) as e:
-                raise _provider_http_error(e)
+                _raise_provider_error(e)
 
             phone_number.agent_id = update_request.agent_id
 
@@ -541,7 +551,7 @@ async def release_phone_number(
             provider_metadata=phone_number.provider_metadata or {},
         )
     except (NoTelephonyProviderError, NumberProviderError) as e:
-        raise _provider_http_error(e)
+        _raise_provider_error(e)
     except Exception as e:
         logger.error(f"Error releasing phone number at carrier: {e}", exc_info=True)
         raise HTTPException(

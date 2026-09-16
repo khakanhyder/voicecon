@@ -87,7 +87,7 @@ def _prepare_trigger_config(trigger_type, trigger_config: Optional[dict]) -> dic
     except TriggerError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid trigger configuration: {e}",
+            detail=f"Invalid trigger configuration: {e.public_message}",
         )
 
     return config
@@ -547,12 +547,12 @@ async def execute_workflow(
     except HTTPException:
         raise
     except WorkflowNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.public_message)
     except WorkflowNotActiveError as e:
         # 409, not 500: the request is well-formed and the server is healthy —
         # the workflow is simply switched off. A 500 would tell an integration
         # to retry something that can never succeed until a human acts.
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=e.public_message)
     except Exception as e:
         logger.error(f"Failed to execute workflow: {e}", exc_info=True)
         raise HTTPException(
@@ -918,7 +918,7 @@ async def test_workflow_trigger(
     except TriggerError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=e.public_message,
         )
     except HTTPException:
         raise
@@ -1052,7 +1052,10 @@ async def stream_workflow_execution(
         except Exception as e:
             logger.error(f"Streaming execution failed: {e}", exc_info=True)
             try:
-                await websocket.send_json({"event": "error", "message": str(e)})
+                await websocket.send_json({
+                    "event": "error",
+                    "message": "The workflow run failed. Check the run history for details.",
+                })
             except Exception:
                 pass
         finally:

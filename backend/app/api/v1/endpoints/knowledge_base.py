@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, B
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict, Any
+import logging
 import uuid
 from datetime import datetime
 
@@ -27,6 +28,8 @@ from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Docum
 from app.services.knowledge_base import RAGService
 from app.core.config import settings
 from app.schemas._types import NonBlankName
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -131,7 +134,8 @@ def _extract_pdf_text(content: bytes) -> str:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}")
+        logger.warning(f"PDF extraction failed: {e}")
+        raise HTTPException(status_code=400, detail="Could not read this PDF. It may be damaged or password-protected.")
 
 
 def _extract_docx_text(content: bytes) -> str:
@@ -158,7 +162,8 @@ def _extract_docx_text(content: bytes) -> str:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not read DOCX: {e}")
+        logger.warning(f"DOCX extraction failed: {e}")
+        raise HTTPException(status_code=400, detail="Could not read this Word document. It may be damaged — try saving it again as .docx.")
 
 
 def _extract_xlsx_text(content: bytes) -> str:
@@ -189,7 +194,8 @@ def _extract_xlsx_text(content: bytes) -> str:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not read XLSX: {e}")
+        logger.warning(f"XLSX extraction failed: {e}")
+        raise HTTPException(status_code=400, detail="Could not read this spreadsheet. It may be damaged — try saving it again as .xlsx.")
 
 
 # Helper function to get RAG service
@@ -246,8 +252,11 @@ async def create_knowledge_base(
             **kb.__dict__,
             document_count=0
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to create knowledge base: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not create the knowledge base. Please try again.")
 
 
 @router.get("/knowledge-bases", response_model=List[KnowledgeBaseResponse])
@@ -395,8 +404,11 @@ async def create_document(
         )
 
         return DocumentResponse(**doc.__dict__)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to add document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not add the document. Please try again.")
 
 
 @router.post("/documents/upload", response_model=DocumentResponse, status_code=201)
@@ -491,10 +503,16 @@ async def upload_document(
 
         return DocumentResponse(**doc.__dict__)
 
+    except HTTPException:
+        # The format, empty-text and unreadable-file answers above are already
+        # written for the user; the catch-all below used to re-wrap them as
+        # "400: <message>".
+        raise
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File encoding error. Please upload UTF-8 encoded files.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Failed to upload document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not process the uploaded file. Please try again.")
 
 
 @router.get("/knowledge-bases/{kb_id}/documents", response_model=List[DocumentResponse])
@@ -969,7 +987,7 @@ async def ask_knowledge_base(
         logging.getLogger(__name__).error(f"Answer synthesis failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=502,
-            detail=f"Found relevant passages but could not generate an answer: {e}",
+            detail="Found relevant passages but could not generate an answer. Please try again.",
         )
 
     if not answer:

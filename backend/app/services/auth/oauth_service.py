@@ -23,6 +23,8 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
+
+from app.core.exceptions import UserFacingError
 from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +40,7 @@ APPLE_ISSUER = "https://appleid.apple.com"
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 
 
-class OAuthError(Exception):
+class OAuthError(UserFacingError):
     """Raised when a social sign-in assertion is invalid or cannot be processed."""
 
 

@@ -45,7 +45,7 @@ class TelnyxNumberProvider(NumberProvider):
 
     def validate_credentials(self) -> None:
         if not self.credentials.get("api_key"):
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Telnyx credentials are incomplete. {self.credential_hint}"
             )
 
@@ -161,7 +161,7 @@ class TelnyxNumberProvider(NumberProvider):
     ) -> bool:
         number_id = provider_sid or await self._lookup_number_id(phone_number)
         if not number_id:
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Cannot release {phone_number}: it is not visible on this Telnyx account"
             )
 
@@ -179,7 +179,7 @@ class TelnyxNumberProvider(NumberProvider):
     ) -> Dict[str, Any]:
         number_id = provider_sid or await self._lookup_number_id(phone_number)
         if not number_id:
-            raise NumberProviderError(
+            raise NumberProviderError.public(
                 f"Cannot update {phone_number}: it is not visible on this Telnyx account"
             )
 

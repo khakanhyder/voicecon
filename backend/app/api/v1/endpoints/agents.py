@@ -865,7 +865,7 @@ async def agent_respond(
             elif "rate" in str(e).lower():
                 err_msg = "I'm receiving too many requests. Please wait a moment and try again."
             yield f"data: {json.dumps({'type': 'sentence', 'text': err_msg, 'audio_base64': None})}\n\n"
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': err_msg})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'full_text': err_msg, 'end_call': False})}\n\n"
 
     return StreamingResponse(
@@ -1112,7 +1112,7 @@ async def agent_stt_websocket(
     except Exception as e:
         logger.error(f"STT WebSocket error: {e}")
         try:
-            await websocket.send_json({"type": "error", "message": str(e)})
+            await websocket.send_json({"type": "error", "message": "Speech recognition stopped unexpectedly. Please try again."})
             await websocket.close()
         except Exception:
             pass

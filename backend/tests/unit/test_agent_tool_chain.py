@@ -114,16 +114,15 @@ async def test_channel_agnostic_same_executor(db):
 
 async def test_create_endpoint_rejects_workflow_tool_without_id():
     """A workflow tool with no workflow_id must be rejected at create time."""
+    import uuid
     from fastapi import HTTPException
-    from app.api.v1.endpoints.tools import create_tool
-    from app.schemas.tool import ToolCreate
+    from app.api.v1.endpoints.tools import _validate_tool
 
-    # Call the validation branch directly with a minimal fake.
-    data = ToolCreate(name="x", tool_type="workflow", config={})
-    # The endpoint needs db/user; assert the validation guard exists in source.
-    import inspect
-    src = inspect.getsource(create_tool)
-    assert "workflow_id" in src and "needs a workflow_id" in src
+    # Field errors are reported before any database lookup, so no session is needed.
+    with pytest.raises(HTTPException) as exc:
+        await _validate_tool("workflow", {}, "Books appointments", uuid.uuid4(), db=None)
+    assert exc.value.status_code == 422
+    assert "workflow_id" in exc.value.detail["errors"]
 
 
 # ==================== Parameter validation & error handling ====================

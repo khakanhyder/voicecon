@@ -14,13 +14,14 @@ from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import UserFacingError
 from app.schemas.workflow import TriggerType
 
 logger = logging.getLogger(__name__)
 
 
-class TriggerError(Exception):
-    """Raised when trigger handling fails."""
+class TriggerError(UserFacingError):
+    """Raised when trigger handling fails. The message is shown to the user."""
     pass
 
 
@@ -75,8 +76,11 @@ class TriggerValidator:
             # Validate cron expression
             try:
                 croniter(config["cron_expression"])
-            except Exception as e:
-                raise TriggerError(f"Invalid cron expression: {str(e)}")
+            except Exception:
+                raise TriggerError(
+                    f"Invalid cron expression: {config['cron_expression']}. "
+                    "Use five fields, such as 0 9 * * 1-5 for 9am on weekdays."
+                )
 
             # The scheduler evaluates cron in this zone. Rejecting an unknown
             # name here means the user sees the typo while they are editing,
@@ -106,8 +110,11 @@ class TriggerValidator:
             try:
                 if isinstance(config["scheduled_at"], str):
                     datetime.fromisoformat(config["scheduled_at"].replace('Z', '+00:00'))
-            except Exception as e:
-                raise TriggerError(f"Invalid scheduled_at datetime: {str(e)}")
+            except Exception:
+                raise TriggerError(
+                    f"Invalid scheduled_at datetime: {config['scheduled_at']}. "
+                    "Use ISO 8601, such as 2026-09-30T14:00:00Z."
+                )
 
         else:
             raise TriggerError(f"Invalid schedule_type: {schedule_type}")

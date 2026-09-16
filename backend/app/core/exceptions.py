@@ -5,6 +5,21 @@ from typing import Any, Optional
 from fastapi import HTTPException, status
 
 
+class UserFacingError(Exception):
+    """An error whose message is written for the person using the app.
+
+    Endpoints return ``public_message`` to the client verbatim, so every raise
+    site must pass a hand-written sentence — never text built from a caught
+    exception or a provider's response, which can carry database constraints,
+    provider internals or credentials. Where a failure has no safe sentence,
+    raise a plain exception and let the endpoint answer generically.
+    """
+
+    @property
+    def public_message(self) -> str:
+        return str(self)
+
+
 class VoiceconException(Exception):
     """Base exception for Voicecon application."""
     def __init__(self, message: str, details: Optional[dict] = None):

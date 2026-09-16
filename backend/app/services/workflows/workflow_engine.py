@@ -13,6 +13,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_
 
+from app.core.exceptions import UserFacingError
 from app.models.integration import Workflow, WorkflowExecution
 from app.services.workflows import graph as graph_utils
 from app.services.workflows.executor import (
@@ -36,12 +37,12 @@ class WorkflowEngineError(Exception):
     pass
 
 
-class WorkflowNotFoundError(WorkflowEngineError):
+class WorkflowNotFoundError(WorkflowEngineError, UserFacingError):
     """The workflow does not exist (or was deleted)."""
     pass
 
 
-class WorkflowNotActiveError(WorkflowEngineError):
+class WorkflowNotActiveError(WorkflowEngineError, UserFacingError):
     """The workflow exists but is switched off, so it will not run.
 
     Distinct from the generic engine error so the API can answer 409 instead of
