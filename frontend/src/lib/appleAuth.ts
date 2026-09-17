@@ -59,7 +59,14 @@ export async function signInWithApple(): Promise<AppleSignInResult> {
     usePopup: true,
   })
 
-  const response = await AppleID.auth.signIn()
+  let response: any
+  try {
+    response = await AppleID.auth.signIn()
+  } catch (e: any) {
+    // The SDK rejects with a plain object such as { error: 'popup_closed_by_user' },
+    // which would otherwise surface as "An unexpected error occurred".
+    throw new Error(e?.error || e?.message || 'Apple sign-in failed')
+  }
   const idToken: string | undefined = response?.authorization?.id_token
   if (!idToken) {
     throw new Error('Apple did not return an identity token')

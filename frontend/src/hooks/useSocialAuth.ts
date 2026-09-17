@@ -52,7 +52,7 @@ export function useSocialAuth() {
     onError: (e: any) => {
       // A user closing the Apple popup shows up as a benign error — don't shout.
       const msg = getErrorMessage(e)
-      if (msg && !/popup|cancel/i.test(msg)) toast.error(msg)
+      if (msg && !/popup|cancel|user_trigger/i.test(msg)) toast.error(msg)
     },
   })
 

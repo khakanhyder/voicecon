@@ -21,7 +21,10 @@ ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=691135919551-nft1jh2neholfputh8sfke93pfmpp5hs.apps.googleusercontent.com
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
-ARG NEXT_PUBLIC_APPLE_CLIENT_ID=
+# Apple Services ID. Public (it ships in the browser bundle), and defaulted here
+# because NEXT_PUBLIC_* is baked in at build time: a runtime env var never
+# reaches the built JS, which leaves the button showing "coming soon".
+ARG NEXT_PUBLIC_APPLE_CLIENT_ID=vconekt.voicecon.ai
 ENV NEXT_PUBLIC_APPLE_CLIENT_ID=$NEXT_PUBLIC_APPLE_CLIENT_ID
 
 ARG NEXT_PUBLIC_APPLE_REDIRECT_URI=https://app.voicecon.ai/login

@@ -42,7 +42,9 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              // Social sign-in SDKs: Sign in with Apple JS and Google Identity Services.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com",
+              "frame-src https://appleid.apple.com https://accounts.google.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data: https:",
