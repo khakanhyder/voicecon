@@ -8,6 +8,12 @@ import { Integrations, UseCases } from '@/components/landing/Integrations'
 import { Pricing } from '@/components/landing/Pricing'
 import { Faq, FinalCta } from '@/components/landing/Closing'
 
+/**
+ * The full marketing site. It used to be the root page; the root now serves the
+ * coming-soon page, so this is its own URL (/landing-page) with the same
+ * sections in the same order. The original src/app/page.tsx is left untouched.
+ */
+
 const TITLE = 'Voicecon: AI voice agents with no-code workflows'
 const DESCRIPTION =
   'Build AI voice agents that answer calls in real time, respond from your own documents, and update your CRM, calendar and team chat through 35 integrations. Start your 30-day free trial.'
@@ -16,10 +22,10 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://voicecon.ai'),
   title: TITLE,
   description: DESCRIPTION,
-  alternates: { canonical: '/' },
+  alternates: { canonical: '/landing-page' },
   openGraph: {
     type: 'website',
-    url: 'https://voicecon.ai/',
+    url: 'https://voicecon.ai/landing-page',
     siteName: 'Voicecon',
     title: TITLE,
     description: DESCRIPTION,
@@ -39,7 +45,7 @@ const structuredData = {
   name: 'Voicecon',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
-  url: 'https://voicecon.ai/',
+  url: 'https://voicecon.ai/landing-page',
   description: DESCRIPTION,
   offers: [
     { '@type': 'Offer', name: 'Sales Chatbot', price: '119', priceCurrency: 'USD' },

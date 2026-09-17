@@ -417,6 +417,18 @@ export default function RegisterPage() {
         </button>
       </form>
 
+      <p className="mt-4 text-xs leading-relaxed text-slate-500">
+        By signing up, you agree to our{' '}
+        <Link href="/terms" target="_blank" className="font-medium text-brand-600 underline-offset-2 hover:underline">
+          Terms of Service
+        </Link>{' '}
+        and{' '}
+        <Link href="/privacy" target="_blank" className="font-medium text-brand-600 underline-offset-2 hover:underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
+
       <p className="mt-5 text-sm text-[#000000]">
         Already have an account?{' '}
         <Link href="/login" className="font-semibold text-brand-600 hover:text-brand-700">

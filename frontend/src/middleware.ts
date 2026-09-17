@@ -15,6 +15,11 @@ const LANDING_HOSTS = (process.env.NEXT_PUBLIC_LANDING_HOSTS || 'voicecon.ai,www
   .map((h) => h.trim().toLowerCase())
   .filter(Boolean)
 
+// Public pages the landing hosts serve themselves; they need no session.
+// '/' is the coming-soon page (rewritten below), '/landing-page' is the full
+// marketing site that used to live at the root.
+const MARKETING_PATHS = new Set(['/', '/coming-soon', '/landing-page', '/privacy', '/terms'])
+
 function requestHost(request: NextRequest): string {
   // Behind Traefik the forwarded host is the one the visitor typed.
   const raw = request.headers.get('x-forwarded-host') || request.headers.get('host') || ''
@@ -34,7 +39,17 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  if (LANDING_HOSTS.includes(host) && pathname !== '/') {
+  // Every other host (the landing hosts, and localhost in development) serves
+  // the coming-soon page at the root. A rewrite rather than a redirect keeps
+  // the bare domain in the address bar; the full marketing site is at
+  // /landing-page and src/app/page.tsx is left untouched behind it.
+  if (pathname === '/') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/coming-soon'
+    return NextResponse.rewrite(url)
+  }
+
+  if (LANDING_HOSTS.includes(host) && !MARKETING_PATHS.has(pathname)) {
     return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 307)
   }
 
