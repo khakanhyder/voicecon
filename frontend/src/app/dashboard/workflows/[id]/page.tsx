@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner'
 
 import { useConfirm } from '@/hooks/use-confirm'
+import { downloadWorkflow } from '@/lib/workflow/transferApi'
 
 interface Workflow {
   id: string
@@ -227,6 +228,19 @@ export default function WorkflowDetailPage() {
           <Link href={`/dashboard/workflows/${workflowId}/edit`}>
             <Button variant="outline">Edit</Button>
           </Link>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                await downloadWorkflow(workflowId)
+              } catch (error) {
+                toast.error(getErrorMessage(error))
+              }
+            }}
+            title="Download this workflow as a JSON file you can import into another workspace"
+          >
+            Download JSON
+          </Button>
           <Button
             variant="destructive"
             onClick={handleDelete}

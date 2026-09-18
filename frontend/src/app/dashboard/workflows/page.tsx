@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
@@ -9,8 +9,10 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import {
   MoreVertical, Calendar, Clock, BarChart2,
-  DollarSign, CloudSun, GitBranch, Mail, Phone, Database, Globe, Zap, CheckCircle2
+  DollarSign, CloudSun, GitBranch, Mail, Phone, Database, Globe, Zap, CheckCircle2, Upload
 } from 'lucide-react'
+import { importWorkflow } from '@/lib/workflow/transferApi'
+import { WorkflowImportError } from '@/lib/workflow/transfer'
 
 interface Workflow {
   id: string
@@ -54,6 +56,8 @@ export default function WorkflowsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('All Workflows')
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchWorkflows()
@@ -70,6 +74,54 @@ export default function WorkflowsPage() {
       setIsLoading(false)
     }
   }
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Reset so choosing the same file again still fires onChange.
+    event.target.value = ''
+    if (!file) return
+
+    setIsImporting(true)
+    try {
+      const { id, name, plan } = await importWorkflow(file, workflows.map((w) => w.name))
+      if (plan.unresolvedNodes.length) {
+        const apps = plan.missingApps.length ? ` Connect ${plan.missingApps.join(', ')} first.` : ''
+        toast.warning(
+          `Imported "${name}". Pick a connection or tool on: ${plan.unresolvedNodes.join(', ')}.${apps}`,
+          { duration: 10000 }
+        )
+      } else {
+        toast.success(`Imported "${name}"`)
+      }
+      router.push(`/dashboard/workflows/${id}/builder`)
+    } catch (error) {
+      toast.error(error instanceof WorkflowImportError ? error.message : getErrorMessage(error))
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  const importButton = (className = '') => (
+    <button
+      type="button"
+      onClick={() => fileInput.current?.click()}
+      disabled={isImporting}
+      className={`flex items-center gap-2 border border-gray-200 rounded-[8px] px-3 py-1.5 text-[12px] font-semibold text-gray-600 bg-white shadow-sm flex-shrink-0 hover:bg-gray-50 transition-colors disabled:opacity-60 ${className}`}
+    >
+      <Upload className="w-3.5 h-3.5" />
+      {isImporting ? 'Importing…' : 'Import JSON'}
+    </button>
+  )
+
+  const fileField = (
+    <input
+      ref={fileInput}
+      type="file"
+      accept="application/json,.json"
+      className="hidden"
+      onChange={handleImportFile}
+    />
+  )
 
   if (isLoading) {
     return (
@@ -100,6 +152,7 @@ export default function WorkflowsPage() {
 
   return (
     <div className="space-y-6">
+      {fileField}
       {workflows.length > 0 && (
         <>
           {/* Stats Section */}
@@ -169,6 +222,7 @@ export default function WorkflowsPage() {
                 </button>
               ))}
             </div>
+            {importButton()}
             <button 
               onClick={() => setSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
               className="hidden sm:flex items-center gap-2 border border-gray-200 rounded-[8px] px-3 py-1.5 text-[12px] font-semibold text-gray-600 bg-white shadow-sm flex-shrink-0 hover:bg-gray-50 transition-colors"
@@ -193,11 +247,14 @@ export default function WorkflowsPage() {
                 Build your first automation workflow to connect your agents with external apps and systems.
               </p>
             </div>
-            <Link href="/dashboard/workflows/new" className="inline-block mt-4">
-              <Button size="lg" className="bg-[#106959] hover:bg-[#0c5044] text-white font-poppins rounded-[8px] h-[45px] px-6">
-                Create Your First Workflow
-              </Button>
-            </Link>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Link href="/dashboard/workflows/new" className="inline-block">
+                <Button size="lg" className="bg-[#106959] hover:bg-[#0c5044] text-white font-poppins rounded-[8px] h-[45px] px-6">
+                  Create Your First Workflow
+                </Button>
+              </Link>
+              {importButton('h-[45px] px-5 text-[14px]')}
+            </div>
           </div>
         </div>
       ) : (

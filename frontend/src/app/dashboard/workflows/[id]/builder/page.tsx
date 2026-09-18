@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import type { Edge } from '@xyflow/react'
-import { ArrowLeft, Loader2, Play, Save } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, Play, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { WorkflowCanvas } from '@/components/workflow/WorkflowCanvas'
 import {
@@ -15,6 +15,7 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { apiToFlow, flowToApi, type ApiGraph, type FlowNode } from '@/lib/workflow/graph'
 import { validateTrigger } from '@/lib/workflow/triggerTypes'
+import { downloadWorkflow } from '@/lib/workflow/transferApi'
 import type { TriggerState } from '@/components/workflow/TriggerConfig'
 import { toast } from 'sonner'
 
@@ -186,6 +187,20 @@ export default function WorkflowBuilderPage() {
     liveRun.run({})
   }, [save])
 
+  const [isDownloading, setIsDownloading] = useState(false)
+  const handleDownload = useCallback(async () => {
+    // Save first so the file matches what is on the canvas, not the last autosave.
+    setIsDownloading(true)
+    try {
+      await save({ silent: true })
+      await downloadWorkflow(workflowId)
+    } catch (err) {
+      toast.error(getErrorMessage(err))
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [save, workflowId])
+
   // A completed streamed run becomes the execution shown in the results panel.
   useEffect(() => {
     if (liveRun.execution) setExecution(liveRun.execution)
@@ -246,6 +261,20 @@ export default function WorkflowBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            disabled={isDownloading || isSaving}
+            title="Download this workflow as a JSON file you can import into another workspace"
+          >
+            {isDownloading ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-1.5 h-4 w-4" />
+            )}
+            Download JSON
+          </Button>
           <Button variant="outline" size="sm" onClick={runTest} disabled={liveRun.running}>
             {liveRun.running ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
