@@ -7,7 +7,7 @@ import logging
 from typing import AsyncIterator, Optional, Dict, Any, List, Union
 import json
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from app.core.config import settings
@@ -110,6 +110,39 @@ class OpenAILLM(BaseLLMProvider):
         self.stop = kwargs.get("stop", None)
 
         logger.info(f"Initialized OpenAI LLM: model={model}, temperature={temperature}")
+
+    #: Sampling parameters some models only accept at their default. GPT-5.5,
+    #: for one, returns a 400 for any temperature but 1 — and the agent form
+    #: lets a user pick both that model and any temperature, so every turn of
+    #: such an agent failed with "technical issue".
+    _SAMPLING_PARAMS = ("temperature", "top_p", "frequency_penalty", "presence_penalty")
+
+    #: model id -> sampling params that model has rejected. Learned from the
+    #: API's own error rather than a hand-kept list that goes stale with every
+    #: model release; after the first rejection the param is never sent again.
+    _rejected_params: Dict[str, set] = {}
+
+    async def _create_completion(self, request_params: Dict[str, Any]):
+        """``chat.completions.create``, dropping sampling params the model rejects."""
+        model_id = request_params["model"]
+        for param in self._rejected_params.get(model_id, ()):
+            request_params.pop(param, None)
+
+        while True:
+            try:
+                return await self.client.chat.completions.create(**request_params)
+            except BadRequestError as e:
+                body = e.body if isinstance(e.body, dict) else {}
+                body = body.get("error", body) if isinstance(body.get("error"), dict) else body
+                param = body.get("param")
+                if param not in self._SAMPLING_PARAMS or param not in request_params:
+                    raise
+                logger.warning(
+                    "Model %s rejected %s=%r; retrying with the model's default",
+                    model_id, param, request_params[param],
+                )
+                self._rejected_params.setdefault(model_id, set()).add(param)
+                request_params.pop(param)
 
     def _format_messages(self, messages: List[ChatMessage]) -> List[Dict[str, Any]]:
         """
@@ -215,7 +248,7 @@ class OpenAILLM(BaseLLMProvider):
                 request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
 
             # Call OpenAI API
-            response: ChatCompletion = await self.client.chat.completions.create(**request_params)
+            response: ChatCompletion = await self._create_completion(request_params)
 
             # Extract response
             choice = response.choices[0]
@@ -331,7 +364,7 @@ class OpenAILLM(BaseLLMProvider):
                 request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
 
             # Stream response
-            stream = await self.client.chat.completions.create(**request_params)
+            stream = await self._create_completion(request_params)
 
             # Track tokens for cost calculation (approximate)
             completion_tokens = 0
