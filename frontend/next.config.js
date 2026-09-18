@@ -1,3 +1,15 @@
+// Local development talks to the API over plain http (http://localhost:8001),
+// which the https-only connect-src below would block, leaving every dashboard
+// page empty. Allow exactly that origin, and only when it is http.
+const devApiOrigins = (() => {
+  try {
+    const origin = new URL(process.env.NEXT_PUBLIC_API_URL || '').origin
+    return origin.startsWith('http:') ? [origin, origin.replace(/^http:/, 'ws:')] : []
+  } catch {
+    return []
+  }
+})()
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
@@ -53,7 +65,7 @@ const nextConfig = {
               // call plays the agent's voice from blob: URLs and call recordings
               // come from the API host, so both were silently blocked.
               "media-src 'self' blob: data: https:",
-              "connect-src 'self' https: wss:",
+              ["connect-src 'self' https: wss:", ...devApiOrigins].join(' '),
               "frame-ancestors 'none'",
             ].join('; '),
           },
