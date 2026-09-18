@@ -376,6 +376,7 @@ class GoogleCalendarConnector(BaseConnector):
         time_max: Optional[str] = None,
         max_results: int = 100,
         order_by: str = "startTime",
+        time_zone: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         List calendar events.
@@ -386,6 +387,10 @@ class GoogleCalendarConnector(BaseConnector):
             time_max: Upper bound (ISO 8601)
             max_results: Maximum number of events
             order_by: Order by (startTime or updated)
+            time_zone: IANA zone to express event times in (e.g. Asia/Karachi).
+                Defaults to the calendar's own zone, which is often not the
+                zone the business works in, so an agent reading the times
+                would otherwise have to convert them itself.
 
         Returns:
             List of events
@@ -407,6 +412,8 @@ class GoogleCalendarConnector(BaseConnector):
 
             if time_max:
                 params["timeMax"] = time_max
+            if time_zone:
+                params["timeZone"] = time_zone
 
             response = await self.get(
                 f"/calendar/v3/calendars/{calendar_id}/events",

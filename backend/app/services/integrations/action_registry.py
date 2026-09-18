@@ -346,6 +346,7 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
                     "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
                     "max_results": {"type": "integer", "description": "Maximum number of events to return"},
+                    "time_zone": {"type": "string", "description": "Time zone for the returned times, e.g. Asia/Karachi (defaults to the calendar's zone)"},
                 },
                 "required": ["start_date"],
             },
