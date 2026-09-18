@@ -312,6 +312,10 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "properties": {
                     "date": {"type": "string", "description": "Date to check in YYYY-MM-DD format"},
                     "duration_minutes": {"type": "integer", "description": "Duration of the meeting in minutes"},
+                    "time_zone": {"type": "string", "description": "Business time zone, e.g. Asia/Karachi. Opening hours and returned times use it"},
+                    "day_start": {"type": "string", "description": "Opening time, HH:MM in the business time zone (default 00:00)"},
+                    "day_end": {"type": "string", "description": "Closing time, HH:MM; the last slot ends by then (default 23:59)"},
+                    "step_minutes": {"type": "integer", "description": "Gap between slot start times in minutes (default 30; 60 gives on-the-hour slots)"},
                     "calendar_id": {"type": "string", "description": "Calendar ID (defaults to primary)",
                                     "title": "Calendar", "x-resource": "calendars"},
                 },
@@ -1070,7 +1074,14 @@ def _adapt_gcal_list_events(p: Dict[str, Any]) -> Dict[str, Any]:
 
 def _adapt_gcal_find_slots(p: Dict[str, Any]) -> Dict[str, Any]:
     day = p.pop("date", None)
-    if day:
+    if day and any(p.get(k) for k in ("time_zone", "day_start", "day_end")):
+        # Opening hours are local to the business, so the connector builds the
+        # window in its zone — and can report a mistyped zone clearly, which
+        # an exception raised here could not.
+        date_part = str(day).strip()[:10]
+        p.setdefault("search_start", date_part)
+        p.setdefault("search_end", date_part)
+    elif day:
         p.setdefault("search_start", _as_iso(day))
         p.setdefault("search_end", _as_iso(day, end_of_day=True))
     return p

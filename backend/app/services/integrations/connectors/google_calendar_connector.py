@@ -498,12 +498,49 @@ class GoogleCalendarConnector(BaseConnector):
             logger.error(f"Failed to check Google Calendar availability: {e}", exc_info=True)
             raise ConnectorError(f"Failed to check availability: {str(e)}")
 
+    @staticmethod
+    def _business_day_window(
+        search_start: str,
+        search_end: str,
+        time_zone: Optional[str],
+        day_start: Optional[str],
+        day_end: Optional[str],
+    ) -> tuple:
+        """Turn bare dates plus opening hours into a zoned search window."""
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            zone = ZoneInfo(time_zone) if time_zone else ZoneInfo("UTC")
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ConnectorError(
+                f"Unknown time zone '{time_zone}'. Use an IANA name such as Asia/Karachi."
+            )
+
+        def _at(value: str, hhmm: str) -> str:
+            text = str(value).strip()
+            if "T" in text:
+                return text
+            try:
+                hour, minute = (int(x) for x in str(hhmm).split(":")[:2])
+                base = datetime.strptime(text[:10], "%Y-%m-%d")
+            except ValueError:
+                raise ConnectorError(
+                    f"Could not read '{text} {hhmm}'. Use a YYYY-MM-DD date and HH:MM times."
+                )
+            return base.replace(hour=hour, minute=minute, tzinfo=zone).isoformat()
+
+        return _at(search_start, day_start or "00:00"), _at(search_end, day_end or "23:59")
+
     async def find_available_slots(
         self,
         duration_minutes: int,
         search_start: str,
         search_end: str,
         calendar_id: str = "primary",
+        step_minutes: int = 30,
+        time_zone: Optional[str] = None,
+        day_start: Optional[str] = None,
+        day_end: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """
         Find available time slots.
@@ -513,6 +550,15 @@ class GoogleCalendarConnector(BaseConnector):
             search_start: Search start time (ISO 8601)
             search_end: Search end time (ISO 8601)
             calendar_id: Calendar ID (default: "primary")
+            step_minutes: Gap between candidate start times (default: 30)
+            time_zone: IANA zone of the business, e.g. Asia/Karachi
+            day_start: Opening time HH:MM, used when search_start is a bare date
+            day_end: Closing time HH:MM; the last slot must end by then
+
+        Slots are returned in the zone of ``search_start``, each with a
+        ``time`` label (HH:MM). Slots that have already started are left out:
+        nobody can book them, and an agent offering "four o'clock" at five
+        past five sounds broken.
 
         Returns:
             List of available slots with start and end times
@@ -520,6 +566,11 @@ class GoogleCalendarConnector(BaseConnector):
         Raises:
             ConnectorError: If search fails
         """
+        if time_zone or day_start or day_end:
+            search_start, search_end = self._business_day_window(
+                search_start, search_end, time_zone, day_start, day_end
+            )
+
         try:
             # Get free/busy info
             availability = await self.check_availability(
@@ -536,6 +587,24 @@ class GoogleCalendarConnector(BaseConnector):
             start = date_parser.parse(search_start)
             end = date_parser.parse(search_end)
             duration = timedelta(minutes=duration_minutes)
+            step = timedelta(minutes=int(step_minutes or 30))
+            zone = start.tzinfo
+            now = datetime.now(zone) if zone else datetime.utcnow()
+
+            def _slot(at: datetime) -> Dict[str, str]:
+                return {
+                    "start": at.isoformat(),
+                    "end": (at + duration).isoformat(),
+                    "time": at.strftime("%H:%M"),
+                }
+
+            def _aligned(at: datetime) -> datetime:
+                # After a busy period, resume on the step grid measured from
+                # the opening time, so hourly slots stay on the hour.
+                if at <= start:
+                    return start
+                steps = -(-(at - start) // step)  # ceiling division
+                return start + steps * step
 
             # Find free slots
             available_slots = []
@@ -544,25 +613,24 @@ class GoogleCalendarConnector(BaseConnector):
             for busy in busy_periods:
                 busy_start = date_parser.parse(busy["start"])
                 busy_end = date_parser.parse(busy["end"])
+                if zone:
+                    busy_start = busy_start.astimezone(zone)
+                    busy_end = busy_end.astimezone(zone)
 
                 # Check if there's a slot before this busy period
                 while current + duration <= busy_start:
-                    available_slots.append({
-                        "start": current.isoformat(),
-                        "end": (current + duration).isoformat(),
-                    })
-                    current += timedelta(minutes=30)  # 30-minute increments
+                    if current >= now:
+                        available_slots.append(_slot(current))
+                    current += step
 
                 # Move past the busy period
-                current = max(current, busy_end)
+                current = _aligned(max(current, busy_end))
 
             # Check remaining time after last busy period
             while current + duration <= end:
-                available_slots.append({
-                    "start": current.isoformat(),
-                    "end": (current + duration).isoformat(),
-                })
-                current += timedelta(minutes=30)
+                if current >= now:
+                    available_slots.append(_slot(current))
+                current += step
 
             return available_slots
 
