@@ -621,7 +621,7 @@ async def agent_respond(
     interrupt_enabled = bool(agent.interrupt_enabled)
     max_tokens_cap = min(agent.llm_max_tokens or 150, 150)
 
-    async def generate():
+    async def respond_stream(db: AsyncSession):
         # Yield a keepalive SSE comment immediately so the HTTP response opens
         # before any blocking LLM/TTS work begins.
         yield ": keepalive\n\n"
@@ -875,6 +875,23 @@ async def agent_respond(
             yield f"data: {json.dumps({'type': 'sentence', 'text': err_msg, 'audio_base64': None})}\n\n"
             yield f"data: {json.dumps({'type': 'error', 'message': err_msg})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'full_text': err_msg, 'end_call': False})}\n\n"
+
+    async def generate():
+        # The request's session cannot be used here. FastAPI closes a yield
+        # dependency before a streamed body runs, and a closed session that is
+        # used again quietly checks out a new connection nobody returns. Every
+        # tool-calling turn leaked one, until the pool ran dry and every request
+        # that touched the database hung for 30 seconds and failed.
+        from app.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as stream_db:
+            try:
+                async for chunk in respond_stream(stream_db):
+                    yield chunk
+                await stream_db.commit()
+            except BaseException:
+                await stream_db.rollback()
+                raise
 
     return StreamingResponse(
         generate(),
