@@ -44,6 +44,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: WebSocket routes. A browser WebSocket cannot send the Authorization or
+#: X-Organization-Id headers the router-wide workspace guard reads, and that
+#: guard's OAuth2 dependency needs an HTTP Request — on a WebSocket it raises
+#: before the handshake, so every connect failed with a 500. These handlers
+#: authenticate from the ``token`` query param themselves, so they are mounted
+#: without the guard (see app.api.v1.api).
+ws_router = APIRouter()
+
 
 @router.post(
     "",
@@ -985,7 +993,7 @@ async def upload_call_recording(
     return {"recording_url": call.recording_url}
 
 
-@router.websocket("/{agent_id}/stt")
+@ws_router.websocket("/{agent_id}/stt")
 async def agent_stt_websocket(
     websocket: WebSocket,
     agent_id: uuid.UUID,

@@ -930,7 +930,9 @@ async def test_workflow_trigger(
         )
 
 
-@router.websocket("/{workflow_id}/executions/stream")
+# On the public router because the workspace guard cannot run on a WebSocket
+# (see agents.ws_router); the handler authenticates from its ``token`` param.
+@public_router.websocket("/{workflow_id}/executions/stream")
 async def stream_workflow_execution(
     websocket: WebSocket,
     workflow_id: str,

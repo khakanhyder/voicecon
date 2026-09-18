@@ -135,3 +135,5 @@ api_router.include_router(billing.public_router, prefix="/billing", tags=["billi
 api_router.include_router(chat.public_router, prefix="/chat", tags=["chat-widget"])
 api_router.include_router(marketplace.public_router, prefix="/marketplace", tags=["marketplace"])
 api_router.include_router(workflows.public_router, prefix="/workflows", tags=["workflows"])
+# WebSockets authenticate from a ``token`` query param inside the handler.
+api_router.include_router(agents.ws_router, prefix="/agents", tags=["agents"])
