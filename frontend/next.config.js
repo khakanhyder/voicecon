@@ -43,11 +43,16 @@ const nextConfig = {
             value: [
               "default-src 'self'",
               // Social sign-in SDKs: Sign in with Apple JS and Google Identity Services.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com",
+              // Cloudflare Web Analytics is injected by the proxy in front of voicecon.ai.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com",
               "frame-src https://appleid.apple.com https://accounts.google.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data: https:",
+              // Without this, media falls back to default-src 'self': the test
+              // call plays the agent's voice from blob: URLs and call recordings
+              // come from the API host, so both were silently blocked.
+              "media-src 'self' blob: data: https:",
               "connect-src 'self' https: wss:",
               "frame-ancestors 'none'",
             ].join('; '),
