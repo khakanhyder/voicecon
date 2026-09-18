@@ -52,3 +52,21 @@ def test_workflow_parameter_reaches_the_method():
     params = drop_unsupported_arguments(_Recorder().list_events, params)
     assert params["time_zone"] == "Asia/Karachi"
     assert params["time_min"] == "2026-09-19T00:00:00Z"
+
+
+def test_list_events_reads_the_connections_default_calendar():
+    """Bookings and availability must look at the same calendar.
+
+    create_event declared calendar_id, so the connection's default calendar
+    filled it in; list_events did not, so it read "primary" and a slot that
+    had just been booked still looked free.
+    """
+    from app.services.integrations.action_registry import get_action_schema
+    from app.services.integrations.resource_registry import apply_connection_defaults
+
+    config = {"defaults": {"calendar_id": "clinic@group.calendar.google.com"}}
+    for action in ("create_event", "list_events"):
+        schema = get_action_schema("google-calendar", action)
+        accepted = set(schema["parameters"]["properties"])
+        filled = apply_connection_defaults({}, config, accepted_keys=accepted)
+        assert filled.get("calendar_id") == "clinic@group.calendar.google.com", action

@@ -347,6 +347,12 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
                     "max_results": {"type": "integer", "description": "Maximum number of events to return"},
                     "time_zone": {"type": "string", "description": "Time zone for the returned times, e.g. Asia/Karachi (defaults to the calendar's zone)"},
+                    # Declared so the connection's default calendar applies here
+                    # too. Without it, bookings went to the default calendar
+                    # while availability read "primary", so a slot that had
+                    # just been booked still showed as free.
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to the connection's calendar)",
+                                    "title": "Calendar", "x-resource": "calendars"},
                 },
                 "required": ["start_date"],
             },
