@@ -12,6 +12,8 @@ export interface User {
   language: string
   is_active: boolean
   is_verified: boolean
+  /** Voicecon staff with access to /admin. Optional: older cached users lack it. */
+  is_platform_admin?: boolean
   email_verified_at: string | null
   last_login_at: string | null
   created_at: string

@@ -58,6 +58,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to seed subscription plans: {e}")
 
+    # Apply provider keys and settings saved from the admin dashboard, then
+    # keep this process in step with changes made on other replicas.
+    try:
+        from app.core.runtime_settings import start_polling
+
+        await start_polling()
+        logger.info("Platform settings loaded")
+    except Exception as e:
+        logger.error(f"Failed to load platform settings: {e}")
+
+    # Promote the addresses in PLATFORM_ADMIN_EMAILS (first-admin bootstrap).
+    if settings.PLATFORM_ADMIN_EMAILS:
+        try:
+            from app.core.admin import promote_bootstrap_admins
+            from app.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                await promote_bootstrap_admins(db, settings.PLATFORM_ADMIN_EMAILS)
+        except Exception as e:
+            logger.error(f"Failed to promote platform admins: {e}")
+
     # Start analytics scheduler
     try:
         await start_scheduler()
@@ -102,6 +123,13 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Voicecon API...")
+
+    try:
+        from app.core.runtime_settings import stop_polling
+
+        await stop_polling()
+    except Exception as e:
+        logger.error(f"Failed to stop platform settings polling: {e}")
 
     # Stop billing scheduler
     try:

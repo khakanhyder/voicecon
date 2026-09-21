@@ -73,6 +73,8 @@ class UserInDB(UserBase):
     avatar_url: Optional[str] = None
     is_active: bool
     is_verified: bool
+    #: Only used to show the Admin link; the admin API checks the flag itself.
+    is_platform_admin: bool = False
     email_verified_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
     created_at: datetime

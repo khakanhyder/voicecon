@@ -28,11 +28,15 @@ def reconcile_subscriptions_task():
     transition is idempotent, so having both scheduled is safe — deployments
     that prefer a worker can simply not start the in-process one.
     """
+    from app.core.runtime_settings import refresh_quietly
     from app.database import get_db_session
     from app.services.billing.reconciler import reconcile_subscriptions
 
     async def run():
         async with get_db_session() as db:
+            # Reconciler sends email: pick up SMTP/SendGrid keys set in the
+            # admin dashboard, not just the worker's environment.
+            await refresh_quietly(db)
             report = await reconcile_subscriptions(db)
             return str(report)
 

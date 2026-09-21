@@ -588,7 +588,15 @@ def get_twilio_service() -> TwilioService:
         TwilioService instance
     """
     global _twilio_service
-    if _twilio_service is None:
+    # Rebuilt when the platform credentials change (rotated from the admin
+    # dashboard), so the client and the webhook signature validator never keep
+    # using a token that has been replaced.
+    if (
+        _twilio_service is None
+        or _twilio_service.account_sid != settings.TWILIO_ACCOUNT_SID
+        or _twilio_service.auth_token != settings.TWILIO_AUTH_TOKEN
+        or _twilio_service.phone_number != settings.TWILIO_PHONE_NUMBER
+    ):
         _twilio_service = TwilioService()
     return _twilio_service
 

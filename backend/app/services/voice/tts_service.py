@@ -12,6 +12,7 @@ from app.services.voice.providers.base import (
 )
 from app.services.voice.providers.elevenlabs import ElevenLabsTTS
 from app.core.config import settings
+from app.core.runtime_settings import key_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,11 @@ class TTSService:
             model = self._get_default_model(provider)
 
         # Create cache key
-        cache_key = f"{provider}:{voice_id}:{model}"
+        # The key is part of the identity: a key rotated from the admin
+        # dashboard must build a new client, not reuse one holding the old
+        # credential. Clients built on the old key are left for calls
+        # already using them.
+        cache_key = f"{provider}:{voice_id}:{model}:{key_fingerprint(api_key)}"
 
         # Return cached provider if exists
         if cache_key in self._active_providers:

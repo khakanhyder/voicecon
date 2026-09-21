@@ -12,6 +12,7 @@ from app.services.voice.providers.base import (
 )
 from app.services.voice.providers.deepgram import DeepgramSTT
 from app.core.config import settings
+from app.core.runtime_settings import key_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,11 @@ class STTService:
             raise ValueError(f"No API key provided for {provider}")
 
         # Create cache key
-        cache_key = f"{provider}:{language}:{model}"
+        # The key is part of the identity: a key rotated from the admin
+        # dashboard must build a new client, not reuse one holding the old
+        # credential. Clients built on the old key are left for calls
+        # already using them.
+        cache_key = f"{provider}:{language}:{model}:{key_fingerprint(api_key)}"
 
         # Return cached provider if exists
         if cache_key in self._active_providers:

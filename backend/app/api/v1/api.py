@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from app.core import permissions as perms
 from app.core.dependencies import workspace_guard
 from app.core.entitlement_guard import entitlement_guard
+from app.api.v1.endpoints import admin as platform_admin
 from app.api.v1.endpoints import (
     agents,
     analytics,
@@ -128,6 +129,11 @@ api_router.include_router(
     billing.router, prefix="/billing", tags=["billing"],
     dependencies=_guard(perms.BILLING_READ, perms.BILLING_MANAGE),
 )
+
+# ---- Platform admin: Voicecon staff only, across every workspace ----
+# Guarded by ``require_platform_admin`` at the router level, never by a
+# workspace role — see app.core.admin.
+api_router.include_router(platform_admin.router, prefix="/admin", tags=["platform-admin"])
 
 # ---- Public: provider webhooks and unauthenticated surfaces ----
 api_router.include_router(telephony.public_router, prefix="/telephony", tags=["telephony"])

@@ -100,6 +100,13 @@ class SubscriptionPlan(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)  # Show in pricing page
     sort_order: Mapped[int] = mapped_column(Integer, default=0)  # Display order
+    #: Set once a platform admin edits the plan. The startup backfill in
+    #: ``seed_plans`` normally re-syncs trial length, entitlement ceilings and
+    #: pricing copy to the code's catalogue; for an admin-managed plan it leaves
+    #: the row alone, so an edit made in the dashboard survives the next deploy.
+    admin_managed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

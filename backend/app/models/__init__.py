@@ -30,6 +30,7 @@ from app.models.chat import ChatWidget, ChatSession, ChatMessage
 from app.models.invitation import Invitation
 from app.models.notification import Notification
 from app.models.verification import VerificationCode
+from app.models.platform import PlatformSetting, AdminAuditLog
 
 __all__ = [
     "Base",
@@ -39,6 +40,9 @@ __all__ = [
     "ChatMessage",
     # Team invitations & notifications
     "Invitation",
+    # Platform administration
+    "PlatformSetting",
+    "AdminAuditLog",
     "Notification",
     # User models
     "User",

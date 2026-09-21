@@ -39,6 +39,13 @@ class User(Base):
     # Status flags
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: Voicecon staff with access to the platform admin dashboard. Entirely
+    #: separate from workspace roles (``OrganizationMember.role``): a workspace
+    #: owner is not a platform admin, and a platform admin gains nothing inside
+    #: a workspace they are not a member of.
+    is_platform_admin: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
 
     # Bumped to invalidate every token already issued for this account.
     #

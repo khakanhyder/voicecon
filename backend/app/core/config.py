@@ -255,6 +255,12 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: Optional[str] = None
     CELERY_RESULT_BACKEND: Optional[str] = None
 
+    #: Comma-separated emails promoted to platform admin at startup. The way to
+    #: create the first admin on a fresh deployment; later admins can be
+    #: granted from the dashboard. Only ever promotes — removing an address
+    #: here does not demote anyone (do that from the dashboard).
+    PLATFORM_ADMIN_EMAILS: str = ""
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

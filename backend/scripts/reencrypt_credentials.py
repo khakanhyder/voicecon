@@ -57,6 +57,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.integration import IntegrationConnection
+from app.models.platform import PlatformSetting
 from app.services.integrations.credential_manager import (
     LEGACY_DEFAULT_SECRET,
     LEGACY_SALT,
@@ -86,7 +87,7 @@ class Report:
         mode = "COMMITTED" if committed else "DRY RUN — nothing was written"
         lines = [
             "",
-            f"  Connections examined     {self.rows_seen}",
+            f"  Rows examined            {self.rows_seen}",
             f"  Values re-encrypted      {self.values_rewritten}",
             f"  Already on the new key   {self.values_already_new}",
             f"  Empty / unset            {self.values_empty}",
@@ -200,6 +201,18 @@ async def reencrypt(commit: bool) -> Report:
                 )
                 if rotated is not None:
                     setattr(conn, column, rotated)
+
+        # Provider keys saved from the admin dashboard use the same cipher.
+        platform_secrets = (
+            await db.execute(select(PlatformSetting).where(PlatformSetting.is_secret.is_(True)))
+        ).scalars().all()
+        for row in platform_secrets:
+            report.rows_seen += 1
+            rotated = _rotate_value(
+                row.value_encrypted, old, new, label=f"platform setting {row.key}", report=report
+            )
+            if rotated is not None:
+                row.value_encrypted = rotated
 
         if commit:
             await db.commit()

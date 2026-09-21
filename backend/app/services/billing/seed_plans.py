@@ -174,6 +174,12 @@ async def backfill_plan_entitlements(db: AsyncSession) -> int:
     for plan in plans:
         changed = False
 
+        # A platform admin owns this row now. Everything below re-syncs it to
+        # the code's catalogue, which would silently undo their edit on the
+        # next restart.
+        if plan.admin_managed:
+            continue
+
         if not plan.slug:
             plan.slug = _slug_for(plan)
             changed = True
@@ -218,11 +224,10 @@ async def backfill_plan_entitlements(db: AsyncSession) -> int:
         if _refresh_stale_copy(plan):
             changed = True
 
-        # Trial length is owned by the catalogue, not by the row: there is no
-        # per-plan trial length in the UI, so a stored value that disagrees with
-        # ``DEFAULT_TRIAL_DAYS`` is a plan seeded before the constant last
-        # changed. Re-syncing here is what makes changing the constant enough.
-        if plan.trial_days != catalog.DEFAULT_TRIAL_DAYS:
+        # Trial length is owned by the row: platform admins set it from the
+        # admin console (Plans & Pricing), and that must survive a restart. Only
+        # a row with no usable value falls back to the catalogue default.
+        if not plan.trial_days or plan.trial_days < 1:
             plan.trial_days = catalog.DEFAULT_TRIAL_DAYS
             changed = True
 

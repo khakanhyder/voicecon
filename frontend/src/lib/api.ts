@@ -63,7 +63,8 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('active_organization_id')
-        window.location.href = '/login'
+        // The admin console has its own sign-in page; send staff back there.
+        window.location.href = window.location.pathname.startsWith('/admin') ? '/admin/login' : '/login'
       }
     }
 
