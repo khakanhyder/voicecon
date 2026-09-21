@@ -1,5 +1,5 @@
 import Image from 'next/image'
-import { ArrowRight, CheckCircle2, GitBranch, PhoneIncoming, Sparkles } from 'lucide-react'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { Accent, ROUTES, buttonClass } from './primitives'
 import { AppFrame, CallDetailScreen } from './mockups'
 
@@ -66,40 +66,9 @@ export function Hero() {
           >
             <CallDetailScreen />
           </AppFrame>
-
-          <FloatingChip className="-left-14 -top-7 [animation-delay:0s]" icon={PhoneIncoming} title="Incoming call" detail="Answered in real time" />
-          <FloatingChip className="-right-12 -bottom-7 [animation-delay:1.5s]" icon={GitBranch} title="Workflow ran" detail="Contact created in HubSpot" />
-          <FloatingChip className="-bottom-7 left-[22%] [animation-delay:3s]" icon={Sparkles} title="Summary ready" detail="Sentiment: positive" />
         </div>
       </div>
     </section>
-  )
-}
-
-function FloatingChip({
-  className,
-  icon: Icon,
-  title,
-  detail,
-}: {
-  className: string
-  icon: typeof Sparkles
-  title: string
-  detail: string
-}) {
-  return (
-    <div
-      aria-hidden="true"
-      className={`absolute hidden animate-float-slow items-center gap-3 rounded-2xl border border-white/15 bg-[#123a39]/85 px-3.5 py-2.5 text-left shadow-2xl backdrop-blur-xl motion-reduce:animate-none lg:flex ${className}`}
-    >
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-b from-brand-400 to-brand-600 text-white">
-        <Icon className="h-4 w-4" />
-      </span>
-      <span>
-        <span className="block text-[13px] font-semibold text-white">{title}</span>
-        <span className="block text-xs text-white/60">{detail}</span>
-      </span>
-    </div>
   )
 }
 

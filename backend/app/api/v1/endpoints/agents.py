@@ -595,6 +595,16 @@ class RespondRequest(BaseModel):
 #: ordinary support call, so the agent forgot answers it had already been given.
 VOICE_HISTORY_TURNS = 40
 
+#: Longest tool result kept for later turns. A day's free slots or a booking
+#: confirmation fits easily; a knowledge-base search is cut, since the agent
+#: has already spoken the answer and can search again.
+TOOL_NOTE_MAX_CHARS = 1500
+
+
+def _tool_note(result: str) -> str:
+    text = str(result or "")
+    return text if len(text) <= TOOL_NOTE_MAX_CHARS else text[:TOOL_NOTE_MAX_CHARS] + " [cut]"
+
 
 @router.post("/{agent_id}/respond")
 async def agent_respond(
@@ -656,8 +666,19 @@ async def agent_respond(
             # within budget; the cap exists for latency, not correctness.
             for h in request.history[-VOICE_HISTORY_TURNS:]:
                 raw_role = h.get("role", "user")
-                role = "assistant" if raw_role == "agent" else raw_role
-                messages.append(ChatMessage(role=role, content=h.get("text", "")))
+                text = h.get("text", "")
+                if raw_role in ("tool", "system"):
+                    # What a tool returned on an earlier turn. Without it the
+                    # agent forgets today's date, the free slots it offered and
+                    # whether it already booked, because only the spoken words
+                    # of earlier turns used to come back. The caller of this
+                    # endpoint owns the agent and its prompt, so a system note
+                    # from them grants nothing they did not already have.
+                    note = text if text.startswith("Earlier in this call") else f"Earlier in this call, {text}"
+                    messages.append(ChatMessage(role="system", content=note))
+                    continue
+                role = "assistant" if raw_role in ("agent", "assistant") else "user"
+                messages.append(ChatMessage(role=role, content=text))
             messages.append(ChatMessage(role="user", content=request.message))
 
             full_response = ""
@@ -777,6 +798,7 @@ async def agent_respond(
                             function_call={"name": fcall.name, "arguments": fcall.arguments},
                         ))
                         tool_result = await _execute_tool_call(fcall.name, args)
+                        yield f"data: {json.dumps({'type': 'tool_result', 'name': fcall.name, 'result': _tool_note(tool_result)})}\n\n"
                         messages.append(ChatMessage(
                             role="function", name=fcall.name, content=tool_result,
                         ))
@@ -1080,8 +1102,12 @@ async def agent_stt_websocket(
         f"&interim_results=true"
         f"&smart_format=false"
         f"&no_delay=true"
-        f"&endpointing=300"
-        f"&utterance_end_ms=1000"
+        # Digits come back as digits ("0300 1234567"), which the agent can count.
+        f"&numerals=true"
+        # 300 ms ended the turn at the short pause people leave between digit
+        # groups, so a phone number arrived as three separate messages.
+        f"&endpointing=700"
+        f"&utterance_end_ms=1500"
     )
 
     try:

@@ -1,0 +1,434 @@
+{
+  "format": "voicecon.workflow",
+  "version": 1,
+  "exported_at": "2026-09-18T14:02:39.513Z",
+  "workflow": {
+    "name": "Pearl Dental — Book Appointment",
+    "description": "Checks the slot is still free, works out the appointment times, marks emergencies, books the Google Calendar event and logs the booking to Google Sheets.",
+    "trigger_type": "manual",
+    "trigger_config": {},
+    "execution_mode": "sync",
+    "error_handling": "stop",
+    "max_retries": 3,
+    "retry_delay": 60,
+    "graph": {
+      "schema_version": 2,
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "name": "Caller confirms a booking",
+          "position": {
+            "x": 400,
+            "y": 0
+          },
+          "config": {
+            "inputs": [
+              {
+                "name": "patient_name",
+                "type": "string",
+                "required": true,
+                "description": "Patient's full name"
+              },
+              {
+                "name": "phone",
+                "type": "string",
+                "required": true,
+                "description": "Patient's mobile number"
+              },
+              {
+                "name": "service",
+                "type": "string",
+                "required": true,
+                "description": "What the appointment is for, e.g. Check-up, Teeth cleaning, Root canal, Toothache"
+              },
+              {
+                "name": "date",
+                "type": "string",
+                "required": true,
+                "description": "Appointment date as YYYY-MM-DD. Use a date_checked value returned by Check Available Times, never guess it."
+              },
+              {
+                "name": "time",
+                "type": "string",
+                "required": true,
+                "description": "Start time exactly as listed in free_times, 24-hour HH:MM. One o'clock in the afternoon is 13:00."
+              },
+              {
+                "name": "is_emergency",
+                "type": "string",
+                "required": false,
+                "description": "yes if the caller has severe pain, swelling, bleeding or a broken or knocked-out tooth, otherwise no"
+              },
+              {
+                "name": "email",
+                "type": "string",
+                "required": false,
+                "description": "Patient's email for the calendar invite, if they want one"
+              },
+              {
+                "name": "notes",
+                "type": "string",
+                "required": false,
+                "description": "Anything the dentist should know, e.g. symptoms or new patient"
+              }
+            ]
+          },
+          "settings": {}
+        },
+        {
+          "id": "check_slot",
+          "type": "action",
+          "name": "Is that slot still free?",
+          "position": {
+            "x": 400,
+            "y": 130
+          },
+          "config": {
+            "connection_id": "34ee51ef-00ac-4302-ae9d-ff92c07784b6",
+            "action": "find_available_slots",
+            "parameters": {
+              "date": "{{trigger.date}}",
+              "duration_minutes": 60,
+              "time_zone": "Asia/Karachi",
+              "day_start": "09:00",
+              "day_end": "17:00",
+              "step_minutes": 60
+            }
+          },
+          "settings": {
+            "retry": {
+              "enabled": true,
+              "max_tries": 2,
+              "delay_seconds": 2
+            },
+            "timeout_seconds": 30
+          }
+        },
+        {
+          "id": "times",
+          "type": "transform",
+          "name": "Work out the appointment times",
+          "position": {
+            "x": 400,
+            "y": 260
+          },
+          "config": {
+            "transformations": {
+              "free_now": {
+                "source": "steps.check_slot",
+                "transform": "pluck",
+                "args": "time"
+              },
+              "start_local": "{{trigger.date}}T{{trigger.time}}:00",
+              "end_local": {
+                "source": "{{trigger.date}}T{{trigger.time}}:00",
+                "transform": [
+                  {
+                    "name": "add_hours",
+                    "args": "1"
+                  },
+                  {
+                    "name": "format_date",
+                    "args": "%Y-%m-%dT%H:%M:%S"
+                  }
+                ]
+              },
+              "spoken_date": {
+                "source": "trigger.date",
+                "transform": "format_date",
+                "args": "%A %d %B"
+              },
+              "emergency_flag": {
+                "source": "trigger.is_emergency",
+                "default": "no"
+              }
+            }
+          },
+          "settings": {}
+        },
+        {
+          "id": "slot_free",
+          "type": "condition",
+          "name": "Still free?",
+          "position": {
+            "x": 400,
+            "y": 390
+          },
+          "config": {
+            "variable": "free_now",
+            "operator": "contains",
+            "value": "{{trigger.time}}"
+          },
+          "settings": {}
+        },
+        {
+          "id": "slot_taken",
+          "type": "transform",
+          "name": "Result: time not free",
+          "position": {
+            "x": 760,
+            "y": 520
+          },
+          "config": {
+            "transformations": {
+              "booking_status": "Not booked - that time is not free",
+              "free_times_that_day": "{{free_now}}",
+              "say_to_caller": "That time is not free: it is booked, already past, or outside clinic hours. Offer one of free_times_that_day instead. Only if this caller's booking already succeeded earlier in this call is it confirmed."
+            }
+          },
+          "settings": {}
+        },
+        {
+          "id": "is_emergency",
+          "type": "condition",
+          "name": "Is it an emergency?",
+          "position": {
+            "x": 400,
+            "y": 520
+          },
+          "config": {
+            "variable": "emergency_flag",
+            "operator": "equals",
+            "value": "yes"
+          },
+          "settings": {}
+        },
+        {
+          "id": "plan_emergency",
+          "type": "transform",
+          "name": "Plan: emergency",
+          "position": {
+            "x": 160,
+            "y": 650
+          },
+          "config": {
+            "transformations": {
+              "event_title": "EMERGENCY - {{trigger.service}} - {{trigger.patient_name}}",
+              "priority": "Emergency",
+              "caller_note": "We have marked it as an emergency, so the dentist will see you first when you arrive."
+            }
+          },
+          "settings": {}
+        },
+        {
+          "id": "plan_routine",
+          "type": "transform",
+          "name": "Plan: routine visit",
+          "position": {
+            "x": 640,
+            "y": 650
+          },
+          "config": {
+            "transformations": {
+              "event_title": "{{trigger.service}} - {{trigger.patient_name}}",
+              "priority": "Routine",
+              "caller_note": "Please arrive 10 minutes early."
+            }
+          },
+          "settings": {}
+        },
+        {
+          "id": "plan_merge",
+          "type": "merge",
+          "name": "Plan ready",
+          "position": {
+            "x": 400,
+            "y": 780
+          },
+          "config": {},
+          "settings": {}
+        },
+        {
+          "id": "book_calendar",
+          "type": "action",
+          "name": "Book the Google Calendar slot",
+          "position": {
+            "x": 400,
+            "y": 910
+          },
+          "config": {
+            "connection_id": "34ee51ef-00ac-4302-ae9d-ff92c07784b6",
+            "action": "create_event",
+            "parameters": {
+              "title": "{{event_title}}",
+              "start_time": "{{start_local}}",
+              "end_time": "{{end_local}}",
+              "timezone": "Asia/Karachi",
+              "attendee_email": "{{trigger.email}}",
+              "description": "Patient: {{trigger.patient_name}}\nPhone: {{trigger.phone}}\nService: {{trigger.service}}\nPriority: {{priority}}\nNotes: {{trigger.notes}}\n\nBooked by Ava, the Pearl Dental voice agent (Voicecon)."
+            }
+          },
+          "settings": {
+            "retry": {
+              "enabled": true,
+              "max_tries": 2,
+              "delay_seconds": 2
+            },
+            "timeout_seconds": 30
+          }
+        },
+        {
+          "id": "log_sheet",
+          "type": "action",
+          "name": "Log the booking in Google Sheets",
+          "position": {
+            "x": 400,
+            "y": 1040
+          },
+          "config": {
+            "connection_id": "cb721dfb-e695-48b0-af95-1565a4f05173",
+            "action": "append_row",
+            "parameters": {
+              "spreadsheet_id": "1QCjaEXt2bh5wIlPUy_NOcCXizw9-bBtWKzrUCa0lUGU",
+              "range_name": "Sheet1!A:I",
+              "values": [
+                [
+                  "{{trigger.patient_name}}",
+                  "{{trigger.phone}}",
+                  "{{trigger.email}}",
+                  "{{trigger.service}}",
+                  "{{trigger.date}}",
+                  "{{trigger.time}}",
+                  "{{priority}}",
+                  "{{trigger.notes}}",
+                  "{{steps.book_calendar.html_link}}"
+                ]
+              ]
+            }
+          },
+          "settings": {
+            "retry": {
+              "enabled": true,
+              "max_tries": 2,
+              "delay_seconds": 2
+            },
+            "timeout_seconds": 30
+          }
+        },
+        {
+          "id": "result",
+          "type": "transform",
+          "name": "Result for Ava",
+          "position": {
+            "x": 400,
+            "y": 1170
+          },
+          "config": {
+            "transformations": {
+              "booking_status": "Booked",
+              "appointment": "{{spoken_date}} at {{trigger.time}}",
+              "priority": "{{priority}}",
+              "calendar_event_id": "{{steps.book_calendar.id}}",
+              "logged_to_sheet": "yes",
+              "say_to_caller": "You're booked for {{trigger.service}} on {{spoken_date}} at {{trigger.time}}. {{caller_note}}"
+            }
+          },
+          "settings": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_trigger_out_check_slot",
+          "source": "trigger",
+          "sourceHandle": "out",
+          "target": "check_slot",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_check_slot_out_times",
+          "source": "check_slot",
+          "sourceHandle": "out",
+          "target": "times",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_times_out_slot_free",
+          "source": "times",
+          "sourceHandle": "out",
+          "target": "slot_free",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_slot_free_true_is_emergency",
+          "source": "slot_free",
+          "sourceHandle": "true",
+          "target": "is_emergency",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_slot_free_false_slot_taken",
+          "source": "slot_free",
+          "sourceHandle": "false",
+          "target": "slot_taken",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_is_emergency_true_plan_emergency",
+          "source": "is_emergency",
+          "sourceHandle": "true",
+          "target": "plan_emergency",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_is_emergency_false_plan_routine",
+          "source": "is_emergency",
+          "sourceHandle": "false",
+          "target": "plan_routine",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_plan_emergency_out_plan_merge",
+          "source": "plan_emergency",
+          "sourceHandle": "out",
+          "target": "plan_merge",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_plan_routine_out_plan_merge",
+          "source": "plan_routine",
+          "sourceHandle": "out",
+          "target": "plan_merge",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_plan_merge_out_book_calendar",
+          "source": "plan_merge",
+          "sourceHandle": "out",
+          "target": "book_calendar",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_book_calendar_out_log_sheet",
+          "source": "book_calendar",
+          "sourceHandle": "out",
+          "target": "log_sheet",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_log_sheet_out_result",
+          "source": "log_sheet",
+          "sourceHandle": "out",
+          "target": "result",
+          "targetHandle": "in"
+        }
+      ],
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "zoom": 0.8
+      }
+    }
+  },
+  "connections": {
+    "34ee51ef-00ac-4302-ae9d-ff92c07784b6": {
+      "app": "google-calendar",
+      "name": "Google Calendar"
+    },
+    "cb721dfb-e695-48b0-af95-1565a4f05173": {
+      "app": "google-sheets",
+      "name": "Google Sheets"
+    }
+  },
+  "tools": {}
+}

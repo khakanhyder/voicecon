@@ -17,12 +17,15 @@ import { Reveal } from './Reveal'
 const PILLARS = [
   {
     art: '/landing/01-voice-to-voice.gif',
+    artScale: 'scale-[1.3]',
     title: 'Voice to voice',
     body: 'Callers speak naturally and your agent answers in a lifelike voice. They can interrupt mid-sentence, and it listens, keeps the context and replies.',
     points: ['Real-time speech recognition by Deepgram', 'OpenAI or Anthropic models do the reasoning', 'Natural ElevenLabs voices'],
   },
   {
     art: '/landing/02-voice-to-action.gif',
+    // The app icons reach the GIF's right edge, so a 1.3 zoom clips them.
+    artScale: 'scale-[1.12]',
     title: 'Voice to action',
     body: 'Your agents do more than talk. During the call they transfer, text or look things up, and when it ends a workflow updates your CRM, books the meeting or alerts your team.',
     points: ['Tools the agent calls during a live conversation', 'Workflows that start when a call ends', 'Actions in 35 connected apps'],
@@ -53,7 +56,7 @@ export function Pillars() {
                   width={144}
                   height={144}
                   unoptimized
-                  className="h-full w-full scale-[1.3] object-contain [filter:brightness(1.55)_contrast(1.05)_saturate(1.15)]"
+                  className={`h-full w-full ${p.artScale} object-contain [filter:brightness(1.55)_contrast(1.05)_saturate(1.15)]`}
                 />
               </div>
               <h3 className="mt-6 text-[13px] font-bold uppercase tracking-[0.1em] text-white">{p.title}</h3>

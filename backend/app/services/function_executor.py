@@ -78,6 +78,25 @@ def sanitize_function_name(name: str) -> str:
     return (cleaned or "tool")[:64]
 
 
+
+#: Values a model writes into a required field when it does not actually know
+#: the answer. A booking agent called its workflow with patient_name "Unknown"
+#: and phone "Unknown" rather than asking the caller, and the empty-string
+#: check let both through.
+_PLACEHOLDER_VALUES = frozenset({
+    "unknown", "n/a", "na", "none", "null", "nil", "not provided", "not given",
+    "not specified", "tbd", "tba", "unspecified", "anonymous", "caller", "customer",
+    "-", "--", "?", "...", "xxx", "placeholder",
+})
+
+
+def _is_placeholder(value: Any) -> bool:
+    """True when a required parameter has no real value."""
+    if value is None:
+        return True
+    text = str(value).strip()
+    return not text or text.lower().strip(" .") in _PLACEHOLDER_VALUES
+
 class FunctionExecutionError(Exception):
     """Raised when function execution fails."""
     pass
@@ -584,7 +603,7 @@ class FunctionExecutor:
         missing = [
             field
             for field in schema.get("required", [])
-            if not str((parameters or {}).get(field, "")).strip()
+            if _is_placeholder((parameters or {}).get(field))
         ]
         if missing:
             return {

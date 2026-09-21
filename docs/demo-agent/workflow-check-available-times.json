@@ -1,0 +1,191 @@
+{
+  "format": "voicecon.workflow",
+  "version": 1,
+  "exported_at": "2026-09-18T14:02:38.872Z",
+  "workflow": {
+    "name": "Pearl Dental — Check Available Times",
+    "description": "Gets today's date in Islamabad, then asks Google Calendar which one-hour slots are still free within clinic hours on the requested day.",
+    "trigger_type": "manual",
+    "trigger_config": {},
+    "execution_mode": "sync",
+    "error_handling": "stop",
+    "max_retries": 3,
+    "retry_delay": 60,
+    "graph": {
+      "schema_version": 2,
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "name": "Caller asks for a time",
+          "position": {
+            "x": 400,
+            "y": 0
+          },
+          "config": {
+            "inputs": [
+              {
+                "name": "date",
+                "type": "string",
+                "required": false,
+                "description": "The day the caller wants, as YYYY-MM-DD. Leave this out completely if the caller has not named a day, and the workflow checks today."
+              }
+            ]
+          },
+          "settings": {}
+        },
+        {
+          "id": "today",
+          "type": "webhook",
+          "name": "Get today's date in Islamabad",
+          "position": {
+            "x": 400,
+            "y": 130
+          },
+          "config": {
+            "url": "https://api.open-meteo.com/v1/forecast?latitude=33.68&longitude=73.05&current=temperature_2m&daily=temperature_2m_max&forecast_days=1&timezone=Asia%2FKarachi",
+            "method": "GET",
+            "headers": "{}",
+            "body": "{}"
+          },
+          "settings": {
+            "retry": {
+              "enabled": true,
+              "max_tries": 2,
+              "delay_seconds": 1
+            },
+            "timeout_seconds": 20
+          }
+        },
+        {
+          "id": "dates",
+          "type": "transform",
+          "name": "Work out which day to check",
+          "position": {
+            "x": 400,
+            "y": 260
+          },
+          "config": {
+            "transformations": {
+              "today": "{{steps.today.body.daily.time[0]}}",
+              "time_now": {
+                "source": "steps.today.body.current.time",
+                "transform": "format_date",
+                "args": "%H:%M"
+              },
+              "check_date": {
+                "source": "trigger.date",
+                "default": "{{steps.today.body.daily.time[0]}}"
+              }
+            }
+          },
+          "settings": {}
+        },
+        {
+          "id": "find_slots",
+          "type": "action",
+          "name": "Find free one-hour slots",
+          "position": {
+            "x": 400,
+            "y": 390
+          },
+          "config": {
+            "connection_id": "34ee51ef-00ac-4302-ae9d-ff92c07784b6",
+            "action": "find_available_slots",
+            "parameters": {
+              "date": "{{check_date}}",
+              "duration_minutes": 60,
+              "time_zone": "Asia/Karachi",
+              "day_start": "09:00",
+              "day_end": "17:00",
+              "step_minutes": 60
+            }
+          },
+          "settings": {
+            "retry": {
+              "enabled": true,
+              "max_tries": 2,
+              "delay_seconds": 2
+            },
+            "timeout_seconds": 30
+          }
+        },
+        {
+          "id": "result",
+          "type": "transform",
+          "name": "Result for Ava",
+          "position": {
+            "x": 400,
+            "y": 520
+          },
+          "config": {
+            "transformations": {
+              "today": "{{today}}",
+              "today_weekday": {
+                "source": "today",
+                "transform": "format_date",
+                "args": "%A"
+              },
+              "time_now_pakistan": "{{time_now}}",
+              "date_checked": "{{check_date}}",
+              "weekday_checked": {
+                "source": "check_date",
+                "transform": "format_date",
+                "args": "%A"
+              },
+              "free_times": {
+                "source": "steps.find_slots",
+                "transform": "pluck",
+                "args": "time"
+              },
+              "how_to_use": "free_times are the one hour slots still free on date_checked, in Pakistan time, already excluding booked and past times. Offer only these. If free_times is empty, or weekday_checked is Sunday (the clinic is closed), check the next day."
+            }
+          },
+          "settings": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_trigger_out_today",
+          "source": "trigger",
+          "sourceHandle": "out",
+          "target": "today",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_today_out_dates",
+          "source": "today",
+          "sourceHandle": "out",
+          "target": "dates",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_dates_out_find_slots",
+          "source": "dates",
+          "sourceHandle": "out",
+          "target": "find_slots",
+          "targetHandle": "in"
+        },
+        {
+          "id": "e_find_slots_out_result",
+          "source": "find_slots",
+          "sourceHandle": "out",
+          "target": "result",
+          "targetHandle": "in"
+        }
+      ],
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "zoom": 1
+      }
+    }
+  },
+  "connections": {
+    "34ee51ef-00ac-4302-ae9d-ff92c07784b6": {
+      "app": "google-calendar",
+      "name": "Google Calendar"
+    }
+  },
+  "tools": {}
+}

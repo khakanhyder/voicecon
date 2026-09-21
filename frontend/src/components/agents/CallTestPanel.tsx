@@ -35,6 +35,12 @@ declare global { interface Window { SpeechRecognition: any; webkitSpeechRecognit
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+// Messages sent back with each turn; matches the backend's VOICE_HISTORY_TURNS.
+// It was 10, which a booking conversation outgrows in a minute, so the agent
+// forgot the caller's name and the day it had just offered.
+const HISTORY_SENT = 40
+const MIN_CHECK_IN_MS = 15000
+
 const formatTime = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
 
 const CALL_STATUS: Record<CallState, { label: string; dot: string; bar: string }> = {
@@ -73,6 +79,10 @@ export function CallTestPanel({
   const isPlayingRef      = useRef(false)
   const callStateRef      = useRef<CallState>('idle')
   const historyRef        = useRef<{ role: string; text: string }[]>([])
+  // Deepgram sends a turn as several "final" segments and marks only the last
+  // one speech_final. Sending just that segment dropped everything said before
+  // it, which is how "0300 1234567" arrived as "one two three".
+  const finalBufRef       = useRef('')
   const interruptRef      = useRef(true)
   const endPhrasesRef     = useRef<string[]>([])
   const maxDurRef         = useRef(1800)
@@ -109,7 +119,10 @@ export function CallTestPanel({
       interruptRef.current  = agent.interrupt_enabled ?? true
       endPhrasesRef.current = [] // agent.end_call_phrases || []
       maxDurRef.current     = agent.max_call_duration || 1800
-      idleTimeoutRef.current = agent.silence_timeout || 8000
+      // silence_timeout is a few seconds, meant for end-of-speech. Used as the
+      // check-in delay it interrupted anyone who paused to think, so a check-in
+      // waits at least 15 seconds.
+      idleTimeoutRef.current = Math.max(agent.silence_timeout || 0, MIN_CHECK_IN_MS)
     }
     if (!open) stopAll()
   }, [open, agent])
@@ -237,7 +250,7 @@ export function CallTestPanel({
       const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ message: userText, history: historyRef.current.slice(-10) }),
+        body: JSON.stringify({ message: userText, history: historyRef.current.slice(-HISTORY_SENT) }),
         signal: ctrl.signal,
       })
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
@@ -264,6 +277,11 @@ export function CallTestPanel({
                 audioQueueRef.current.push({ audio_base64: ev.audio_base64, format: ev.audio_format || 'mp3' })
                 drainQueue()
               }
+            } else if (ev.type === 'tool_result') {
+              // Kept for later turns: today's date, the free slots offered, a
+              // booking that already went through. Sent as a system note, which
+              // every backend version accepts.
+              historyRef.current.push({ role: 'system', text: `Earlier in this call, the ${ev.name} tool returned: ${ev.result}` })
             } else if (ev.type === 'done') {
               fullText  = ev.full_text || fullText
               shouldEnd = !!ev.end_call
@@ -294,6 +312,17 @@ export function CallTestPanel({
     }
   }, [drainQueue, stopAudioNow, agentId])
 
+  const sendHeardTurn = () => {
+    const heard = finalBufRef.current.trim()
+    if (!heard || callStateRef.current === 'processing') return
+    finalBufRef.current = ''
+    callStateRef.current = 'processing'
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    setLiveText('')
+    addMessage('user', heard)
+    streamRespRef.current(heard)
+  }
+
   const startDeepgramSession = useCallback(() => {
     if (!isActiveRef.current) return
     if (dgWsRef.current?.readyState === WebSocket.OPEN) {
@@ -320,20 +349,18 @@ export function CallTestPanel({
             setSttMode('deepgram'); setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current()
           } catch { ws.close(); dgAvailRef.current = false; setSttMode('webspeech'); startWebSpeechRef.current() }
         } else if (ev.type === 'transcript') {
-          const { text, speech_final } = ev
+          const { text, is_final, speech_final } = ev
           if (!text?.trim()) return
           resetIdleRef.current()
-          setLiveText(text)
+          if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
+          setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
           const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
           if (agentBusy && interruptRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
-          if (speech_final) {
-            if (callStateRef.current === 'processing') return
-            callStateRef.current = 'processing'
-            if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
-            setLiveText('')
-            addMessage('user', text.trim())
-            streamRespRef.current(text.trim())
-          }
+          if (speech_final) sendHeardTurn()
+        } else if (ev.type === 'utterance_end') {
+          // Deepgram's fallback end-of-turn, for when noise kept speech_final
+          // from ever arriving.
+          sendHeardTurn()
         } else if (ev.type === 'error') {
           // Deepgram unusable (bad/missing key). Don't retry it — onclose would loop forever.
           dgAvailRef.current = false
@@ -417,6 +444,7 @@ export function CallTestPanel({
     setCallState('starting')
     setMessages([]); setAgentText(''); setLiveText(''); setElapsed(0); setSttMode('none')
     historyRef.current  = []
+    finalBufRef.current = ''
     isActiveRef.current = true
     dgAvailRef.current  = true
     try {
