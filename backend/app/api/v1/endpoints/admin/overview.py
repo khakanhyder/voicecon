@@ -64,7 +64,6 @@ def provider_summary() -> List[Dict[str, Any]]:
         "twilio": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"],
         "stripe": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
         "email": [],
-        "mailchimp": ["MAILCHIMP_API_KEY", "MAILCHIMP_AUDIENCE_ID"],
         "storage": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET"],
     }
     out = []

@@ -23,7 +23,7 @@ demoting yourself.
 | Section | Use it to |
 |---|---|
 | Overview | See revenue, sign-ups, the call chart, the subscription mix, and anything that needs attention |
-| API Keys & Providers | Set or rotate provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs, Twilio, Stripe, email, Mailchimp, S3, Google/Apple sign-in, integration OAuth apps), rate limits and public URLs. Each provider has a **Test connection** button |
+| API Keys & Providers | Set or rotate provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs, Twilio, Stripe, email, S3, Google/Apple sign-in, integration OAuth apps), rate limits and public URLs. Each provider has a **Test connection** button |
 | Plans & Pricing | Edit prices, trial length, features, limits and pricing-page copy |
 | Organizations | Search every workspace. Suspend or reactivate it, extend a trial, give a plan for free, set per-organization feature and limit overrides, reset usage |
 | Users | Verify, disable, sign out everywhere, clear a login lockout, grant or revoke admin |

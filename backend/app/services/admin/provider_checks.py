@@ -145,24 +145,6 @@ async def check_stripe() -> CheckResult:
     return result
 
 
-async def check_mailchimp() -> CheckResult:
-    key = settings.MAILCHIMP_API_KEY
-    if not key:
-        return _missing("MAILCHIMP_API_KEY")
-    prefix = settings.mailchimp_server_prefix
-    if not prefix:
-        return CheckResult("not_configured", "Cannot tell the data center: set the server prefix, or use a key ending in -usNN.")
-    result = await _http_check(
-        "GET",
-        f"https://{prefix}.api.mailchimp.com/3.0/ping",
-        auth=("voicecon", key),
-        ok_message="Key accepted.",
-    )
-    if result.status == "ok" and not settings.MAILCHIMP_AUDIENCE_ID:
-        result.message += " Audience ID is not set, so waitlist sign-ups will fail."
-    return result
-
-
 def _smtp_login() -> str:
     host, port = settings.SMTP_HOST, int(settings.SMTP_PORT or 587)
     context = ssl.create_default_context()
@@ -258,7 +240,6 @@ CHECKS: Dict[str, Callable[[], Awaitable[CheckResult]]] = {
     "elevenlabs": check_elevenlabs,
     "twilio": check_twilio,
     "stripe": check_stripe,
-    "mailchimp": check_mailchimp,
     "email": check_email,
     "storage": check_storage,
 }

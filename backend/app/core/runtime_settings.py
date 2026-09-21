@@ -104,7 +104,6 @@ GROUPS: Tuple[SettingGroup, ...] = (
     SettingGroup("twilio", "Twilio", "Platform telephony account: number purchases, calls and webhook signatures.", "phone", "twilio", "https://console.twilio.com/"),
     SettingGroup("stripe", "Stripe", "Subscriptions, checkout and billing webhooks.", "card", "stripe", "https://dashboard.stripe.com/apikeys"),
     SettingGroup("email", "Email delivery", "How transactional email (verification codes, invites, billing notices) is sent.", "mail", "email"),
-    SettingGroup("mailchimp", "Mailchimp", "Waitlist sign-ups from the landing page.", "megaphone", "mailchimp", "https://mailchimp.com/help/about-api-keys/"),
     SettingGroup("storage", "File storage (S3)", "Recordings, avatars and knowledge-base uploads.", "database", "storage"),
     SettingGroup("social_login", "Sign-in providers", "Google and Apple sign-in. The Google app is also used for Calendar, Sheets and Drive.", "key"),
     SettingGroup("integration_apps", "Integration OAuth apps", "Client credentials for the integrations customers connect with one click.", "plug"),
@@ -144,10 +143,6 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("SMTP_USE_SSL", "Use implicit TLS", "email", "bool", "For port 465. Do not enable together with STARTTLS."),
     _S("SENDGRID_API_KEY", "SendGrid API key", "email", "secret", placeholder="SG...."),
     _S("SENDGRID_FROM_EMAIL", "SendGrid from address", "email"),
-    # Marketing
-    _S("MAILCHIMP_API_KEY", "API key", "mailchimp", "secret", placeholder="...-us21"),
-    _S("MAILCHIMP_AUDIENCE_ID", "Audience ID", "mailchimp"),
-    _S("MAILCHIMP_SERVER_PREFIX", "Server prefix", "mailchimp", description="Optional; derived from the API key suffix when empty."),
     # Storage
     _S("AWS_ACCESS_KEY_ID", "Access key ID", "storage"),
     _S("AWS_SECRET_ACCESS_KEY", "Secret access key", "storage", "secret"),
