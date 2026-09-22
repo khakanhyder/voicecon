@@ -4,6 +4,28 @@
 across every workspace and manages the platform's own provider keys. It is
 separate from workspace roles: a workspace owner is not a platform admin.
 
+## It is a separate sign-in
+
+The console has its own front door at `/admin/login`, and its own session.
+Signing into the product does not sign you into the console, and signing into
+the console does not sign you into the product — even when both are the same
+person and the same account.
+
+That is enforced by the token, not by the browser: `/auth/admin/login` issues a
+session stamped `admin`, `/auth/login` issues one stamped `app`, and each is
+refused where the other belongs (`app/core/dependencies.py`). Refreshing a
+token keeps its stamp. In the browser the two sessions are stored under
+separate keys (`frontend/src/lib/session.ts`), so holding one says nothing
+about the other.
+
+Two consequences worth knowing:
+
+- Being a platform admin is not enough on its own. An admin working in the
+  product has to sign in at `/admin/login` to open the console.
+- Signing out is still **sign out everywhere** for the account: it invalidates
+  every token the account holds, so an admin signed into both consoles with one
+  email is signed out of both.
+
 ## Creating the first admin
 
 1. Sign up normally.
@@ -12,7 +34,8 @@ separate from workspace roles: a workspace owner is not a platform admin.
      restart. The API promotes that address when it starts. This setting only
      ever promotes accounts. Removing an address from it does not demote anyone.
    - Run `python -m scripts.make_platform_admin you@company.com` from `backend/`.
-3. Sign in again. The app sidebar now shows **Admin Console**.
+3. Go to `/admin/login` and sign in there. (There is deliberately no link to
+   the console from the product — it is a separate sign-in.)
 
 Once you have one admin, grant or revoke others from **Users** in the console.
 The console refuses to demote the last admin. It also stops you disabling or

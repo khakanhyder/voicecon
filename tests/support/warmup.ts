@@ -33,6 +33,8 @@ const ROUTES = [
   // Reached when a sign-in resumes an unfinished onboarding at the plan step;
   // without warming it, that test pays for the route's first compile.
   '/onboarding/pricing',
+  '/admin',
+  '/admin/login',
   '/dashboard',
   '/dashboard/agents',
   '/dashboard/agents/new',

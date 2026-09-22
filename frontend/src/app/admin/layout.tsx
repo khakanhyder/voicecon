@@ -24,7 +24,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
+import { useAdminSession } from '@/hooks/useAdminSession'
 import { adminApi } from '@/lib/admin'
 import { authService } from '@/lib/auth'
 import { cn } from '@/lib/utils'
@@ -63,18 +63,23 @@ const NAV: { section: string; items: { name: string; href: string; icon: LucideI
   },
 ]
 
-/** Ends the session and returns to the admin sign-in page. */
+/**
+ * Ends the console session and returns to the admin sign-in page.
+ *
+ * Only the admin scope's credentials are dropped; a customer session in the
+ * same browser is a different sign-in and is left alone. (The server's
+ * `/auth/logout` is still "sign out everywhere" for the *account* — so an
+ * admin signed into both with the same email is signed out of both.)
+ */
 function useAdminSignOut() {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const storeLogout = useAuthStore((s) => s.logout)
   return async () => {
     await authService.logout()
-    // Cancel first: an in-flight /users/me would write the profile back.
+    // Cancel first: an in-flight admin query would repopulate the cache.
     await queryClient.cancelQueries()
     queryClient.clear()
-    authService.clearSession()
-    await storeLogout()
+    authService.clearSession('admin')
     router.replace('/admin/login')
   }
 }
@@ -160,7 +165,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const signOut = useAdminSignOut()
   const pathname = usePathname()
-  const { isAuthenticated, isLoading } = useAuthStore()
+  const { isAuthenticated, isLoading } = useAdminSession()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {

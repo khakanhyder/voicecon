@@ -93,8 +93,14 @@ export default function AdminOverviewPage() {
   const k = data?.kpis
   // An unused payment provider (Stripe while Polar is active, or the reverse)
   // is allowed to have no keys.
-  const unconfigured = data?.providers.filter((p) => !p.configured && !p.optional) ?? []
-  const subscriptionTotal = data ? Object.values(data.subscriptions).reduce((a, b) => a + b, 0) : 0
+  // Optional all the way down: a partial response (an older backend, a proxy
+  // rewriting the body) should degrade to an empty panel, not white-screen the
+  // console with "Cannot read properties of undefined".
+  const unconfigured = data?.providers?.filter((p) => !p.configured && !p.optional) ?? []
+  const subscriptionTotal = Object.values(data?.subscriptions ?? {}).reduce(
+    (a, b) => a + b,
+    0,
+  )
 
   return (
     <>
@@ -159,7 +165,7 @@ export default function AdminOverviewPage() {
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Panel title="Subscriptions" description="Current status of every organization">
           <ul className="space-y-3">
-            {SUBSCRIPTION_ORDER.filter((s) => data?.subscriptions[s]).map((s) => {
+            {SUBSCRIPTION_ORDER.filter((s) => data?.subscriptions?.[s]).map((s) => {
               const n = data!.subscriptions[s]
               const pct = subscriptionTotal ? Math.round((n / subscriptionTotal) * 100) : 0
               return (
@@ -216,7 +222,7 @@ export default function AdminOverviewPage() {
         <Panel title="Providers" description="Platform credentials in effect"
           actions={<Link href="/admin/api-keys" className="text-xs font-medium text-brand-700 hover:underline">Manage</Link>}>
           <ul className="grid grid-cols-1 gap-2 text-sm">
-            {data?.providers.map((p) => (
+            {data?.providers?.map((p) => (
               <li key={p.id} className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-slate-700">
                   {p.label}
@@ -248,7 +254,7 @@ export default function AdminOverviewPage() {
         bodyClassName="p-0"
       >
         <ul className="divide-y divide-slate-100">
-          {data?.recent_organizations.map((org) => (
+          {data?.recent_organizations?.map((org) => (
             <li key={org.id}>
               <Link href={`/admin/organizations/${org.id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-slate-50">
                 <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-600">

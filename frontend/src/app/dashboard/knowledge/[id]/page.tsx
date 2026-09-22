@@ -12,6 +12,7 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { useConfirm } from '@/hooks/use-confirm'
+import { getAccessToken } from '@/lib/session'
 
 interface KnowledgeBase {
   id: string
@@ -159,7 +160,7 @@ export default function KnowledgeBaseDetailPage() {
   const handleDownload = async (docId: string, title: string) => {
     try {
       const url = API_ENDPOINTS.KNOWLEDGE_DOCUMENT_DOWNLOAD(docId);
-      const token = localStorage.getItem('access_token');
+      const token = getAccessToken();
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error('Download failed');
       const blob = await response.blob();

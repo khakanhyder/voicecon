@@ -1,4 +1,12 @@
 import { apiClient } from './api'
+import {
+  clearScope,
+  getAccessToken,
+  getStoredUser,
+  setStoredUser,
+  storeSession,
+  type SessionScope,
+} from './session'
 
 export interface User {
   id: string
@@ -61,18 +69,23 @@ export interface VerifyCodeResult {
 export const authService = {
   async login(credentials: LoginCredentials) {
     const { data } = await apiClient.post('/api/v1/auth/login', credentials)
-    if (data.access_token) {
-      // A workspace pinned by the previous session belongs to a different
-      // user; let the server resolve this one's from scratch.
-      localStorage.removeItem('active_organization_id')
-      localStorage.setItem('access_token', data.access_token)
-      if (data.refresh_token) {
-        localStorage.setItem('refresh_token', data.refresh_token)
-      }
-      if (data.user) {
-        localStorage.setItem('user', JSON.stringify(data.user))
-      }
-    }
+    // Stored under the customer app's keys. The token the server issued is
+    // app-scoped too, so it is refused by the admin API even for staff.
+    storeSession(data, 'app')
+    return data
+  },
+
+  /**
+   * Sign in to the staff console.
+   *
+   * A separate endpoint, not `/auth/login` plus a permission check: the token
+   * it returns carries an `admin` session scope, which is what keeps this
+   * sign-in from also being a sign-in to the product. A non-admin account is
+   * refused with the same 401 as a wrong password.
+   */
+  async adminLogin(credentials: LoginCredentials) {
+    const { data } = await apiClient.post('/api/v1/auth/admin/login', credentials)
+    storeSession(data, 'admin')
     return data
   },
 
@@ -113,13 +126,9 @@ export const authService = {
   },
 
   // Persist the session returned by any auth endpoint (login / google / apple).
+  // Social sign-in only exists in the customer app, so it is always app-scoped.
   persistSession(data: any) {
-    if (typeof window === 'undefined' || !data?.access_token) return data
-    // New session, new workspace resolution — see login().
-    localStorage.removeItem('active_organization_id')
-    localStorage.setItem('access_token', data.access_token)
-    if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token)
-    if (data.user) localStorage.setItem('user', JSON.stringify(data.user))
+    storeSession(data, 'app')
     return data
   },
 
@@ -136,17 +145,13 @@ export const authService = {
   // Fetch the live profile from the backend and cache it locally.
   async fetchMe(): Promise<User> {
     const { data } = await apiClient.get<User>('/api/v1/users/me')
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user', JSON.stringify(data))
-    }
+    setStoredUser(data)
     return data
   },
 
   async updateProfile(update: ProfileUpdate): Promise<User> {
     const { data } = await apiClient.patch<User>('/api/v1/users/me', update)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user', JSON.stringify(data))
-    }
+    setStoredUser(data)
     return data
   },
 
@@ -165,17 +170,13 @@ export const authService = {
       // parse the parts at all.
       headers: { 'Content-Type': undefined },
     })
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user', JSON.stringify(data))
-    }
+    setStoredUser(data)
     return data
   },
 
   async removeAvatar(): Promise<User> {
     const { data } = await apiClient.delete<User>('/api/v1/users/me/avatar')
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user', JSON.stringify(data))
-    }
+    setStoredUser(data)
     return data
   },
 
@@ -185,10 +186,7 @@ export const authService = {
 
   async deleteAccount() {
     await apiClient.delete('/api/v1/users/me')
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('active_organization_id')
+    clearScope()
   },
 
   /**
@@ -199,12 +197,8 @@ export const authService = {
    * resolves, so a request already on the wire can otherwise repopulate the
    * profile microseconds after sign-out.
    */
-  clearSession() {
-    if (typeof window === 'undefined') return
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('active_organization_id')
+  clearSession(scope?: SessionScope) {
+    clearScope(scope)
   },
 
   async logout() {
@@ -214,19 +208,11 @@ export const authService = {
     authService.clearSession()
   },
 
-  getCurrentUser(): User | null {
-    if (typeof window === 'undefined') return null
-    const raw = localStorage.getItem('user')
-    if (!raw) return null
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return null
-    }
+  getCurrentUser(scope?: SessionScope): User | null {
+    return getStoredUser<User>(scope)
   },
 
-  isAuthenticated(): boolean {
-    if (typeof window === 'undefined') return false
-    return !!localStorage.getItem('access_token')
+  isAuthenticated(scope?: SessionScope): boolean {
+    return !!getAccessToken(scope)
   },
 }

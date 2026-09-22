@@ -19,6 +19,9 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.core.security import (
     EMAIL_VERIFICATION_TOKEN_MINUTES,
+    SCOPE_ADMIN,
+    SCOPE_APP,
+    session_scope,
     verify_password,
     get_password_hash,
     create_access_token,
@@ -66,14 +69,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def _login_response_for(user: User, is_new: bool = False) -> LoginResponse:
-    """Issue access + refresh tokens for an authenticated user."""
+def _login_response_for(
+    user: User, is_new: bool = False, scope: str = SCOPE_APP
+) -> LoginResponse:
+    """Issue access + refresh tokens for an authenticated user.
+
+    ``scope`` decides which front door the session belongs to: the customer app
+    or the staff console. A token is only accepted where its scope belongs —
+    see app.core.dependencies._enforce_session_scope.
+    """
     return LoginResponse(
         access_token=create_access_token(
-            subject=str(user.id), token_version=user.token_version
+            subject=str(user.id), token_version=user.token_version, scope=scope
         ),
         refresh_token=create_refresh_token(
-            subject=str(user.id), token_version=user.token_version
+            subject=str(user.id), token_version=user.token_version, scope=scope
         ),
         token_type="bearer",
         user={
@@ -366,15 +376,14 @@ async def register(
     )
 
 
-@router.post("/login", response_model=LoginResponse)
-async def login(
-    credentials: LoginRequest,
-    db: AsyncSession = Depends(get_db)
-):
+async def _authenticate_password(db: AsyncSession, credentials: LoginRequest) -> User:
     """
-    Login with email and password.
+    Check an email/password pair and return the user, or raise.
 
-    Returns access and refresh tokens.
+    Shared by the customer sign-in and the staff console sign-in so both get
+    the same throttling, the same normalization and the same indistinguishable
+    failures — a second copy of this would drift, and the copy that drifts is
+    the one that leaks which addresses exist.
     """
     # Registration stores the normalized address, so login has to normalize
     # too. Comparing the raw input meant anyone who typed a capital letter —
@@ -429,25 +438,49 @@ async def login(
     user.last_login_at = datetime.utcnow()
     await db.commit()
 
-    # Create tokens
-    access_token = create_access_token(
-        subject=str(user.id), token_version=user.token_version
-    )
-    refresh_token = create_refresh_token(
-        subject=str(user.id), token_version=user.token_version
-    )
+    return user
 
-    return LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-        user={
-            "id": str(user.id),
-            "email": user.email,
-            "full_name": user.full_name,
-            "is_verified": user.is_verified,
-        }
-    )
+
+@router.post("/login", response_model=LoginResponse)
+async def login(
+    credentials: LoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Login with email and password.
+
+    Returns access and refresh tokens for a **customer app** session. These are
+    not accepted by the platform admin API, even for a staff account — that
+    console has its own sign-in below.
+    """
+    user = await _authenticate_password(db, credentials)
+    return _login_response_for(user, scope=SCOPE_APP)
+
+
+@router.post("/admin/login", response_model=LoginResponse)
+async def admin_login(
+    credentials: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sign in to the staff console.
+
+    Issues an **admin-scoped** session, which the customer app's endpoints
+    refuse — so signing in here does not sign the person into the product, and
+    signing into the product does not let them in here.
+
+    A non-admin account is turned away with the same 401 as a wrong password:
+    whether a given address is staff is not something an anonymous caller gets
+    to probe.
+    """
+    user = await _authenticate_password(db, credentials)
+    if not user.is_platform_admin:
+        logger.warning(
+            f"Admin console sign-in refused for non-admin account {user.email}"
+        )
+        raise credentials_exception()
+
+    return _login_response_for(user, scope=SCOPE_ADMIN)
 
 
 @router.post("/refresh", response_model=LoginResponse)
@@ -490,12 +523,16 @@ async def refresh_token(
     if not token_version_matches(payload, user):
         raise credentials_exception()
 
-    # Create new tokens
+    # Refreshing keeps the session in the scope it was opened in. Minting an
+    # app-scoped token from an admin refresh token (or the reverse) would hand
+    # the holder the other console at the first expiry.
+    scope = session_scope(payload)
+
     access_token = create_access_token(
-        subject=str(user.id), token_version=user.token_version
+        subject=str(user.id), token_version=user.token_version, scope=scope
     )
     new_refresh_token = create_refresh_token(
-        subject=str(user.id), token_version=user.token_version
+        subject=str(user.id), token_version=user.token_version, scope=scope
     )
 
     return LoginResponse(

@@ -43,8 +43,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initialize: () => {
-    const user = authService.getCurrentUser()
-    const isAuthenticated = authService.isAuthenticated()
+    // Explicitly the customer app's session. This store is the product's, and
+    // pinning the scope keeps a page under /admin from hydrating it with the
+    // staff console's user (lib/session.ts).
+    const user = authService.getCurrentUser('app')
+    const isAuthenticated = authService.isAuthenticated('app')
 
     set({
       user,

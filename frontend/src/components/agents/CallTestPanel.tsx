@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import {
   Bot, Mic, Volume2, Phone, PhoneOff, PhoneCall, X, Send, Radio, Wifi, Zap,
 } from 'lucide-react'
+import { getAccessToken } from '@/lib/session'
 
 /** Only the fields the drawer actually reads off the agent. */
 export interface TestCallAgent {
@@ -243,7 +244,7 @@ export function CallTestPanel({
     callStateRef.current = 'processing'
     setAgentText('')
     stopAudioNow()
-    const token = localStorage.getItem('access_token') || ''
+    const token = getAccessToken() || ''
     try {
       const ctrl = new AbortController()
       abortCtrlRef.current = ctrl
@@ -328,7 +329,7 @@ export function CallTestPanel({
     if (dgWsRef.current?.readyState === WebSocket.OPEN) {
       setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current(); return
     }
-    const token  = localStorage.getItem('access_token') || ''
+    const token  = getAccessToken() || ''
     const wsBase = API_BASE.replace(/^http(s?)/, (_, s) => `ws${s}`)
     let ws: WebSocket
     try { ws = new WebSocket(`${wsBase}/api/v1/agents/${agentId}/stt?token=${encodeURIComponent(token)}`) }

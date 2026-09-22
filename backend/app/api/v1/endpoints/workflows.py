@@ -955,13 +955,20 @@ async def stream_workflow_execution(
     """
     await websocket.accept()
 
-    from app.core.security import decode_token
+    from app.core.security import SCOPE_APP, decode_token, session_scope
     from app.database import AsyncSessionLocal
     from app.models.user import User
     from app.services.workflows.channels import SimulatedChannel
 
     payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
+    # An admin console session has no business on a customer socket — the
+    # same rule the HTTP endpoints enforce, which these bypass by decoding
+    # the token themselves (a browser WebSocket cannot send headers).
+    if (
+        not payload
+        or payload.get("type") != "access"
+        or session_scope(payload) != SCOPE_APP
+    ):
         await websocket.close(code=4001)
         return
 

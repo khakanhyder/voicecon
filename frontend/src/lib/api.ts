@@ -1,4 +1,14 @@
 import axios, { AxiosError } from 'axios'
+import {
+  LOGIN_PATH,
+  clearOrganizationId,
+  clearScope,
+  currentScope,
+  getAccessToken,
+  getOrganizationId,
+  getRefreshToken,
+  setAccessToken,
+} from './session'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -10,7 +20,9 @@ export const apiClient = axios.create({
 // Attach the access token and the active workspace to every request.
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('access_token')
+    // Scoped to the console this page belongs to, so an admin tab can never
+    // pick up the customer session's token, or the reverse (lib/session.ts).
+    const token = getAccessToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -23,7 +35,7 @@ apiClient.interceptors.request.use((config) => {
     if (config.headers['X-Skip-Workspace']) {
       delete config.headers['X-Skip-Workspace']
     } else {
-      const orgId = localStorage.getItem('active_organization_id')
+      const orgId = getOrganizationId()
       if (orgId) {
         config.headers['X-Organization-Id'] = orgId
       }
@@ -40,7 +52,8 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
       try {
-        const refresh = localStorage.getItem('refresh_token')
+        const scope = currentScope()
+        const refresh = getRefreshToken(scope)
         if (refresh) {
           const { data } = await axios.post(`${API_BASE}/api/v1/auth/refresh`, {
             refresh_token: refresh,
@@ -55,16 +68,18 @@ apiClient.interceptors.response.use(
           if (typeof token !== 'string' || !token) {
             throw new Error('Refresh succeeded but returned no access token')
           }
-          localStorage.setItem('access_token', token)
+          // The server mints the replacement in the same scope it received,
+          // so this stays inside the console the request came from.
+          setAccessToken(token, scope)
           original.headers.Authorization = `Bearer ${token}`
           return apiClient(original)
         }
       } catch {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('active_organization_id')
-        // The admin console has its own sign-in page; send staff back there.
-        window.location.href = window.location.pathname.startsWith('/admin') ? '/admin/login' : '/login'
+        // Only this console's session is dropped — the other one, if the
+        // person has it, is a separate sign-in and none of our business here.
+        const scope = currentScope()
+        clearScope(scope)
+        window.location.href = LOGIN_PATH[scope]
       }
     }
 
@@ -90,14 +105,14 @@ apiClient.interceptors.response.use(
     if (
       error.response?.status === 403 &&
       typeof window !== 'undefined' &&
-      localStorage.getItem('active_organization_id') &&
+      getOrganizationId() &&
       /access to this workspace|no longer active/i.test(
         String((error.response?.data as any)?.detail ?? '')
       ) &&
       !original._workspaceRetry
     ) {
       original._workspaceRetry = true
-      localStorage.removeItem('active_organization_id')
+      clearOrganizationId()
       delete original.headers['X-Organization-Id']
       return apiClient(original)
     }

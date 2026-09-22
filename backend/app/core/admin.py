@@ -11,6 +11,9 @@ Two rules the dependency enforces:
   customer's integrations; letting one carry platform-admin power would make a
   leaked key a platform compromise. Keys are refused even when their owner is
   an admin.
+* **Console sessions only.** The staff console has its own sign-in, and its
+  tokens carry an ``admin`` session scope. A session opened in the customer
+  app is refused even when it belongs to a platform admin.
 * **Every write is recorded** via :func:`audit`, in the same transaction as the
   change it describes, so the trail cannot disagree with the data.
 """
@@ -29,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 async def require_platform_admin(
+    request: Request,
     current_user=Depends(get_current_user),
     api_key=Depends(get_optional_api_key),
 ):
@@ -37,6 +41,16 @@ async def require_platform_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The admin API cannot be used with an API key. Sign in instead.",
+        )
+    # The console is a separate sign-in (``/auth/admin/login``) with its own
+    # session scope, so being a platform admin in the customer app is not
+    # enough. ``get_principal`` already refuses the wrong scope here; this
+    # repeats it at the point the power is actually granted.
+    principal = getattr(request.state, "principal", None)
+    if principal is not None and not principal.is_admin_session:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sign in through the admin console to use the admin API.",
         )
     if not getattr(current_user, "is_platform_admin", False):
         raise HTTPException(

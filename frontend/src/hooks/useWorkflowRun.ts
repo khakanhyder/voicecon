@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { API_BASE } from '@/lib/constants'
 import type { ExecutionResult } from '@/components/workflow/ExecutionPanel'
+import { getAccessToken } from '@/lib/session'
 
 export type NodeRunStatus = 'running' | 'success' | 'failed' | 'skipped'
 
@@ -36,7 +37,7 @@ export function useWorkflowRun(workflowId: string) {
       // Close any prior run before starting a new one.
       wsRef.current?.close()
 
-      const token = localStorage.getItem('access_token') || ''
+      const token = getAccessToken() || ''
       const wsBase = API_BASE.replace(/^http(s?)/, (_, s) => `ws${s}`)
       const url = `${wsBase}/api/v1/workflows/${workflowId}/executions/stream?token=${encodeURIComponent(token)}`
 

@@ -8,13 +8,18 @@ import { ShieldCheck } from 'lucide-react'
 import { authService } from '@/lib/auth'
 import { adminApi } from '@/lib/admin'
 import { getErrorMessage } from '@/lib/api'
-import { useAuthStore } from '@/store/authStore'
+import { useAdminSession } from '@/hooks/useAdminSession'
 import { PasswordInput } from '@/components/ui/password-input'
 
 /**
  * Sign-in for Voicecon staff. Deliberately bare: no sign-up, social login or
- * password reset. The account is checked against /admin/me straight after
- * login, and a non-admin session is thrown away rather than left behind.
+ * password reset.
+ *
+ * This is its own sign-in, not the app's with an extra check: it posts to
+ * `/auth/admin/login`, which issues an admin-scoped token the customer app's
+ * endpoints refuse. Nothing here touches the app's session, so signing in as
+ * staff does not sign the person into the product — and being signed into the
+ * product does not get them in here.
  */
 
 function redirectTarget(): string {
@@ -29,15 +34,15 @@ const inputClass =
 export default function AdminLoginPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { isAuthenticated, isLoading, setUser, logout: storeLogout } = useAuthStore()
+  const { isAuthenticated, isLoading, sync } = useAdminSession()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [checking, setChecking] = useState(true)
 
-  // Already signed in as an admin? Skip the form. A signed-in customer still
-  // sees it, so they can switch to an admin account.
+  // Already holding a console session? Skip the form. A customer session in
+  // this browser is irrelevant here and never counts as being signed in.
   useEffect(() => {
     if (isLoading) return
     if (!isAuthenticated) {
@@ -47,7 +52,12 @@ export default function AdminLoginPage() {
     adminApi
       .me()
       .then(() => router.replace(redirectTarget()))
-      .catch(() => setChecking(false))
+      .catch(() => {
+        // A stored session the server no longer honours: drop it rather than
+        // leaving the page bouncing between the form and a failing check.
+        authService.clearSession('admin')
+        setChecking(false)
+      })
   }, [isAuthenticated, isLoading, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,24 +70,23 @@ export default function AdminLoginPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const data = await authService.login({ email: trimmed, password })
-      try {
-        await adminApi.me()
-      } catch (err) {
-        await authService.logout()
-        await queryClient.cancelQueries()
-        queryClient.clear()
-        authService.clearSession()
-        await storeLogout()
-        const forbidden = axios.isAxiosError(err) && err.response?.status === 403
-        setError(forbidden ? 'This account does not have admin access.' : getErrorMessage(err) || 'Could not verify admin access.')
-        return
-      }
+      // The endpoint itself refuses a non-admin account, so there is no window
+      // in which a customer session exists and has to be cleaned up again.
+      await authService.adminLogin({ email: trimmed, password })
       queryClient.clear()
-      setUser(data.user)
+      sync()
       router.replace(redirectTarget())
     } catch (err) {
-      setError(getErrorMessage(err) || 'Sign-in failed.')
+      // One message for both "wrong password" and "not an admin". The server
+      // answers both with the same 401 on purpose — which of the two it is is
+      // not something an anonymous caller should be able to tell apart — and
+      // the wording has to cover both without picking one.
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined
+      setError(
+        status === 401
+          ? 'Incorrect email or password, or this account does not have admin access.'
+          : getErrorMessage(err) || 'Sign-in failed.',
+      )
     } finally {
       setSubmitting(false)
     }

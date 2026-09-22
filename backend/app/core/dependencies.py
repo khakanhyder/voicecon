@@ -26,7 +26,13 @@ from jose import JWTError
 
 from app.database import get_db
 from app.core.config import settings
-from app.core.security import decode_token, token_version_matches
+from app.core.security import (
+    SCOPE_ADMIN,
+    SCOPE_APP,
+    decode_token,
+    session_scope,
+    token_version_matches,
+)
 from app.core.exceptions import credentials_exception
 from app.core import permissions as perms
 from app.core.api_keys import API_KEY_HEADER, authenticate_api_key, looks_like_api_key
@@ -60,14 +66,21 @@ class Principal:
 
     user: "User"
     api_key: Optional["ApiKey"] = None
+    #: Which sign-in this session came from — the customer app or the staff
+    #: console. API keys are customer credentials, so they read as ``app``.
+    session_scope: str = SCOPE_APP
 
     @property
     def is_api_key(self) -> bool:
         return self.api_key is not None
 
+    @property
+    def is_admin_session(self) -> bool:
+        return self.session_scope == SCOPE_ADMIN
 
-async def _user_from_jwt(token: str, db: AsyncSession):
-    """Resolve a login token to its user, or raise 401."""
+
+async def _user_from_jwt(token: str, db: AsyncSession) -> tuple["User", str]:
+    """Resolve a login token to its user and session scope, or raise 401."""
     from app.models.user import User
 
     payload = decode_token(token)
@@ -95,7 +108,7 @@ async def _user_from_jwt(token: str, db: AsyncSession):
         # token was issued. Indistinguishable from any other invalid credential
         # on purpose — the client's job is to re-authenticate either way.
         raise credentials_exception()
-    return user
+    return user, session_scope(payload)
 
 
 def _presented_key(token: Optional[str], x_api_key: Optional[str]) -> Optional[str]:
@@ -112,6 +125,48 @@ def _presented_key(token: Optional[str], x_api_key: Optional[str]) -> Optional[s
             detail=f"Send an API key either as {API_KEY_HEADER} or as a bearer token, not both",
         )
     return x_api_key or (token if looks_like_api_key(token) else None)
+
+
+#: The platform admin API — the only thing a staff console session may touch.
+ADMIN_API_PREFIX = "/api/v1/admin"
+
+#: The exceptions: endpoints that belong to whichever session presents them.
+#: Sign-out is the one the console needs, and refusing it would strand a staff
+#: session with no way to end itself.
+SCOPE_NEUTRAL_PATHS = frozenset({"/api/v1/auth/logout"})
+
+
+def _enforce_session_scope(principal: Principal, path: str) -> None:
+    """
+    Keep the two front doors apart.
+
+    Signing in at ``/login`` and signing in at ``/admin/login`` produce tokens
+    in different scopes, and neither is accepted where the other belongs. The
+    check lives here rather than in the browser because localStorage is the
+    client's to rearrange — this is what makes the separation real.
+
+    API keys are left to :func:`app.core.admin.require_platform_admin`, which
+    refuses them from the admin API with a message about keys specifically.
+    """
+    normalized = path.rstrip("/") or "/"
+    if normalized in SCOPE_NEUTRAL_PATHS:
+        return
+
+    is_admin_api = normalized == ADMIN_API_PREFIX or normalized.startswith(
+        ADMIN_API_PREFIX + "/"
+    )
+
+    if principal.is_admin_session and not is_admin_api:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This is an admin console session. Sign in to the app to use it.",
+        )
+
+    if is_admin_api and not principal.is_api_key and not principal.is_admin_session:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sign in through the admin console to use the admin API.",
+        )
 
 
 async def get_principal(
@@ -136,8 +191,10 @@ async def get_principal(
                 detail="Not authenticated",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        principal = Principal(user=await _user_from_jwt(token, db))
+        user, scope = await _user_from_jwt(token, db)
+        principal = Principal(user=user, session_scope=scope)
 
+    _enforce_session_scope(principal, request.url.path)
     request.state.principal = principal
     return principal
 
@@ -387,9 +444,13 @@ async def get_optional_user(
         return None
 
     try:
-        return await _user_from_jwt(token, db)
+        user, scope = await _user_from_jwt(token, db)
     except HTTPException:
         return None
+
+    # A staff console session is not a customer of these endpoints; treat it
+    # the way an unrecognised credential is treated, as anonymous.
+    return None if scope == SCOPE_ADMIN else user
 
 
 def get_optional_user_id(

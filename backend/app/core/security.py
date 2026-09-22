@@ -57,12 +57,38 @@ def get_password_hash(password: str) -> str:
 #: token stale. See the column's docstring in app.models.user.
 TOKEN_VERSION_CLAIM = "tv"
 
+#: Claim naming which sign-in a token came from.
+#:
+#: The product has two front doors — the customer app at ``/login`` and the
+#: staff console at ``/admin/login`` — and a session opened at one must not
+#: work at the other, even for a staff member who legitimately has both. The
+#: scope is baked into the token, so separation does not rest on the browser
+#: keeping two credentials apart.
+#:
+#: Tokens minted before this claim existed carry no ``ss``; those read as
+#: ``app``, which is what they were, so deploying this does not sign anyone out
+#: of the customer app.
+SESSION_SCOPE_CLAIM = "ss"
+
+#: A customer-app session: everything except the platform admin API.
+SCOPE_APP = "app"
+
+#: A staff console session: the platform admin API, and nothing else.
+SCOPE_ADMIN = "admin"
+
+
+def session_scope(payload: dict) -> str:
+    """The scope a decoded token was issued for."""
+    scope = payload.get(SESSION_SCOPE_CLAIM)
+    return scope if scope in (SCOPE_APP, SCOPE_ADMIN) else SCOPE_APP
+
 
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,
     scopes: Optional[list] = None,
     token_version: int = 0,
+    scope: str = SCOPE_APP,
 ) -> str:
     """
     Create a JWT access token.
@@ -73,6 +99,8 @@ def create_access_token(
         scopes: Optional list of scopes/permissions
         token_version: The user's current ``token_version``, so the token can be
             invalidated later by incrementing it.
+        scope: Which sign-in issued this session — ``SCOPE_APP`` or
+            ``SCOPE_ADMIN``. See :data:`SESSION_SCOPE_CLAIM`.
 
     Returns:
         Encoded JWT token
@@ -89,6 +117,7 @@ def create_access_token(
         "sub": str(subject),
         "type": "access",
         TOKEN_VERSION_CLAIM: int(token_version or 0),
+        SESSION_SCOPE_CLAIM: scope,
     }
 
     if scopes:
@@ -106,6 +135,7 @@ def create_refresh_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,
     token_version: int = 0,
+    scope: str = SCOPE_APP,
 ) -> str:
     """
     Create a JWT refresh token.
@@ -116,6 +146,9 @@ def create_refresh_token(
         token_version: The user's current ``token_version``. This matters most
             here — a refresh token lives for 30 days, so without it a stolen one
             outlives any password change made in response to the theft.
+        scope: Which sign-in issued this session. A refresh must mint its
+            successor in the same scope, or the console separation would end at
+            the first token expiry.
 
     Returns:
         Encoded JWT token
@@ -132,6 +165,7 @@ def create_refresh_token(
         "sub": str(subject),
         "type": "refresh",
         TOKEN_VERSION_CLAIM: int(token_version or 0),
+        SESSION_SCOPE_CLAIM: scope,
     }
 
     encoded_jwt = jwt.encode(
