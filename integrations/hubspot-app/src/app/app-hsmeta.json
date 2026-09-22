@@ -1,0 +1,22 @@
+{
+  "uid": "voicecon_app",
+  "type": "app",
+  "config": {
+    "name": "Voicecon",
+    "description": "Sync contacts and deals between Voicecon voice agents and HubSpot CRM.",
+    "distribution": "marketplace",
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "https://app.voicecon.ai/dashboard/integrations/oauth/callback"
+      ],
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write",
+        "crm.objects.deals.read",
+        "crm.objects.deals.write"
+      ]
+    }
+  }
+}

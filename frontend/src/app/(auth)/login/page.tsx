@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
@@ -9,6 +10,7 @@ import { Mail } from 'lucide-react'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
 import { useAuthStore } from '@/store/authStore'
+import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth()
@@ -17,14 +19,30 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
   const router = useRouter()
   const { isAuthenticated, isLoading } = useAuthStore()
+  const queryClient = useQueryClient()
+
+  // Was there already a session when this page opened? Signing in *on* this
+  // page also flips `isAuthenticated`, and the sign-in handlers do their own
+  // routing — redirecting here as well would race them and bounce the user
+  // through a screen they were never meant to see.
+  const arrivedSignedIn = useRef<boolean | null>(null)
 
   // The app host's root redirects here, so a visitor who is already signed in
-  // should continue to the dashboard instead of seeing the form again.
+  // should continue on — to the dashboard, or to the rest of onboarding if
+  // they never finished it.
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace('/dashboard')
+    if (isLoading) return
+    if (arrivedSignedIn.current === null) arrivedSignedIn.current = isAuthenticated
+    if (!arrivedSignedIn.current || !isAuthenticated) return
+
+    let cancelled = false
+    resolvePostAuthPath(queryClient).then((path) => {
+      if (!cancelled) router.replace(path)
+    })
+    return () => {
+      cancelled = true
     }
-  }, [isAuthenticated, isLoading, router])
+  }, [isAuthenticated, isLoading, router, queryClient])
 
   /**
    * Check both fields and report everything that is wrong at once.

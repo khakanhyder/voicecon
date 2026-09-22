@@ -215,18 +215,24 @@ class OAuthService:
         if existing:
             return await self._touch_login(db, existing, profile), False
 
-        # 2) Existing account with the same VERIFIED email → link this provider.
-        if profile.email_verified:
-            by_email = (
-                await db.execute(select(User).where(User.email == profile.email))
-            ).scalar_one_or_none()
-            if by_email:
-                self._set_provider_id(by_email, profile)
-                if not by_email.avatar_url and profile.avatar_url:
-                    by_email.avatar_url = profile.avatar_url
-                if not by_email.full_name and profile.full_name:
-                    by_email.full_name = profile.full_name
-                return await self._touch_login(db, by_email, profile), False
+        # 2) Existing account with the same email.
+        by_email = (
+            await db.execute(select(User).where(User.email == profile.email))
+        ).scalar_one_or_none()
+        if by_email:
+            # Only a VERIFIED email may link — an unverified one would let
+            # anyone who can assert an address take over the account.
+            if not profile.email_verified:
+                raise OAuthError(
+                    "An account already exists for this email address. "
+                    "Sign in with your password instead."
+                )
+            self._set_provider_id(by_email, profile)
+            if not by_email.avatar_url and profile.avatar_url:
+                by_email.avatar_url = profile.avatar_url
+            if not by_email.full_name and profile.full_name:
+                by_email.full_name = profile.full_name
+            return await self._touch_login(db, by_email, profile), False
 
         # 3) New user + personal organization.
         return await self._create_user(db, profile), True

@@ -47,7 +47,18 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
     "hubspot": {
         "authorize_url": "https://app.hubspot.com/oauth/authorize",
         "token_url": "https://api.hubapi.com/oauth/v1/token",
-        "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write", "oauth"],
+        # Every scope the connector's actions need. "contacts" (the old broad
+        # scope) is being sunset and HubSpot has already migrated app configs to
+        # the granular ones, so asking for it now fails the authorize step.
+        # "oauth" is what /account-info (the connection test) needs; deals.write
+        # is what create_deal needs.
+        "scopes": [
+            "oauth",
+            "crm.objects.contacts.read",
+            "crm.objects.contacts.write",
+            "crm.objects.deals.read",
+            "crm.objects.deals.write",
+        ],
         "client_id_env": "HUBSPOT_CLIENT_ID",
         "client_secret_env": "HUBSPOT_CLIENT_SECRET",
     },
@@ -166,13 +177,16 @@ def resolve_client_credentials(
     client_secret = auth_config.get("client_secret") or client_secret
 
     # A provider may allow the login host to be swapped (Salesforce My Domain /
-    # sandbox). An explicit auth_config URL still wins over it.
+    # sandbox). The override is applied last, to whichever URL we ended up with:
+    # the seeded connector row carries its own token_url, so overriding only the
+    # registry default sent the authorize step to the My Domain host and the
+    # token exchange back to login.salesforce.com — half-migrated and broken.
     host = env_value(provider["host_env"]) if provider.get("host_env") else None
-    authorize_url = auth_config.get("authorize_url") or _apply_host_override(
-        provider.get("authorize_url"), host
+    authorize_url = _apply_host_override(
+        auth_config.get("authorize_url") or provider.get("authorize_url"), host
     )
-    token_url = auth_config.get("token_url") or _apply_host_override(
-        provider.get("token_url"), host
+    token_url = _apply_host_override(
+        auth_config.get("token_url") or provider.get("token_url"), host
     )
 
     return {

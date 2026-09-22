@@ -91,6 +91,36 @@ export const LANGUAGES = [
   'Portuguese',
 ]
 
+/**
+ * Where a just-authenticated user belongs.
+ *
+ * The source of truth is the server's onboarding status, never "was this user
+ * row created a moment ago" — a person who signed up with Apple or Google and
+ * abandoned the flow is no longer new, but still has no company profile and no
+ * plan, so the dashboard is the wrong place to drop them.
+ *
+ * `null` status means the status call failed; fall back to the sign-in
+ * response's `is_new` so a transient error still routes somewhere sensible.
+ */
+export function onboardingRedirectPath(
+  status: OnboardingStatus | null | undefined,
+  fallback: { isNew?: boolean } = {},
+): string {
+  // An unrecognisable payload is treated the same as no answer at all: better
+  // to fall back than to read a missing field as "not onboarded" and drag a
+  // set-up account back through the flow.
+  if (!status || typeof status.onboarding_completed !== 'boolean') {
+    return fallback.isNew ? '/onboarding/company' : '/dashboard'
+  }
+  if (status.onboarding_completed) return '/dashboard'
+  // The billing screen needs a plan picked in this session (it is held in
+  // sessionStorage), so a user resuming later is sent to Pricing rather than
+  // to Billing, which would immediately bounce them back to Pricing anyway.
+  return status.step === 'pricing' || status.step === 'billing'
+    ? '/onboarding/pricing'
+    : '/onboarding/company'
+}
+
 export type BillingPeriod = 'monthly' | 'yearly'
 
 /** A carrier account numbers can be bought on during onboarding. */

@@ -195,15 +195,30 @@ Notes:
 
 ## B. HubSpot → `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`
 
-1. Go to **developers.hubspot.com** → sign in / create a **developer account** (separate from
-   a normal HubSpot login).
-2. **Apps → Create app**.
-3. Open the app's **Auth** tab:
-   - **Redirect URL:** paste the redirect URI above.
-   - **Scopes:** add `crm.objects.contacts.read`, `crm.objects.contacts.write` (and `oauth`
-     if listed). These must match what the connector requests.
-4. Copy the **Client ID** and **Client Secret** from that Auth tab.
-5. Render backend env: `HUBSPOT_CLIENT_ID=...`, `HUBSPOT_CLIENT_SECRET=...`.
+HubSpot disabled public-app creation in the developer UI (Legacy Apps → **Public** is
+greyed out: "New legacy public app creation is disabled"). Public apps — the only kind
+that does the OAuth flow this connector uses — are now created with the CLI. A **private**
+app is not an alternative: it issues a static token and has no authorize step.
+
+The app definition lives in the repo at `integrations/hubspot-app/`.
+
+1. `npm install -g @hubspot/cli@latest` (needs v7.6.0+).
+2. `hs account auth` — opens a browser; pick the **developer** account.
+3. `cd integrations/hubspot-app && hs project upload`.
+4. `hs project open` → the app's **Auth** tab → **Client credentials** → copy the
+   **Client ID** and **Client Secret**.
+5. Set `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET` (Dokploy env, or /admin →
+   Integration OAuth apps, which overrides env).
+
+`redirectUrls` and `requiredScopes` in `src/app/app-hsmeta.json` are the app's side of the
+contract; the backend's side is `auth_config.scopes` on the `hubspot` connector row,
+seeded from `backend/scripts/seed_data.py`. They must match — HubSpot fails the authorize
+step on any scope the app does not have, and rejects any `redirect_uri` not listed
+verbatim. Both currently carry `oauth`, `crm.objects.contacts.read`,
+`crm.objects.contacts.write`, `crm.objects.deals.read`, `crm.objects.deals.write`.
+
+Do not use the old broad `contacts` scope: it is being sunset, and HubSpot has already
+migrated existing app configs to the granular scopes.
 
 To connect, a user opens their own HubSpot account's consent screen and approves.
 
@@ -243,7 +258,8 @@ App (ECA)**, and that changes what works.
    - **Callback URL:** paste the redirect URI above.
    - **OAuth Scopes:** "Manage user data via APIs (api)" and "Perform requests at any time
      (refresh_token, offline_access)".
-   - Leave PKCE off — the backend does not send a code verifier.
+   - PKCE either way is fine — the backend always sends a code challenge and
+     verifier.
    - Under **Flow Enablement**, tick **Enable Authorization Code and Credentials Flow**.
    - Under **Policies** (after saving), set **Permitted Users** so users can self-authorize.
 4. **Consumer Key and Secret** → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`.

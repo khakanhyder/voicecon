@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { authService, LoginCredentials, RegisterData } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
 import { QUERY_KEYS } from '@/lib/constants'
+import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/api'
 
@@ -37,11 +38,13 @@ export function useAuth() {
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: (credentials: LoginCredentials) => authService.login(credentials),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setUser(data.user)
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
       toast.success('Welcome back!')
-      router.push(getRedirect() || '/dashboard')
+      // An explicit ?redirect= (an invite link) wins; otherwise the server's
+      // onboarding status decides, the same way the social buttons do.
+      router.push(getRedirect() || (await resolvePostAuthPath(queryClient)))
     },
     onError: (error: any) => {
       toast.error(getErrorMessage(error) || 'Login failed')
@@ -55,7 +58,7 @@ export function useAuth() {
       await authService.register(data)
       return authService.login({ email: data.email, password: data.password })
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setUser(data.user)
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
       // Invited users register to join an existing org — send them back to the
@@ -64,10 +67,10 @@ export function useAuth() {
       if (redirect) {
         toast.success('Account created!')
         router.push(redirect)
-      } else {
-        toast.success('Account created! Let’s set up your workspace.')
-        router.push('/onboarding/company')
+        return
       }
+      toast.success('Account created! Let’s set up your workspace.')
+      router.push(await resolvePostAuthPath(queryClient, { isNew: true }))
     },
     onError: (error: any) => {
       toast.error(getErrorMessage(error) || 'Registration failed')

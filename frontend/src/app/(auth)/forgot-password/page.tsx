@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ArrowLeft, Loader2, Lock, Mail } from 'lucide-react'
 import { authService } from '@/lib/auth'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { useAuthStore } from '@/store/authStore'
+import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
 
@@ -23,6 +25,7 @@ const inputClass =
  */
 export default function ForgotPasswordPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const setUser = useAuthStore((s) => s.setUser)
 
   const [step, setStep] = useState<'email' | 'reset'>('email')
@@ -94,7 +97,8 @@ export default function ForgotPasswordPage() {
       })
       setUser(data.user)
       toast.success('Password updated — you are signed in')
-      router.push('/dashboard')
+      // Same rule as every other sign-in: unfinished onboarding continues.
+      router.push(await resolvePostAuthPath(queryClient))
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Could not reset your password')
       setCode('')

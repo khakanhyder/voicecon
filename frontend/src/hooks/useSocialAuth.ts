@@ -2,8 +2,9 @@
  * Social login hook — Google (auth-code popup) and Apple (Sign in with Apple JS).
  *
  * Both providers converge on the same session handling: persist tokens, hydrate
- * the auth store, then route new users into onboarding and returning users to
- * the dashboard. Each provider is gated on its public config being present, so
+ * the auth store, then route on the account's
+ * onboarding status — into onboarding when it is unfinished, to the dashboard
+ * when it is done. Each provider is gated on its public config being present, so
  * an unconfigured button degrades to a friendly "coming soon" toast rather than
  * a hard failure.
  */
@@ -16,6 +17,7 @@ import { authService } from '@/lib/auth'
 import { signInWithApple, isAppleConfigured } from '@/lib/appleAuth'
 import { useAuthStore } from '@/store/authStore'
 import { QUERY_KEYS } from '@/lib/constants'
+import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 import { getErrorMessage } from '@/lib/api'
 
 export const GOOGLE_ENABLED = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
@@ -25,16 +27,25 @@ export function useSocialAuth() {
   const queryClient = useQueryClient()
   const setUser = useAuthStore((s) => s.setUser)
 
-  const onAuthed = (data: any) => {
+  const onAuthed = async (data: any) => {
     setUser(data.user)
     queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.ME] })
-    if (data.user?.is_new) {
-      toast.success('Account created! Let’s set up your workspace.')
-      router.push('/onboarding/company')
+
+    // Route on the server's onboarding status, not on `is_new`. Someone who
+    // signed in with Apple or Google once and never finished onboarding is not
+    // new, but still needs the rest of the flow before the dashboard means
+    // anything — and someone who did finish must never be sent back into it.
+    const path = await resolvePostAuthPath(queryClient, { isNew: data.user?.is_new })
+    if (path === '/dashboard') {
+      toast.success(data.user?.is_new ? 'Account created!' : 'Welcome back!')
     } else {
-      toast.success('Welcome back!')
-      router.push('/dashboard')
+      toast.success(
+        data.user?.is_new
+          ? 'Account created! Let’s set up your workspace.'
+          : 'Welcome back! Let’s finish setting up your workspace.',
+      )
     }
+    router.push(path)
   }
 
   const googleMutation = useMutation({
