@@ -21,6 +21,8 @@ import { entitlementService } from '@/lib/entitlements'
 import { useOnboardingStore } from '@/store/onboardingStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { FREE_TRIAL_DAYS } from '@/lib/constants'
+import { Lock } from 'lucide-react'
+import { billingService, useBillingConfig, type BillingConfig } from '@/lib/billing'
 
 const COUNTRIES = [
   'United States of America',
@@ -100,7 +102,7 @@ function SummaryCard({
   )
 }
 
-function CheckoutForm() {
+function CheckoutForm({ config }: { config: BillingConfig }) {
   const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
@@ -108,7 +110,9 @@ function CheckoutForm() {
   const [country, setCountry] = useState(COUNTRIES[0])
   const [authorize, setAuthorize] = useState(false)
   const [agree, setAgree] = useState(false)
-  const configured = isStripeConfigured()
+  // Polar: the card is taken on Polar's hosted page, not in this form.
+  const hosted = config.checkout_mode === 'hosted'
+  const configured = config.configured && (hosted || isStripeConfigured(config.publishable_key))
 
   // A free trial is once per account. Ask the server rather than assuming, so a
   // returning user is told up front instead of discovering it through a 409 on
@@ -165,6 +169,22 @@ function CheckoutForm() {
       toast.error(err.response?.data?.detail || err.message || 'Payment failed'),
   })
 
+  // Leaves the page for Polar's checkout; the plan is activated by Polar's
+  // webhook and /billing/return brings the customer on to the dashboard.
+  const hostedMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedPlan) throw new Error('Choose a plan first')
+      return billingService.startHostedCheckout({
+        plan_id: selectedPlan.id,
+        billing_period: billingPeriod,
+        return_path: '/dashboard',
+        cancel_path: '/onboarding/billing',
+      })
+    },
+    onError: (err: any) =>
+      toast.error(err.response?.data?.detail || err.message || 'Could not open checkout'),
+  })
+
   const trialMutation = useMutation({
     mutationFn: () =>
       onboardingService.startTrial({ plan_id: selectedPlan?.id, billing_period: billingPeriod }),
@@ -182,14 +202,17 @@ function CheckoutForm() {
       return
     }
     if (!configured) {
-      toast.error(`Card payments are not configured yet. Try the ${trialDays}-day free trial instead.`)
+      toast.error(`Payments are not available yet. Try the ${trialDays}-day free trial instead.`)
       return
     }
-    checkoutMutation.mutate()
+    if (hosted) hostedMutation.mutate()
+    else checkoutMutation.mutate()
   }
 
   if (!selectedPlan) return null
-  const busy = checkoutMutation.isPending || trialMutation.isPending
+  // A successful hosted checkout keeps the button busy while the page leaves.
+  const busy =
+    checkoutMutation.isPending || trialMutation.isPending || hostedMutation.isPending || hostedMutation.isSuccess
 
   return (
     <div className="flex flex-col py-6 lg:px-10">
@@ -217,7 +240,32 @@ function CheckoutForm() {
         />
       </div>
 
-      {/* Card form (dark) */}
+      {/* Payment: Polar's hosted page, or the in-app card form (Stripe) */}
+      {hosted ? (
+        <div
+          className="mt-5 rounded-2xl p-5 text-white"
+          style={{ background: 'linear-gradient(160deg, #1f6a5f 0%, #15463f 100%)' }}
+        >
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/10">
+              <Lock className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">Secure checkout</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-white/70">
+                When you click Get Started you&apos;ll enter your card on our payment partner&apos;s
+                secure page. Voicecon never sees or stores your card details. You&apos;ll come
+                straight back here once payment is complete.
+              </p>
+            </div>
+          </div>
+          {!configured && (
+            <p className="mt-3 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] text-amber-200">
+              Payments are not available yet. Use the {trialDays}-day free trial below.
+            </p>
+          )}
+        </div>
+      ) : (
       <div
         className="mt-5 rounded-2xl p-5 text-white"
         style={{ background: 'linear-gradient(160deg, #1f6a5f 0%, #15463f 100%)' }}
@@ -272,11 +320,11 @@ function CheckoutForm() {
         </p>
         {!configured && (
           <p className="mt-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] text-amber-200">
-            Stripe test keys are not set yet — use the {trialDays}-day free trial below, or add
-            your keys to enable card payments.
+            Card payments are not available yet. Use the {trialDays}-day free trial below.
           </p>
         )}
       </div>
+      )}
 
       {/* Order summary */}
       <div className="mt-6">
@@ -338,7 +386,11 @@ function CheckoutForm() {
           disabled={busy}
           className="flex-1 rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-60"
         >
-          {checkoutMutation.isPending ? 'Processing…' : 'Get Started'}
+          {checkoutMutation.isPending
+            ? 'Processing…'
+            : hostedMutation.isPending || hostedMutation.isSuccess
+            ? 'Opening checkout…'
+            : 'Get Started'}
         </button>
       </div>
       <p className="mt-3 text-[11px] text-slate-400">
@@ -353,7 +405,13 @@ function CheckoutForm() {
 export default function BillingPage() {
   const router = useRouter()
   const { selectedPlan, completed } = useOnboardingStore()
-  const stripePromise = useMemo(() => getStripe(), [])
+  const { data: config } = useBillingConfig()
+  // No Stripe instance in hosted mode: <Elements> accepts null, and the card
+  // fields are not rendered then.
+  const stripePromise = useMemo(
+    () => (config?.checkout_mode === 'card' ? getStripe(config.publishable_key) : null),
+    [config?.checkout_mode, config?.publishable_key]
+  )
 
   // If the user lands here without choosing a plan, send them to pricing —
   // unless they have just finished, in which case the empty selection is the
@@ -363,11 +421,19 @@ export default function BillingPage() {
   }, [selectedPlan, completed, router])
 
   if (!selectedPlan) return null
+  if (!config) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-100 border-t-brand-600" />
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-7xl grid-cols-1 items-stretch gap-4 overflow-hidden p-3 shadow-slate-200/60 md:rounded-3xl md:bg-white md:shadow-xl lg:grid-cols-2">
-      <Elements stripe={stripePromise}>
-        <CheckoutForm />
+      {/* Keyed on the provider: Stripe's <Elements> must not change its stripe prop in place. */}
+      <Elements key={`${config.checkout_mode}:${config.publishable_key ?? ''}`} stripe={stripePromise}>
+        <CheckoutForm config={config} />
       </Elements>
       <div className="hidden lg:block">
         <BrandPanel />

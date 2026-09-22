@@ -43,6 +43,11 @@ RUNTIME_STATUSES = (STATUS_TRIALING, STATUS_ACTIVE, STATUS_PAST_DUE, STATUS_GRAC
 SOURCE_STRIPE = "stripe"  # a real Stripe subscription
 SOURCE_TRIAL = "trial"    # our own card-free trial; no Stripe object exists
 SOURCE_MANUAL = "manual"  # created by staff (enterprise deal, comp)
+SOURCE_POLAR = "polar"    # a Polar subscription (Polar is Merchant of Record)
+
+#: Sources billed by an external payment provider. Their usage counters roll on
+#: the provider's renewal webhook, not on our own clock.
+PROVIDER_SOURCES = (SOURCE_STRIPE, SOURCE_POLAR)
 
 
 class SubscriptionPlan(Base):
@@ -64,6 +69,10 @@ class SubscriptionPlan(Base):
     #: Yearly price is a separate Stripe object. Backfilled at checkout time by
     #: ``StripeService.ensure_stripe_price`` when a customer first picks yearly.
     stripe_price_id_yearly: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    #: Polar products, one per billing interval (a Polar product has a single
+    #: recurring interval). Created from the admin console or pasted in.
+    polar_product_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    polar_product_id_yearly: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
 
     # Pricing
     price_monthly: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
@@ -148,13 +157,16 @@ class Subscription(Base):
     # code paths.
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
+    # Polar data, set once a Polar checkout completes (``source == "polar"``).
+    polar_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    polar_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
 
     # Subscription details
     status: Mapped[str] = mapped_column(String(50), nullable=False)  # see LIVE_STATUSES
     billing_period: Mapped[str] = mapped_column(
         String(20), default="monthly"
     )  # monthly, yearly
-    #: Where this subscription came from: stripe | trial | manual.
+    #: Where this subscription came from: stripe | polar | trial | manual.
     source: Mapped[str] = mapped_column(String(20), default=SOURCE_STRIPE, nullable=False)
 
     # Dates
@@ -266,7 +278,7 @@ class UsageRecord(Base):
 
 
 class Invoice(Base):
-    """Invoice records from Stripe."""
+    """Invoice records from Stripe, or orders from Polar."""
     __tablename__ = "invoices"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -279,9 +291,16 @@ class Invoice(Base):
         Uuid(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
 
-    # Stripe data
-    stripe_invoice_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    stripe_customer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: stripe | polar
+    provider: Mapped[str] = mapped_column(
+        String(20), default="stripe", server_default="stripe", nullable=False
+    )
+
+    # Stripe data (NULL on a Polar order)
+    stripe_invoice_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
+    # Polar data (NULL on a Stripe invoice)
+    polar_order_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
 
     # Invoice details
     invoice_number: Mapped[Optional[str]] = mapped_column(String(100))
@@ -431,9 +450,10 @@ class SubscriptionEvent(Base):
 
 
 class ProcessedStripeEvent(Base):
-    """Webhook idempotency ledger.
+    """Webhook idempotency ledger, for Stripe and Polar alike.
 
-    Stripe retries deliveries, so without this a re-delivered ``invoice.paid``
+    Polar deliveries are stored as ``polar:<webhook-id>`` so the two providers'
+    ids can never collide. Stripe retries deliveries, so without this a re-delivered ``invoice.paid``
     applies its effect twice. The insert happens in the same transaction as the
     effect: a duplicate-key violation is the signal to skip, not an error.
     """

@@ -134,12 +134,26 @@ async def delete_my_account(
         )
         subscriptions = sub_result.scalars().all()
         for subscription in subscriptions:
-            trial_without_stripe = subscription.stripe_subscription_id is None
+            trial_without_stripe = not (
+                subscription.stripe_subscription_id or subscription.polar_subscription_id
+            )
             if trial_without_stripe:
                 subscription.status = STATUS_CANCELED
                 subscription.canceled_at = now
                 subscription.ended_at = now
                 subscription.current_period_end = min(subscription.current_period_end, now)
+            elif subscription.polar_subscription_id:
+                try:
+                    from app.services.billing import polar_service
+
+                    await polar_service.cancel(subscription, immediate=True)
+                    subscription.status = STATUS_CANCELED
+                    subscription.canceled_at = subscription.canceled_at or now
+                    subscription.ended_at = now
+                    subscription.current_period_end = min(subscription.current_period_end, now)
+                    subscription.cancel_at_period_end = False
+                except Exception as e:
+                    logger.error("Failed to revoke Polar subscription %s for org %s: %s", subscription.id, org.id, e)
             else:
                 try:
                     stripe_service = await get_stripe_service()

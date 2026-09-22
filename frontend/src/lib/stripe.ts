@@ -1,24 +1,31 @@
 import { loadStripe, type Stripe } from '@stripe/stripe-js'
 
 /**
- * Singleton Stripe.js loader. Uses the publishable key from the environment
- * (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY). Returns null when no key is configured
- * so the billing page can fall back gracefully to the free-trial path.
+ * Stripe.js loader.
+ *
+ * The publishable key comes from `GET /billing/config` (set in the admin
+ * console), falling back to NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY. The build-time
+ * value alone could not follow a key changed in the dashboard. Returns null
+ * when no usable key exists so the page can fall back to the free trial.
  */
-let stripePromise: Promise<Stripe | null> | null = null
+const loaders = new Map<string, Promise<Stripe | null>>()
 
-export function getStripe(): Promise<Stripe | null> {
-  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  if (!key || key.includes('...')) {
+function usable(key: string | null | undefined): key is string {
+  return !!key && key.startsWith('pk_') && !key.includes('...')
+}
+
+export function getStripe(key?: string | null): Promise<Stripe | null> {
+  const resolved = usable(key) ? key : process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  if (!usable(resolved)) {
     return Promise.resolve(null)
   }
-  if (!stripePromise) {
-    stripePromise = loadStripe(key)
+  let loader = loaders.get(resolved)
+  if (!loader) {
+    loader = loadStripe(resolved)
+    loaders.set(resolved, loader)
   }
-  return stripePromise
+  return loader
 }
 
-export const isStripeConfigured = (): boolean => {
-  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  return !!key && !key.includes('...')
-}
+export const isStripeConfigured = (key?: string | null): boolean =>
+  usable(key) || usable(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)

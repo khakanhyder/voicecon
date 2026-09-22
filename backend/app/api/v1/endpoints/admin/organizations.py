@@ -21,6 +21,7 @@ from app.models.subscription import (
     STATUS_TRIALING,
     LIVE_STATUSES,
     SOURCE_MANUAL,
+    PROVIDER_SOURCES,
     SOURCE_STRIPE,
     SOURCE_TRIAL,
     OrganizationEntitlementOverride,
@@ -408,10 +409,11 @@ async def grant_plan(
     now = utcnow()
     sub = (await latest_subscriptions(db, [org.id])).get(org.id)
     live = sub is not None and sub.status in LIVE_STATUSES
-    if live and sub.source == SOURCE_STRIPE:
+    if live and sub.source in PROVIDER_SOURCES:
+        provider = "Stripe" if sub.source == SOURCE_STRIPE else "Polar"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This organization pays through Stripe. Change or cancel the subscription in Stripe first.",
+            detail=f"This organization pays through {provider}. Change or cancel the subscription in {provider} first.",
         )
 
     before = {"status": sub.status, "source": sub.source, "plan_id": str(sub.plan_id)} if sub else None

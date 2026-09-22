@@ -55,6 +55,8 @@ export interface SubscriptionView {
   cancel_at_period_end: boolean
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  polar_customer_id: string | null
+  polar_subscription_id: string | null
   usage: { minutes: number; calls: number; sms: number; emails: number }
   created_at: string | null
 }
@@ -87,7 +89,15 @@ export interface Overview {
     owner: { id: string; email: string; full_name: string | null }
     subscription: SubscriptionView | null
   }[]
-  providers: { id: string; label: string; configured: boolean }[]
+  providers: {
+    id: string
+    label: string
+    configured: boolean
+    /** Payment providers only: is this the one new checkouts use? */
+    active_payment_provider?: boolean
+    /** An unused payment provider: missing keys are not a problem. */
+    optional?: boolean
+  }[]
   generated_at: string
 }
 
@@ -250,6 +260,8 @@ export interface Plan {
   stripe_product_id: string
   stripe_price_id: string
   stripe_price_id_yearly: string | null
+  polar_product_id: string | null
+  polar_product_id_yearly: string | null
   trial_days: number
   is_trialable: boolean
   is_active: boolean
@@ -378,7 +390,7 @@ export interface WorkflowRunRow {
 }
 
 export interface SystemHealth {
-  app: { name: string; version: string; environment: string; debug: boolean }
+  app: { name: string; version: string; environment: string; debug: boolean; payment_provider: 'stripe' | 'polar' }
   database: { ok: boolean; latency_ms?: number; error?: string }
   redis: { ok: boolean; configured: boolean; latency_ms?: number; error?: string }
   schedulers: { name: string; running: boolean }[]
@@ -434,7 +446,9 @@ export const adminApi = {
   signOutUser: (id: string) => send('post', `/users/${id}/sign-out`),
   unlockUser: (id: string) => send('post', `/users/${id}/unlock`),
 
-  plans: () => get<{ plans: Plan[]; stripe_configured: boolean }>('/plans'),
+  plans: () =>
+    get<{ plans: Plan[]; stripe_configured: boolean; polar_configured: boolean; payment_provider: 'stripe' | 'polar' }>('/plans'),
+  syncPlanToPolar: (id: string) => send<Plan>('post', `/plans/${id}/polar-sync`),
   updatePlan: (id: string, body: Partial<Plan>) => send<Plan>('patch', `/plans/${id}`, body),
   setTrialLength: (days: number) => send<{ days: number; plans_updated: number }>('put', '/plans/trial', { days }),
 

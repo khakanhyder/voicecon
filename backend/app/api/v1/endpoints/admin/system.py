@@ -90,6 +90,7 @@ async def system_health(
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
             "debug": settings.DEBUG,
+            "payment_provider": settings.payment_provider,
         },
         "database": await _check_db(db),
         "redis": await _check_redis(),

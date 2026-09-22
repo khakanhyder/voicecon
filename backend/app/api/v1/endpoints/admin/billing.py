@@ -43,6 +43,8 @@ def _plan_view(plan: SubscriptionPlan, subscribers: int = 0) -> Dict[str, Any]:
         "stripe_product_id": plan.stripe_product_id,
         "stripe_price_id": plan.stripe_price_id,
         "stripe_price_id_yearly": plan.stripe_price_id_yearly,
+        "polar_product_id": plan.polar_product_id,
+        "polar_product_id_yearly": plan.polar_product_id_yearly,
         "trial_days": plan.trial_days,
         "is_trialable": plan.is_trialable,
         "is_active": plan.is_active,
@@ -75,9 +77,13 @@ async def list_plans(
             )
         ).all()
     }
+    from app.services.billing import providers
+
     return {
         "plans": [_plan_view(p, counts.get(p.id, 0)) for p in plans],
         "stripe_configured": settings.stripe_configured,
+        "polar_configured": settings.polar_configured,
+        "payment_provider": providers.active_provider(),
     }
 
 
@@ -126,6 +132,9 @@ class PlanPatch(BaseModel):
     highlights: Optional[List[str]] = None
     features: Optional[Dict[str, bool]] = None
     limits: Optional[Dict[str, int]] = None
+    #: Polar product ids; an empty string clears one.
+    polar_product_id: Optional[str] = Field(None, max_length=255)
+    polar_product_id_yearly: Optional[str] = Field(None, max_length=255)
 
 
 async def _sync_stripe_price(plan: SubscriptionPlan, interval: str, amount: Decimal) -> Optional[str]:
@@ -168,6 +177,27 @@ async def update_plan(
 
     before = _plan_view(plan)
 
+    from app.services.billing import polar_service
+
+    for key in ("polar_product_id", "polar_product_id_yearly"):
+        if key in changes:
+            value = (changes[key] or "").strip() or None
+            if value:
+                clash = (
+                    await db.execute(
+                        select(SubscriptionPlan.id).where(
+                            SubscriptionPlan.id != plan.id,
+                            (SubscriptionPlan.polar_product_id == value)
+                            | (SubscriptionPlan.polar_product_id_yearly == value),
+                        )
+                    )
+                ).first()
+                other = plan.polar_product_id_yearly if key == "polar_product_id" else plan.polar_product_id
+                other = changes.get("polar_product_id_yearly" if key == "polar_product_id" else "polar_product_id", other)
+                if clash or (other and other.strip() == value):
+                    raise HTTPException(status_code=422, detail="Each Polar product can belong to only one plan and one billing period.")
+            setattr(plan, key, value)
+
     # Prices first: a Stripe failure must leave the row untouched.
     try:
         if "price_monthly" in changes and Decimal(changes["price_monthly"]) != Decimal(plan.price_monthly):
@@ -189,6 +219,21 @@ async def update_plan(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Stripe rejected the new price, so nothing was changed: {type(exc).__name__}",
         )
+
+    # Polar products carry their own price. Push a changed price there too, so
+    # new Polar checkouts charge what the pricing page shows.
+    if settings.polar_configured:
+        try:
+            if "price_monthly" in changes and plan.polar_product_id and before["price_monthly"] != num(plan.price_monthly):
+                await polar_service.push_price(plan.polar_product_id, plan.price_monthly, plan.currency)
+            if "price_yearly" in changes and plan.polar_product_id_yearly and plan.price_yearly and before["price_yearly"] != num(plan.price_yearly):
+                await polar_service.push_price(plan.polar_product_id_yearly, plan.price_yearly, plan.currency)
+        except polar_service.PolarError as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Polar rejected the new price, so nothing was changed. {exc.detail or exc.public_message}",
+            )
 
     for key in ("name", "description", "trial_days", "is_trialable", "is_active", "is_public", "sort_order"):
         if key in changes:
@@ -223,6 +268,40 @@ async def update_plan(
     await db.commit()
     # Every org on this plan resolves from the row we just changed.
     get_entitlement_service().invalidate_all()
+    return _plan_view(plan)
+
+
+@router.post("/plans/{plan_id}/polar-sync")
+async def sync_plan_to_polar(
+    plan_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Create this plan's Polar products (monthly, and yearly when priced), or
+    refresh their name and price when they already exist."""
+    from app.services.billing import polar_service
+
+    plan = await db.get(SubscriptionPlan, parse_uuid(plan_id, "plan"))
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    if not settings.polar_configured:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add the Polar access token under API Keys & Providers first.")
+
+    before = {"monthly": plan.polar_product_id, "yearly": plan.polar_product_id_yearly}
+    try:
+        products = await polar_service.sync_plan_products(plan)
+    except polar_service.PolarError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{exc.public_message} {exc.detail}".strip(),
+        )
+    plan.polar_product_id = products.get("monthly") or plan.polar_product_id
+    plan.polar_product_id_yearly = products.get("yearly") or plan.polar_product_id_yearly
+    audit(db, admin, "plan.polar_sync", target_type="plan", target_id=plan.id,
+          summary=f"Synced plan {plan.name} to Polar",
+          details={"before": before, "after": products}, request=request)
+    await db.commit()
     return _plan_view(plan)
 
 

@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
 import { Navbar } from './Navbar'
 import { Footer } from './Closing'
+import { SmoothScroll } from './SmoothScroll'
 
 /**
  * Page chrome shared by every public marketing page (landing, privacy, terms):
  * the coming-soon page's deep-teal sky with its grid and glow orbs, a skip
- * link, the navbar and the footer.
+ * link, the navbar, the footer and smooth scrolling.
  */
 export function MarketingShell({ children }: { children: ReactNode }) {
   return (
@@ -24,9 +25,10 @@ export function MarketingShell({ children }: { children: ReactNode }) {
         Skip to content
       </a>
 
+      <SmoothScroll />
       <Navbar />
 
-      <main id="main" className="relative z-10">
+      <main id="main" className="relative z-10 focus:outline-none">
         {children}
       </main>
 

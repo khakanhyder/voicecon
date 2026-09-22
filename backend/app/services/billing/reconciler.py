@@ -536,14 +536,15 @@ async def reset_expired_period_counters(
 ) -> int:
     """Roll usage counters for trials and manual subscriptions.
 
-    Stripe-backed subscriptions reset on ``invoice.paid``, which is the only
-    moment that genuinely starts a new billing period. This covers the rows
-    Stripe never sends an invoice for.
+    Stripe- and Polar-backed subscriptions reset on the provider's renewal
+    webhook (``invoice.paid`` / ``order.paid``), which is the only moment that
+    genuinely starts a new billing period. This covers the rows no provider
+    ever sends a renewal for.
     """
     now = now or _utcnow()
     result = await db.execute(
         select(Subscription).where(
-            Subscription.source != "stripe",
+            Subscription.source.notin_(("stripe", "polar")),
             Subscription.status.in_((STATUS_ACTIVE,)),
             Subscription.current_period_end <= now,
         )

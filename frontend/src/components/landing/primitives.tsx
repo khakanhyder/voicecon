@@ -103,7 +103,7 @@ export function Section({
     <section
       id={id}
       aria-labelledby={labelledBy}
-      className={cn('relative scroll-mt-20 px-4 py-20 sm:px-6 md:py-28', className)}
+      className={cn('relative scroll-mt-20 px-4 py-20 focus:outline-none sm:px-6 md:py-28', className)}
     >
       <div className="mx-auto w-full max-w-6xl">{children}</div>
     </section>

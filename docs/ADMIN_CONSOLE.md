@@ -23,7 +23,7 @@ demoting yourself.
 | Section | Use it to |
 |---|---|
 | Overview | See revenue, sign-ups, the call chart, the subscription mix, and anything that needs attention |
-| API Keys & Providers | Set or rotate provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs, Twilio, Stripe, email, S3, Google/Apple sign-in, integration OAuth apps), rate limits and public URLs. Each provider has a **Test connection** button |
+| API Keys & Providers | Choose the payment provider (Stripe or Polar). Set or rotate provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs, Twilio, Stripe, Polar, email, S3, Google/Apple sign-in, integration OAuth apps), rate limits and public URLs. Each provider has a **Test connection** button |
 | Plans & Pricing | Edit prices, trial length, features, limits and pricing-page copy |
 | Organizations | Search every workspace. Suspend or reactivate it, extend a trial, give a plan for free, set per-organization feature and limit overrides, reset usage |
 | Users | Verify, disable, sign out everywhere, clear a login lockout, grant or revoke admin |
@@ -54,6 +54,65 @@ demoting yourself.
 - **Frontend `NEXT_PUBLIC_*` values** are compiled into the frontend at build
   time. They still need a rebuild to change.
 
+## Payments: Stripe or Polar
+
+**API Keys & Providers → Payment provider** chooses where new checkouts go.
+
+| | Stripe | Polar |
+|---|---|---|
+| Checkout | Card form inside the app | Polar's hosted checkout page |
+| Keys on this server | Stripe secret + publishable key + webhook secret | A Polar organization access token + webhook secret. No Stripe key |
+| Seller of record, sales tax | You | Polar |
+| Webhook URL | `<API base URL>/api/v1/billing/webhooks/stripe` | `<API base URL>/api/v1/billing/webhooks/polar` |
+| Customer billing portal | Stripe customer portal | Polar customer portal |
+
+How switching behaves:
+
+- The console refuses to switch to a provider until all its keys are saved,
+  and refuses to remove a key the active provider needs. Switch first, then
+  remove the old keys.
+- A switch only affects **new** checkouts. Every subscription stays with the
+  provider it started on: cancel, change plan, reactivate, renewals and
+  **Manage billing** keep going to that provider. Both webhook endpoints stay
+  open, so keep both webhooks registered while either provider has customers.
+- Free trials are unaffected. They are the app's own card-free trials; the
+  paid provider only takes over when the customer upgrades.
+- Customers' browsers read the provider from `GET /billing/config`, so a
+  switch reaches open pages within about 30 seconds.
+
+### Setting up Polar
+
+1. In Polar (start with the **sandbox**: sandbox.polar.sh), create an
+   **organization access token** with these scopes: `checkouts:write`,
+   `subscriptions:read`, `subscriptions:write`, `customer_sessions:write`,
+   `products:read`, `products:write`, `orders:read`. Give it an expiry date
+   if you want.
+2. In Polar, add a webhook endpoint for
+   `<API base URL>/api/v1/billing/webhooks/polar` with the `subscription.*`,
+   `order.paid` and `order.refunded` events. Copy its signing secret.
+3. In the console, under **Polar**, save the token and the webhook secret and
+   set **Environment** to `sandbox` or `production`. Click **Test connection**.
+4. Under **Plans & Pricing**, click **Create in Polar** on each plan. This
+   creates a monthly product, plus a yearly one when the plan has a yearly
+   price. You can paste existing product IDs under **Edit** instead. Price
+   edits made in the console are pushed to the linked Polar products.
+5. Set **Payment provider** to `polar`.
+
+The checkout flow: the customer clicks Upgrade, pays on Polar's page, and lands
+on `/billing/return`. That page waits for Polar's webhook to activate the plan
+(usually a few seconds), then continues. A running trial converts in place, the
+same as with Stripe.
+
+Things to know:
+
+- Upgrades are prorated immediately. Downgrades are queued at Polar for the
+  next billing period, and the plan changes locally at the same time.
+- A failed renewal marks the subscription `past_due`, starts the grace
+  period and adds an entry to **Billing → payment failures**.
+- Polar's own error text is shown to admins only, never to customers.
+- Sandbox and production are separate: switching **Environment** needs that
+  environment's token, webhook secret and product IDs.
+
 ## Free trial length
 
 **Plans & Pricing → Free trial length** sets how many days a new card-free
@@ -71,8 +130,8 @@ has to be edited by hand.
   that were paused when the trial expired stay paused.
 - **Grant plan** creates a free "manual" subscription. Its usage counters reset
   every month, and it lasts until you click **End comp**. You cannot grant a
-  plan while the organization pays through Stripe; change that subscription in
-  Stripe instead.
+  plan while the organization pays through Stripe or Polar; change that
+  subscription with the provider instead.
 - **Entitlement override** turns individual features on or off and changes
   individual limits on top of the plan, with an optional expiry date.
 - **Plan edits** apply to every subscriber straight away. An edited plan is

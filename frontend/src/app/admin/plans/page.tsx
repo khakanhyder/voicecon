@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Check, Clock, Pencil, Users, X } from 'lucide-react'
+import { Check, Clock, Pencil, RefreshCw, Users, X } from 'lucide-react'
 import { adminApi, type Catalog, type Plan } from '@/lib/admin'
 import {
   AdminButton,
@@ -34,6 +34,8 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
     is_public: plan.is_public,
     sort_order: String(plan.sort_order),
     highlights: plan.highlights.join('\n'),
+    polar_product_id: plan.polar_product_id ?? '',
+    polar_product_id_yearly: plan.polar_product_id_yearly ?? '',
   })
   const [features, setFeatures] = useState<Record<string, boolean>>(plan.features)
   const [limits, setLimits] = useState<Record<string, string>>(
@@ -58,6 +60,8 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
         is_public: form.is_public,
         sort_order: Number(form.sort_order),
         highlights: form.highlights.split('\n').map((s) => s.trim()).filter(Boolean),
+        polar_product_id: form.polar_product_id.trim(),
+        polar_product_id_yearly: form.polar_product_id_yearly.trim(),
         features,
         limits: Object.fromEntries(
           Object.entries(limits).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, Number(v)])
@@ -125,6 +129,18 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
               <Toggle label={label} checked={form[key] as boolean} onChange={(v) => set(key, v)} />
             </div>
           ))}
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Polar products</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Monthly product ID" hint="From the Polar dashboard, or use Sync to Polar on the plan card.">
+              <input className={`${inputClass} font-mono text-xs`} value={form.polar_product_id} onChange={(e) => set('polar_product_id', e.target.value)} placeholder="Not linked" />
+            </Field>
+            <Field label="Yearly product ID" hint="Leave empty to offer monthly only through Polar.">
+              <input className={`${inputClass} font-mono text-xs`} value={form.polar_product_id_yearly} onChange={(e) => set('polar_product_id_yearly', e.target.value)} placeholder="Not linked" />
+            </Field>
+          </div>
         </div>
 
         <Field label="Pricing-page bullet points" hint="One per line.">
@@ -218,8 +234,28 @@ function TrialLengthPanel({ plans }: { plans: Plan[] }) {
   )
 }
 
+function PolarSyncButton({ plan, disabled }: { plan: Plan; disabled: boolean }) {
+  const qc = useQueryClient()
+  const sync = useMutation({
+    mutationFn: () => adminApi.syncPlanToPolar(plan.id),
+    onSuccess: () => {
+      toast.success(`${plan.name} synced to Polar`)
+      qc.invalidateQueries({ queryKey: ['admin', 'plans'] })
+    },
+    onError: (e) => toast.error(errorText(e)),
+  })
+  const linked = !!plan.polar_product_id
+  return (
+    <AdminButton icon={RefreshCw} loading={sync.isPending} disabled={disabled} onClick={() => sync.mutate()}>
+      {linked ? 'Sync to Polar' : 'Create in Polar'}
+    </AdminButton>
+  )
+}
+
 export default function PlansPage() {
   const { data, isLoading, error } = useQuery({ queryKey: ['admin', 'plans'], queryFn: adminApi.plans })
+  const polarActive = data?.payment_provider === 'polar'
+  const unlinked = data?.plans.filter((p) => p.is_active && p.is_public && !p.polar_product_id) ?? []
   const catalog = useQuery({ queryKey: ['admin', 'catalog'], queryFn: adminApi.catalog, staleTime: Infinity })
   const [editing, setEditing] = useState<Plan | null>(null)
 
@@ -232,7 +268,15 @@ export default function PlansPage() {
         description="Prices, trial length, features and limits for each plan. Edits take effect immediately and are no longer reset by deploys."
       />
       {error ? <Callout tone="danger" title="Could not load plans">{errorText(error)}</Callout> : null}
-      {data && !data.stripe_configured && (
+      {polarActive && unlinked.length > 0 && (
+        <div className="mb-6">
+          <Callout tone="warning" title={`${unlinked.length} plan${unlinked.length === 1 ? ' is' : 's are'} not linked to Polar`}>
+            Polar is the active payment provider, so customers can&apos;t buy {unlinked.map((p) => p.name).join(', ')} until
+            {unlinked.length === 1 ? ' it has' : ' they have'} a Polar product. Use <strong>Create in Polar</strong> on the plan, or paste the product IDs in Edit.
+          </Callout>
+        </div>
+      )}
+      {data && !polarActive && !data.stripe_configured && (
         <div className="mb-6">
           <Callout tone="warning" title="Stripe is not configured">
             Plans can be edited, but paid checkout is unavailable until a Stripe secret key is added under API Keys.
@@ -265,7 +309,10 @@ export default function PlansPage() {
                     )}
                   </p>
                 </div>
-                <AdminButton icon={Pencil} disabled={!catalog.data} onClick={() => setEditing(plan)}>Edit</AdminButton>
+                <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+                  {data.polar_configured && <PolarSyncButton plan={plan} disabled={false} />}
+                  <AdminButton icon={Pencil} disabled={!catalog.data} onClick={() => setEditing(plan)}>Edit</AdminButton>
+                </div>
               </header>
 
               <div className="grid flex-1 gap-5 p-5 sm:grid-cols-2">
@@ -302,6 +349,17 @@ export default function PlansPage() {
                 <span>Trial: {plan.is_trialable ? `${plan.trial_days} days` : 'none'}</span>
                 <span className="font-mono">{plan.slug}</span>
                 <span className="font-mono">{plan.stripe_price_id}</span>
+                <span>
+                  Polar:{' '}
+                  {plan.polar_product_id ? (
+                    <span className="font-mono">
+                      {plan.polar_product_id}
+                      {plan.polar_product_id_yearly ? ` · ${plan.polar_product_id_yearly}` : ''}
+                    </span>
+                  ) : (
+                    <span className={polarActive ? 'font-medium text-amber-700' : ''}>not linked</span>
+                  )}
+                </span>
               </footer>
             </section>
           )

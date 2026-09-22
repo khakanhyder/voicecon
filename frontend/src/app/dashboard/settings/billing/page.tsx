@@ -10,6 +10,7 @@ import {
   XCircle,
   Clock,
   Phone,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { API_ENDPOINTS } from '@/lib/constants';
 import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutModal';
 import { entitlementService, FEATURE_LABELS } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
+import { billingService } from '@/lib/billing';
 
 import { useConfirm } from '@/hooks/use-confirm';
 
@@ -100,6 +102,7 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [actionBusy, setActionBusy] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   const entitlements = useEntitlementStore((s) => s.entitlements);
   const refreshEntitlements = useEntitlementStore((s) => s.refresh);
@@ -359,6 +362,27 @@ export default function BillingPage() {
               <Button variant="outline" onClick={scrollToPlans} disabled={actionBusy}>
                 {needsCheckout ? 'Choose a plan' : 'Change Plan'}
               </Button>
+
+              {/* Card, receipts and invoices live with the provider that bills
+                  this subscription (Stripe or Polar), not with this app. */}
+              {(entitlements?.source === 'stripe' || entitlements?.source === 'polar') && (
+                <Button
+                  variant="outline"
+                  disabled={actionBusy || openingPortal}
+                  onClick={async () => {
+                    setOpeningPortal(true);
+                    try {
+                      await billingService.openPortal();
+                    } catch (err) {
+                      toast.error(getErrorMessage(err));
+                      setOpeningPortal(false);
+                    }
+                  }}
+                >
+                  <ExternalLink className="mr-1.5 h-4 w-4" />
+                  {openingPortal ? 'Opening…' : 'Manage billing'}
+                </Button>
+              )}
 
               {entitlements?.cancel_at_period_end ? (
                 <Button onClick={reactivateSubscription} disabled={actionBusy}>
@@ -716,6 +740,15 @@ export default function BillingPage() {
                           <Download className="w-4 h-4" />
                           Download
                         </a>
+                      ) : entitlements?.source === 'polar' ? (
+                        <button
+                          type="button"
+                          onClick={() => billingService.openPortal().catch((err) => toast.error(getErrorMessage(err)))}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 ml-auto"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                          View
+                        </button>
                       ) : (
                         <span className="text-gray-400 text-sm">—</span>
                       )}
@@ -735,6 +768,7 @@ export default function BillingPage() {
         <CheckoutModal
           plan={checkoutPlan}
           billingPeriod={billingPeriod}
+          returnPath="/dashboard/settings/billing"
           onClose={() => setCheckoutPlan(null)}
           onSuccess={async () => {
             setCheckoutPlan(null);

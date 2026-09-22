@@ -325,7 +325,9 @@ export default function OrganizationDetailPage({ params }: { params: { id: strin
           {sub ? (
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
               <Detail label="Plan">{sub.plan?.name ?? '—'}</Detail>
-              <Detail label="Source">{sub.source === 'manual' ? 'Complimentary (manual)' : humanize(sub.source)}</Detail>
+              <Detail label="Source">
+                {sub.source === 'manual' ? 'Complimentary (manual)' : sub.source === 'polar' ? 'Polar' : humanize(sub.source)}
+              </Detail>
               <Detail label="Billing period">{humanize(sub.billing_period)}</Detail>
               {sub.trial_end && <Detail label="Trial ends">{formatDate(sub.trial_end, true)}</Detail>}
               <Detail label="Period ends">{formatDate(sub.current_period_end)}</Detail>
@@ -336,6 +338,16 @@ export default function OrganizationDetailPage({ params }: { params: { id: strin
                   <a className="text-brand-700 hover:underline" target="_blank" rel="noreferrer" href={`https://dashboard.stripe.com/customers/${sub.stripe_customer_id}`}>
                     {sub.stripe_customer_id}
                   </a>
+                </Detail>
+              )}
+              {sub.polar_customer_id && (
+                <Detail label="Polar customer">
+                  <span className="font-mono text-xs">{sub.polar_customer_id}</span>
+                </Detail>
+              )}
+              {sub.polar_subscription_id && (
+                <Detail label="Polar subscription">
+                  <span className="font-mono text-xs">{sub.polar_subscription_id}</span>
                 </Detail>
               )}
               <Detail label="Minutes this period">{formatNumber(sub.usage.minutes)}</Detail>

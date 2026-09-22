@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Logo, ROUTES, buttonClass } from './primitives'
+import { getLenis } from './SmoothScroll'
 
 const LINKS = [
   { label: 'Product', href: '/landing-page#features' },
@@ -34,7 +35,9 @@ export function Navbar() {
     window.addEventListener('keydown', onKey)
     mq.addEventListener('change', onResize)
     document.body.style.overflow = 'hidden'
+    getLenis()?.stop()
     return () => {
+      getLenis()?.start()
       window.removeEventListener('keydown', onKey)
       mq.removeEventListener('change', onResize)
       document.body.style.overflow = ''
@@ -108,6 +111,7 @@ export function Navbar() {
       <div
         id="mobile-menu"
         hidden={!open}
+        data-lenis-prevent
         className="h-[calc(100dvh-4rem)] overflow-y-auto border-t border-white/10 bg-[#0f2c2b] px-4 pb-8 pt-4 sm:px-6 lg:hidden"
       >
         <ul className="mx-auto flex max-w-6xl flex-col">

@@ -227,23 +227,50 @@ approves.
 
 ## D. Salesforce → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`
 
-1. Log into Salesforce → **Setup** (gear icon) → search **App Manager** → **New Connected
-   App**.
-2. Basic info: name, contact email.
-3. **Enable OAuth Settings**:
+Salesforce disabled creation of classic **Connected Apps** — Winter '26 for new orgs,
+Spring '26 for all orgs. The only app type you can create now is an **External Client
+App (ECA)**, and that changes what works.
+
+1. Salesforce → **Setup** → Quick Find **External Client App Manager** → **New External
+   Client App**.
+2. Name, contact email. **Distribution State** is set here and **cannot be changed
+   afterwards**:
+   - **Local** — usable only by users of this org. Fine for connecting Voicecon's own
+     Salesforce org. Requires `SALESFORCE_LOGIN_URL` (step 5).
+   - **Packaged** — required for customers on their own orgs. Needs the app shipped in a
+     2GP managed package that each customer installs; see "Cross-org" below.
+3. **OAuth Settings** → Enable OAuth:
    - **Callback URL:** paste the redirect URI above.
-   - **Selected OAuth Scopes:** add "Access and manage your data (api)" and "Perform requests
-     at any time (refresh_token, offline_access)".
-   - Save. (Salesforce may take a few minutes to activate the app.)
-4. On the app page → **Manage Consumer Details** → copy **Consumer Key** (= Client ID) and
-   **Consumer Secret** (= Client Secret).
-5. Render backend env: `SALESFORCE_CLIENT_ID=<consumer key>`,
-   `SALESFORCE_CLIENT_SECRET=<consumer secret>`.
+   - **OAuth Scopes:** "Manage user data via APIs (api)" and "Perform requests at any time
+     (refresh_token, offline_access)".
+   - Leave PKCE off — the backend does not send a code verifier.
+   - Under **Flow Enablement**, tick **Enable Authorization Code and Credentials Flow**.
+   - Under **Policies** (after saving), set **Permitted Users** so users can self-authorize.
+4. **Consumer Key and Secret** → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`.
+5. **`SALESFORCE_LOGIN_URL`** — the login host. Empty means `https://login.salesforce.com`.
+   - Local ECA: set it to the owning org's **My Domain**, e.g.
+     `https://orgfarm-1234.my.salesforce.com`. Without this the callback fails with
+     `OAUTH_AUTHORIZATION_BLOCKED` / "Cross-org OAuth flows are not supported for this
+     external client app", because `login.salesforce.com` is a cross-org entry point and a
+     Local app refuses it.
+   - Sandbox: `https://test.salesforce.com`.
 
-Note: the registry uses `https://login.salesforce.com`. For sandbox orgs the login host is
-`https://test.salesforce.com` — tell me if you use a sandbox and I'll adjust.
+### Cross-org: letting customers connect their own Salesforce orgs
 
----
+A Local ECA can never do this, and no Voicecon-side setting changes that — the block is in
+Salesforce. The supported route is to distribute the app:
+
+1. Create the ECA with **Distribution State = Packaged** in a stable org that will outlive
+   every release (not a trial or scratch org). OAuth consumer credentials are *global
+   settings* and stay in that org rather than travelling in the package.
+2. Package it as a 2GP managed package (Salesforce DX / `sf` CLI + a Dev Hub).
+3. Give each customer admin the package install link; they install it and grant access in
+   their org.
+4. Their users can then complete the normal Voicecon connect flow.
+
+Salesforce Support can also grant an exception to re-enable classic Connected App creation
+for an org, which restores the old cross-org-by-default behaviour without packaging. Worth
+asking for if the packaging route is too heavy for now.
 
 ## E. Notion → `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`
 

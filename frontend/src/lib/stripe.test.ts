@@ -86,4 +86,27 @@ describe('getStripe', () => {
 
     expect(loadStripe).not.toHaveBeenCalled()
   })
+
+  it('prefers the key the server returns over the build-time one', async () => {
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_fromBuild'
+    const { loadStripe } = await import('@stripe/stripe-js')
+    vi.mocked(loadStripe).mockClear()
+    const { getStripe, isStripeConfigured } = await import('./stripe')
+
+    await getStripe('pk_live_fromAdminConsole')
+
+    expect(loadStripe).toHaveBeenCalledWith('pk_live_fromAdminConsole')
+    expect(isStripeConfigured('pk_live_fromAdminConsole')).toBe(true)
+  })
+
+  it('falls back to the build-time key when the server has none', async () => {
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_fromBuild'
+    const { loadStripe } = await import('@stripe/stripe-js')
+    vi.mocked(loadStripe).mockClear()
+    const { getStripe } = await import('./stripe')
+
+    await getStripe(null)
+
+    expect(loadStripe).toHaveBeenCalledWith('pk_test_fromBuild')
+  })
 })

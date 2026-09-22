@@ -8,6 +8,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiClient, getErrorMessage } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 
+// Some providers reject the authorization before any code is issued and return
+// an opaque error in the redirect. Translate the ones we can act on.
+const describeProviderError = (code: string, description: string | null): string => {
+  if (code === 'OAUTH_AUTHORIZATION_BLOCKED' && /cross-org/i.test(description || '')) {
+    return (
+      'Salesforce blocked this connection: the Voicecon app is a "Local" ' +
+      'External Client App, which only accepts users of the org that owns it ' +
+      'and rejects the shared login.salesforce.com entry point. An admin needs ' +
+      'to set SALESFORCE_LOGIN_URL to that org\'s My Domain, or distribute the ' +
+      'app as a packaged External Client App so other orgs can connect.'
+    );
+  }
+  return description || `OAuth error: ${code}`;
+};
+
 export const OAuthCallback: React.FC = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,7 +75,7 @@ export const OAuthCallback: React.FC = () => {
       const errorDescription = searchParams?.get('error_description');
 
       if (errorParam) {
-        setError(errorDescription || `OAuth error: ${errorParam}`);
+        setError(describeProviderError(errorParam, errorDescription));
         setStatus('error');
         return;
       }

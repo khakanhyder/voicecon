@@ -91,7 +91,9 @@ export default function AdminOverviewPage() {
   })
 
   const k = data?.kpis
-  const unconfigured = data?.providers.filter((p) => !p.configured) ?? []
+  // An unused payment provider (Stripe while Polar is active, or the reverse)
+  // is allowed to have no keys.
+  const unconfigured = data?.providers.filter((p) => !p.configured && !p.optional) ?? []
   const subscriptionTotal = data ? Object.values(data.subscriptions).reduce((a, b) => a + b, 0) : 0
 
   return (
@@ -216,8 +218,15 @@ export default function AdminOverviewPage() {
           <ul className="grid grid-cols-1 gap-2 text-sm">
             {data?.providers.map((p) => (
               <li key={p.id} className="flex items-center justify-between">
-                <span className="text-slate-700">{p.label}</span>
-                {p.configured ? (
+                <span className="flex items-center gap-1.5 text-slate-700">
+                  {p.label}
+                  {p.active_payment_provider && (
+                    <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">Payments</span>
+                  )}
+                </span>
+                {!p.configured && p.optional ? (
+                  <span className="text-xs text-slate-400">Not in use</span>
+                ) : p.configured ? (
                   <span className="flex items-center gap-1 text-xs font-medium text-emerald-700">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Configured
                   </span>

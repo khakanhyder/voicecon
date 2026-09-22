@@ -69,7 +69,7 @@ export function AppFrame({
           <span className="h-2.5 w-2.5 rounded-full bg-white/20" />
           <span className="h-2.5 w-2.5 rounded-full bg-white/20" />
         </div>
-        <div className="mx-auto flex min-w-0 max-w-xs flex-1 items-center justify-center truncate rounded-md bg-white/[0.07] px-3 py-1 text-[11px] text-white/55">
+        <div className="mx-auto flex min-w-0 max-w-xs flex-1 items-center justify-center truncate rounded-md bg-white/[0.07] px-3 py-1 text-xs text-white/55">
           app.voicecon.ai{path}
         </div>
         <span className="hidden w-10 sm:block" />
@@ -84,7 +84,7 @@ export function AppFrame({
             <div
               key={name}
               className={cn(
-                'flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px]',
+                'flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs',
                 name === active ? 'bg-white/15 font-medium text-white' : 'text-white/75'
               )}
             >
@@ -116,7 +116,7 @@ function Pill({ children, tone }: { children: ReactNode; tone: 'green' | 'amber'
     slate: 'bg-slate-100 text-slate-600 ring-slate-200',
   }
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1', tones[tone])}>
+    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1', tones[tone])}>
       {children}
     </span>
   )
@@ -135,8 +135,8 @@ export function CallDetailScreen() {
             <PhoneIncoming className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-[13px] font-semibold">Inbound call · Appointment Scheduler</p>
-            <p className="text-[10.5px] text-slate-500">+1 (415) 555-0142 · 3m 42s</p>
+            <p className="truncate text-sm font-semibold">Inbound call · Appointment Scheduler</p>
+            <p className="text-xs text-slate-500">+1 (415) 555-0142 · 3m 42s</p>
           </div>
         </div>
         <Pill tone="green">Completed</Pill>
@@ -155,12 +155,12 @@ export function CallDetailScreen() {
             />
           ))}
         </div>
-        <span className="text-[10px] tabular-nums text-slate-500">1:27</span>
+        <span className="text-xs tabular-nums text-slate-500">1:27</span>
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-[1.35fr_1fr]">
         <Card className="space-y-2">
-          <p className="text-[11px] font-semibold text-slate-700">Transcript</p>
+          <p className="text-xs font-semibold text-slate-700">Transcript</p>
           <Bubble who="agent">Thanks for calling Harbor Dental, this is Ava. How can I help?</Bubble>
           <Bubble who="caller">Hi, I&apos;d like to book a cleaning next week.</Bubble>
           <Bubble who="agent">I have Tuesday at 10:00 or Thursday at 2:30. Which works?</Bubble>
@@ -168,10 +168,10 @@ export function CallDetailScreen() {
         </Card>
         <div className="space-y-3">
           <Card>
-            <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
               <Sparkles className="h-3 w-3 text-[#0F6A59]" /> AI summary
             </p>
-            <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-600">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
               Caller booked a cleaning for Thursday at 2:30 PM and confirmed their contact number.
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -180,7 +180,7 @@ export function CallDetailScreen() {
             </div>
           </Card>
           <Card>
-            <p className="text-[11px] font-semibold text-slate-700">Workflow runs</p>
+            <p className="text-xs font-semibold text-slate-700">Workflow runs</p>
             <RunRow name="Post a call summary to Slack" />
             <RunRow name="Send qualified calls to HubSpot" />
           </Card>
@@ -195,7 +195,7 @@ function Bubble({ who, children }: { who: 'agent' | 'caller'; children: ReactNod
     <div className={cn('flex', who === 'caller' && 'justify-end')}>
       <p
         className={cn(
-          'max-w-[85%] rounded-xl px-2.5 py-1.5 text-[10.5px] leading-snug',
+          'max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs leading-snug',
           who === 'agent' ? 'rounded-tl-sm bg-slate-100 text-slate-700' : 'rounded-tr-sm bg-[#0F6A59] text-white'
         )}
       >
@@ -207,7 +207,7 @@ function Bubble({ who, children }: { who: 'agent' | 'caller'; children: ReactNod
 
 function RunRow({ name }: { name: string }) {
   return (
-    <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-slate-600">
+    <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-600">
       <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
       <span className="truncate">{name}</span>
     </div>
@@ -221,14 +221,14 @@ export function AgentScreen() {
     <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1.4fr_1fr]">
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-[13px] font-semibold">Customer Support Agent</p>
+          <p className="text-sm font-semibold">Customer Support Agent</p>
           <Pill tone="green">Active</Pill>
         </div>
         <Card className="space-y-2.5">
           <Field label="First message" value="Hi, thanks for calling! How can I help you today?" />
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">System prompt</p>
-            <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10.5px] leading-relaxed text-slate-600">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">System prompt</p>
+            <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs leading-relaxed text-slate-600">
               You are a friendly support agent. Answer from the linked knowledge base, collect the
               caller&apos;s order number, and transfer to a human when asked.
             </div>
@@ -246,20 +246,20 @@ export function AgentScreen() {
         </Card>
       </div>
       <Card className="flex flex-col">
-        <p className="text-[11px] font-semibold text-slate-700">Test call</p>
+        <p className="text-xs font-semibold text-slate-700">Test call</p>
         <div className="mt-3 flex flex-col items-center gap-2">
           <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-[#0F6A59] text-white">
             <span className="absolute inset-0 animate-ping rounded-full bg-[#0F6A59]/30 motion-reduce:animate-none" />
             <Mic className="relative h-5 w-5" />
           </span>
-          <p className="text-[10px] text-slate-500">Live · 00:48</p>
+          <p className="text-xs text-slate-500">Live · 00:48</p>
         </div>
         <div className="mt-3 space-y-2">
           <Bubble who="agent">Hi, thanks for calling! How can I help you today?</Bubble>
           <Bubble who="caller">Where is my order 10482?</Bubble>
           <Bubble who="agent">It shipped yesterday and should arrive Friday.</Bubble>
         </div>
-        <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+        <div className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500">
           Knowledge base: <span className="font-medium text-slate-700">Shipping policy.pdf</span>
         </div>
       </Card>
@@ -270,8 +270,8 @@ export function AgentScreen() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <div className="mt-1 truncate rounded-lg border border-slate-200 px-2 py-1.5 text-[10.5px] text-slate-700">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-1 truncate rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700">
         {value}
       </div>
     </div>
@@ -281,16 +281,16 @@ function Field({ label, value }: { label: string; value: string }) {
 function Stack({ label, provider, detail }: { label: string; provider: string; detail: string }) {
   return (
     <Card className="p-2.5">
-      <p className="text-[9.5px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-0.5 truncate text-[11px] font-semibold">{provider}</p>
-      <p className="truncate text-[10px] text-slate-500">{detail}</p>
+      <p className="truncate text-xs font-medium uppercase text-slate-500">{label}</p>
+      <p className="mt-0.5 truncate text-xs font-semibold">{provider}</p>
+      <p className="truncate text-xs text-slate-500">{detail}</p>
     </Card>
   )
 }
 
 function Toggle({ label, on }: { label: string; on?: boolean }) {
   return (
-    <span className="flex items-center gap-1.5 text-[10.5px] text-slate-600">
+    <span className="flex items-center gap-1.5 text-xs text-slate-600">
       <span className={cn('flex h-3.5 w-6 items-center rounded-full p-0.5', on ? 'justify-end bg-[#0F6A59]' : 'bg-slate-300')}>
         <span className="h-2.5 w-2.5 rounded-full bg-white" />
       </span>
@@ -311,8 +311,8 @@ function FlowNode({ node, className }: { node: NodeSpec; className?: string }) {
         <Icon className="h-3.5 w-3.5" />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-[11px] font-semibold leading-tight">{node.title}</p>
-        <p className="mt-0.5 truncate text-[10px] text-slate-500">{node.summary}</p>
+        <p className="truncate text-xs font-semibold leading-tight">{node.title}</p>
+        <p className="mt-0.5 truncate text-xs text-slate-500">{node.summary}</p>
       </div>
     </div>
   )
@@ -341,7 +341,7 @@ export function WorkflowScreen() {
           className="mx-auto max-w-[240px]"
           node={{ title: 'Branch', summary: 'sentiment equals negative', icon: GitBranch, accent: 'bg-amber-500' }}
         />
-        <div className="mx-auto flex w-full max-w-[240px] border-t border-slate-200 text-[9px] font-semibold uppercase tracking-wide">
+        <div className="mx-auto flex w-full max-w-[240px] border-t border-slate-200 text-xs font-semibold uppercase tracking-wide">
           <span className="flex-1 py-1 text-center text-emerald-600">True</span>
           <span className="flex-1 py-1 text-center text-rose-600">False</span>
         </div>
@@ -359,7 +359,7 @@ export function WorkflowScreen() {
           </div>
         </div>
       </div>
-      <div className="absolute right-3 top-3 hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-medium text-emerald-700 shadow-sm sm:flex">
+      <div className="absolute right-3 top-3 hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 shadow-sm sm:flex">
         <CheckCircle2 className="h-3 w-3" /> Last run succeeded
       </div>
     </div>
@@ -374,8 +374,8 @@ export function AnalyticsScreen() {
   return (
     <div className="space-y-3 p-3 sm:p-4">
       <div className="flex items-center justify-between">
-        <p className="text-[13px] font-semibold">Analytics</p>
-        <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-600">Export CSV</span>
+        <p className="text-sm font-semibold">Analytics</p>
+        <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">Export CSV</span>
       </div>
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <Stat label="Total Calls" value="1,284" />
@@ -385,7 +385,7 @@ export function AnalyticsScreen() {
       </div>
       <div className="grid gap-3 sm:grid-cols-[1.5fr_1fr]">
         <Card>
-          <p className="text-[11px] font-semibold text-slate-700">Call Outcomes</p>
+          <p className="text-xs font-semibold text-slate-700">Call Outcomes</p>
           <div className="mt-3 flex h-24 items-end gap-1.5">
             {BARS.map((h, i) => (
               <span
@@ -395,22 +395,22 @@ export function AnalyticsScreen() {
               />
             ))}
           </div>
-          <div className="mt-2 flex gap-3 text-[10px] text-slate-500">
+          <div className="mt-2 flex gap-3 text-xs text-slate-500">
             <Legend color="bg-[#0F6A59]" label="Completed" />
             <Legend color="bg-amber-400" label="Missed" />
             <Legend color="bg-rose-400" label="Failed" />
           </div>
         </Card>
         <Card className="space-y-2">
-          <p className="text-[11px] font-semibold text-slate-700">Sentiment Analysis</p>
+          <p className="text-xs font-semibold text-slate-700">Sentiment Analysis</p>
           <Meter label="Positive" pct={68} color="bg-emerald-500" />
           <Meter label="Neutral" pct={24} color="bg-slate-400" />
           <Meter label="Negative" pct={8} color="bg-rose-500" />
-          <p className="pt-1 text-[11px] font-semibold text-slate-700">Top Performing Agents</p>
-          <p className="flex justify-between text-[10.5px] text-slate-600">
+          <p className="pt-1 text-xs font-semibold text-slate-700">Top Performing Agents</p>
+          <p className="flex justify-between text-xs text-slate-600">
             <span className="truncate">Appointment Scheduler</span> <span>612</span>
           </p>
-          <p className="flex justify-between text-[10.5px] text-slate-600">
+          <p className="flex justify-between text-xs text-slate-600">
             <span className="truncate">Customer Support Agent</span> <span>438</span>
           </p>
         </Card>
@@ -422,8 +422,8 @@ export function AnalyticsScreen() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <Card className="p-2.5">
-      <p className="text-[10px] text-slate-500">{label}</p>
-      <p className="mt-0.5 text-sm font-bold tabular-nums">{value}</p>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-0.5 text-base font-bold tabular-nums">{value}</p>
     </Card>
   )
 }
@@ -439,7 +439,7 @@ function Legend({ color, label }: { color: string; label: string }) {
 function Meter({ label, pct, color }: { label: string; pct: number; color: string }) {
   return (
     <div>
-      <div className="flex justify-between text-[10px] text-slate-500">
+      <div className="flex justify-between text-xs text-slate-500">
         <span>{label}</span>
         <span className="tabular-nums">{pct}%</span>
       </div>
@@ -463,7 +463,7 @@ export function CallsScreen() {
   return (
     <div className="space-y-3 p-3 sm:p-4">
       <div className="flex items-center justify-between">
-        <p className="text-[13px] font-semibold">Calls</p>
+        <p className="text-sm font-semibold">Calls</p>
         <div className="flex gap-1.5">
           <Pill tone="slate">All agents</Pill>
           <Pill tone="slate">Last 7 days</Pill>
@@ -477,14 +477,14 @@ export function CallsScreen() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <p className="truncate text-[11px] font-semibold">{c.agent}</p>
-                <p className="text-[10px] text-slate-500">{c.number}</p>
+                <p className="truncate text-xs font-semibold">{c.agent}</p>
+                <p className="text-xs text-slate-500">{c.number}</p>
               </div>
-              <p className="mt-0.5 truncate text-[10.5px] text-slate-600">{c.summary}</p>
+              <p className="mt-0.5 truncate text-xs text-slate-600">{c.summary}</p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
               <Pill tone={c.tone}>{c.sentiment}</Pill>
-              <span className="text-[10px] tabular-nums text-slate-500">{c.dur}</span>
+              <span className="text-xs tabular-nums text-slate-500">{c.dur}</span>
             </div>
           </div>
         ))}

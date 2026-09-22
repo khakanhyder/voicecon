@@ -145,6 +145,26 @@ async def check_stripe() -> CheckResult:
     return result
 
 
+async def check_polar() -> CheckResult:
+    token = settings.POLAR_ACCESS_TOKEN
+    if not token:
+        return _missing("POLAR_ACCESS_TOKEN")
+    env = "production" if settings.polar_api_base == "https://api.polar.sh" else "sandbox"
+    result = await _http_check(
+        "GET",
+        f"{settings.polar_api_base}/v1/products/?limit=1",
+        headers={"Authorization": f"Bearer {token}"},
+        ok_message="Access token accepted.",
+    )
+    if result.status == "ok":
+        result.message = f"Access token accepted ({env})."
+        if not settings.POLAR_WEBHOOK_SECRET:
+            result.message += " Webhook signing secret is not set, so Polar webhooks will be rejected."
+    elif result.status == "invalid":
+        result.message += f" Check the token belongs to the {env} environment and has the products:read scope."
+    return result
+
+
 def _smtp_login() -> str:
     host, port = settings.SMTP_HOST, int(settings.SMTP_PORT or 587)
     context = ssl.create_default_context()
@@ -240,6 +260,7 @@ CHECKS: Dict[str, Callable[[], Awaitable[CheckResult]]] = {
     "elevenlabs": check_elevenlabs,
     "twilio": check_twilio,
     "stripe": check_stripe,
+    "polar": check_polar,
     "email": check_email,
     "storage": check_storage,
 }

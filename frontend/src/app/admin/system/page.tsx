@@ -58,6 +58,7 @@ export default function SystemPage() {
               <Detail label="Version">{data.app.version}</Detail>
               <Detail label="Debug mode">{data.app.debug ? 'On' : 'Off'}</Detail>
               <Detail label="Email delivery">{humanize(data.email_provider)}</Detail>
+              <Detail label="Payment provider">{data.app.payment_provider === 'polar' ? 'Polar' : 'Stripe'}</Detail>
               <Detail label="Dashboard settings applied">
                 <span className="inline-flex items-center gap-1.5"><Database className="h-3.5 w-3.5 text-slate-400" />{data.runtime_settings.overrides_applied}</span>
               </Detail>
@@ -88,7 +89,12 @@ export default function SystemPage() {
           >
             <ul className="divide-y divide-slate-100">
               {data.providers.map((p) => (
-                <Check key={p.id} ok={p.configured} label={p.label} detail={p.configured ? 'Credentials present' : 'Missing credentials'} />
+                <Check
+                  key={p.id}
+                  ok={p.configured || !!p.optional}
+                  label={p.active_payment_provider ? `${p.label} (active payment provider)` : p.label}
+                  detail={p.configured ? 'Credentials present' : p.optional ? 'Not in use' : 'Missing credentials'}
+                />
               ))}
             </ul>
           </Panel>

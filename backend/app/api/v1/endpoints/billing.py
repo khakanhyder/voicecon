@@ -26,10 +26,13 @@ from app.models.user import User
 from app.models.company import CompanyProfile
 from app.models.subscription import (
     LIVE_STATUSES,
+    PROVIDER_SOURCES,
+    SOURCE_POLAR,
     SOURCE_STRIPE,
     SOURCE_TRIAL,
     STATUS_ACTIVE,
     STATUS_CANCELED,
+    STATUS_PAST_DUE,
     STATUS_TRIALING,
     SubscriptionPlan,
     Subscription,
@@ -40,10 +43,16 @@ from app.models.subscription import (
     PaymentFailure,
 )
 from app.services.billing import StripeService, catalog, get_stripe_service, get_usage_reader, events
+from app.services.billing import polar_service, providers
 from app.services.billing.stripe_service import utc_from_timestamp
 from app.services.billing.entitlements import (
     get_entitlement_service,
     invalidate_entitlements,
+)
+# Shared with the Polar webhook, which converts trials the same way.
+from app.services.billing.conversion import (  # noqa: F401 — re-exported for tests
+    apply_paid_conversion,
+    mark_onboarding_done as _mark_onboarding_done,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,18 +66,39 @@ router = APIRouter()
 public_router = APIRouter()
 
 
-async def _mark_onboarding_done(db: AsyncSession, organization_id: uuid.UUID) -> None:
-    """Flag the organization's onboarding as completed once a plan/trial is active."""
-    result = await db.execute(
-        select(CompanyProfile).where(
-            CompanyProfile.organization_id == organization_id
+def _require_checkout_provider(provider: str) -> None:
+    """Refuse a checkout through a provider that is not the active one, or not ready.
+
+    The admin console chooses where new money goes. A client still showing the
+    other provider's checkout (an open tab from before the switch) is told to
+    reload rather than being allowed to start a subscription on the wrong one.
+    """
+    active = providers.active_provider()
+    if provider != active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Checkout now goes through {providers.LABELS[active]}. "
+                "Reload the page and try again."
+            ),
         )
-    )
-    profile = result.scalar_one_or_none()
-    if profile:
-        profile.onboarding_completed = True
-        profile.onboarding_step = "done"
-        await db.flush()
+    if not providers.is_ready(provider):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payments are not available right now. You can still start a free trial.",
+        )
+
+
+def _polar_http_error(exc: "polar_service.PolarError") -> HTTPException:
+    code = status.HTTP_503_SERVICE_UNAVAILABLE if isinstance(exc, polar_service.PolarNotConfigured) else status.HTTP_502_BAD_GATEWAY
+    return HTTPException(status_code=code, detail=exc.public_message)
+
+
+def _is_provider_billed(subscription: Subscription) -> bool:
+    """Does a payment provider hold an object for this subscription?"""
+    if subscription.source == SOURCE_POLAR:
+        return bool(subscription.polar_subscription_id)
+    return bool(subscription.stripe_subscription_id)
 
 
 # ==================== Schemas ====================
@@ -292,7 +322,6 @@ async def create_subscription(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
     Create a new subscription.
@@ -318,6 +347,9 @@ async def create_subscription(
                 "POST /billing/trial, which enforces one trial per account."
             ),
         )
+
+    _require_checkout_provider(providers.STRIPE)
+    stripe_service = await get_stripe_service()
 
     # Check if user already has an active subscription
     result = await db.execute(
@@ -396,7 +428,6 @@ async def update_subscription(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
     Update subscription to a different plan.
@@ -425,6 +456,13 @@ async def update_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active subscription found",
         )
+
+    if subscription.source != SOURCE_STRIPE or not subscription.stripe_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use POST /billing/subscription/change-plan to change this subscription's plan.",
+        )
+    stripe_service = await get_stripe_service()
 
     # Update subscription
     updated_subscription = await stripe_service.update_subscription_plan(
@@ -463,7 +501,6 @@ async def cancel_subscription(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
     Cancel the current subscription.
@@ -481,15 +518,30 @@ async def cancel_subscription(
 
     now = datetime.utcnow()
     previous_status = subscription.status
-    trial_without_stripe = subscription.stripe_subscription_id is None
+    # Trials and staff comps have no provider object: they end here and now.
+    trial_without_stripe = not _is_provider_billed(subscription)
 
     if trial_without_stripe:
-        # No Stripe object to cancel. A trial the user walks away from ends now.
+        # No provider object to cancel. A trial the user walks away from ends now.
         subscription.status = STATUS_CANCELED
         subscription.canceled_at = now
         subscription.ended_at = now
         subscription.current_period_end = min(subscription.current_period_end, now)
+    elif subscription.source == SOURCE_POLAR:
+        try:
+            await polar_service.cancel(subscription, immediate=immediate)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+        subscription.canceled_at = subscription.canceled_at or now
+        if immediate:
+            subscription.status = STATUS_CANCELED
+            subscription.ended_at = now
+            subscription.current_period_end = min(subscription.current_period_end, now)
+            subscription.cancel_at_period_end = False
+        else:
+            subscription.cancel_at_period_end = True
     else:
+        stripe_service = await get_stripe_service()
         await stripe_service.cancel_subscription(
             db=db, subscription_id=subscription.id, immediate=immediate
         )
@@ -707,10 +759,17 @@ async def stripe_webhook(
 
 
 class BillingConfigResponse(BaseModel):
-    """Public Stripe configuration for the frontend."""
+    """Public payment configuration for the frontend."""
 
+    #: Stripe publishable key; only meaningful while Stripe is the provider.
     publishable_key: Optional[str]
+    #: Can the active provider take a payment right now?
     configured: bool
+    #: ``stripe`` | ``polar`` — where new checkouts go.
+    provider: str = "stripe"
+    #: ``card``: collect the card in-app (Stripe). ``hosted``: redirect to the
+    #: provider's own checkout page (Polar).
+    checkout_mode: str = "card"
 
 
 class StartTrialRequest(BaseModel):
@@ -795,12 +854,15 @@ class SubscriptionEventResponse(BaseModel):
 
 @public_router.get("/config", response_model=BillingConfigResponse)
 async def get_billing_config():
-    """Expose the Stripe publishable key so the frontend can init Stripe.js."""
+    """Which provider checkout uses, and what the frontend needs to start it."""
     from app.core.config import settings
 
+    provider = providers.active_provider()
     return BillingConfigResponse(
-        publishable_key=settings.STRIPE_PUBLISHABLE_KEY,
-        configured=settings.stripe_configured,
+        publishable_key=settings.STRIPE_PUBLISHABLE_KEY if provider == providers.STRIPE else None,
+        configured=providers.is_ready(provider),
+        provider=provider,
+        checkout_mode="hosted" if provider == providers.POLAR else "card",
     )
 
 
@@ -1204,73 +1266,6 @@ async def start_free_trial(
 STRIPE_LIVE_STATUSES = frozenset({"active", "trialing", "past_due"})
 
 
-def apply_paid_conversion(
-    subscription: Subscription,
-    plan: SubscriptionPlan,
-    *,
-    stripe_subscription_id: str,
-    stripe_customer_id: str,
-    stripe_status: str,
-    billing_period: str,
-    period_start: datetime,
-    period_end: datetime,
-    now: datetime,
-) -> bool:
-    """Turn a trial — or a lapsed subscription — into the paid plan, in place.
-
-    Returns ``True`` when what was converted was a trial.
-
-    The trial is *ended*, not merely overwritten. ``status`` and ``source`` both
-    leave their trial values, and ``trial_end`` is pulled back to ``now`` so no
-    code path anywhere can still see a trial running into the future. That last
-    part is what makes the switchover total: the entitlement resolver picks the
-    trial's restrictive limits purely on ``status == trialing``, so a paying
-    customer with a future-dated ``trial_end`` sitting in the row is one status
-    write away from being handed 1-agent trial limits again. Clearing it means
-    there is nothing left to go back to.
-
-    What the trial *would* have run to is kept in ``stripe_metadata`` — the
-    customer gave up those days by paying early, and conversion reporting should
-    be able to see that rather than having it silently overwritten.
-    """
-    converting_trial = subscription.source == SOURCE_TRIAL
-
-    subscription.plan_id = plan.id
-    subscription.stripe_subscription_id = stripe_subscription_id
-    subscription.stripe_customer_id = stripe_customer_id
-    subscription.status = stripe_status
-    subscription.source = SOURCE_STRIPE
-    subscription.billing_period = billing_period
-    subscription.current_period_start = period_start
-    subscription.current_period_end = period_end
-    subscription.cancel_at_period_end = False
-    subscription.canceled_at = None
-    subscription.expired_at = None
-    subscription.grace_period_end = None
-    #: Any downgrade the old subscription had queued is void — the customer has
-    #: just chosen a plan explicitly, and that choice wins.
-    subscription.scheduled_plan_id = None
-
-    if converting_trial:
-        if subscription.trial_converted_at is None:
-            subscription.trial_converted_at = now
-        scheduled_end = subscription.trial_end
-        if scheduled_end is not None and scheduled_end > now:
-            metadata = dict(subscription.stripe_metadata or {})
-            metadata["trial_end_forfeited"] = scheduled_end.isoformat()
-            subscription.stripe_metadata = metadata
-        subscription.trial_end = now
-
-    # A converted trial starts its paid allowance clean rather than inheriting
-    # the trial's consumption.
-    subscription.current_period_minutes = 0
-    subscription.current_period_calls = 0
-    subscription.current_period_sms = 0
-    subscription.current_period_emails = 0
-
-    return converting_trial
-
-
 @router.post(
     "/checkout", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
 )
@@ -1279,7 +1274,6 @@ async def checkout(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
     Activate a paid subscription, or convert a free trial into one.
@@ -1292,6 +1286,9 @@ async def checkout(
     """
     import asyncio
     import stripe
+
+    _require_checkout_provider(providers.STRIPE)
+    stripe_service = await get_stripe_service()
 
     result = await db.execute(
         select(SubscriptionPlan).where(SubscriptionPlan.id == request.plan_id)
@@ -1313,7 +1310,10 @@ async def checkout(
         )
         existing = result.scalar_one_or_none()
 
-    if existing is not None and existing.status == STATUS_ACTIVE:
+    if existing is not None and (
+        existing.status == STATUS_ACTIVE
+        or (existing.status == STATUS_PAST_DUE and _is_provider_billed(existing))
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -1482,7 +1482,6 @@ async def change_plan(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """
     Move between paid plans.
@@ -1538,8 +1537,26 @@ async def change_plan(
 
     previous_plan_id = subscription.plan_id
 
+    polar_product = None
+    if subscription.source == SOURCE_POLAR and subscription.polar_subscription_id:
+        polar_product = polar_service.product_for(target, subscription.billing_period)
+        if not polar_product:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{target.name} is not available for {subscription.billing_period} billing yet.",
+            )
+        try:
+            # Upgrades prorate now; a downgrade is queued at Polar for the next
+            # period, matching the local scheduled_plan_id below.
+            await polar_service.change_product(subscription, polar_product, immediately=is_upgrade)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+
     if is_upgrade:
-        if subscription.stripe_subscription_id:
+        if polar_product:
+            subscription.plan_id = target.id
+        elif subscription.stripe_subscription_id:
+            stripe_service = await get_stripe_service()
             await stripe_service.update_subscription_plan(
                 db=db,
                 subscription_id=subscription.id,
@@ -1632,7 +1649,6 @@ async def reactivate_subscription(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
-    stripe_service: StripeService = Depends(get_stripe_service),
 ):
     """Undo a pending cancellation, before the paid period runs out."""
     subscription = await _existing_live_subscription(db, org_id)
@@ -1646,10 +1662,16 @@ async def reactivate_subscription(
             detail="This subscription is not scheduled to cancel",
         )
 
-    if subscription.stripe_subscription_id:
+    if subscription.source == SOURCE_POLAR and subscription.polar_subscription_id:
+        try:
+            await polar_service.reactivate(subscription)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+    elif subscription.stripe_subscription_id:
         import asyncio
         import stripe
 
+        await get_stripe_service()  # configures the SDK key
         await asyncio.to_thread(
             stripe.Subscription.modify,
             subscription.stripe_subscription_id,
@@ -1675,3 +1697,248 @@ async def reactivate_subscription(
         select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
     )
     return _subscription_response(subscription, result.scalar_one_or_none())
+
+
+# ==================== Hosted checkout (Polar) and billing portal ====================
+
+
+def _safe_return_path(path: Optional[str], default: str) -> str:
+    """A same-site path to send the customer back to. Never an absolute URL."""
+    if path and path.startswith("/") and not path.startswith("//") and len(path) <= 300:
+        return path
+    return default
+
+
+def _frontend_url(path: str) -> str:
+    from app.core.config import settings
+
+    return f"{(settings.FRONTEND_URL or '').rstrip('/')}{path}"
+
+
+class CheckoutSessionRequest(BaseModel):
+    """Start a provider-hosted checkout (Polar)."""
+
+    plan_id: uuid.UUID
+    billing_period: Literal["monthly", "yearly"] = "monthly"
+    #: Where to land after paying, e.g. ``/dashboard``. Same-site paths only.
+    return_path: Optional[str] = None
+    #: Where Polar's back button goes, e.g. ``/onboarding/billing``.
+    cancel_path: Optional[str] = None
+
+
+class CheckoutSessionResponse(BaseModel):
+    url: str
+    checkout_id: str
+
+
+class CheckoutStatusResponse(BaseModel):
+    #: ``active`` (subscription is live) | ``pending`` (paid, waiting for the
+    #: webhook) | ``open`` | ``failed`` | ``expired``
+    status: str
+
+
+class PortalRequest(BaseModel):
+    return_path: Optional[str] = None
+
+
+class PortalResponse(BaseModel):
+    url: str
+
+
+@router.post("/checkout-session", response_model=CheckoutSessionResponse)
+async def create_checkout_session(
+    request: CheckoutSessionRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send the customer to Polar's hosted checkout.
+
+    Nothing is activated here: the subscription is created by Polar's webhook
+    once the payment succeeds, and the return page polls
+    ``GET /billing/checkout-session/{id}`` until it has. The organization id
+    travels as ``external_customer_id`` and in ``metadata``, which is how the
+    webhook knows whose subscription it is.
+    """
+    _require_checkout_provider(providers.POLAR)
+
+    plan = await db.get(SubscriptionPlan, request.plan_id)
+    if plan is None or not plan.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    product_id = polar_service.product_for(plan, request.billing_period)
+    if not product_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{plan.name} is not available for {request.billing_period} billing yet.",
+        )
+
+    existing = await _existing_live_subscription(db, org_id)
+    if existing is not None and _is_provider_billed(existing) and existing.status in (STATUS_ACTIVE, STATUS_PAST_DUE):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This workspace already has an active subscription. "
+                "Use change plan to move between plans."
+            ),
+        )
+
+    next_path = _safe_return_path(request.return_path, "/dashboard")
+    from urllib.parse import quote
+
+    # {CHECKOUT_ID} is filled in by Polar, so it must reach Polar unencoded.
+    success_url = _frontend_url("/billing/return") + "?checkout_id={CHECKOUT_ID}&next=" + quote(next_path, safe="")
+    body = {
+        "products": [product_id],
+        "external_customer_id": str(org_id),
+        "customer_email": current_user.email,
+        "success_url": success_url,
+        "return_url": _frontend_url(_safe_return_path(request.cancel_path, "/dashboard/settings/billing")),
+        # Trials are ours (card-free, once per account); Polar must not add one.
+        "allow_trial": False,
+        "metadata": {
+            "organization_id": str(org_id),
+            "plan_id": str(plan.id),
+            "billing_period": request.billing_period,
+            "user_id": str(current_user.id),
+        },
+    }
+    if current_user.full_name:
+        body["customer_name"] = current_user.full_name[:256]
+
+    try:
+        checkout = await polar_service.get_polar_client().create_checkout(body)
+    except polar_service.PolarError as exc:
+        raise _polar_http_error(exc)
+    if not checkout.get("url") or not checkout.get("id"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="The payment provider did not return a checkout link.")
+    return CheckoutSessionResponse(url=checkout["url"], checkout_id=checkout["id"])
+
+
+@router.get("/checkout-session/{checkout_id}", response_model=CheckoutStatusResponse)
+async def get_checkout_session_status(
+    checkout_id: str,
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Has the checkout finished turning into a live subscription yet?"""
+    live = await _existing_live_subscription(db, org_id)
+    if polar_service.is_live_polar(live) and live.status in (STATUS_ACTIVE, STATUS_PAST_DUE):
+        return CheckoutStatusResponse(status="active")
+
+    try:
+        checkout = await polar_service.get_polar_client().get_checkout(checkout_id)
+    except polar_service.PolarError as exc:
+        if exc.status_code == 404:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkout not found")
+        raise _polar_http_error(exc)
+    # Only ever describe this workspace's own checkouts.
+    if str((checkout.get("metadata") or {}).get("organization_id")) != str(org_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkout not found")
+
+    polar_status = checkout.get("status")
+    if polar_status in ("succeeded", "confirmed"):
+        return CheckoutStatusResponse(status="pending")
+    if polar_status in ("failed", "expired", "open"):
+        return CheckoutStatusResponse(status=polar_status)
+    return CheckoutStatusResponse(status="pending")
+
+
+@router.post("/portal", response_model=PortalResponse)
+async def create_billing_portal(
+    request: PortalRequest,
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """A link to the provider's billing portal: card, invoices, receipts.
+
+    Goes to the provider this subscription was created on, whichever provider
+    new checkouts currently use.
+    """
+    subscription = await _existing_live_subscription(db, org_id)
+    if subscription is None or not _is_provider_billed(subscription):
+        result = await db.execute(
+            select(Subscription)
+            .where(
+                Subscription.organization_id == org_id,
+                Subscription.source.in_(PROVIDER_SOURCES),
+            )
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
+        )
+        subscription = result.scalar_one_or_none()
+    if subscription is None or not _is_provider_billed(subscription):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This workspace has no payment account yet. Choose a plan first.",
+        )
+
+    return_url = _frontend_url(_safe_return_path(request.return_path, "/dashboard/settings/billing"))
+    if subscription.source == SOURCE_POLAR:
+        try:
+            url = await polar_service.portal_url(subscription, return_url)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+        return PortalResponse(url=url)
+
+    if not subscription.stripe_customer_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This workspace has no payment account yet.")
+    import asyncio
+    import stripe
+
+    await get_stripe_service()  # configures the SDK key; 503 when Stripe is gone
+    try:
+        session = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
+            customer=subscription.stripe_customer_id,
+            return_url=return_url,
+        )
+    except Exception as exc:
+        logger.warning("Stripe billing portal failed for org %s: %s", org_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The billing portal is not available right now. Please try again later.",
+        )
+    return PortalResponse(url=session.url)
+
+
+@public_router.post("/webhooks/polar", status_code=status.HTTP_200_OK)
+async def polar_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Apply a Polar webhook delivery.
+
+    Always processed, whichever provider is active for new checkouts: an
+    existing Polar subscription keeps renewing after a switch back to Stripe.
+    A non-2xx makes Polar retry (up to 10 times), so a failure here rolls the
+    whole delivery back and answers 500.
+    """
+    body = await request.body()
+    try:
+        payload = polar_service.verify_webhook(body, request.headers)
+    except polar_service.WebhookVerificationError as exc:
+        logger.warning("Rejected Polar webhook: %s", exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+
+    event_id = request.headers.get("webhook-id") or ""
+    try:
+        outcome = await polar_service.handle_webhook_event(db, event_id, payload)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Failed to process Polar webhook %s (%s): %s", event_id, payload.get("type"), exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to process webhook")
+
+    for organization_id in outcome.invalidate:
+        invalidate_entitlements(organization_id)
+    for email, plan_name in outcome.confirmations:
+        try:
+            import asyncio
+            from app.services.email.service import email_service
+
+            asyncio.create_task(
+                email_service.send_subscription_confirmation(
+                    to_email=email,
+                    plan_name=plan_name,
+                    action_url=_frontend_url("/dashboard/settings/billing"),
+                )
+            )
+        except Exception as exc:  # pragma: no cover - email is best effort
+            logger.error(f"Failed to send subscription confirmation email: {exc}")
+    return {"status": "success"}

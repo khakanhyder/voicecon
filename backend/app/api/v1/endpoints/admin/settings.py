@@ -20,6 +20,7 @@ from app.database import get_db
 from app.models.platform import PlatformSetting
 from app.models.user import User
 from app.services.admin.provider_checks import run_check
+from app.services.billing import providers
 
 from ._common import iso
 
@@ -84,6 +85,39 @@ async def _editors(db: AsyncSession, rows) -> Dict[Any, str]:
     return {uid: email for uid, email in result.all()}
 
 
+async def _guard_payment_provider(db: AsyncSession, key: str, new_value: Any) -> None:
+    """Keep checkout working across provider changes.
+
+    * Switching ``PAYMENT_PROVIDER`` is refused until the target provider has
+      every key it needs; otherwise every Upgrade button would start failing.
+    * Removing a key the *active* provider needs is refused for the same
+      reason: switch provider first, then remove it.
+
+    ``new_value`` is the value the key would have afterwards (``None`` = unset).
+    """
+    if key != "PAYMENT_PROVIDER" and not any(key in keys for keys in providers.REQUIRED_KEYS.values()):
+        return
+    await rs.refresh_quietly(db)
+    if key == "PAYMENT_PROVIDER":
+        target = str(new_value or "stripe").strip().lower()
+        problem = providers.problem(target)
+        if problem:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Can't switch payments to {providers.LABELS.get(target, target)} yet. {problem} Add the missing keys under {providers.LABELS.get(target, target)} first.",
+            )
+        return
+    active = providers.active_provider()
+    if key in providers.REQUIRED_KEYS[active] and new_value in (None, ""):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{providers.LABELS[active]} is the active payment provider and needs this key. "
+                "Switch the payment provider first, then remove it."
+            ),
+        )
+
+
 def _spec_or_404(key: str) -> rs.SettingSpec:
     spec = rs.SPEC_BY_KEY.get(key)
     if spec is None:
@@ -134,6 +168,7 @@ async def update_setting(
         value = rs.normalise(spec, payload.value)
     except rs.InvalidSettingValue as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.public_message)
+    await _guard_payment_provider(db, key, value)
 
     row = await db.get(PlatformSetting, key)
     previous_value = None if spec.is_secret else getattr(settings, key, None)
@@ -191,6 +226,7 @@ async def reset_setting(
     row = await db.get(PlatformSetting, key)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This setting has no dashboard value.")
+    await _guard_payment_provider(db, key, rs.baseline_value(key))
     await db.delete(row)
     audit(
         db,

@@ -290,7 +290,7 @@ class TestNoTrialsThroughThePaidEndpoint:
         with pytest.raises(HTTPException) as caught:
             # Refused before anything else is touched, so the remaining
             # dependencies are never used.
-            await create_subscription(request, None, None, None, None)
+            await create_subscription(request, None, None, None)
 
         assert caught.value.status_code == 400
         assert "/billing/trial" in caught.value.detail

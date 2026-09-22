@@ -108,6 +108,8 @@ def subscription_view(
         "cancel_at_period_end": sub.cancel_at_period_end,
         "stripe_customer_id": sub.stripe_customer_id,
         "stripe_subscription_id": sub.stripe_subscription_id,
+        "polar_customer_id": sub.polar_customer_id,
+        "polar_subscription_id": sub.polar_subscription_id,
         "usage": {
             "minutes": sub.current_period_minutes,
             "calls": sub.current_period_calls,

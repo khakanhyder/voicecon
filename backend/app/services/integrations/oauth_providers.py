@@ -12,6 +12,7 @@ are secrets and come only from the environment.
 """
 import os
 from typing import Dict, Any, Optional
+from urllib.parse import urljoin, urlparse
 
 from app.core.config import env_value
 
@@ -56,6 +57,14 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "scopes": ["api", "refresh_token"],
         "client_id_env": "SALESFORCE_CLIENT_ID",
         "client_secret_env": "SALESFORCE_CLIENT_SECRET",
+        # login.salesforce.com only works for an app any org can authorize. A
+        # Local External Client App (Salesforce's app type since Connected App
+        # creation was disabled) rejects it with OAUTH_AUTHORIZATION_BLOCKED
+        # "cross-org OAuth flows are not supported"; it has to be authorized on
+        # the My Domain host of the org that owns it. Sandboxes likewise need
+        # test.salesforce.com. SALESFORCE_LOGIN_URL swaps the host for both
+        # endpoints, e.g. https://example.my.salesforce.com.
+        "host_env": "SALESFORCE_LOGIN_URL",
     },
     "slack": {
         "authorize_url": "https://slack.com/oauth/v2/authorize",
@@ -106,6 +115,18 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _apply_host_override(url: Optional[str], host: Optional[str]) -> Optional[str]:
+    """Re-point ``url`` at ``host``, keeping the provider's documented path."""
+    if not url or not host:
+        return url
+    base = host.strip().rstrip("/")
+    if not base:
+        return url
+    if "://" not in base:
+        base = f"https://{base}"
+    return urljoin(base + "/", urlparse(url).path.lstrip("/"))
+
+
 def get_oauth_provider(slug: str) -> Optional[Dict[str, Any]]:
     """Return the OAuth config for a connector slug, or None if unregistered."""
     return OAUTH_PROVIDERS.get(slug)
@@ -144,9 +165,19 @@ def resolve_client_credentials(
     client_id = auth_config.get("client_id") or client_id
     client_secret = auth_config.get("client_secret") or client_secret
 
+    # A provider may allow the login host to be swapped (Salesforce My Domain /
+    # sandbox). An explicit auth_config URL still wins over it.
+    host = env_value(provider["host_env"]) if provider.get("host_env") else None
+    authorize_url = auth_config.get("authorize_url") or _apply_host_override(
+        provider.get("authorize_url"), host
+    )
+    token_url = auth_config.get("token_url") or _apply_host_override(
+        provider.get("token_url"), host
+    )
+
     return {
-        "authorize_url": auth_config.get("authorize_url") or provider.get("authorize_url"),
-        "token_url": auth_config.get("token_url") or provider.get("token_url"),
+        "authorize_url": authorize_url,
+        "token_url": token_url,
         "scopes": auth_config.get("scopes") or provider.get("scopes", []),
         "authorize_params": provider.get("authorize_params", {}),
         "token_style": auth_config.get("token_style") or provider.get("token_style") or "form",

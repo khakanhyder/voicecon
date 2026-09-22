@@ -102,7 +102,9 @@ GROUPS: Tuple[SettingGroup, ...] = (
     SettingGroup("deepgram", "Deepgram", "Speech-to-text for live calls and agent test sessions.", "mic", "deepgram", "https://console.deepgram.com/"),
     SettingGroup("elevenlabs", "ElevenLabs", "Text-to-speech voices for agents.", "audio", "elevenlabs", "https://elevenlabs.io/app/settings/api-keys"),
     SettingGroup("twilio", "Twilio", "Platform telephony account: number purchases, calls and webhook signatures.", "phone", "twilio", "https://console.twilio.com/"),
+    SettingGroup("payments", "Payment provider", "Which provider new checkouts use. Existing subscriptions stay with the provider they started on. Only a provider whose keys are set can be selected.", "wallet"),
     SettingGroup("stripe", "Stripe", "Subscriptions, checkout and billing webhooks.", "card", "stripe", "https://dashboard.stripe.com/apikeys"),
+    SettingGroup("polar", "Polar", "Merchant of Record: Polar hosts checkout, handles sales tax and holds the card relationship. Webhook URL: <API base URL>/api/v1/billing/webhooks/polar", "card", "polar", "https://polar.sh/docs/integrate/oat"),
     SettingGroup("email", "Email delivery", "How transactional email (verification codes, invites, billing notices) is sent.", "mail", "email"),
     SettingGroup("storage", "File storage (S3)", "Recordings, avatars and knowledge-base uploads.", "database", "storage"),
     SettingGroup("social_login", "Sign-in providers", "Google and Apple sign-in. The Google app is also used for Calendar, Sheets and Drive.", "key"),
@@ -128,6 +130,10 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("TWILIO_PHONE_NUMBER", "Default phone number", "twilio", placeholder="+15551234567"),
     _S("TWILIO_VALIDATE_WEBHOOKS", "Verify webhook signatures", "twilio", "bool", "Reject inbound Twilio webhooks without a valid signature. Keep on in production."),
     # Payments
+    _S("PAYMENT_PROVIDER", "Active provider", "payments", "choice", "stripe: card form inside the app. polar: Polar-hosted checkout, no Stripe keys needed.", choices=("stripe", "polar")),
+    _S("POLAR_ACCESS_TOKEN", "Organization access token", "polar", "secret", "Scopes: checkouts:write, subscriptions:read, subscriptions:write, customer_sessions:write, products:read, products:write, orders:read.", placeholder="polar_oat_..."),
+    _S("POLAR_WEBHOOK_SECRET", "Webhook signing secret", "polar", "secret", placeholder="whsec_..."),
+    _S("POLAR_SERVER", "Environment", "polar", "choice", "Sandbox and production use different tokens and products.", choices=("sandbox", "production")),
     _S("STRIPE_SECRET_KEY", "Secret key", "stripe", "secret", placeholder="sk_live_..."),
     _S("STRIPE_PUBLISHABLE_KEY", "Publishable key", "stripe", placeholder="pk_live_..."),
     _S("STRIPE_WEBHOOK_SECRET", "Webhook signing secret", "stripe", "secret", placeholder="whsec_..."),
@@ -162,6 +168,11 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("HUBSPOT_CLIENT_SECRET", "HubSpot client secret", "integration_apps", "secret"),
     _S("SALESFORCE_CLIENT_ID", "Salesforce client ID", "integration_apps"),
     _S("SALESFORCE_CLIENT_SECRET", "Salesforce client secret", "integration_apps", "secret"),
+    _S("SALESFORCE_LOGIN_URL", "Salesforce login URL", "integration_apps", "url",
+       "Leave empty for login.salesforce.com. Set the org's My Domain "
+       "(https://example.my.salesforce.com) when the Salesforce app is a Local "
+       "External Client App, or https://test.salesforce.com for a sandbox.",
+       placeholder="https://login.salesforce.com"),
     _S("SLACK_CLIENT_ID", "Slack client ID", "integration_apps"),
     _S("SLACK_CLIENT_SECRET", "Slack client secret", "integration_apps", "secret"),
     _S("NOTION_CLIENT_ID", "Notion client ID", "integration_apps"),

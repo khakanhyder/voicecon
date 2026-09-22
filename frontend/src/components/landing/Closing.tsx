@@ -1,6 +1,7 @@
-import { ArrowRight, Plus } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Accent, Logo, ROUTES, Section, SectionHeading, buttonClass } from './primitives'
 import { Reveal } from './Reveal'
+import { FaqList } from './FaqList'
 
 const FAQS = [
   {
@@ -70,17 +71,7 @@ export function Faq() {
           />
         </div>
         <Reveal className="divide-y divide-white/[0.08] rounded-3xl border border-white/[0.08] bg-white/[0.03]">
-          {FAQS.map((item) => (
-            <details key={item.q} className="group px-5 sm:px-7 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-lg py-5 text-left text-base font-semibold text-white outline-none transition-colors hover:text-brand-100 focus-visible:ring-2 focus-visible:ring-brand-200 sm:text-[17px]">
-                {item.q}
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/70 transition-transform duration-300 group-open:rotate-45 group-open:border-brand-300/50 group-open:text-brand-200">
-                  <Plus className="h-4 w-4" aria-hidden="true" />
-                </span>
-              </summary>
-              <p className="-mt-1 pb-5 pr-10 text-[15px] leading-relaxed text-white/65">{item.a}</p>
-            </details>
-          ))}
+          <FaqList items={FAQS} />
         </Reveal>
       </div>
     </Section>

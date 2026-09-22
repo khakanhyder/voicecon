@@ -42,6 +42,7 @@ NOTICE_SENT = "notice_sent"
 ACTOR_USER = "user"
 ACTOR_SYSTEM = "system"
 ACTOR_STRIPE = "stripe"
+ACTOR_POLAR = "polar"
 ACTOR_ADMIN = "admin"
 
 

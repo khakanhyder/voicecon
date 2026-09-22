@@ -119,6 +119,34 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
+    # Polar (Merchant of Record) — the alternative to Stripe. Polar hosts the
+    # checkout and owns the card relationship, so this app never holds a Stripe
+    # key when Polar is the active provider. The access token should be an
+    # organization access token with only the scopes billing needs.
+    POLAR_ACCESS_TOKEN: Optional[str] = None
+    POLAR_WEBHOOK_SECRET: Optional[str] = None
+    #: ``sandbox`` or ``production``. Tokens are per environment.
+    POLAR_SERVER: str = "sandbox"
+
+    #: Which provider new checkouts go through: ``stripe`` or ``polar``. An
+    #: existing subscription always stays with the provider it was created on.
+    PAYMENT_PROVIDER: str = "stripe"
+
+    @property
+    def polar_configured(self) -> bool:
+        return bool(self.POLAR_ACCESS_TOKEN) and "..." not in (self.POLAR_ACCESS_TOKEN or "")
+
+    @property
+    def polar_api_base(self) -> str:
+        if (self.POLAR_SERVER or "").strip().lower() == "production":
+            return "https://api.polar.sh"
+        return "https://sandbox-api.polar.sh"
+
+    @property
+    def payment_provider(self) -> str:
+        value = (self.PAYMENT_PROVIDER or "stripe").strip().lower()
+        return value if value in ("stripe", "polar") else "stripe"
+
     @property
     def stripe_secret_key(self) -> Optional[str]:
         """Resolve the Stripe secret key (prefers STRIPE_SECRET_KEY, falls back to legacy)."""

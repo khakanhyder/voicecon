@@ -63,6 +63,7 @@ def provider_summary() -> List[Dict[str, Any]]:
         "elevenlabs": ["ELEVENLABS_API_KEY"],
         "twilio": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"],
         "stripe": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+        "polar": ["POLAR_ACCESS_TOKEN", "POLAR_WEBHOOK_SECRET"],
         "email": [],
         "storage": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET"],
     }
@@ -75,9 +76,20 @@ def provider_summary() -> List[Dict[str, Any]]:
         elif group.id == "stripe":
             # Same test checkout applies: a placeholder key counts as missing.
             configured = settings.stripe_configured and bool(settings.STRIPE_WEBHOOK_SECRET)
+        elif group.id == "polar":
+            configured = settings.polar_configured and bool(settings.POLAR_WEBHOOK_SECRET)
         else:
             configured = all(getattr(settings, k, None) for k in required[group.id])
         out.append({"id": group.id, "label": group.label, "configured": configured})
+    # Only the provider taking new checkouts is a problem when unconfigured;
+    # the other one is optional. Mark it so the dashboard does not nag.
+    from app.services.billing import providers
+
+    active = providers.active_provider()
+    for entry in out:
+        if entry["id"] in providers.PROVIDERS:
+            entry["active_payment_provider"] = entry["id"] == active
+            entry["optional"] = entry["id"] != active
     return out
 
 
@@ -135,7 +147,7 @@ async def overview(
         view = subscription_view(sub, plans, now)
         status_counts[view["status"]] += 1
         plan = plans.get(sub.plan_id)
-        if plan and view["status"] in ("active", "past_due") and sub.source == "stripe":
+        if plan and view["status"] in ("active", "past_due") and sub.source in ("stripe", "polar"):
             if sub.billing_period == "yearly" and plan.price_yearly:
                 mrr += Decimal(plan.price_yearly) / 12
             else:
