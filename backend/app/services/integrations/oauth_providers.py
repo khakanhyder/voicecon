@@ -80,7 +80,8 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
     "slack": {
         "authorize_url": "https://slack.com/oauth/v2/authorize",
         "token_url": "https://slack.com/api/oauth.v2.access",
-        "scopes": ["chat:write", "channels:read"],
+        # users:read backs the connector's users.info / users.list actions.
+        "scopes": ["chat:write", "channels:read", "users:read"],
         "client_id_env": "SLACK_CLIENT_ID",
         "client_secret_env": "SLACK_CLIENT_SECRET",
     },
@@ -120,6 +121,12 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "authorize_url": "https://auth.monday.com/oauth2/authorize",
         "token_url": "https://auth.monday.com/oauth2/token",
         "scopes": ["boards:read", "boards:write"],
+        # Send no scope param: monday then grants every scope configured on the
+        # app. Other accounts authorize against the app's *live* version, while
+        # the developer's own account sees the draft — so an explicit list that
+        # names any scope the live version lacks fails with invalid_scope for
+        # everyone except the app owner.
+        "omit_scope": True,
         "client_id_env": "MONDAY_CLIENT_ID",
         "client_secret_env": "MONDAY_CLIENT_SECRET",
     },
@@ -193,6 +200,7 @@ def resolve_client_credentials(
         "authorize_url": authorize_url,
         "token_url": token_url,
         "scopes": auth_config.get("scopes") or provider.get("scopes", []),
+        "omit_scope": bool(provider.get("omit_scope")),
         "authorize_params": provider.get("authorize_params", {}),
         "token_style": auth_config.get("token_style") or provider.get("token_style") or "form",
         "client_id": client_id,

@@ -9,9 +9,9 @@ import { Pricing } from '@/components/landing/Pricing'
 import { Faq, FinalCta } from '@/components/landing/Closing'
 
 /**
- * The full marketing site. It used to be the root page; the root now serves the
- * coming-soon page, so this is its own URL (/landing-page) with the same
- * sections in the same order. The original src/app/page.tsx is left untouched.
+ * The full marketing site, same sections as src/app/page.tsx. The root serves
+ * it again (the coming-soon rewrite in middleware is commented out), so the
+ * canonical URL points at '/' to avoid duplicate-content indexing.
  */
 
 const TITLE = 'Voicecon: AI voice agents with no-code workflows'
@@ -22,10 +22,10 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://voicecon.ai'),
   title: TITLE,
   description: DESCRIPTION,
-  alternates: { canonical: '/landing-page' },
+  alternates: { canonical: '/' },
   openGraph: {
     type: 'website',
-    url: 'https://voicecon.ai/landing-page',
+    url: 'https://voicecon.ai/',
     siteName: 'Voicecon',
     title: TITLE,
     description: DESCRIPTION,
@@ -45,7 +45,7 @@ const structuredData = {
   name: 'Voicecon',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
-  url: 'https://voicecon.ai/landing-page',
+  url: 'https://voicecon.ai/',
   description: DESCRIPTION,
   offers: [
     { '@type': 'Offer', name: 'Sales Chatbot', price: '119', priceCurrency: 'USD' },

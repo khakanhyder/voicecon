@@ -233,8 +233,11 @@ class IntegrationManager:
                 user_id=user_id
             )
 
-            # Use the requested scopes, else the provider's defaults.
-            if not scopes:
+            # Use the requested scopes, else the provider's defaults. Providers
+            # flagged omit_scope get no scope param at all (see the registry).
+            if oauth["omit_scope"]:
+                scopes = None
+            elif not scopes:
                 scopes = oauth["scopes"]
 
             # Build authorization URL (provider-specific extra params, e.g. Google

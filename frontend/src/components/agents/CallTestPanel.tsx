@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
@@ -65,6 +66,8 @@ export function CallTestPanel({
   open: boolean
   onClose: () => void
 }) {
+  const [mounted,   setMounted]   = useState(false)
+  useEffect(() => { setMounted(true) }, [])
   const [callState, setCallState] = useState<CallState>('idle')
   const [messages,  setMessages]  = useState<Message[]>([])
   const [liveText,  setLiveText]  = useState('')
@@ -484,7 +487,12 @@ export function CallTestPanel({
   // Waveform bars driven by volume
   const bars = [0.4, 0.7, 1, 0.8, 0.5, 0.9, 0.6]
 
-  return (
+  // Portal to <body>: the dashboard layout has transformed/animated ancestors,
+  // which turn `position: fixed` into "relative to that ancestor" and clip the
+  // drawer's top. Rendering at the body keeps it truly full-viewport.
+  if (!mounted) return null
+
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -674,6 +682,7 @@ export function CallTestPanel({
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

@@ -203,7 +203,8 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
         {
           connector_id: connectorId,
           redirect_uri: redirectUri,
-          scopes: integration.scopes || [],
+          // No scopes: the backend's provider registry owns them, so they can't
+          // drift from what each provider's OAuth app is configured with.
         }
       )
       // Store context for the callback page (same redirect_uri is required when
