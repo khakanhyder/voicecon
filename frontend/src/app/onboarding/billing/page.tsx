@@ -355,14 +355,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
             aria-label="Country"
             className="h-12 rounded-lg border-white/20 bg-white/5 px-3 text-sm text-white transition-colors hover:border-white/35 hover:bg-white/10 focus:border-white/50 focus:ring-2 focus:ring-white/15 data-[state=open]:border-white/50 data-[state=open]:bg-white/10 [&>svg]:opacity-70"
           >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <span className="flex h-6 min-w-[1.75rem] flex-shrink-0 items-center justify-center rounded bg-white/15 px-1 text-[10px] font-bold tracking-wide text-white">
-                {country}
-              </span>
-              <span className="truncate">
-                <SelectValue />
-              </span>
-            </span>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-72 rounded-xl border-white/10 bg-[#15463f] text-white shadow-[0_18px_40px_-12px_rgba(0,0,0,0.55)]">
             <SelectGroup>
