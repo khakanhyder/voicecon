@@ -24,6 +24,10 @@ class HTTPRequestError(Exception):
     pass
 
 
+#: Methods that are safe to send twice.
+_IDEMPOTENT = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+
+
 class RateLimiter:
     """
     Token bucket rate limiter.
@@ -79,40 +83,26 @@ class RateLimiter:
         Raises:
             RateLimitExceeded: If rate limit exceeded and cannot wait
         """
-        async with self._lock:
-            now = time.time()
-
-            # Check each limit window
-            for window_name, limit_info in self.limits.items():
-                max_requests = limit_info["max"]
-                window_seconds = limit_info["window"]
-                requests = limit_info["requests"]
-
-                # Remove old requests outside window
-                cutoff = now - window_seconds
-                limit_info["requests"] = [
-                    req_time for req_time in requests if req_time > cutoff
-                ]
-
-                # Check if limit exceeded
-                if len(limit_info["requests"]) >= max_requests:
-                    # Calculate wait time
-                    oldest_request = min(limit_info["requests"])
-                    wait_time = (oldest_request + window_seconds) - now
-
-                    if wait_time > 0:
-                        logger.warning(
-                            f"Rate limit exceeded for {window_name}. "
-                            f"Waiting {wait_time:.2f} seconds"
-                        )
-                        await asyncio.sleep(wait_time)
-
-                        # Retry after waiting
-                        return await self.acquire()
-
-            # Add current request to all windows
-            for limit_info in self.limits.values():
-                limit_info["requests"].append(now)
+        # Waits happen *outside* the lock. This used to sleep inside it and
+        # then call itself, and an asyncio.Lock is not re-entrant, so the
+        # second acquire waited on itself forever: the first time a connector
+        # hit its rate limit, that request (and every later one) hung.
+        while True:
+            async with self._lock:
+                now = time.time()
+                wait_time = 0.0
+                for window_name, limit_info in self.limits.items():
+                    cutoff = now - limit_info["window"]
+                    limit_info["requests"] = [t for t in limit_info["requests"] if t > cutoff]
+                    if len(limit_info["requests"]) >= limit_info["max"]:
+                        oldest = min(limit_info["requests"])
+                        wait_time = max(wait_time, (oldest + limit_info["window"]) - now)
+                if wait_time <= 0:
+                    for limit_info in self.limits.values():
+                        limit_info["requests"].append(now)
+                    return
+            logger.warning(f"Rate limit reached. Waiting {wait_time:.2f} seconds")
+            await asyncio.sleep(wait_time)
 
     def get_remaining(self) -> Dict[str, int]:
         """
@@ -213,7 +203,9 @@ class IntegrationHTTPClient:
         """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout),
+                # A host that cannot be reached should fail in seconds, not
+                # after the full read timeout on every retry.
+                timeout=httpx.Timeout(self.timeout, connect=min(10.0, self.timeout)),
                 follow_redirects=True,
                 limits=httpx.Limits(
                     max_keepalive_connections=20,
@@ -302,6 +294,12 @@ class IntegrationHTTPClient:
 
         attempt = 0
         last_error = None
+        # POST/PATCH create or change something. If one times out or gets a 5xx
+        # the provider may already have done it, and repeating it duplicates the
+        # write (a second Sheets row, a second ticket). Those are retried only
+        # when the request certainly never arrived, or on 429, which means
+        # "not processed, slow down".
+        idempotent = method in _IDEMPOTENT
 
         while attempt <= self.retry_config.max_retries:
             try:
@@ -339,7 +337,9 @@ class IntegrationHTTPClient:
                     )
 
                 # Check if should retry based on status code
-                if response.status_code in self.retry_config.retry_on_status_codes:
+                if response.status_code in self.retry_config.retry_on_status_codes and (
+                    idempotent or response.status_code == 429
+                ):
                     if attempt < self.retry_config.max_retries:
                         logger.warning(
                             f"Got status {response.status_code}, will retry"
@@ -365,6 +365,12 @@ class IntegrationHTTPClient:
                 last_error = e
                 logger.warning(f"Request timeout (attempt {attempt + 1}): {e}")
 
+                never_sent = isinstance(e, (httpx.ConnectTimeout, httpx.PoolTimeout))
+                if not idempotent and not never_sent:
+                    raise HTTPRequestError(
+                        f"The request timed out. It may or may not have been applied by the "
+                        f"provider, so it was not repeated; check before trying again."
+                    )
                 if attempt < self.retry_config.max_retries:
                     await self._wait_with_backoff(attempt)
                     attempt += 1
@@ -380,6 +386,10 @@ class IntegrationHTTPClient:
                     raise HTTPRequestError(
                         f"HTTP {e.response.status_code}: {e.response.text}"
                     )
+                if not idempotent and e.response.status_code != 429:
+                    raise HTTPRequestError(
+                        f"HTTP {e.response.status_code}: {e.response.text[:500]}"
+                    )
 
                 if attempt < self.retry_config.max_retries:
                     await self._wait_with_backoff(attempt)
@@ -393,6 +403,8 @@ class IntegrationHTTPClient:
                 last_error = e
                 logger.error(f"HTTP error (attempt {attempt + 1}): {e}", exc_info=True)
 
+                if not idempotent and not isinstance(e, httpx.ConnectError):
+                    raise HTTPRequestError(f"Request failed: {e}")
                 if attempt < self.retry_config.max_retries:
                     await self._wait_with_backoff(attempt)
                     attempt += 1

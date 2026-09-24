@@ -363,6 +363,9 @@ class IntegrationManager:
             )
 
             if connection:
+                # Drop any personal token the connection was using before, so
+                # the new OAuth token is the only credential on it.
+                connection.api_key_encrypted = None
                 connection.access_token_encrypted = encrypted_tokens["access_token_encrypted"]
                 connection.refresh_token_encrypted = encrypted_tokens.get(
                     "refresh_token_encrypted"
@@ -371,6 +374,8 @@ class IntegrationManager:
                 connection.integration_metadata = {
                     "token_type": token_data.get("token_type", "Bearer")
                 }
+                if token_data.get("instance_url"):
+                    connection.config = _with_instance_url(getattr(connection, "config", None), token_data)
                 # Whatever went wrong before is fixed by definition — we just
                 # completed a fresh authorisation.
                 connection.status = "active"
@@ -400,6 +405,7 @@ class IntegrationManager:
                 refresh_token_encrypted=encrypted_tokens.get("refresh_token_encrypted"),
                 token_expires_at=token_expires_at,
                 integration_metadata={"token_type": token_data.get("token_type", "Bearer")},
+                config=_with_instance_url({}, token_data),
             )
 
             db.add(connection)
@@ -453,8 +459,14 @@ class IntegrationManager:
             IntegrationError: If connection creation fails
         """
         try:
-            # Verify connector uses API key auth
-            if connector.auth_type != "api_key":
+            # Verify connector uses API key auth, or is an OAuth connector that
+            # also takes a personal token (monday: no app install needed).
+            from app.services.integrations.oauth_providers import personal_token_config
+
+            personal_token = (
+                connector.auth_type == "oauth2" and personal_token_config(connector.slug) is not None
+            )
+            if connector.auth_type != "api_key" and not personal_token:
                 raise IntegrationError.public(f"{connector.name} does not connect with an API key.")
 
             # Encrypt API key
@@ -509,6 +521,12 @@ class IntegrationManager:
             if existing:
                 existing.api_key_encrypted = connection.api_key_encrypted
                 existing.auth_data_encrypted = connection.auth_data_encrypted
+                if personal_token:
+                    # Switching from OAuth: a stale OAuth token would win over
+                    # the new personal token (see ConnectorBase.uses_personal_token).
+                    existing.access_token_encrypted = None
+                    existing.refresh_token_encrypted = None
+                    existing.token_expires_at = None
                 existing.config = connection.config
                 existing.status = "active"
                 existing.is_active = True
@@ -798,7 +816,13 @@ class IntegrationManager:
             connection.refresh_token_encrypted = encrypted_tokens.get("refresh_token_encrypted")
             connection.token_expires_at = token_expires_at
             connection.updated_at = datetime.utcnow()
+            if token_data.get("instance_url"):
+                connection.config = _with_instance_url(getattr(connection, "config", None), token_data)
 
+            # Saving the new tokens writes the connection's row. If another
+            # transaction holds that row, wait a few seconds rather than hang
+            # the action (and the call) indefinitely.
+            await _limit_lock_wait(db)
             await db.commit()
 
             logger.info(f"Token refreshed for connection: {connection.id}")
@@ -832,6 +856,13 @@ class IntegrationManager:
 
         except Exception as e:
             logger.error(f"Failed to refresh token: {e}", exc_info=True)
+            # A failed commit leaves the session's transaction open, holding any
+            # row locks it took, which is how one stuck call blocked every later
+            # action on the same connection. Release them.
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
             raise IntegrationError(f"Token refresh failed: {str(e)}")
 
     async def disconnect_integration(
@@ -853,6 +884,33 @@ class IntegrationManager:
         await db.commit()
 
         logger.info(f"Integration disconnected: {connection.id}")
+
+
+def _with_instance_url(config: Optional[Dict[str, Any]], token_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the per-account API host a provider returns with its tokens.
+
+    Salesforce answers the token request with ``instance_url``, the org's own
+    host (``https://acme.my.salesforce.com``). Every API call must go there; the
+    connector row's ``https://api.salesforce.com`` is not an API host at all, so
+    without this every Salesforce action returned 404. ``resolve_base_url``
+    reads ``config["base_url"]``.
+    """
+    updated = dict(config or {})
+    instance = token_data.get("instance_url")
+    if isinstance(instance, str) and instance.startswith("https://"):
+        updated["base_url"] = instance.rstrip("/")
+    return updated
+
+
+async def _limit_lock_wait(db: AsyncSession, seconds: int = 5) -> None:
+    """Make this transaction give up on a locked row after ``seconds``
+    instead of waiting forever. PostgreSQL only; a no-op elsewhere."""
+    bind = getattr(db, "bind", None)
+    if bind is None or bind.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text
+
+    await db.execute(text(f"SET LOCAL lock_timeout = '{int(seconds)}s'"))
 
 
 # Global integration manager instance

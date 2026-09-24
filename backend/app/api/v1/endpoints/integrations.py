@@ -538,8 +538,25 @@ async def create_connection(
 
         manager = get_integration_manager()
 
-        # Handle based on auth type
-        if connector.auth_type == "oauth2":
+        # Handle based on auth type. An OAuth connector that also takes a
+        # personal token (monday) goes the API key way when one is supplied.
+        from app.services.integrations.oauth_providers import personal_token_config
+
+        if (
+            connector.auth_type == "oauth2"
+            and connection_data.api_key_auth
+            and personal_token_config(connector.slug) is not None
+        ):
+            connection = await manager.connect_with_api_key(
+                connector=connector,
+                api_key=connection_data.api_key_auth.api_key.strip(),
+                user_id=str(current_user.id),
+                organization_id=org_id,
+                db=db,
+                connection_name=connection_data.name,
+            )
+
+        elif connector.auth_type == "oauth2":
             # OAuth2 requires callback flow
             if not connection_data.oauth2_auth:
                 raise HTTPException(

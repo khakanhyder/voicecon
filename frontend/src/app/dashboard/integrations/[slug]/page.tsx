@@ -290,6 +290,15 @@ const integrationData: Record<string, any> = {
     scopes: ['boards:read', 'boards:write'],
     oauthUrl: 'https://auth.monday.com/oauth2/authorize',
     setupSteps: ['Click "Connect with Monday.com"', 'Select your workspace', 'Grant board permissions', 'Choose default boards'],
+    personalToken: {
+      label: 'monday API token',
+      url: 'https://auth.monday.com/login',
+      steps: [
+        'In monday.com, click your profile picture (top right) and choose Developers',
+        'Open "My access tokens" and click Show, then Copy',
+        'Paste the token below',
+      ],
+    },
   },
   // Phone Providers
   telnyx: {

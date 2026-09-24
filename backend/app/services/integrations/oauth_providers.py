@@ -127,6 +127,12 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         # names any scope the live version lacks fails with invalid_scope for
         # everyone except the app owner.
         "omit_scope": True,
+        # monday only issues OAuth tokens to an app installed in the user's
+        # account, and many accounts let only admins install apps. A personal
+        # API token (avatar → Developers → My access tokens) needs no install,
+        # so it is offered as a second way in. It is sent as the bare
+        # Authorization value, the form monday documents for personal tokens.
+        "personal_token": {"header": "Authorization", "format": "{token}"},
         "client_id_env": "MONDAY_CLIENT_ID",
         "client_secret_env": "MONDAY_CLIENT_SECRET",
     },
@@ -143,6 +149,11 @@ def _apply_host_override(url: Optional[str], host: Optional[str]) -> Optional[st
     if "://" not in base:
         base = f"https://{base}"
     return urljoin(base + "/", urlparse(url).path.lstrip("/"))
+
+
+def personal_token_config(slug: str) -> Optional[Dict[str, str]]:
+    """How an OAuth connector sends a pasted personal token, or None if it takes none."""
+    return OAUTH_PROVIDERS.get(slug, {}).get("personal_token")
 
 
 def get_oauth_provider(slug: str) -> Optional[Dict[str, Any]]:

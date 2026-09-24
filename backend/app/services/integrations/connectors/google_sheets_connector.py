@@ -33,16 +33,31 @@ class GoogleSheetsConnector(BaseConnector):
     - update_row / upsert_row / delete_row
     """
     async def test_connection(self) -> Dict[str, Any]:
+        """Check the token against the Sheets API itself.
+
+        This used to call Google's userinfo endpoint, which needs the email
+        scope. Sheets connects with only the spreadsheets scope, so Google
+        answered "Request is missing required authentication credential" and
+        the Test button always failed, even while every real Sheets action
+        worked. A spreadsheet that does not exist answers 404 to a valid token
+        and 401/403 to a bad one, which is exactly the question being asked.
+        """
         try:
-            # We must use Google Drive API to verify user profile, or standard Sheets endpoint
-            res = await self.get("https://www.googleapis.com/oauth2/v1/userinfo", params={"alt": "json"})
-            return {
-                "success": True,
-                "message": "Google Sheets connection successful",
-                "details": {"email": res.get("email")},
-            }
+            await self.get("/v4/spreadsheets/voicecon-connection-check", params={"fields": "spreadsheetId"})
         except Exception as e:
+            text = str(e)
+            if "HTTP 404" in text:
+                return {
+                    "success": True,
+                    "message": "Google Sheets connection successful",
+                    "details": {"api": "sheets.googleapis.com"},
+                }
+            if "HTTP 403" in text and "SERVICE_DISABLED" in text:
+                return {"success": False, "details": {},
+                        "message": "The Google Sheets API is not enabled for this app's Google Cloud project."}
             return {"success": False, "message": f"Connection test failed: {e}", "details": {}}
+        # A spreadsheet with that id exists and is readable: the token works too.
+        return {"success": True, "message": "Google Sheets connection successful", "details": {}}
 
     async def get_spreadsheet(self, spreadsheet_id: str) -> Dict[str, Any]:
         try:

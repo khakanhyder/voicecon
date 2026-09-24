@@ -30,6 +30,7 @@ they skip the confirm and opt-in rules but are audited the same way.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Dict, Optional
@@ -57,6 +58,11 @@ SOURCE_WORKFLOW = "workflow"
 
 #: The argument an agent must set to true on an update or delete.
 CONFIRM_KEY = "confirmed"
+
+#: Longest one action may take, lookup-before-change included. An agent is on a
+#: live call; a stuck provider or database must end in a sentence it can say,
+#: not a silence that outlasts the caller's patience.
+ACTION_TIMEOUT_SECONDS = 60
 
 
 class IntegrationActionError(Exception):
@@ -232,11 +238,20 @@ async def run_integration_action(
         method = getattr(instance, action)
         params = drop_unsupported_arguments(method, params, context=f"{slug}.{action}")
 
-        before = await _snapshot(instance, action_def, params) if changes_data else None
+        label = action_def.get("label") or action
+        try:
+            async with asyncio.timeout(ACTION_TIMEOUT_SECONDS):
+                before = await _snapshot(instance, action_def, params) if changes_data else None
+        except TimeoutError:
+            raise _too_slow(label, writes=False)
         _check_scope(action_def, scopes, expected_scope, before)
 
         try:
-            result = await method(**params)
+            try:
+                async with asyncio.timeout(ACTION_TIMEOUT_SECONDS):
+                    result = await method(**params)
+            except TimeoutError:
+                raise _too_slow(label, writes=operation != "read")
         except Exception as exc:
             if changes_data:
                 await _audit(
@@ -260,6 +275,18 @@ async def run_integration_action(
                 await close()
             except Exception:  # noqa: BLE001 - cleanup must not mask the result
                 pass
+
+
+def _too_slow(label: str, writes: bool) -> IntegrationActionError:
+    """What the agent hears when an action runs past ``ACTION_TIMEOUT_SECONDS``."""
+    tail = (
+        " It may still have gone through, so check the app before trying again."
+        if writes
+        else " Try again in a moment."
+    )
+    return IntegrationActionError(
+        f"'{label}' took longer than {ACTION_TIMEOUT_SECONDS} seconds and was stopped.{tail}"
+    )
 
 
 def _dig(record: Optional[Dict[str, Any]], path: str) -> Any:

@@ -3,6 +3,7 @@ Base Connector Class.
 
 Abstract base class for all integration connectors.
 """
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
@@ -20,6 +21,10 @@ from app.services.integrations.http_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Longest a connection's bookkeeping (last used, error count, request log) may
+#: wait. It is best-effort and must never hold up the action it describes.
+BOOKKEEPING_TIMEOUT = 3.0
 
 
 class ConnectorError(Exception):
@@ -135,6 +140,12 @@ class BaseConnector(ABC):
             ConnectorError: If token cannot be retrieved
         """
         try:
+            # An OAuth connector connected with a pasted personal token instead
+            if self.uses_personal_token():
+                return self.credential_manager.decrypt(
+                    self.connection.api_key_encrypted
+                )
+
             # Check if OAuth2
             if self.connector.auth_type == "oauth2":
                 # Check if token expired
@@ -168,6 +179,22 @@ class BaseConnector(ABC):
             logger.error(f"Failed to get access token: {e}", exc_info=True)
             raise ConnectorError(f"Failed to get access token: {str(e)}")
 
+    def uses_personal_token(self) -> bool:
+        """True for an OAuth connector connected with a personal token instead.
+
+        Such a connection holds the token in ``api_key_encrypted`` and has no
+        OAuth access token; connecting one way clears the other's credentials.
+        """
+        if self.connector.auth_type != "oauth2":
+            return False
+        if not getattr(self.connection, "api_key_encrypted", None):
+            return False
+        if getattr(self.connection, "access_token_encrypted", None):
+            return False
+        from app.services.integrations.oauth_providers import personal_token_config
+
+        return personal_token_config(self.connector.slug) is not None
+
     def get_auth_data(self) -> Dict[str, Any]:
         """
         Return the connection's decrypted additional auth fields (the
@@ -193,7 +220,7 @@ class BaseConnector(ABC):
         Raises:
             ConnectorError: If token refresh fails
         """
-        if self.connector.auth_type != "oauth2":
+        if self.connector.auth_type != "oauth2" or self.uses_personal_token():
             return
 
         try:
@@ -227,6 +254,15 @@ class BaseConnector(ABC):
             Headers dictionary
         """
         auth_config = self.connector.auth_config or {}
+
+        if self.uses_personal_token():
+            from app.services.integrations.oauth_providers import personal_token_config
+
+            token_cfg = personal_token_config(self.connector.slug) or {}
+            return {
+                token_cfg.get("header", "Authorization"):
+                    token_cfg.get("format", "Bearer {token}").format(token=access_token)
+            }
 
         # OAuth2 / Bearer token
         if self.connector.auth_type == "oauth2":
@@ -356,14 +392,7 @@ class BaseConnector(ABC):
             # because the guard below skips the connect flow, whose connection
             # is still transient — so connecting worked and everything
             # afterwards failed, which reads exactly like a bad credential.
-            if getattr(self.connection, "id", None) is not None:
-                try:
-                    self.connection.last_sync_at = datetime.utcnow()
-                    await self.db.commit()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        f"Could not record use of connection {self.connection.id}: {exc}"
-                    )
+            await self._record_connection_state(last_sync_at=datetime.utcnow())
 
             return response_data
 
@@ -382,11 +411,10 @@ class BaseConnector(ABC):
             )
 
             # Update connection error count (persisted connections only)
-            if getattr(self.connection, "id", None) is not None:
-                self.connection.error_count = (self.connection.error_count or 0) + 1
-                self.connection.last_error = str(e)
-                self.connection.last_error_at = datetime.utcnow()
-                await self.db.commit()
+            await self._record_connection_state(
+                error_count=(getattr(self.connection, "error_count", None) or 0) + 1,
+                last_error=str(e)[:2000],
+            )
 
             logger.error(f"Request failed: {e}", exc_info=True)
             raise ConnectorError(f"Request failed: {str(e)}")
@@ -454,11 +482,77 @@ class BaseConnector(ABC):
                 error_message=error_message,
             )
 
-            self.db.add(log)
-            await self.db.commit()
+            async def add_log(side) -> None:
+                side.add(log)
 
+            await self._bookkeeping(add_log, what="log the request")
         except Exception as e:
             logger.error(f"Failed to log request: {e}", exc_info=True)
+
+    # ------------------------------------------------------------ bookkeeping
+    #
+    # "Last used", the error count and the request log are written in a short
+    # session of their own, with a lock timeout and an overall time limit.
+    #
+    # They used to go through the caller's session: set the attribute, commit.
+    # That made every action wait on the connection's row. When any other
+    # transaction held that row (a call whose session had not finished, or a
+    # commit that failed and was never rolled back, leaving its lock in place),
+    # the next action on the same connection hung indefinitely. The request to
+    # the provider had already returned; the hang was the UPDATE behind it. It
+    # looked like "Google Sheets is broken" while Calendar, a different row,
+    # kept working. Losing a "last used" timestamp is harmless; hanging a call
+    # is not.
+
+    def _bind(self):
+        return getattr(self.db, "bind", None) if self.db is not None else None
+
+    async def _bookkeeping(self, apply, what: str) -> None:
+        """Run ``apply(side_session)`` and commit it, never blocking the caller."""
+        bind = self._bind()
+        if bind is None:
+            return
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+
+        async def write() -> None:
+            async with _AsyncSession(bind=bind, expire_on_commit=False) as side:
+                if bind.dialect.name == "postgresql":
+                    await side.execute(text("SET LOCAL lock_timeout = '2s'"))
+                await apply(side)
+                await side.commit()
+
+        try:
+            await asyncio.wait_for(write(), timeout=BOOKKEEPING_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping is best-effort
+            logger.warning(
+                f"Skipped: could not {what} for connection "
+                f"{getattr(self.connection, 'id', None)}: {exc!r}"
+            )
+
+    async def _record_connection_state(self, **fields: Any) -> None:
+        """Save "last used" / error details on the connection, best-effort."""
+        connection_id = getattr(self.connection, "id", None)
+        if connection_id is None:
+            return  # the connect flow validates a connection before it is saved
+        from sqlalchemy import update
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        async def apply(side) -> None:
+            await side.execute(
+                update(IntegrationConnection)
+                .where(IntegrationConnection.id == connection_id)
+                .values(**fields)
+            )
+
+        await self._bookkeeping(apply, what="record connection use")
+        # Keep the caller's copy in step without marking it dirty, so its own
+        # next commit does not write (and wait on) the same row again.
+        for key, value in fields.items():
+            try:
+                set_committed_value(self.connection, key, value)
+            except Exception:  # noqa: BLE001 - transient/unmapped objects
+                pass
 
     @abstractmethod
     async def test_connection(self) -> Dict[str, Any]:

@@ -22,6 +22,12 @@ def _soql_escape(value: str) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
+#: Where a Salesforce token can tell us which org host it belongs to.
+_LOGIN_HOSTS = ("https://login.salesforce.com", "https://test.salesforce.com")
+#: The connector row's base URL, which is not a Salesforce API host.
+_PLACEHOLDER_HOSTS = ("https://api.salesforce.com", "")
+
+
 class SalesforceConnector(BaseConnector):
     """
     Salesforce CRM connector.
@@ -33,6 +39,64 @@ class SalesforceConnector(BaseConnector):
     - Search records
     - Query with SOQL
     """
+
+    async def make_request(self, method: str, endpoint: str, **kwargs):
+        """Send every call to the org's own host.
+
+        Connections made before the instance URL was saved carry only the
+        placeholder host. For those, the host is looked up once from the
+        token's userinfo and saved on the connection.
+        """
+        if not endpoint.startswith("http") and (self.http_client.base_url or "") in _PLACEHOLDER_HOSTS:
+            await self._discover_instance()
+        return await super().make_request(method, endpoint, **kwargs)
+
+    async def _discover_instance(self) -> None:
+        last_error: Optional[Exception] = None
+        for host in _LOGIN_HOSTS:
+            try:
+                info = await super().make_request("GET", f"{host}/services/oauth2/userinfo")
+            except Exception as exc:  # noqa: BLE001 - try the sandbox login host next
+                last_error = exc
+                continue
+            urls = info.get("urls") or {}
+            instance = urls.get("custom_domain") or ""
+            if not instance and urls.get("rest"):
+                from urllib.parse import urlsplit
+
+                parts = urlsplit(urls["rest"])
+                instance = f"{parts.scheme}://{parts.netloc}"
+            if instance.startswith("https://"):
+                instance = instance.rstrip("/")
+                self.http_client.base_url = instance
+                await self._remember_instance(instance)
+                return
+        raise ConnectorError(
+            "Could not find this Salesforce account's server address. Reconnect Salesforce "
+            f"on the Integrations page. ({last_error})"
+        )
+
+    async def _remember_instance(self, instance: str) -> None:
+        """Save the host so the lookup happens once per connection."""
+        connection_id = getattr(self.connection, "id", None)
+        config = dict(getattr(self.connection, "config", None) or {})
+        config["base_url"] = instance
+        if connection_id is None:
+            return
+        from sqlalchemy import update
+        from sqlalchemy.orm.attributes import set_committed_value
+        from app.models.integration import IntegrationConnection
+
+        async def apply(side) -> None:
+            await side.execute(
+                update(IntegrationConnection).where(IntegrationConnection.id == connection_id).values(config=config)
+            )
+
+        await self._bookkeeping(apply, what="save the Salesforce instance URL")
+        try:
+            set_committed_value(self.connection, "config", config)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def test_connection(self) -> Dict[str, Any]:
         """

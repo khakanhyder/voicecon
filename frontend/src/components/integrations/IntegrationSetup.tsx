@@ -26,6 +26,12 @@ interface IntegrationSetupProps {
     oauthUrl?: string
     setupSteps: string[]
     apiKeyFields?: Array<{ name: string; label: string; type: string; required: boolean }>
+    /**
+     * An OAuth integration that also accepts a personal API token (monday:
+     * OAuth needs the app installed in the user's account, a token does not).
+     * The backend decides whether a slug takes one; this only shows the form.
+     */
+    personalToken?: { label: string; steps: string[]; url?: string }
   }
   connectorId?: string        // backend UUID of the IntegrationConnector row
   existingConnectionId?: string
@@ -111,6 +117,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
   const [status, setStatus] = useState<ConnectionStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({})
+  const [personalToken, setPersonalToken] = useState('')
   const [testResults, setTestResults] = useState<{
     passed: boolean
     message: string
@@ -271,6 +278,41 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
     }
   }
 
+  // ── Personal token (an OAuth integration connected without its app) ─────
+  const handlePersonalTokenConnect = async () => {
+    setError(null)
+    if (!personalToken.trim()) {
+      setError(`Paste your ${integration.personalToken?.label ?? 'API token'} first.`)
+      setStatus('error')
+      return
+    }
+    if (!connectorId) {
+      setError('Integration connector not found. Please refresh and try again.')
+      setStatus('error')
+      return
+    }
+    setStatus('connecting')
+    try {
+      const res = await apiClient.post<{ id: string }>(API_ENDPOINTS.INTEGRATION_CONNECTIONS, {
+        connector_id: connectorId,
+        name: `${integration.name} Connection`,
+        api_key_auth: { api_key: personalToken.trim(), additional_fields: {} },
+      })
+      setPersonalToken('')
+      setStatus('success')
+      setTestResults({
+        passed: true,
+        message: 'Connection successful!',
+        details: ['API token validated', 'Connection stored securely', 'Ready to use'],
+      })
+      onConnected?.(res.data.id)
+      toast.success(`${integration.name} connected successfully`)
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setStatus('error')
+    }
+  }
+
   // ── Test connection ──────────────────────────────────────────────────────
   const handleTestConnection = async () => {
     if (!existingConnectionId || existingConnectionId === 'simulated') {
@@ -383,6 +425,66 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
       </Alert>
     </div>
   )
+
+  const renderPersonalTokenSetup = () => {
+    const option = integration.personalToken
+    if (!option) return null
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Key className="w-5 h-5 text-blue-600" />
+          <h3 className="text-lg font-semibold text-gray-900">Or connect with an API token</h3>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          No app to install. Use this if your {integration.name} account doesn&apos;t let you
+          install apps.
+        </p>
+        <ol className="space-y-2 mb-4">
+          {option.steps.map((step, idx) => (
+            <li key={idx} className="flex items-start gap-3 text-sm text-gray-700">
+              <div className="flex items-center justify-center w-6 h-6 bg-blue-100 text-blue-700 rounded-full text-xs font-medium flex-shrink-0">
+                {idx + 1}
+              </div>
+              <span className="pt-0.5">{step}</span>
+            </li>
+          ))}
+        </ol>
+        {option.url && (
+          <a
+            href={option.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[#0F6A59] hover:underline"
+          >
+            Open {integration.name} <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+        <Label htmlFor="personal_token" className="text-[14px] font-bold text-[#000000] font-poppins block mb-1">
+          {option.label}
+        </Label>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Input
+            id="personal_token"
+            type="password"
+            autoComplete="off"
+            value={personalToken}
+            onChange={(e) => setPersonalToken(e.target.value)}
+            placeholder={`Paste your ${option.label.toLowerCase()}`}
+            className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3 text-[14px]"
+          />
+          <Button
+            onClick={handlePersonalTokenConnect}
+            disabled={status === 'connecting' || status === 'testing'}
+            variant="outline"
+            className="h-[45px] flex-shrink-0 gap-2"
+          >
+            {status === 'connecting' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+            Connect with token
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   const renderApiKeySetup = () => (
     <div className="space-y-6">
@@ -519,6 +621,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
       {status !== 'success' && (
         <>
           {integration.authType === 'oauth2' && renderOAuthSetup()}
+          {integration.authType === 'oauth2' && !isConnected && renderPersonalTokenSetup()}
           {integration.authType === 'api_key' && renderApiKeySetup()}
 
           <div className="flex gap-3">
