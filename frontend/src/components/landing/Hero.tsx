@@ -3,9 +3,8 @@ import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { Accent, ROUTES, buttonClass } from './primitives'
 import { AppFrame, CallDetailScreen } from './mockups'
 
-const TRUST = ['30-day free trial', 'No credit card required', 'Live on a real phone number']
-
-export function Hero() {
+export function Hero({ trialDays }: { trialDays: number }) {
+  const trust = [`${trialDays}-day free trial`, 'No credit card required', 'Live on a real phone number']
   return (
     <section
       id="top"
@@ -44,7 +43,7 @@ export function Hero() {
         </div>
 
         <ul className="mt-7 flex animate-rise-in flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/60 [animation-delay:220ms]">
-          {TRUST.map((item) => (
+          {trust.map((item) => (
             <li key={item} className="flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-brand-300" aria-hidden="true" />
               {item}

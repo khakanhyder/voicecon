@@ -5,65 +5,57 @@ import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Accent, ROUTES, Section, SectionHeading, buttonClass } from './primitives'
 import { Reveal } from './Reveal'
-
-/**
- * Mirrors the plans seeded in backend/app/services/billing/seed_plans.py and
- * the 30-day trial. Keep these in step when plan prices or limits change.
- */
-const PLANS = [
-  {
-    name: 'Free trial',
-    monthly: 0,
-    yearly: 0,
-    blurb: 'Build and test a working agent before you pay.',
-    cta: 'Start free trial',
-    features: [
-      '30 days, no credit card required',
-      '1 agent, 1 knowledge base, 2 workflows',
-      'Up to 2 team members',
-      'Unlimited test calls and minutes',
-      'Every agent and workflow template',
-    ],
-  },
-  {
-    name: 'Sales Chatbot',
-    monthly: 119,
-    yearly: 1071,
-    blurb: 'For a team putting its first agents on the phone.',
-    cta: 'Get started',
-    featured: false,
-    features: [
-      'Up to 10 agents, phone numbers and workflows',
-      '10 knowledge bases and 10 team members',
-      'Inbound and outbound calls',
-      'Unlimited calls & minutes, 600 texts and 2,500 emails a month',
-      'CRM integrations, workflows and webhooks',
-      'Call recordings and analytics',
-    ],
-  },
-  {
-    name: 'Voice AI',
-    monthly: 359,
-    yearly: 3231,
-    blurb: 'For businesses running many agents across several teams.',
-    cta: 'Get started',
-    featured: true,
-    features: [
-      'Everything in Sales Chatbot',
-      'Up to 30 agents, phone numbers and workflows',
-      '30 knowledge bases and 30 team members',
-      'Scheduled workflows (hourly, daily, cron)',
-      'Unlimited calls & minutes, 1,000 texts and 5,000 emails a month',
-      'Up to 200 API keys',
-    ],
-  },
-]
+import {
+  type PricingData,
+  paymentProviderName,
+  planBullets,
+  trialBullets,
+  yearlySavingPercent,
+} from '@/lib/pricing'
 
 const usd = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })
 
-export function Pricing() {
+interface Card {
+  name: string
+  monthly: number
+  yearly: number | null
+  blurb: string
+  cta: string
+  featured?: boolean
+  isTrial?: boolean
+  features: string[]
+}
+
+/** Plans, prices and limits come from the admin console via `getPricing`. */
+export function Pricing({ pricing }: { pricing: PricingData }) {
   const [yearly, setYearly] = useState(false)
+  const { plans, trial } = pricing
+  const saving = yearlySavingPercent(plans)
+  const offersYearly = plans.some((p) => p.price_yearly)
+  const provider = paymentProviderName(trial.payment_provider)
+
+  const cards: Card[] = [
+    {
+      name: 'Free trial',
+      monthly: 0,
+      yearly: 0,
+      blurb: 'Build and test a working agent before you pay.',
+      cta: 'Start free trial',
+      isTrial: true,
+      features: trialBullets(trial),
+    },
+    ...plans.map((plan, i) => ({
+      name: plan.name,
+      monthly: plan.price_monthly,
+      yearly: plan.price_yearly,
+      blurb: plan.description || '',
+      cta: 'Get started',
+      // The top plan is the one with everything in it.
+      featured: plans.length > 1 && i === plans.length - 1,
+      features: planBullets(plan, plans[i - 1]),
+    })),
+  ]
 
   return (
     <Section id="pricing" labelledBy="pricing-title">
@@ -75,45 +67,49 @@ export function Pricing() {
             Simple plans that <Accent>grow with you</Accent>
           </>
         }
-        description="Start free for 30 days. Choose a plan when you are ready to go live."
+        description={`Start free for ${trial.days} days. Choose a plan when you are ready to go live.`}
       />
 
-      <Reveal className="mt-10 flex justify-center">
-        <div role="radiogroup" aria-label="Billing period" className="inline-flex rounded-full border border-white/10 bg-white/[0.04] p-1">
-          {[
-            { value: false, label: 'Monthly' },
-            { value: true, label: 'Yearly' },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              role="radio"
-              aria-checked={yearly === opt.value}
-              onClick={() => setYearly(opt.value)}
-              className={cn(
-                'flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200',
-                yearly === opt.value ? 'bg-white text-[#10302f]' : 'text-white/70 hover:text-white'
-              )}
-            >
-              {opt.label}
-              {opt.value && (
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-[11px] font-bold',
-                    yearly ? 'bg-brand-500 text-white' : 'bg-brand-500/20 text-brand-200'
-                  )}
-                >
-                  Save 25%
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </Reveal>
+      {offersYearly && (
+        <Reveal className="mt-10 flex justify-center">
+          <div role="radiogroup" aria-label="Billing period" className="inline-flex rounded-full border border-white/10 bg-white/[0.04] p-1">
+            {[
+              { value: false, label: 'Monthly' },
+              { value: true, label: 'Yearly' },
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                role="radio"
+                aria-checked={yearly === opt.value}
+                onClick={() => setYearly(opt.value)}
+                className={cn(
+                  'flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200',
+                  yearly === opt.value ? 'bg-white text-[#10302f]' : 'text-white/70 hover:text-white'
+                )}
+              >
+                {opt.label}
+                {opt.value && saving > 0 && (
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-[11px] font-bold',
+                      yearly ? 'bg-brand-500 text-white' : 'bg-brand-500/20 text-brand-200'
+                    )}
+                  >
+                    Save {saving}%
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </Reveal>
+      )}
 
-      <div className="mt-10 grid items-stretch gap-5 lg:grid-cols-3">
-        {PLANS.map((plan, i) => {
-          const perMonth = yearly ? plan.yearly / 12 : plan.monthly
+      <div className={cn('mt-10 grid items-stretch gap-5', cards.length === 2 ? 'lg:grid-cols-2' : cards.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-3')}>
+        {cards.map((plan, i) => {
+          // A plan with no yearly price keeps its monthly price on the yearly tab.
+          const billedYearly = yearly && !!plan.yearly
+          const perMonth = billedYearly ? plan.yearly! / 12 : plan.monthly
           return (
             <Reveal key={plan.name} delay={i * 90}>
               <div
@@ -135,10 +131,10 @@ export function Pricing() {
                   <span className="text-[2.75rem] font-bold leading-none tracking-[-0.02em] text-white">
                     ${usd(perMonth)}
                   </span>
-                  <span className="pb-1 text-sm text-white/55">{plan.monthly ? '/ month' : 'for 30 days'}</span>
+                  <span className="pb-1 text-sm text-white/55">{plan.isTrial ? `for ${trial.days} days` : '/ month'}</span>
                 </p>
                 <p className="mt-2 h-5 text-xs text-white/50" aria-live="polite">
-                  {plan.monthly ? (yearly ? `$${usd(plan.yearly)} billed yearly` : 'Billed monthly') : ''}
+                  {plan.isTrial ? '' : billedYearly ? `$${usd(plan.yearly!)} billed yearly` : 'Billed monthly'}
                 </p>
                 <a
                   href={ROUTES.register}
@@ -160,7 +156,7 @@ export function Pricing() {
         })}
       </div>
       <p className="mt-8 text-center text-sm text-white/50">
-        Prices in USD. Secure checkout by Stripe, and promo codes are applied at checkout.
+        Prices in USD. Secure checkout{provider ? ` by ${provider}` : ''}, and promo codes are applied at checkout.
       </p>
     </Section>
   )

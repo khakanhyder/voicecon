@@ -2,8 +2,11 @@ import { ArrowRight } from 'lucide-react'
 import { Accent, Logo, ROUTES, Section, SectionHeading, buttonClass } from './primitives'
 import { Reveal } from './Reveal'
 import { FaqList } from './FaqList'
+import { type TrialOffer, trialLimitsSentence } from '@/lib/pricing'
 
-const FAQS = [
+function faqs(trial: TrialOffer) {
+  const limits = trialLimitsSentence(trial)
+  return [
   {
     q: 'What is Voicecon?',
     a: 'Voicecon is a platform for building AI voice agents that answer and make phone calls for your business. Each agent follows your instructions, answers from your documents, uses tools during the call, and triggers no-code workflows that update the apps your team works in.',
@@ -34,15 +37,16 @@ const FAQS = [
   },
   {
     q: 'How does the free trial work?',
-    a: 'Create an account, add your company details and choose “Skip for now” on the pricing step to start a 30-day trial with no credit card. The trial includes 1 agent, 1 knowledge base, 2 workflows and 2 team members. Buying phone numbers requires a paid plan.',
+    a: `Create an account, add your company details and choose “Skip for now” on the pricing step to start a ${trial.days}-day trial with no credit card.${limits ? ` The trial includes ${limits}.` : ''} Buying phone numbers requires a paid plan.`,
   },
   {
     q: 'Can my team work in Voicecon together?',
     a: 'Yes. Invite teammates by email as admins, members or viewers, switch between multiple workspaces, and create scoped API keys for your own systems.',
   },
 ]
+}
 
-export function Faq() {
+export function Faq({ trial }: { trial: TrialOffer }) {
   return (
     <Section id="faq" labelledBy="faq-title" className="border-t border-white/[0.06] bg-black/[0.12]">
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
@@ -71,14 +75,14 @@ export function Faq() {
           />
         </div>
         <Reveal className="divide-y divide-white/[0.08] rounded-3xl border border-white/[0.08] bg-white/[0.03]">
-          <FaqList items={FAQS} />
+          <FaqList items={faqs(trial)} />
         </Reveal>
       </div>
     </Section>
   )
 }
 
-export function FinalCta() {
+export function FinalCta({ trialDays }: { trialDays: number }) {
   return (
     <section aria-labelledby="cta-title" className="relative px-4 py-20 sm:px-6 md:py-28">
       <Reveal className="relative mx-auto max-w-5xl overflow-hidden rounded-[2rem] border border-brand-300/25 bg-gradient-to-br from-[#1c5453] via-[#16403f] to-[#10302f] px-6 py-14 text-center shadow-[0_40px_120px_-40px_rgba(19,128,102,0.6)] sm:px-12 md:py-20">
@@ -96,7 +100,7 @@ export function FinalCta() {
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/70 sm:text-lg">
             Start from a template, test it in your browser and connect a number when you&apos;re ready.
-            30 days free, no credit card.
+            {trialDays} days free, no credit card.
           </p>
           <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
             <a href={ROUTES.register} className={buttonClass('primary', 'lg', 'group')}>

@@ -12,7 +12,7 @@ stopped paying must always be able to reach the page where it can start again.
 
 import logging
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
@@ -260,6 +260,34 @@ async def list_subscription_plans(
         )
         for plan in plans
     ]
+
+
+class TrialOfferResponse(BaseModel):
+    """What a new card-free trial includes, for the public pricing page."""
+
+    days: int
+    #: ``catalog.TRIAL_ENTITLEMENTS`` limits; ``-1`` is unlimited.
+    limits: Dict[str, int]
+    #: Which checkout the pricing page should name ("stripe" or "polar").
+    payment_provider: Optional[str]
+
+
+@public_router.get("/trial-offer", response_model=TrialOfferResponse)
+async def get_trial_offer(db: AsyncSession = Depends(get_db)):
+    """The trial a visitor would get today: the length the admin set on the
+    plan ``POST /billing/trial`` would pick, and the trial's own limits."""
+    days = catalog.DEFAULT_TRIAL_DAYS
+    try:
+        plan = await _get_trial_plan(db, None)
+        days = plan.trial_days or days
+    except HTTPException:
+        pass  # No active plan: still describe the default trial.
+
+    return TrialOfferResponse(
+        days=days,
+        limits={k: int(v) for k, v in catalog.TRIAL_ENTITLEMENTS["limits"].items()},
+        payment_provider=providers.active_provider(),
+    )
 
 
 @router.get("/subscription", response_model=Optional[SubscriptionResponse])

@@ -192,7 +192,7 @@ const USE_CASES = [
   },
 ]
 
-export function UseCases() {
+export function UseCases({ trialDays }: { trialDays: number }) {
   return (
     <Section id="use-cases" labelledBy="usecases-title" className="border-y border-white/[0.06] bg-black/[0.12]">
       <SectionHeading
@@ -242,7 +242,7 @@ export function UseCases() {
           href={ROUTES.register}
           className="text-sm font-medium text-brand-200 underline decoration-brand-300/40 underline-offset-4 hover:decoration-brand-200"
         >
-          Start with a template, free for 30 days
+          Start with a template, free for {trialDays} days
         </a>
       </p>
     </Section>
