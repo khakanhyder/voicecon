@@ -24,16 +24,43 @@ import { useEntitlementStore } from '@/store/entitlementStore'
 import { FREE_TRIAL_DAYS } from '@/lib/constants'
 import { Lock } from 'lucide-react'
 import { billingService, useBillingConfig, type BillingConfig } from '@/lib/billing'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
-const COUNTRIES = [
-  'United States of America',
-  'United Kingdom',
-  'Canada',
-  'Australia',
-  'United Arab Emirates',
-  'India',
-  'Pakistan',
-]
+// ISO 3166-1 alpha-2 codes; the display names come from Intl so they need no
+// upkeep here. Stripe takes the code as-is for billing_details.address.country.
+const POPULAR_COUNTRIES = ['US', 'GB', 'CA', 'AU', 'AE', 'IN', 'PK']
+const ALL_COUNTRIES = (
+  'AD AE AF AG AI AL AM AO AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BW BY BZ ' +
+  'CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK ' +
+  'FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GT GU GW GY HK HN HR HT HU ID IE IL IM IN IO IQ IR IS ' +
+  'IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ' +
+  'ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL ' +
+  'PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SK SL SM SN SO SR SS ST SV SX SY SZ TC TD ' +
+  'TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW'
+).split(' ')
+
+const regionNames =
+  typeof Intl !== 'undefined' && 'DisplayNames' in Intl
+    ? new Intl.DisplayNames(['en'], { type: 'region' })
+    : null
+
+function countryName(code: string): string {
+  if (code === 'US') return 'United States of America'
+  return regionNames?.of(code) ?? code
+}
+
+const OTHER_COUNTRIES = ALL_COUNTRIES.filter((c) => !POPULAR_COUNTRIES.includes(c)).sort((a, b) =>
+  countryName(a).localeCompare(countryName(b))
+)
 
 const stripeFieldStyle: StripeCardNumberElementOptions['style'] = {
   base: {
@@ -60,6 +87,10 @@ const stripeFieldStyle: StripeCardNumberElementOptions['style'] = {
  */
 const cardFieldBox =
   'flex h-12 items-center rounded-lg border border-white/20 bg-white/5 px-3'
+
+const countryGroupLabel = 'px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-white/45'
+const countryItem =
+  'text-white/85 focus:bg-white/10 focus:text-white data-[state=checked]:text-white [&_svg]:text-emerald-300'
 
 function priceFor(period: 'monthly' | 'yearly', monthly: number, yearly: number | null) {
   return period === 'yearly' && yearly != null ? yearly : monthly
@@ -112,7 +143,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
   // yearly checkout without a yearly price, so never send one.
   const offersYearly = selectedPlan?.price_yearly != null
   const billingPeriod: 'monthly' | 'yearly' = chosenPeriod === 'yearly' && offersYearly ? 'yearly' : 'monthly'
-  const [country, setCountry] = useState(COUNTRIES[0])
+  const [country, setCountry] = useState('US')
   const [authorize, setAuthorize] = useState(false)
   const [agree, setAgree] = useState(false)
   // Polar: the card is taken on Polar's hosted page, not in this form.
@@ -149,7 +180,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
       const { error, paymentMethod } = await stripe.createPaymentMethod({
         type: 'card',
         card: cardNumber,
-        billing_details: { address: { country: countryCode(country) } },
+        billing_details: { address: { country } },
       })
       if (error) throw new Error(error.message || 'Invalid card details')
 
@@ -283,6 +314,9 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         className="mt-5 rounded-2xl p-5 text-white"
         style={{ background: 'linear-gradient(160deg, #1f6a5f 0%, #15463f 100%)' }}
       >
+        {/* Without a Stripe key the Elements never mount, so these boxes cannot take
+            input; dim them rather than let them look usable. */}
+        <div className={configured ? undefined : 'pointer-events-none opacity-50'} aria-disabled={!configured}>
         <label className="mb-1.5 block text-xs font-medium text-white/80">Card Number</label>
         <div className={`${cardFieldBox} mb-4 gap-2`}>
           <div className="flex-1">
@@ -313,19 +347,43 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
             </div>
           </div>
         </div>
+        </div>
 
         <label className="mb-1.5 block text-xs font-medium text-white/80">Country</label>
-        <select
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-          className="h-12 w-full rounded-lg border border-white/20 bg-white/5 px-3 text-sm text-white outline-none [&>option]:text-slate-900"
-        >
-          {COUNTRIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+        <Select value={country} onValueChange={setCountry}>
+          <SelectTrigger
+            aria-label="Country"
+            className="h-12 rounded-lg border-white/20 bg-white/5 px-3 text-sm text-white transition-colors hover:border-white/35 hover:bg-white/10 focus:border-white/50 focus:ring-2 focus:ring-white/15 data-[state=open]:border-white/50 data-[state=open]:bg-white/10 [&>svg]:opacity-70"
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="flex h-6 min-w-[1.75rem] flex-shrink-0 items-center justify-center rounded bg-white/15 px-1 text-[10px] font-bold tracking-wide text-white">
+                {country}
+              </span>
+              <span className="truncate">
+                <SelectValue />
+              </span>
+            </span>
+          </SelectTrigger>
+          <SelectContent className="max-h-72 rounded-xl border-white/10 bg-[#15463f] text-white shadow-[0_18px_40px_-12px_rgba(0,0,0,0.55)]">
+            <SelectGroup>
+              <SelectLabel className={countryGroupLabel}>Popular</SelectLabel>
+              {POPULAR_COUNTRIES.map((c) => (
+                <SelectItem key={c} value={c} className={countryItem}>
+                  {countryName(c)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            <SelectSeparator className="mx-1 my-1.5 bg-white/10" />
+            <SelectGroup>
+              <SelectLabel className={countryGroupLabel}>All countries</SelectLabel>
+              {OTHER_COUNTRIES.map((c) => (
+                <SelectItem key={c} value={c} className={countryItem}>
+                  {countryName(c)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
 
         <p className="mt-3 text-[11px] leading-relaxed text-white/60">
           By providing your card information, you allow Voicecon to charge your card for future
@@ -453,18 +511,4 @@ export default function BillingPage() {
       </div>
     </div>
   )
-}
-
-/** Minimal country-name → ISO code map for Stripe billing details. */
-function countryCode(name: string): string {
-  const map: Record<string, string> = {
-    'United States of America': 'US',
-    'United Kingdom': 'GB',
-    Canada: 'CA',
-    Australia: 'AU',
-    'United Arab Emirates': 'AE',
-    India: 'IN',
-    Pakistan: 'PK',
-  }
-  return map[name] ?? 'US'
 }
