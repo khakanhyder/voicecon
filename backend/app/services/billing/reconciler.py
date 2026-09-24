@@ -13,9 +13,10 @@ Two rules shape the transitions:
 
 * **Fail closed for trials.** A trial past its end date loses runtime.
 * **Fail open for payers.** An ``active`` subscription past its period end is
-  *not* expired here — Stripe is the source of truth for paid subscriptions, and
-  a dropped webhook must never lock out a paying customer. It is logged for
-  investigation instead.
+  *not* expired on this process's say-so — the provider (Stripe or Polar) is
+  the source of truth for paid subscriptions, and a dropped webhook must never
+  lock out a paying customer. The provider is asked for its current state and
+  that is applied; if it cannot be reached the row stays live and is logged.
 
 Every pass is idempotent: running it twice in a row changes nothing the second
 time.
@@ -39,6 +40,9 @@ from app.models.subscription import (
     STATUS_GRACE,
     STATUS_PAST_DUE,
     STATUS_TRIALING,
+    SOURCE_POLAR,
+    SOURCE_STRIPE,
+    SOURCE_TRIAL,
     Subscription,
     SubscriptionPlan,
 )
@@ -76,6 +80,7 @@ class ReconcileReport:
         self.notices_sent = 0
         self.plan_changes_applied = 0
         self.stale_active = 0
+        self.resynced = 0
 
     @property
     def changed(self) -> int:
@@ -85,6 +90,7 @@ class ReconcileReport:
             + self.past_due_to_expired
             + self.canceled_to_expired
             + self.plan_changes_applied
+            + self.resynced
         )
 
     def __str__(self) -> str:
@@ -93,7 +99,7 @@ class ReconcileReport:
             f"past_due→expired={self.past_due_to_expired} "
             f"canceled→expired={self.canceled_to_expired} "
             f"plan_changes={self.plan_changes_applied} notices={self.notices_sent} "
-            f"stale_active={self.stale_active}"
+            f"stale_active={self.stale_active} resynced={self.resynced}"
         )
 
 
@@ -155,17 +161,18 @@ async def _expire_trials(db: AsyncSession, now: datetime, report: ReconcileRepor
             subject="Your free trial has ended",
             heading="Your free trial has ended",
             intro=(
-                "Your agents are paused, but nothing has been deleted. Choose a "
-                "plan and everything picks up exactly where you left off."
+                f"Your agents keep running for {TRIAL_GRACE_DAYS} more days while "
+                "you choose a plan. After that the workspace becomes read-only "
+                "until you subscribe — nothing is deleted."
             ),
             bullets=[
-                f"You have {TRIAL_GRACE_DAYS} days before your phone number is released.",
+                f"You have {TRIAL_GRACE_DAYS} days before your agents pause and your phone number is released.",
                 "Your agents, workflows and call history are kept for 60 days.",
                 "You can still sign in, review your data and export it at any time.",
             ],
             closing="Questions about which plan fits? Just reply to this email.",
             notification_title="Your free trial has ended",
-            notification_body="Your agents are paused. Choose a plan to resume.",
+            notification_body=f"Your agents keep running for {TRIAL_GRACE_DAYS} more days. Choose a plan to keep them on.",
         )
 
 
@@ -194,6 +201,23 @@ async def _end_grace_periods(db: AsyncSession, now: datetime, report: ReconcileR
 
         await _pause_scheduled_workflows(db, subscription.organization_id)
         await _release_pooled_numbers(db, subscription)
+
+        await _notify(
+            db,
+            subscription,
+            subject="Your workspace is now read-only",
+            heading="Your agents have been paused",
+            intro=(
+                "Your grace period has ended, so your agents, calls and workflows "
+                "are paused. Everything you built is still here — choose a plan "
+                "and it all switches back on."
+            ),
+            bullets=[
+                "You can still sign in, review your data and export it at any time.",
+            ],
+            notification_title="Your agents have been paused",
+            notification_body="Your grace period has ended. Choose a plan to switch everything back on.",
+        )
 
 
 async def _expire_dunning(db: AsyncSession, now: datetime, report: ReconcileReport) -> None:
@@ -267,6 +291,22 @@ async def _expire_canceled(db: AsyncSession, now: datetime, report: ReconcileRep
         report.canceled_to_expired += 1
         await _pause_scheduled_workflows(db, subscription.organization_id)
 
+        if subscription.source == SOURCE_TRIAL:
+            continue  # the user ended their own trial; nothing paid has run out
+        await _notify(
+            db,
+            subscription,
+            subject="Your subscription has ended",
+            heading="Your subscription has ended",
+            intro=(
+                "Your paid period is over, so your agents, calls and workflows are "
+                "paused. Everything you built is still here — subscribe again and "
+                "it all switches back on."
+            ),
+            notification_title="Your subscription has ended",
+            notification_body="Your agents are paused. Choose a plan to switch everything back on.",
+        )
+
 
 async def _apply_scheduled_plan_changes(
     db: AsyncSession, now: datetime, report: ReconcileReport
@@ -296,33 +336,104 @@ async def _apply_scheduled_plan_changes(
         report.plan_changes_applied += 1
 
 
+#: How overdue a paid subscription must be before the provider is asked about
+#: it. Renewal webhooks normally land within minutes; this leaves room for
+#: Stripe's hour-long invoice finalisation and a slow retry.
+STALE_ACTIVE_AFTER = timedelta(hours=6)
+
+#: Provider look-ups per pass, so a backlog never turns one sweep into
+#: hundreds of API calls.
+MAX_PROVIDER_RESYNCS_PER_PASS = 50
+
+
 async def _flag_stale_active(
     db: AsyncSession, now: datetime, report: ReconcileReport
 ) -> None:
-    """Log paid subscriptions that look overdue, without touching them.
+    """Re-sync paid subscriptions that look overdue from their provider.
 
     An ``active`` row past ``current_period_end`` almost always means a missed
-    ``invoice.paid`` webhook, not a customer who stopped paying. Expiring them
-    here would lock out paying customers over our own delivery problem, so this
-    only records that a reconciliation is needed.
+    webhook, not a customer who stopped paying — so this never expires anything
+    on its own say-so. It asks the provider instead and applies the answer: a
+    renewal moves the period forward, a cancellation or revocation ends access.
+    Without this, one lost ``subscription.deleted``/``revoked`` delivery was
+    free service forever. If the provider cannot be reached the row is left
+    live, as before, and logged.
     """
     result = await db.execute(
         select(Subscription).where(
-            Subscription.status == STATUS_ACTIVE,
-            Subscription.current_period_end < now - timedelta(hours=6),
+            Subscription.status.in_((STATUS_ACTIVE, STATUS_PAST_DUE)),
+            Subscription.source.in_((SOURCE_STRIPE, SOURCE_POLAR)),
+            Subscription.current_period_end < now - STALE_ACTIVE_AFTER,
         )
     )
     stale = result.scalars().all()
-    for subscription in stale:
+    for index, subscription in enumerate(stale):
+        resynced = False
+        if index < MAX_PROVIDER_RESYNCS_PER_PASS:
+            resynced = await _resync_from_provider(db, subscription)
+        if resynced:
+            invalidate_entitlements(subscription.organization_id)
+            report.resynced += 1
+        if subscription.current_period_end < now - STALE_ACTIVE_AFTER and subscription.status in (
+            STATUS_ACTIVE,
+            STATUS_PAST_DUE,
+        ):
+            report.stale_active += 1
+            logger.warning(
+                "Subscription %s (org %s, %s) is %s but its period ended at %s and "
+                "the provider %s. Left live deliberately; check it in the %s dashboard.",
+                subscription.id,
+                subscription.organization_id,
+                subscription.source,
+                subscription.status,
+                subscription.current_period_end,
+                "agrees it is still running" if resynced else "could not be asked",
+                subscription.source.capitalize(),
+            )
+
+
+async def _resync_from_provider(db: AsyncSession, subscription: Subscription) -> bool:
+    """Apply the provider's current view of ``subscription``. ``True`` on success."""
+    try:
+        if subscription.source == SOURCE_STRIPE and subscription.stripe_subscription_id:
+            if not settings.stripe_configured:
+                return False
+            import asyncio
+
+            import stripe
+
+            from app.services.billing.stripe_service import (
+                apply_stripe_subscription,
+                get_stripe_service,
+            )
+
+            await get_stripe_service()  # points the SDK at the current key
+            remote = await asyncio.to_thread(
+                stripe.Subscription.retrieve, subscription.stripe_subscription_id
+            )
+            await apply_stripe_subscription(db, subscription, remote)
+            return True
+
+        if subscription.source == SOURCE_POLAR and subscription.polar_subscription_id:
+            if not settings.polar_configured:
+                return False
+            from app.services.billing import polar_service
+
+            remote = await polar_service.get_polar_client().get_subscription(
+                subscription.polar_subscription_id
+            )
+            await polar_service.sync_subscription(
+                db, remote, polar_service.WebhookOutcome(), event_type="reconciler.resync"
+            )
+            return True
+    except Exception as exc:  # noqa: BLE001 — a provider outage must not stop the sweep
         logger.warning(
-            "Subscription %s (org %s) is active but its period ended at %s — "
-            "likely a missed Stripe webhook. Left live deliberately; re-check "
-            "against Stripe.",
+            "Could not re-sync subscription %s from %s: %s",
             subscription.id,
-            subscription.organization_id,
-            subscription.current_period_end,
+            subscription.source,
+            exc,
         )
-    report.stale_active = len(stale)
+    return False
 
 
 # ---- Notices ----
@@ -345,7 +456,9 @@ async def _send_trial_notices(
         days_left = max(
             0, int((subscription.trial_end - now).total_seconds() // 86400) + 1
         )
-        threshold = next((d for d in TRIAL_NOTICE_DAYS if days_left <= d), None)
+        # The tightest threshold that applies: with one day left that is the
+        # T-1 notice, not the T-3 one already sent.
+        threshold = min((d for d in TRIAL_NOTICE_DAYS if days_left <= d), default=None)
         if threshold is None:
             continue
 
@@ -549,9 +662,14 @@ async def reset_expired_period_counters(
             Subscription.current_period_end <= now,
         )
     )
+    from app.services.billing.stripe_service import apply_scheduled_plan_on_rollover
+
     rolled = 0
     for subscription in result.scalars().all():
         span = subscription.current_period_end - subscription.current_period_start
+        # A downgrade queued for this period end takes effect with the new
+        # period, whichever of this job and the reconciler gets there first.
+        apply_scheduled_plan_on_rollover(db, subscription, subscription.current_period_end)
         subscription.current_period_start = subscription.current_period_end
         subscription.current_period_end = subscription.current_period_end + (
             span or timedelta(days=30)

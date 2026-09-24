@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { IntegrationChanges } from '@/components/calls/IntegrationChanges'
 import {
   ArrowLeft, Phone, PhoneIncoming, PhoneOutgoing, DollarSign,
   Bot, User, Play, Pause, Volume2, Activity, FileText, ChevronRight,
@@ -419,6 +420,8 @@ export default function CallDetailPage() {
               } />
             )}
           </div>
+
+          <IntegrationChanges callId={call.id} />
 
           {/* Sentiment */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">

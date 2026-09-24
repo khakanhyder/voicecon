@@ -207,23 +207,31 @@ class GoogleCalendarConnector(BaseConnector):
         description: Optional[str] = None,
         location: Optional[str] = None,
         attendees: Optional[List[str]] = None,
-        timezone: str = "UTC",
+        timezone: Optional[str] = None,
         send_notifications: bool = True,
     ) -> Dict[str, Any]:
         """
-        Update a calendar event.
+        Update a calendar event, changing only the fields given.
+
+        This is a PATCH, not a PUT. The previous PUT sent only the title and
+        times, and Google replaces the whole event on PUT, so a reschedule
+        silently dropped the attendees, notes, location and meeting link.
+
+        Moving only the start keeps the event's length: the end moves with it.
+        A time without an offset is read in ``timezone``, or else in the zone
+        the event already uses, never a blanket UTC.
 
         Args:
             event_id: Event ID
             calendar_id: Calendar ID (default: "primary")
-            summary: Event title
-            start_time: Start time (ISO 8601)
-            end_time: End time (ISO 8601)
-            description: Event description
-            location: Event location
-            attendees: List of attendee emails
-            timezone: Timezone
-            send_notifications: Send email notifications
+            summary: New title
+            start_time: New start (ISO 8601)
+            end_time: New end (ISO 8601); defaults to start + current length
+            description: New description
+            location: New location
+            attendees: Replacement attendee emails
+            timezone: IANA zone for offset-less times
+            send_notifications: Email attendees about the change
 
         Returns:
             Updated event data
@@ -232,44 +240,44 @@ class GoogleCalendarConnector(BaseConnector):
             ConnectorError: If update fails
         """
         try:
-            # Get current event
-            current_event = await self.get(
+            current = await self.get(
                 f"/calendar/v3/calendars/{calendar_id}/events/{event_id}"
             )
+            if current.get("status") == "cancelled":
+                raise ConnectorError("This appointment has been cancelled, so it cannot be changed.")
 
-            # Build update data
-            event_data = {
-                "summary": summary or current_event.get("summary"),
-                "start": current_event.get("start"),
-                "end": current_event.get("end"),
-            }
-
-            # Update times if provided
-            if start_time:
-                event_data["start"] = {
-                    "dateTime": start_time,
-                    "timeZone": timezone,
-                }
-            if end_time:
-                event_data["end"] = {
-                    "dateTime": end_time,
-                    "timeZone": timezone,
-                }
-
-            # Update other fields
+            patch: Dict[str, Any] = {}
+            if summary is not None:
+                patch["summary"] = summary
             if description is not None:
-                event_data["description"] = description
+                patch["description"] = description
             if location is not None:
-                event_data["location"] = location
+                patch["location"] = location
             if attendees is not None:
-                event_data["attendees"] = [{"email": email} for email in attendees]
+                patch["attendees"] = [{"email": email} for email in attendees]
 
-            # Update event
+            if start_time or end_time:
+                old_start = current.get("start") or {}
+                old_end = current.get("end") or {}
+                zone = timezone or old_start.get("timeZone") or old_end.get("timeZone")
+                if not start_time:
+                    start_time = old_start.get("dateTime")
+                if not end_time:
+                    end_time = _shift_end(start_time, old_start.get("dateTime"), old_end.get("dateTime"))
+                if not start_time or not end_time:
+                    raise ConnectorError("All-day events cannot be rescheduled to a time slot here.")
+                if _parse(end_time) and _parse(start_time) and _parse(end_time) <= _parse(start_time):
+                    raise ConnectorError("The new end time must be after the new start time.")
+                patch["start"] = {"dateTime": start_time, **({"timeZone": zone} if zone else {})}
+                patch["end"] = {"dateTime": end_time, **({"timeZone": zone} if zone else {})}
+
+            if not patch:
+                raise ConnectorError("Nothing to change: give a new time, title or notes.")
+
             params = {"sendUpdates": "all" if send_notifications else "none"}
-
-            response = await self.put(
+            response = await self.patch(
                 f"/calendar/v3/calendars/{calendar_id}/events/{event_id}",
-                json=event_data,
+                json=patch,
                 params=params,
             )
 
@@ -282,11 +290,14 @@ class GoogleCalendarConnector(BaseConnector):
                 "end": response.get("end"),
                 "html_link": response.get("htmlLink"),
                 "status": response.get("status"),
+                "updated": True,
             }
 
+        except ConnectorError as e:
+            raise ConnectorError(_friendly(str(e), "update"))
         except Exception as e:
             logger.error(f"Failed to update Google Calendar event: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to update event: {str(e)}")
+            raise ConnectorError(_friendly(f"Failed to update event: {e}", "update"))
 
     async def delete_event(
         self,
@@ -295,7 +306,7 @@ class GoogleCalendarConnector(BaseConnector):
         send_notifications: bool = True,
     ) -> Dict[str, Any]:
         """
-        Delete a calendar event.
+        Delete (cancel) a calendar event.
 
         Args:
             event_id: Event ID
@@ -303,7 +314,8 @@ class GoogleCalendarConnector(BaseConnector):
             send_notifications: Send cancellation notifications
 
         Returns:
-            Deletion result
+            Deletion result. An event that was already cancelled counts as done,
+            so a retried cancel does not read to the caller as a failure.
 
         Raises:
             ConnectorError: If deletion fails
@@ -321,11 +333,14 @@ class GoogleCalendarConnector(BaseConnector):
             return {
                 "id": event_id,
                 "success": True,
+                "cancelled": True,
             }
 
         except Exception as e:
+            if "HTTP 410" in str(e):
+                return {"id": event_id, "success": True, "cancelled": True, "already_cancelled": True}
             logger.error(f"Failed to delete Google Calendar event: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to delete event: {str(e)}")
+            raise ConnectorError(_friendly(f"Failed to delete event: {e}", "cancel"))
 
     async def get_event(
         self,
@@ -440,6 +455,65 @@ class GoogleCalendarConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to list Google Calendar events: {e}", exc_info=True)
             raise ConnectorError(f"Failed to list events: {str(e)}")
+
+    async def find_events(
+        self,
+        query: str,
+        calendar_id: str = "primary",
+        time_min: Optional[str] = None,
+        time_max: Optional[str] = None,
+        time_zone: Optional[str] = None,
+        max_results: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Find upcoming events that mention ``query``: an attendee's email or
+        name, or text in the title, notes or location (Google's free-text
+        search). This is how an agent gets the event id it needs to reschedule
+        or cancel, so it never has to guess one.
+
+        Defaults to the next 90 days, because a caller asking to move an
+        appointment means one that has not happened yet.
+        """
+        query = (query or "").strip()
+        if not query:
+            raise ConnectorError("Say what to search for, such as the caller's email or phone number.")
+        now = datetime.utcnow()
+        params: Dict[str, Any] = {
+            "q": query,
+            "timeMin": time_min or now.isoformat() + "Z",
+            "timeMax": time_max or (now + timedelta(days=90)).isoformat() + "Z",
+            "maxResults": max(1, min(int(max_results or 10), 25)),
+            "singleEvents": True,
+            "orderBy": "startTime",
+        }
+        if time_zone:
+            params["timeZone"] = time_zone
+        try:
+            response = await self.get(
+                f"/calendar/v3/calendars/{calendar_id}/events", params=params
+            )
+        except Exception as e:
+            logger.error(f"Failed to search Google Calendar events: {e}", exc_info=True)
+            raise ConnectorError(f"Failed to search events: {e}")
+
+        events = [
+            {
+                "id": ev.get("id"),
+                "title": ev.get("summary"),
+                "start": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date"),
+                "end": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date"),
+                "attendees": [a.get("email") for a in ev.get("attendees", []) if a.get("email")],
+                "description": ev.get("description"),
+                "location": ev.get("location"),
+            }
+            for ev in response.get("items", [])
+            if ev.get("status") != "cancelled"
+        ]
+        return {
+            "count": len(events),
+            "events": events,
+            **({} if events else {"note": f"No upcoming appointments found for '{query}'."}),
+        }
 
     # ========================================================================
     # Availability Methods
@@ -680,3 +754,38 @@ class GoogleCalendarConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to quick add event: {e}", exc_info=True)
             raise ConnectorError(f"Failed to quick add event: {str(e)}")
+
+
+def _parse(value: Optional[str]) -> Optional[datetime]:
+    """An ISO 8601 timestamp as a datetime, or None if it is not one."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _shift_end(new_start: Optional[str], old_start: Optional[str], old_end: Optional[str]) -> Optional[str]:
+    """The end time that keeps the event's current length after moving its start.
+
+    Keeps the new start's own offset (or lack of one), so the pair stays in the
+    same frame of reference.
+    """
+    start, before, after = _parse(new_start), _parse(old_start), _parse(old_end)
+    if not (start and before and after):
+        return old_end
+    end = start + (after - before)
+    return end.isoformat()
+
+
+def _friendly(message: str, verb: str) -> str:
+    """Turn Google's status codes into a sentence an agent can repeat."""
+    if "HTTP 404" in message:
+        return f"No appointment with that id on this calendar, so there was nothing to {verb}. Search for it again."
+    if "HTTP 410" in message:
+        return "That appointment has already been cancelled."
+    if "HTTP 403" in message:
+        return f"Google Calendar did not allow this {verb}. The connected account may not have edit access to that calendar."
+    return message
+

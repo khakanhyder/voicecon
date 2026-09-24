@@ -504,7 +504,11 @@ async def _link_new_subscription(
     from app.services.billing.entitlements import get_entitlement_service
 
     existing = await get_entitlement_service().live_subscription(db, org_id)
-    if existing is not None and existing.source in (SOURCE_STRIPE, SOURCE_POLAR) and existing.status == STATUS_ACTIVE:
+    if (
+        existing is not None
+        and existing.source in (SOURCE_STRIPE, SOURCE_POLAR)
+        and existing.status in (STATUS_ACTIVE, STATUS_PAST_DUE)
+    ):
         # Already paying through a provider. Linking would silently orphan the
         # other subscription, so leave it for a human to sort out in Polar.
         logger.error(
@@ -767,6 +771,13 @@ async def change_product(subscription: Subscription, product_id: str, *, immedia
     return await get_polar_client().update_subscription(
         subscription.polar_subscription_id,
         {"product_id": product_id, "proration_behavior": "prorate" if immediately else "next_period"},
+    )
+
+
+async def clear_pending_update(subscription: Subscription) -> None:
+    """Drop a product change queued for the next period (an undone downgrade)."""
+    await get_polar_client().update_subscription(
+        subscription.polar_subscription_id, {"pending_update": None}
     )
 
 

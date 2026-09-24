@@ -122,3 +122,44 @@ class AirtableConnector(BaseConnector):
             return {"records": records, "count": len(records)}
         except Exception as e:
             raise ConnectorError(f"Airtable search_records failed: {e}")
+
+    async def get_record(self, table_name: str, record_id: str,
+                         base_id: Optional[str] = None) -> Dict[str, Any]:
+        """One record by id."""
+        try:
+            bid = base_id or self._base_id()
+            r = await self.get(f"/v0/{bid}/{table_name}/{record_id}")
+            return {"id": r.get("id"), "fields": r.get("fields", {})}
+        except Exception as e:
+            raise ConnectorError(f"Airtable get_record failed: {e}")
+
+    async def find_records(self, table_name: str, field: str, value: str,
+                           match: str = "exact", max_records: int = 10,
+                           base_id: Optional[str] = None) -> Dict[str, Any]:
+        """Records whose ``field`` equals (or contains) ``value``, ignoring case.
+
+        Builds the Airtable formula itself, escaped, so an agent searching for
+        "O'Brien" neither breaks the formula nor gets to write its own.
+        """
+        field = str(field or "").strip()
+        if not field:
+            raise ConnectorError("Say which field to search, e.g. Email or Phone.")
+        column = "{" + field.replace("}", "") + "}"
+        literal = "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+        if str(match).lower() == "contains":
+            formula = f"SEARCH(LOWER({literal}), LOWER({column}&''))"
+        else:
+            formula = f"LOWER({column}&'') = LOWER({literal})"
+        return await self.search_records(table_name, formula, max_records=max(1, min(int(max_records or 10), 50)),
+                                         base_id=base_id)
+
+    async def delete_record(self, table_name: str, record_id: str,
+                            base_id: Optional[str] = None) -> Dict[str, Any]:
+        """Delete a record (Airtable keeps it in the base's trash for 7 days on paid plans)."""
+        try:
+            bid = base_id or self._base_id()
+            await self.delete(f"/v0/{bid}/{table_name}/{record_id}")
+        except Exception as e:
+            raise ConnectorError(f"Airtable delete_record failed: {e}")
+        return {"id": record_id, "deleted": True}
+

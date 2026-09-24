@@ -143,6 +143,8 @@ class SalesforceConnector(BaseConnector):
         Raises:
             ConnectorError: If update fails
         """
+        if not fields:
+            raise ConnectorError("Nothing to change: give at least one new value.")
         try:
             # Update contact
             await self.patch(
@@ -283,6 +285,13 @@ class SalesforceConnector(BaseConnector):
             logger.error(f"Failed to create Salesforce lead: {e}", exc_info=True)
             raise ConnectorError(f"Failed to create lead: {str(e)}")
 
+    async def get_lead(self, lead_id: str) -> Dict[str, Any]:
+        """A lead by id."""
+        try:
+            return await self.get(f"/services/data/v57.0/sobjects/Lead/{lead_id}")
+        except Exception as e:
+            raise ConnectorError(f"Failed to get lead: {e}")
+
     async def update_lead(
         self,
         lead_id: str,
@@ -301,6 +310,8 @@ class SalesforceConnector(BaseConnector):
         Raises:
             ConnectorError: If update fails
         """
+        if not fields:
+            raise ConnectorError("Nothing to change: give at least one new value.")
         try:
             await self.patch(
                 f"/services/data/v57.0/sobjects/Lead/{lead_id}",
@@ -480,6 +491,7 @@ class SalesforceConnector(BaseConnector):
         email: Optional[str] = None,
         phone: Optional[str] = None,
         company: Optional[str] = None,
+        query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for leads.
@@ -497,19 +509,30 @@ class SalesforceConnector(BaseConnector):
         """
         try:
             # Build SOQL query
+            # Escaped like search_contacts: these values come from a caller or
+            # an LLM, and were interpolated raw, so "O'Brien" broke the query
+            # and a crafted value could rewrite it.
             conditions = []
             if email:
-                conditions.append(f"Email = '{email}'")
+                conditions.append(f"Email = '{_soql_escape(email)}'")
             if phone:
-                conditions.append(f"Phone = '{phone}'")
+                conditions.append(f"Phone = '{_soql_escape(phone)}'")
             if company:
-                conditions.append(f"Company LIKE '%{company}%'")
+                conditions.append(f"Company LIKE '%{_soql_escape(company)}%'")
+            if query:
+                term = _soql_escape(query)
+                conditions.extend([
+                    f"Name LIKE '%{term}%'",
+                    f"Email = '{term}'",
+                    f"Phone = '{term}'",
+                    f"Company LIKE '%{term}%'",
+                ])
 
             if not conditions:
                 return []
 
             where_clause = " OR ".join(conditions)
-            soql = f"SELECT Id, FirstName, LastName, Email, Phone, Company, Status FROM Lead WHERE {where_clause}"
+            soql = f"SELECT Id, FirstName, LastName, Email, Phone, Company, Status FROM Lead WHERE {where_clause} LIMIT 25"
 
             result = await self.query(soql)
             return result.get("records", [])

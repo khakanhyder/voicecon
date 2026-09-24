@@ -19,6 +19,7 @@ import { ArrowRight, Check, Loader2, Lock } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { yearlySavingPercent } from '@/lib/pricing'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { CheckoutModal, type CheckoutPlan } from './CheckoutModal'
 
@@ -30,7 +31,9 @@ interface Plan {
   description: string | null
   price_monthly: number
   price_yearly: number | null
+  trial_days?: number
   max_phone_numbers: number
+  entitlements?: { limits?: Record<string, number> }
   is_public: boolean
   is_active: boolean
 }
@@ -44,6 +47,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<BillingPeriod>('monthly')
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null)
+  const yearlySaving = yearlySavingPercent(plans)
 
   useEffect(() => {
     let cancelled = false
@@ -112,8 +116,8 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
                 )}
               >
                 {option}
-                {option === 'yearly' && (
-                  <span className="ml-1.5 text-[11px] font-bold text-emerald-600">-25%</span>
+                {option === 'yearly' && yearlySaving > 0 && (
+                  <span className="ml-1.5 text-[11px] font-bold text-emerald-600">-{yearlySaving}%</span>
                 )}
               </button>
             ))}
@@ -159,9 +163,15 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
                   )}
                   <p className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-[#106959]">
                     <Check className="h-3.5 w-3.5 flex-shrink-0" />
-                    {plan.max_phone_numbers === 1
-                      ? '1 phone number'
-                      : `${plan.max_phone_numbers} phone numbers`}
+                    {(() => {
+                      // The admin's limit (entitlements), not the legacy column.
+                      const numbers = plan.entitlements?.limits?.phone_numbers ?? plan.max_phone_numbers
+                      return numbers === -1
+                        ? 'Unlimited phone numbers'
+                        : numbers === 1
+                          ? '1 phone number'
+                          : `${numbers.toLocaleString('en-US')} phone numbers`
+                    })()}
                   </p>
                   <button
                     type="button"
@@ -171,6 +181,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
                         name: plan.name,
                         price_monthly: plan.price_monthly,
                         price_yearly: plan.price_yearly,
+                        trial_days: plan.trial_days,
                       })
                     }
                     className="mt-auto pt-4"

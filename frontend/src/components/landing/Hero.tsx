@@ -37,7 +37,7 @@ export function Hero({ trialDays }: { trialDays: number }) {
             Start your free trial
             <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
           </a>
-          <a href="#how-it-works" className={buttonClass('ghost', 'lg')}>
+          <a href="/how-it-works" className={buttonClass('ghost', 'lg')}>
             See how it works
           </a>
         </div>

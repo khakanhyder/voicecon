@@ -101,14 +101,81 @@ class ClickUpConnector(BaseConnector):
         except Exception as e:
             raise ConnectorError(f"ClickUp get_task failed: {e}")
 
-    async def update_task(self, task_id: str, **fields) -> Dict[str, Any]:
-        """Update a task. Accepts name, description, status, priority, due_date, etc."""
+    async def update_task(
+        self,
+        task_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        status: Optional[str] = None,
+        priority: Optional[Any] = None,
+        due_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a task's name, description, status, priority or due date.
+
+        Explicit arguments rather than ``**fields``: the values come from an
+        agent, and a catch-all let it set anything ClickUp accepts (assignees,
+        archived, parent...) by naming it. ``priority`` takes 1-4 or a word
+        (urgent/high/normal/low); ``due_date`` takes an ISO date or datetime.
+        """
+        body: Dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if status is not None:
+            body["status"] = status
+        if priority not in (None, ""):
+            body["priority"] = _clickup_priority(priority)
+        if due_date:
+            body["due_date"] = _epoch_ms(due_date)
+            body["due_date_time"] = "T" in str(due_date)
+        if not body:
+            raise ConnectorError("Nothing to change: give a new name, description, status, priority or due date.")
         try:
-            body = {k: v for k, v in fields.items() if v is not None}
             res = await self.put(f"/task/{task_id}", json=body)
-            return {"id": res.get("id"), "name": res.get("name")}
+            return {
+                "id": res.get("id"),
+                "name": res.get("name"),
+                "status": (res.get("status") or {}).get("status"),
+                "url": res.get("url"),
+                "updated": True,
+            }
         except Exception as e:
             raise ConnectorError(f"ClickUp update_task failed: {e}")
+
+    async def delete_task(self, task_id: str) -> Dict[str, Any]:
+        """Delete a task (ClickUp keeps it in Trash for 30 days)."""
+        try:
+            await self.delete(f"/task/{task_id}")
+        except Exception as e:
+            raise ConnectorError(f"ClickUp delete_task failed: {e}")
+        return {"id": task_id, "deleted": True}
+
+    async def find_tasks(self, list_id: str, query: Optional[str] = None) -> Dict[str, Any]:
+        """Tasks in a list whose name or description contains ``query``.
+
+        The lookup an agent uses before updating a task, so it acts on an id it
+        found rather than one it guessed.
+        """
+        try:
+            res = await self.get(f"/list/{list_id}/task", params={"page": 0, "include_closed": "true"})
+        except Exception as e:
+            raise ConnectorError(f"ClickUp find_tasks failed: {e}")
+        needle = (query or "").strip().lower()
+        tasks = [
+            {
+                "id": t.get("id"),
+                "name": t.get("name"),
+                "status": (t.get("status") or {}).get("status"),
+                "due_date": _iso_from_ms(t.get("due_date")),
+                "url": t.get("url"),
+            }
+            for t in res.get("tasks", [])
+            if not needle
+            or needle in (t.get("name") or "").lower()
+            or needle in (t.get("description") or t.get("text_content") or "").lower()
+        ]
+        return {"tasks": tasks[:25], "count": len(tasks)}
 
     async def list_tasks(self, list_id: str, page: int = 0) -> Dict[str, Any]:
         try:
@@ -126,3 +193,44 @@ class ClickUpConnector(BaseConnector):
             return {"id": res.get("id"), "success": True}
         except Exception as e:
             raise ConnectorError(f"ClickUp add_comment failed: {e}")
+
+
+_PRIORITIES = {"urgent": 1, "high": 2, "normal": 3, "low": 4}
+
+
+def _clickup_priority(value: Any) -> int:
+    """ClickUp priority 1 (urgent) to 4 (low), from a number or a word."""
+    word = str(value).strip().lower()
+    if word in _PRIORITIES:
+        return _PRIORITIES[word]
+    try:
+        number = int(float(word))
+    except ValueError:
+        raise ConnectorError("Priority must be urgent, high, normal or low (or 1-4).")
+    if not 1 <= number <= 4:
+        raise ConnectorError("Priority must be urgent, high, normal or low (or 1-4).")
+    return number
+
+
+def _epoch_ms(value: str) -> int:
+    """ClickUp dates are Unix milliseconds. Accepts YYYY-MM-DD or ISO 8601."""
+    from datetime import datetime, timezone
+
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        raise ConnectorError(f"'{value}' is not a date. Use YYYY-MM-DD or an ISO 8601 time.")
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return int(moment.timestamp() * 1000)
+
+
+def _iso_from_ms(value: Any) -> Optional[str]:
+    from datetime import datetime, timezone
+
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return None
+

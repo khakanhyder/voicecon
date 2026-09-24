@@ -130,3 +130,56 @@ class CalendlyConnector(BaseConnector):
             return {"id": res.get("resource", {}).get("uri"), "success": True}
         except Exception as e:
             raise ConnectorError(f"Calendly create_webhook failed: {e}")
+
+    async def find_events(self, invitee_email: str) -> Dict[str, Any]:
+        """Upcoming events booked by this invitee, each with the invitee's own
+        reschedule link. Calendly's API cannot move a booking itself; the agent
+        can offer that link (by text or email) instead."""
+        from datetime import datetime, timezone
+
+        email = (invitee_email or "").strip()
+        if not email:
+            raise ConnectorError("Give the caller's email to look up their Calendly booking.")
+        try:
+            user = await self.get_user()
+            params = {
+                "user": user.get("uri"),
+                "invitee_email": email,
+                "status": "active",
+                "min_start_time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "sort": "start_time:asc",
+                "count": 10,
+            }
+            res = await self.get("/scheduled_events", params=params)
+        except Exception as e:
+            raise ConnectorError(f"Calendly find_events failed: {e}")
+        events = []
+        for e in res.get("collection", []):
+            uuid = (e.get("uri") or "").rstrip("/").split("/")[-1]
+            links: Dict[str, Any] = {}
+            try:
+                invitees = await self.get(f"/scheduled_events/{uuid}/invitees", params={"email": email})
+                first = (invitees.get("collection") or [{}])[0]
+                links = {"reschedule_url": first.get("reschedule_url"), "cancel_url": first.get("cancel_url")}
+            except Exception:  # noqa: BLE001 - the event is still worth returning
+                pass
+            events.append({
+                "event_uuid": uuid,
+                "name": e.get("name"),
+                "start_time": e.get("start_time"),
+                "end_time": e.get("end_time"),
+                **links,
+            })
+        return {"events": events, "count": len(events)}
+
+    async def cancel_event(self, event_uuid: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Cancel a scheduled event; Calendly notifies the invitee."""
+        uuid = str(event_uuid).rstrip("/").split("/")[-1]
+        try:
+            await self.post(f"/scheduled_events/{uuid}/cancellation", json={"reason": reason or "Cancelled by phone"})
+        except Exception as e:
+            if "HTTP 403" in str(e) and "already" in str(e).lower():
+                return {"event_uuid": uuid, "cancelled": True, "already_cancelled": True}
+            raise ConnectorError(f"Calendly cancel_event failed: {e}")
+        return {"event_uuid": uuid, "cancelled": True}
+

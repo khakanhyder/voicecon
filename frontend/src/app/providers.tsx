@@ -5,9 +5,10 @@ import { GoogleOAuthProvider } from '@react-oauth/google'
 import { ReactNode, useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
+import { SECTION_PATHS } from '@/components/landing/sections'
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/landing-page', '/privacy', '/terms'])
+const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
 
 // Create a client
 const queryClient = new QueryClient({

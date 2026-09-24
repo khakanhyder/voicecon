@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { useConfirm } from '@/hooks/use-confirm'
 import { validateTool, RETIRED_TOOL_TYPES, type ToolErrors } from '@/lib/toolValidation'
+import { changesExistingData, groupActions, type ActionOperation } from '@/lib/integrationActions'
 import {
   Wrench, Plus, Search, Phone, PhoneForwarded, PhoneOff,
   MessageSquare, Voicemail, Hash, ArrowLeftRight, Bot,
@@ -47,6 +48,8 @@ interface AvailableAction {
   action: string
   label: string
   description: string
+  operation?: ActionOperation
+  destructive?: boolean
   parameters: {
     type: string
     properties: Record<string, { type: string; description: string }>
@@ -259,11 +262,14 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams, errors }: {
     onCfg('connection_id', connectionId)
     onCfg('connector_slug', conn?.connector_slug || '')
     onCfg('action', '')
+    onCfg('allow_destructive', 'false')
     onParams([])
   }
 
   const handleActionChange = (action: string) => {
     onCfg('action', action)
+    // Permission to delete is given per action, never carried over.
+    onCfg('allow_destructive', 'false')
     const actionDef = actions.find(a => a.action === action)
     if (actionDef?.parameters?.properties) {
       const { properties, required = [] } = actionDef.parameters
@@ -320,8 +326,12 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams, errors }: {
           <Field label="Action" required hint="What should the AI do with this integration?" error={errors.action}>
             <SI value={config.action || ''} onChange={handleActionChange}>
               <option value="">— Select action —</option>
-              {actions.map(a => (
-                <option key={a.action} value={a.action}>{a.label}</option>
+              {groupActions(actions).map(group => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.actions.map(a => (
+                    <option key={a.action} value={a.action}>{a.label}</option>
+                  ))}
+                </optgroup>
               ))}
             </SI>
           </Field>
@@ -333,6 +343,31 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams, errors }: {
           <p className="font-bold text-[#000000] mb-1">{selectedAction.label}</p>
           <p>{selectedAction.description}</p>
         </div>
+      )}
+
+      {changesExistingData(selectedAction) && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <strong>Changes existing data.</strong> Before it runs, the agent must read the change back to the
+          caller and get a clear yes. Without that confirmation nothing is changed. Every change is recorded
+          with the record as it was before.
+        </div>
+      )}
+
+      {selectedAction?.destructive && (
+        <Field label="Allow deleting" required error={errors.allow_destructive}>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-red-200 bg-red-50/60 p-3">
+            <input
+              type="checkbox"
+              checked={config.allow_destructive === 'true'}
+              onChange={e => onCfg('allow_destructive', e.target.checked ? 'true' : 'false')}
+              className="mt-0.5 h-4 w-4 accent-red-600"
+            />
+            <span className="text-xs text-red-900">
+              <span className="block text-[13px] font-semibold">Let this agent {selectedAction.label.toLowerCase()}</span>
+              This removes data in the connected app. It stays off until you turn it on, and the agent still has to confirm with the caller each time.
+            </span>
+          </label>
+        </Field>
       )}
 
       {selectedAction && Object.keys(selectedAction.parameters?.properties || {}).length > 0 && (

@@ -173,10 +173,10 @@ export const entitlementService = {
     return data
   },
 
-  async startTrial(planId?: string) {
+  async startTrial(planId?: string, billingPeriod: 'monthly' | 'yearly' = 'monthly') {
     const { data } = await apiClient.post('/api/v1/billing/trial', {
       plan_id: planId ?? null,
-      billing_period: 'monthly',
+      billing_period: billingPeriod,
     })
     return data
   },
@@ -247,8 +247,8 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
       tone: 'danger',
       dismissible: false,
       title: 'Your subscription has been cancelled',
-      body: 'Your workspace is read-only. Reactivate to start answering calls again.',
-      cta: 'Reactivate',
+      body: 'Your workspace is read-only. Choose a plan to start answering calls again.',
+      cta: 'Choose a plan',
     }
   }
 
@@ -261,8 +261,8 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
       title: 'Your trial has ended',
       body:
         days > 0
-          ? `You have ${days} ${days === 1 ? 'day' : 'days'} before your phone number is released. Choose a plan to keep it.`
-          : 'Your phone number is about to be released. Choose a plan to keep it.',
+          ? `Your agents keep running for ${days} more ${days === 1 ? 'day' : 'days'}, then pause and your phone number is released. Choose a plan to keep them on.`
+          : 'Your agents are about to pause and your phone number released. Choose a plan to keep them on.',
       cta: 'Choose a plan',
     }
   }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { groupActions, type ActionOperation } from '@/lib/integrationActions'
 
 interface Connection {
   id: string
@@ -14,8 +15,10 @@ interface Connection {
 
 interface ConnectorAction {
   action: string
-  label?: string
+  label: string
   description?: string
+  operation?: ActionOperation
+  destructive?: boolean
 }
 
 const SELECT_CLASS =
@@ -182,10 +185,14 @@ export function ConnectionActionField({
       className={SELECT_CLASS}
     >
       <option value="">Select an action…</option>
-      {actions.map((action) => (
-        <option key={action.action} value={action.action}>
-          {action.label ? `${action.label}` : action.action}
-        </option>
+      {groupActions(actions).map((group) => (
+        <optgroup key={group.label} label={group.label}>
+          {group.actions.map((action) => (
+            <option key={action.action} value={action.action}>
+              {action.label || action.action}
+            </option>
+          ))}
+        </optgroup>
       ))}
     </select>
   )

@@ -511,6 +511,8 @@ class HubSpotConnector(BaseConnector):
         Raises:
             ConnectorError: If update fails
         """
+        if not properties:
+            raise ConnectorError("Nothing to change: give a new deal name, stage, amount or close date.")
         try:
             response = await self.patch(
                 f"/crm/v3/objects/deals/{deal_id}",
@@ -528,6 +530,34 @@ class HubSpotConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to update HubSpot deal: {e}", exc_info=True)
             raise ConnectorError(f"Failed to update deal: {str(e)}")
+
+    async def get_deal(self, deal_id: str) -> Dict[str, Any]:
+        """A deal by id, with the properties a caller talks about."""
+        try:
+            deal = await self.get(
+                f"/crm/v3/objects/deals/{deal_id}",
+                params={"properties": "dealname,dealstage,amount,closedate,pipeline"},
+            )
+        except Exception as e:
+            raise ConnectorError(f"Failed to get deal: {e}")
+        return {"id": deal.get("id"), "properties": deal.get("properties", {}),
+                "updated_at": deal.get("updatedAt")}
+
+    async def search_deals(self, query: str, limit: int = 10) -> Dict[str, Any]:
+        """Deals matching free text (HubSpot searches the deal name and other
+        default text properties). The lookup before update_deal."""
+        if not (query or "").strip():
+            raise ConnectorError("Say what to search for, such as the deal name.")
+        try:
+            response = await self.post(
+                "/crm/v3/objects/deals/search",
+                json={"query": query, "limit": max(1, min(int(limit or 10), 50)),
+                      "properties": ["dealname", "dealstage", "amount", "closedate", "pipeline"]},
+            )
+        except Exception as e:
+            raise ConnectorError(f"Failed to search deals: {e}")
+        results = [{"id": r.get("id"), **(r.get("properties") or {})} for r in response.get("results", [])]
+        return {"total": response.get("total", len(results)), "deals": results}
 
     # ========================================================================
     # Association Methods

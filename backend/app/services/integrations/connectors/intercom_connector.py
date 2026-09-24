@@ -118,3 +118,55 @@ class IntercomConnector(BaseConnector):
         )
         logger.info(f"Intercom conversation created: {response.get('id')}")
         return {"success": True, "id": response.get("id"), "conversation": response}
+
+    # ------------------------------------------------------------ changes
+
+    async def get_contact(self, contact_id: str) -> Dict[str, Any]:
+        c = await self.get(f"/contacts/{contact_id}")
+        return {"id": c.get("id"), "name": c.get("name"), "email": c.get("email"),
+                "phone": c.get("phone"), "role": c.get("role")}
+
+    async def update_contact(self, contact_id: str, name: Optional[str] = None,
+                             email: Optional[str] = None, phone: Optional[str] = None) -> Dict[str, Any]:
+        """Change a contact's name, email or phone."""
+        body = {k: v for k, v in (("name", name), ("email", email), ("phone", phone)) if v}
+        if not body:
+            raise ConnectorError("Nothing to change: give a new name, email or phone.")
+        response = await self.put(f"/contacts/{contact_id}", json=body)
+        return {"success": True, "id": response.get("id") or contact_id, "updated": True}
+
+    async def archive_contact(self, contact_id: str) -> Dict[str, Any]:
+        """Archive a contact (Intercom can unarchive it later)."""
+        response = await self.post(f"/contacts/{contact_id}/archive")
+        return {"success": True, "id": response.get("id") or contact_id, "archived": True}
+
+    async def find_conversations(self, contact_id: str, state: str = "open") -> Dict[str, Any]:
+        """A contact's conversations (open ones by default): the lookup before closing one."""
+        body: Dict[str, Any] = {"query": {"operator": "AND", "value": [
+            {"field": "contact_ids", "operator": "=", "value": contact_id},
+        ]}}
+        if state in ("open", "closed", "snoozed"):
+            body["query"]["value"].append({"field": "state", "operator": "=", "value": state})
+        response = await self.post("/conversations/search", json=body)
+        conversations = [
+            {"id": c.get("id"), "title": c.get("title"), "state": c.get("state"),
+             "updated_at": c.get("updated_at"),
+             "preview": ((c.get("source") or {}).get("body") or "")[:200]}
+            for c in response.get("conversations") or []
+        ]
+        return {"success": True, "conversations": conversations, "count": len(conversations)}
+
+    async def get_conversation(self, conversation_id: str) -> Dict[str, Any]:
+        c = await self.get(f"/conversations/{conversation_id}")
+        return {"id": c.get("id"), "title": c.get("title"), "state": c.get("state")}
+
+    async def close_conversation(self, conversation_id: str, note: Optional[str] = None) -> Dict[str, Any]:
+        """Close a conversation as the workspace admin who owns the token."""
+        me = await self.get("/me")
+        body: Dict[str, Any] = {"message_type": "close", "type": "admin", "admin_id": str(me.get("id"))}
+        if note:
+            body["body"] = note
+        response = await self.post(f"/conversations/{conversation_id}/parts", json=body)
+        return {"success": True, "id": response.get("id") or conversation_id,
+                "state": response.get("state") or "closed", "closed": True}
+

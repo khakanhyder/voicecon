@@ -34,6 +34,7 @@ export const API_ENDPOINTS = {
   INTEGRATION_CONNECTION: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}`,
   INTEGRATION_CONNECTION_TEST: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/test`,
   INTEGRATION_CONNECTION_ACTIONS: (id: string) => `${API_BASE}/api/v1/integrations/connections/${id}/actions`,
+  INTEGRATION_CHANGES: `${API_BASE}/api/v1/integrations/changes`,
   /** Things inside a connection an action can point at: lists, channels, calendars. */
   INTEGRATION_CONNECTION_RESOURCES: (id: string, kind: string) =>
     `${API_BASE}/api/v1/integrations/connections/${id}/resources/${kind}`,

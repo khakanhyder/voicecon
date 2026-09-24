@@ -85,13 +85,54 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-interface ApiPlan {
-  slug: string | null
+/** A plan as `GET /billing/plans` returns it (the fields pricing cards need). */
+export interface ApiPlan {
+  slug?: string | null
   name: string
   description: string | null
   price_monthly: number
   price_yearly: number | null
+  /** What the backend enforces — the admin's feature toggles and limits. */
   entitlements?: { features?: Record<string, boolean>; limits?: Limits }
+}
+
+/** Normalise an API plan into the shape the card copy is built from. */
+export function toPricingPlan(p: ApiPlan): PricingPlan {
+  return {
+    slug: p.slug ?? null,
+    name: p.name,
+    description: p.description,
+    price_monthly: Number(p.price_monthly),
+    price_yearly: p.price_yearly == null ? null : Number(p.price_yearly),
+    features: p.entitlements?.features ?? {},
+    limits: p.entitlements?.limits ?? {},
+  }
+}
+
+/**
+ * Card bullets for plans straight from `GET /billing/plans`, in display order.
+ * Every pricing card in the app goes through this, so the landing page,
+ * onboarding and the billing settings all say the same thing — and all of it
+ * follows the limits and feature toggles set in /admin/plans. Only those: they
+ * are what the backend enforces, whereas free-text bullets drift out of step
+ * with them (they once said "unlimited minutes" beside a 500-minute limit).
+ */
+export function planCardBullets(plans: ApiPlan[]): string[][] {
+  const normalised = plans.map(toPricingPlan)
+  return normalised.map((plan, i) => planBullets(plan, normalised[i - 1]))
+}
+
+/**
+ * The price a card shows for ``period``, or ``null`` when the plan has no
+ * yearly price. The backend refuses yearly checkout without one, so a card
+ * must never invent it from the monthly price.
+ */
+export function periodPrice(
+  plan: Pick<PricingPlan, 'price_monthly' | 'price_yearly'>,
+  period: 'monthly' | 'yearly'
+): number | null {
+  if (period === 'yearly') return plan.price_yearly == null ? null : Number(plan.price_yearly)
+  return Number(plan.price_monthly)
 }
 
 /** Plans marked public and available in the admin, in their admin sort order. */
@@ -101,17 +142,7 @@ export async function getPricing(): Promise<PricingData> {
     getJson<TrialOffer>('/billing/trial-offer'),
   ])
   return {
-    plans: plans?.length
-      ? plans.map((p) => ({
-          slug: p.slug,
-          name: p.name,
-          description: p.description,
-          price_monthly: Number(p.price_monthly),
-          price_yearly: p.price_yearly == null ? null : Number(p.price_yearly),
-          features: p.entitlements?.features ?? {},
-          limits: p.entitlements?.limits ?? {},
-        }))
-      : FALLBACK.plans,
+    plans: plans?.length ? plans.map(toPricingPlan) : FALLBACK.plans,
     trial: trial ?? FALLBACK.trial,
   }
 }
@@ -222,7 +253,9 @@ export function trialBullets(trial: TrialOffer): string[] {
 }
 
 /** Largest whole-percent saving yearly billing gives over twelve monthly payments. */
-export function yearlySavingPercent(plans: PricingPlan[]): number {
+export function yearlySavingPercent(
+  plans: Pick<PricingPlan, 'price_monthly' | 'price_yearly'>[]
+): number {
   let best = 0
   for (const p of plans) {
     if (!p.price_monthly || !p.price_yearly) continue

@@ -787,9 +787,26 @@ class FunctionExecutor:
         if "parameters" in cfg and isinstance(cfg["parameters"], dict):
             parameters = cfg["parameters"]
 
+        description = tool.description or f"{tool.tool_type} tool"
+
+        # Update and delete actions must be confirmed with the caller first.
+        # Added here rather than stored with the tool, so a tool saved before
+        # this rule (or with an edited parameter list) still carries it.
+        if t in ("integration", "connected_integration"):
+            from app.services.integrations.action_registry import changes_existing_data
+            from app.services.integrations.action_runner import (
+                confirmation_instructions,
+                with_confirmation,
+            )
+
+            action_def = get_action_schema(cfg.get("connector_slug", ""), cfg.get("action", ""))
+            if action_def and changes_existing_data(action_def):
+                parameters = with_confirmation(parameters)
+                description += confirmation_instructions(action_def)
+
         return {
             "name": sanitize_function_name(tool.name),
-            "description": tool.description or f"{tool.tool_type} tool",
+            "description": description,
             "parameters": parameters,
         }
 
@@ -863,7 +880,9 @@ class FunctionExecutor:
                         result = {"error": f"Knowledge base search failed: {e}"}
 
             elif t in ("integration", "connected_integration"):
-                result = await self._execute_integration_tool(cfg, parameters, db)
+                result = await self._execute_integration_tool(
+                    cfg, parameters, db, tool=tool, call_id=call_id
+                )
 
             elif t == "workflow":
                 result = await self._execute_workflow_tool(
@@ -921,85 +940,43 @@ class FunctionExecutor:
         cfg: Dict[str, Any],
         parameters: Dict[str, Any],
         db: Optional[AsyncSession],
+        tool: Optional[Tool] = None,
+        call_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Execute a connected integration tool by loading the user's
-        OAuth/API-key connection and calling the specified action.
+        Execute a connected integration tool through the shared action runner,
+        which allowlists the action, scopes the connection to the tool's
+        workspace, applies the connection's defaults and enforces the
+        confirm/opt-in rules for update and delete actions.
 
         cfg must contain:
           - connection_id: UUID of the IntegrationConnection row
-          - connector_slug: e.g. "hubspot", "google_calendar"
-          - action: method name on the connector, e.g. "create_contact"
+          - action: registry action name, e.g. "create_contact"
         """
         if db is None:
             raise ValueError("Database session required for integration tools")
 
-        from app.models.integration import IntegrationConnection, IntegrationConnector
-        from app.services.integrations import connectors as connector_module
-        from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
+        from app.services.integrations.action_runner import (
+            SOURCE_AGENT,
+            IntegrationActionError,
+            run_integration_action,
+        )
 
-        connection_id = cfg.get("connection_id")
-        connector_slug = cfg.get("connector_slug")
-        action = cfg.get("action")
-
-        if not connection_id:
-            raise ValueError("integration tool missing connection_id in config")
-        if not action:
-            raise ValueError("integration tool missing action in config")
-
-        # Load the user's connection (has encrypted credentials)
-        conn_result = await db.execute(
-            select(IntegrationConnection).where(
-                IntegrationConnection.id == connection_id
+        try:
+            result = await run_integration_action(
+                db,
+                organization_id=getattr(tool, "organization_id", None),
+                connection_id=cfg.get("connection_id"),
+                action=cfg.get("action"),
+                parameters=parameters,
+                source=SOURCE_AGENT,
+                tool_config=cfg,
+                tool_id=getattr(tool, "id", None),
+                call_id=call_id,
             )
-        )
-        connection = conn_result.scalar_one_or_none()
-        if not connection:
-            raise ValueError(f"IntegrationConnection {connection_id} not found")
-
-        # Load the connector definition
-        connector_result = await db.execute(
-            select(IntegrationConnector).where(
-                IntegrationConnector.id == connection.connector_id
-            )
-        )
-        connector = connector_result.scalar_one_or_none()
-        if not connector:
-            raise ValueError(f"IntegrationConnector not found for connection {connection_id}")
-
-        slug = connector_slug or connector.slug
-        class_name = CONNECTOR_CLASS_MAP.get(slug)
-        if not class_name:
-            raise ValueError(f"No connector class for slug '{slug}'")
-
-        # Instantiate the connector (handles auth, rate limiting, etc.)
-        connector_class = getattr(connector_module, class_name)
-        instance = connector_class(connection=connection, connector=connector, db=db)
-
-        # Call the action method dynamically
-        if not hasattr(instance, action):
-            raise ValueError(f"Action '{action}' not found on {class_name}")
-
-        method = getattr(instance, action)
-        from app.services.integrations.action_registry import (
-            adapt_parameters,
-            drop_unsupported_arguments,
-            strip_ui_only_parameters,
-        )
-
-        # The LLM was handed the action's published schema, so it answers in
-        # that vocabulary ("message", "body", "title"). Translate to the
-        # connector's argument names before anything starts discarding keys.
-        parameters = strip_ui_only_parameters(slug, action, parameters)
-        parameters = adapt_parameters(slug, action, parameters)
-
-        # The arguments came from an LLM deciding how to call this tool, so an
-        # extra plausible-looking key is a matter of time. Drop what the action
-        # cannot accept rather than failing the whole tool call on it.
-        parameters = drop_unsupported_arguments(
-            method, parameters, context=f"{slug}.{action}"
-        )
-        result = await method(**parameters)
+        except IntegrationActionError as e:
+            # Phrased for the agent and the Test panel alike.
+            raise ToolConfigError(str(e))
         return result if isinstance(result, dict) else {"result": result}
 
 

@@ -85,7 +85,7 @@ def _require_checkout_provider(provider: str) -> None:
     if not providers.is_ready(provider):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Payments are not available right now. You can still start a free trial.",
+            detail="Payments are not available right now. Please try again shortly.",
         )
 
 
@@ -146,6 +146,9 @@ class SubscriptionResponse(BaseModel):
     canceled_at: Optional[datetime]
     current_period_minutes: int
     current_period_calls: int
+    #: A downgrade queued for the end of the paid period, if any.
+    scheduled_plan_id: Optional[uuid.UUID] = None
+    scheduled_plan_name: Optional[str] = None
 
 
 class UsageResponse(BaseModel):
@@ -321,25 +324,8 @@ async def get_current_subscription(
     if not subscription:
         return None
 
-    # Get plan details
-    result = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
-    )
-    plan = result.scalar_one_or_none()
-
-    return SubscriptionResponse(
-        id=subscription.id,
-        plan_id=subscription.plan_id,
-        plan_name=plan.name if plan else "Unknown",
-        status=subscription.status,
-        billing_period=subscription.billing_period,
-        current_period_start=subscription.current_period_start,
-        current_period_end=subscription.current_period_end,
-        trial_end=subscription.trial_end,
-        canceled_at=subscription.canceled_at,
-        current_period_minutes=subscription.current_period_minutes,
-        current_period_calls=subscription.current_period_calls,
-    )
+    plan = await db.get(SubscriptionPlan, subscription.plan_id)
+    return await _subscription_response_with_schedule(db, subscription, plan)
 
 
 @router.post(
@@ -376,77 +362,19 @@ async def create_subscription(
             ),
         )
 
-    _require_checkout_provider(providers.STRIPE)
-    stripe_service = await get_stripe_service()
-
-    # Check if user already has an active subscription
-    result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.organization_id == org_id,
-                Subscription.status.in_(LIVE_STATUSES),
-            )
-        )
-    )
-    existing_sub = result.scalar_one_or_none()
-    if existing_sub:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization already has an active subscription",
-        )
-
-    # Create or get Stripe customer
-    # In production, store stripe_customer_id on organization
-    stripe_customer_id = await stripe_service.create_customer(
-        email=current_user.email,
-        name=current_user.full_name or current_user.email,
-        organization_id=org_id,
-    )
-
-    # Attach payment method (Stripe SDK calls are sync — run off the event loop)
-    import asyncio
-    import stripe
-
-    await asyncio.to_thread(
-        stripe.PaymentMethod.attach,
-        request.payment_method_id,
-        customer=stripe_customer_id,
-    )
-    await asyncio.to_thread(
-        stripe.Customer.modify,
-        stripe_customer_id,
-        invoice_settings={"default_payment_method": request.payment_method_id},
-    )
-
-    # Create subscription. No trial: see the check at the top of this endpoint.
-    subscription = await stripe_service.create_subscription(
+    # Kept for older clients. It used to create the Stripe subscription through
+    # its own path, which skipped the checks ``/checkout`` makes (a declined or
+    # 3-D Secure card left an ``incomplete`` row; a running trial was not
+    # converted). Both doors now go through the same code.
+    return await checkout(
+        CheckoutRequest(
+            plan_id=request.plan_id,
+            payment_method_id=request.payment_method_id,
+            billing_period="monthly",
+        ),
+        current_user=current_user,
+        org_id=org_id,
         db=db,
-        organization_id=org_id,
-        plan_id=request.plan_id,
-        stripe_customer_id=stripe_customer_id,
-    )
-
-    await _mark_onboarding_done(db, org_id)
-    await db.commit()
-
-    # Get plan details
-    result = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
-    )
-    plan = result.scalar_one_or_none()
-
-    return SubscriptionResponse(
-        id=subscription.id,
-        plan_id=subscription.plan_id,
-        plan_name=plan.name if plan else "Unknown",
-        status=subscription.status,
-        billing_period=subscription.billing_period,
-        current_period_start=subscription.current_period_start,
-        current_period_end=subscription.current_period_end,
-        trial_end=subscription.trial_end,
-        canceled_at=subscription.canceled_at,
-        current_period_minutes=subscription.current_period_minutes,
-        current_period_calls=subscription.current_period_calls,
     )
 
 
@@ -469,57 +397,14 @@ async def update_subscription(
     Returns:
         Updated subscription
     """
-    # Get current subscription
-    result = await db.execute(
-        select(Subscription).where(
-            and_(
-                Subscription.organization_id == org_id,
-                Subscription.status.in_(LIVE_STATUSES),
-            )
-        )
-    )
-    subscription = result.scalar_one_or_none()
-    if not subscription:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active subscription found",
-        )
-
-    if subscription.source != SOURCE_STRIPE or not subscription.stripe_subscription_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Use POST /billing/subscription/change-plan to change this subscription's plan.",
-        )
-    stripe_service = await get_stripe_service()
-
-    # Update subscription
-    updated_subscription = await stripe_service.update_subscription_plan(
+    # Kept for older clients; ``prorate`` is ignored. Plan changes go through
+    # change-plan, which defers downgrades to the end of the paid period and
+    # works for every provider.
+    return await change_plan(
+        ChangePlanRequest(plan_id=request.plan_id),
+        current_user=current_user,
+        org_id=org_id,
         db=db,
-        subscription_id=subscription.id,
-        new_plan_id=request.plan_id,
-        prorate=request.prorate,
-    )
-
-    # Get plan details
-    result = await db.execute(
-        select(SubscriptionPlan).where(
-            SubscriptionPlan.id == updated_subscription.plan_id
-        )
-    )
-    plan = result.scalar_one_or_none()
-
-    return SubscriptionResponse(
-        id=updated_subscription.id,
-        plan_id=updated_subscription.plan_id,
-        plan_name=plan.name if plan else "Unknown",
-        status=updated_subscription.status,
-        billing_period=updated_subscription.billing_period,
-        current_period_start=updated_subscription.current_period_start,
-        current_period_end=updated_subscription.current_period_end,
-        trial_end=updated_subscription.trial_end,
-        canceled_at=updated_subscription.canceled_at,
-        current_period_minutes=updated_subscription.current_period_minutes,
-        current_period_calls=updated_subscription.current_period_calls,
     )
 
 
@@ -1174,6 +1059,17 @@ def _subscription_response(
     )
 
 
+async def _subscription_response_with_schedule(
+    db: AsyncSession, subscription: Subscription, plan: Optional[SubscriptionPlan]
+) -> SubscriptionResponse:
+    response = _subscription_response(subscription, plan)
+    if subscription.scheduled_plan_id:
+        scheduled = await db.get(SubscriptionPlan, subscription.scheduled_plan_id)
+        response.scheduled_plan_id = subscription.scheduled_plan_id
+        response.scheduled_plan_name = scheduled.name if scheduled else None
+    return response
+
+
 @router.post(
     "/trial", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
 )
@@ -1338,9 +1234,12 @@ async def checkout(
         )
         existing = result.scalar_one_or_none()
 
-    if existing is not None and (
-        existing.status == STATUS_ACTIVE
-        or (existing.status == STATUS_PAST_DUE and _is_provider_billed(existing))
+    # Same rule as the Polar checkout: only a subscription a provider is
+    # already billing blocks a new one. A staff comp converts in place.
+    if (
+        existing is not None
+        and existing.status in (STATUS_ACTIVE, STATUS_PAST_DUE)
+        and _is_provider_billed(existing)
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1564,27 +1463,50 @@ async def change_plan(
             )
 
     previous_plan_id = subscription.plan_id
+    provider_billed = _is_provider_billed(subscription)
+    # Re-choosing the current plan while a downgrade is queued cancels the
+    # downgrade: the customer keeps the plan they have, and the provider is
+    # told to keep billing it.
+    undo_scheduled = target.id == subscription.plan_id
 
-    polar_product = None
-    if subscription.source == SOURCE_POLAR and subscription.polar_subscription_id:
-        polar_product = polar_service.product_for(target, subscription.billing_period)
-        if not polar_product:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{target.name} is not available for {subscription.billing_period} billing yet.",
-            )
+    if not provider_billed:
+        # A trial or a staff comp: no provider to bill, so a plan change is a
+        # column change in either direction. (A trial runs on trial limits
+        # whichever plan it names, so there is nothing to defer.)
+        if not is_upgrade and subscription.source != SOURCE_TRIAL:
+            subscription.scheduled_plan_id = target.id
+        else:
+            subscription.plan_id = target.id
+            subscription.scheduled_plan_id = None
+    elif subscription.source == SOURCE_POLAR:
         try:
-            # Upgrades prorate now; a downgrade is queued at Polar for the next
-            # period, matching the local scheduled_plan_id below.
-            await polar_service.change_product(subscription, polar_product, immediately=is_upgrade)
+            if undo_scheduled:
+                await polar_service.clear_pending_update(subscription)
+            else:
+                polar_product = polar_service.product_for(target, subscription.billing_period)
+                if not polar_product:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"{target.name} is not available for {subscription.billing_period} billing yet.",
+                    )
+                # Upgrades prorate now; a downgrade is queued at Polar for the
+                # next period and applied locally by its subscription.updated.
+                await polar_service.change_product(subscription, polar_product, immediately=is_upgrade)
         except polar_service.PolarError as exc:
             raise _polar_http_error(exc)
-
-    if is_upgrade:
-        if polar_product:
+        if is_upgrade and not undo_scheduled:
             subscription.plan_id = target.id
-        elif subscription.stripe_subscription_id:
-            stripe_service = await get_stripe_service()
+        subscription.scheduled_plan_id = None if (is_upgrade or undo_scheduled) else target.id
+    else:
+        stripe_service = await get_stripe_service()
+        if is_upgrade and not undo_scheduled:
+            if subscription.scheduled_plan_id is not None and current_plan is not None:
+                # A queued downgrade already moved Stripe onto the cheaper
+                # price. Put the paid-for price back first, so the upgrade's
+                # proration credits what the customer actually paid.
+                await stripe_service.set_subscription_price(
+                    db, subscription, current_plan, proration_behavior="none"
+                )
             await stripe_service.update_subscription_plan(
                 db=db,
                 subscription_id=subscription.id,
@@ -1593,14 +1515,24 @@ async def change_plan(
             )
             await db.refresh(subscription)
         else:
-            # A trial has no Stripe object to prorate against; switching the
-            # plan it trials is just a column change.
-            subscription.plan_id = target.id
-        subscription.scheduled_plan_id = None
+            # A downgrade, or undoing one: change only what the next invoice
+            # charges. The plan the customer already paid for stays until the
+            # renewal webhook applies ``scheduled_plan_id``.
+            await stripe_service.set_subscription_price(
+                db,
+                subscription,
+                target,
+                proration_behavior="none",
+            )
+        subscription.scheduled_plan_id = None if (is_upgrade or undo_scheduled) else target.id
+
+    if undo_scheduled:
+        event_type = events.PLAN_CHANGE_SCHEDULED
+    elif subscription.plan_id == target.id:
         event_type = events.PLAN_CHANGED
     else:
-        subscription.scheduled_plan_id = target.id
         event_type = events.PLAN_CHANGE_SCHEDULED
+    applied_now = subscription.plan_id == target.id
 
     await events.record_event(
         db,
@@ -1612,9 +1544,11 @@ async def change_plan(
         actor_type=events.ACTOR_USER,
         actor_id=current_user.id,
         payload={
-            "direction": "upgrade" if is_upgrade else "downgrade",
+            "direction": "cancel_scheduled_downgrade"
+            if undo_scheduled
+            else ("upgrade" if is_upgrade else "downgrade"),
             "effective": "immediately"
-            if is_upgrade
+            if applied_now
             else subscription.current_period_end.isoformat(),
         },
     )
@@ -1623,7 +1557,7 @@ async def change_plan(
     await db.refresh(subscription)
     invalidate_entitlements(org_id)
 
-    if is_upgrade:
+    if applied_now and not undo_scheduled and provider_billed:
         try:
             from app.services.email.service import email_service
             from app.core.config import settings
@@ -1642,8 +1576,8 @@ async def change_plan(
         except Exception as exc:
             logger.error(f"Failed to send subscription confirmation email on upgrade: {exc}")
 
-    effective_plan = target if is_upgrade else current_plan
-    return _subscription_response(subscription, effective_plan)
+    effective_plan = target if applied_now else current_plan
+    return await _subscription_response_with_schedule(db, subscription, effective_plan)
 
 
 async def _downgrade_conflicts(

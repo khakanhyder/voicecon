@@ -338,5 +338,16 @@ async def check_tool_references(
             errors["connection_id"] = "That integration is no longer connected. Choose another."
         elif _text(cfg, "action") and not get_action_schema(row, _text(cfg, "action")):
             errors["action"] = "That action is not available for this integration."
+        elif _text(cfg, "action"):
+            from app.services.integrations.action_registry import is_destructive
+            from app.services.integrations.action_runner import is_enabled
+
+            # Deleting from a connected app is opt-in per tool: the agent decides
+            # when to call it, mid-call, from what it heard.
+            action_def = get_action_schema(row, _text(cfg, "action"))
+            if is_destructive(action_def) and not is_enabled(cfg.get("allow_destructive")):
+                errors["allow_destructive"] = (
+                    "This action deletes data. Turn on \"Allow deleting\" to let the agent use it."
+                )
 
     return errors

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { toast } from 'sonner'
 import { Lock } from 'lucide-react'
@@ -9,6 +10,7 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS, FREE_TRIAL_DAYS } from '@/lib/constants'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
 import { billingService, useBillingConfig } from '@/lib/billing'
+import { useEntitlementStore } from '@/store/entitlementStore'
 
 export interface CheckoutPlan {
   id: string
@@ -29,7 +31,21 @@ interface Props {
 }
 
 function priceFor(period: 'monthly' | 'yearly', monthly: number, yearly: number | null) {
-  return period === 'yearly' ? yearly ?? Math.round(monthly * 12 * 0.85) : monthly
+  return period === 'yearly' && yearly != null ? yearly : monthly
+}
+
+/**
+ * A 409 from checkout can mean the admin switched payment provider while this
+ * form was open ("Checkout now goes through …"). Refetch the config so the
+ * right form replaces this one, rather than waiting for a window refocus.
+ */
+function useRefreshConfigOnConflict() {
+  const queryClient = useQueryClient()
+  return (err: unknown) => {
+    if ((err as { response?: { status?: number } })?.response?.status === 409) {
+      queryClient.invalidateQueries({ queryKey: ['billing', 'config'] })
+    }
+  }
 }
 
 interface PayProps {
@@ -47,6 +63,7 @@ interface PayProps {
 function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, onSuccess }: PayProps) {
   const stripe = useStripe()
   const elements = useElements()
+  const refreshConfigOnConflict = useRefreshConfigOnConflict()
 
   const pay = async () => {
     if (!stripe || !elements) {
@@ -67,6 +84,7 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
       toast.success('Subscription activated!')
       onSuccess()
     } catch (err) {
+      refreshConfigOnConflict(err)
       toast.error(getErrorMessage(err))
     } finally {
       setSubmitting(false)
@@ -87,6 +105,7 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
 
 /** Polar: the customer pays on Polar's hosted page and comes back. */
 function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, returnPath }: PayProps) {
+  const refreshConfigOnConflict = useRefreshConfigOnConflict()
   const pay = async () => {
     setSubmitting(true)
     try {
@@ -96,6 +115,7 @@ function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmit
         return_path: returnPath ?? window.location.pathname,
       })
     } catch (err) {
+      refreshConfigOnConflict(err)
       toast.error(getErrorMessage(err))
       setSubmitting(false)
     }
@@ -114,10 +134,17 @@ function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmit
   )
 }
 
-export function CheckoutModal({ plan, billingPeriod, onClose, onSuccess, returnPath }: Props) {
+export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, onSuccess, returnPath }: Props) {
+  // Yearly only where the admin priced the plan yearly — the backend refuses a
+  // yearly checkout without a yearly price, so bill monthly instead.
+  const billingPeriod: 'monthly' | 'yearly' =
+    requestedPeriod === 'yearly' && plan.price_yearly != null ? 'yearly' : 'monthly'
   const { data: config, isLoading } = useBillingConfig()
   const [submitting, setSubmitting] = useState(false)
   const [startingTrial, setStartingTrial] = useState(false)
+  // Only offer the trial to a workspace that can still start one; for anyone
+  // else (a running, lapsed or used-up trial) the only possible answer is 409.
+  const trialAvailable = useEntitlementStore((s) => !!s.entitlements?.trial_available)
 
   const hosted = config?.checkout_mode === 'hosted'
   const stripePromise = useMemo(
@@ -176,7 +203,8 @@ export function CheckoutModal({ plan, billingPeriod, onClose, onSuccess, returnP
             </div>
           ) : !configured ? (
             <p className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
-              Payments are not available right now. You can still start a free trial.
+              Payments are not available right now.
+              {trialAvailable ? ' You can still start a free trial.' : ' Please try again later.'}
             </p>
           ) : hosted ? (
             <HostedPayment {...payProps} />
@@ -187,10 +215,12 @@ export function CheckoutModal({ plan, billingPeriod, onClose, onSuccess, returnP
           )}
 
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="flex-1" onClick={startTrial} disabled={busy}>
-              {startingTrial ? 'Starting…' : `Start ${trialDays}-day free trial`}
-            </Button>
-            <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {trialAvailable && (
+              <Button variant="outline" className="flex-1" onClick={startTrial} disabled={busy}>
+                {startingTrial ? 'Starting…' : `Start ${trialDays}-day free trial`}
+              </Button>
+            )}
+            <Button variant="ghost" className={trialAvailable ? '' : 'ml-auto'} onClick={onClose} disabled={busy}>
               Cancel
             </Button>
           </div>

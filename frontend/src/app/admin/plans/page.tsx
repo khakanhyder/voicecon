@@ -143,7 +143,7 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
           </div>
         </div>
 
-        <Field label="Pricing-page bullet points" hint="One per line.">
+        <Field label="Extra bullet points (not shown on plan cards)" hint="One per line. Plan cards on the website, onboarding and billing pages are built from the limits and features below, so they always match what the plan enforces.">
           <textarea rows={4} className={`${inputClass} h-auto py-2`} value={form.highlights} onChange={(e) => set('highlights', e.target.value)} />
         </Field>
 

@@ -431,142 +431,36 @@ class ActionStepHandler(BaseStepHandler):
 
             logger.info(f"Executing action: {action} with connection {connection_id}")
 
-            # Import here to avoid circular imports
-            from sqlalchemy import select
-            from app.models.integration import IntegrationConnection, IntegrationConnector
-
-            # Get connection and connector.
-            #
-            # Scoped to the running workflow's organization. Without this, the
-            # bare id from step config selected any connection on the platform,
-            # and the step then executed against that tenant's decrypted OAuth
-            # tokens and returned the response — cross-tenant read and write
-            # through someone else's credentials.
-            if context.organization_id is None:
-                raise StepExecutionError(
-                    "Action step cannot resolve a connection without a workspace "
-                    "context"
-                )
-
-            query = select(IntegrationConnection).where(
-                IntegrationConnection.id == connection_id,
-                IntegrationConnection.organization_id == context.organization_id,
-            )
-            result = await self.db.execute(query)
-            connection = result.scalar_one_or_none()
-
-            if not connection:
-                # Deliberately identical to the genuinely-missing case: telling
-                # the caller a connection exists but belongs to someone else
-                # confirms the id, which is exactly what a probe is looking for.
-                raise StepExecutionError(f"Connection {connection_id} not found")
-
-            # Get connector
-            query = select(IntegrationConnector).where(
-                IntegrationConnector.id == connection.connector_id
-            )
-            result = await self.db.execute(query)
-            connector = result.scalar_one_or_none()
-
-            if not connector:
-                raise StepExecutionError("Connector not found")
-
-            # Get connector class dynamically. CONNECTOR_CLASS_MAP is the one
-            # source of truth — this used to be a second hand-maintained copy of
-            # it, and the copies drifted: Stripe was present here but absent
-            # from the registry, so a 696-line working connector could not be
-            # reached from a workflow at all.
-            from app.services.integrations.action_registry import CONNECTOR_CLASS_MAP
-
-            connector_class_name = CONNECTOR_CLASS_MAP.get(connector.slug)
-            if not connector_class_name:
-                raise StepExecutionError(f"Unsupported connector: {connector.slug}")
-
-            # Import connector dynamically
-            from app.services.integrations import connectors
-            connector_class = getattr(connectors, connector_class_name)
-
-            # Initialize connector
-            connector_instance = connector_class(
-                connection=connection,
-                connector=connector,
-                db=self.db,
+            # One shared path with agent tools: it scopes the connection to this
+            # run's workspace (the id comes from step config, so without that a
+            # workflow could run another tenant's connection with its tokens),
+            # allowlists the action against the registry, fills gaps from the
+            # connection's defaults ("cards go to this list"), translates schema
+            # names to the connector's, and records any update or delete.
+            from app.services.integrations.action_runner import (
+                SOURCE_WORKFLOW,
+                IntegrationActionError,
+                run_integration_action,
             )
 
             try:
-                # Execute action
-                # The registry is the allowlist, not merely a source of parameter
-                # defaults. `hasattr` alone let step config name *any* attribute
-                # on the connector — including internal helpers never meant to be
-                # reachable from a workflow — because a connector with no schema
-                # for the action simply fell through with `accepted = None`.
-                from app.services.integrations.action_registry import (
-                    get_action_schema as _lookup_action,
+                result = await run_integration_action(
+                    self.db,
+                    organization_id=context.organization_id,
+                    connection_id=connection_id,
+                    action=action,
+                    parameters=parameters,
+                    source=SOURCE_WORKFLOW,
                 )
+            except IntegrationActionError as e:
+                raise StepExecutionError(str(e))
 
-                if not _lookup_action(connector.slug, action):
-                    raise StepExecutionError(
-                        f"Action '{action}' is not available on {connector.slug}"
-                    )
+            logger.info(f"Action {action} executed successfully")
 
-                if not hasattr(connector_instance, action):
-                    raise StepExecutionError(f"Action {action} not found on connector")
-
-                # Anything the author left blank falls back to the choice made
-                # once when the integration was connected — "cards go to this
-                # list" — so most workflows never have to name a list at all.
-                # An explicit value always wins; this only fills gaps.
-                from app.services.integrations.action_registry import (
-                    adapt_parameters,
-                    drop_unsupported_arguments,
-                    get_action_schema,
-                    strip_ui_only_parameters,
-                )
-                from app.services.integrations.resource_registry import (
-                    apply_connection_defaults,
-                )
-
-                # Only defaults this action actually accepts. A Trello
-                # connection defaults board_id and list_id; add_comment takes
-                # neither, and passing them raises TypeError.
-                schema = get_action_schema(connector.slug, action)
-                accepted = set(
-                    ((schema.get("parameters") or {}).get("properties") or {}).keys()
-                ) or None
-                parameters = apply_connection_defaults(
-                    parameters, connection.config, accepted_keys=accepted
-                )
-                # Fields that only exist to drive a picker are not real
-                # arguments; passing them raises TypeError.
-                parameters = strip_ui_only_parameters(
-                    connector.slug, action, parameters
-                )
-                # Saved steps store the schema's parameter names. Translate to
-                # the connector's before drop_unsupported_arguments gets a look
-                # at them, or a renamed key is discarded as "unknown" and the
-                # step fails on a missing required argument instead.
-                parameters = adapt_parameters(connector.slug, action, parameters)
-
-                action_method = getattr(connector_instance, action)
-                # Last line of defence before ``**parameters``: a step whose
-                # action was changed after it was configured still carries the
-                # old action's fields, and one unknown key is a TypeError that
-                # kills the run. The signature is the only thing that knows for
-                # certain what is safe to pass.
-                parameters = drop_unsupported_arguments(
-                    action_method, parameters, context=f"{connector.slug}.{action}"
-                )
-                result = await action_method(**parameters)
-
-                logger.info(f"Action {action} executed successfully")
-
-                return {
-                    "success": True,
-                    "result": result,
-                }
-
-            finally:
-                await connector_instance.close()
+            return {
+                "success": True,
+                "result": result,
+            }
 
         except Exception as e:
             logger.error(f"Action step failed: {e}", exc_info=True)

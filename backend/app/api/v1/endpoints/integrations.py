@@ -1183,6 +1183,57 @@ async def get_integration_usage(
 
 
 # ============================================================================
+# Changes made in connected apps (audit of updates and deletes)
+# ============================================================================
+
+
+@router.get("/changes")
+async def list_integration_changes(
+    connection_id: Optional[str] = Query(None, description="Only changes made through this connection"),
+    call_id: Optional[str] = Query(None, description="Only changes made during this call"),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """Updates and deletes agents and workflows made in connected apps, newest
+    first, with the record as it was just before each change."""
+    from app.models.integration import IntegrationChange
+
+    query = select(IntegrationChange).where(IntegrationChange.organization_id == org_id)
+    if connection_id:
+        try:
+            query = query.where(IntegrationChange.connection_id == uuid.UUID(connection_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="connection_id must be a UUID")
+    if call_id:
+        query = query.where(IntegrationChange.call_id == call_id)
+    rows = (await db.execute(query.order_by(desc(IntegrationChange.created_at)).limit(limit))).scalars().all()
+    return {
+        "changes": [
+            {
+                "id": str(c.id),
+                "connection_id": str(c.connection_id) if c.connection_id else None,
+                "connector_slug": c.connector_slug,
+                "action": c.action,
+                "operation": c.operation,
+                "record_id": c.record_id,
+                "source": c.source,
+                "tool_id": str(c.tool_id) if c.tool_id else None,
+                "call_id": c.call_id,
+                "parameters": c.parameters,
+                "before": c.before,
+                "result": c.result,
+                "success": c.success,
+                "error_message": c.error_message,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in rows
+        ]
+    }
+
+
+# ============================================================================
 # Integration Tool Actions (for AI Agent Tool Builder)
 # ============================================================================
 

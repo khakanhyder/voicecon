@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { SECTION_PATHS } from '@/components/landing/sections'
 
 // One frontend deployment answers on two kinds of host:
 //   - landing hosts (voicecon.ai, www.voicecon.ai) serve only the marketing page
@@ -16,9 +17,10 @@ const LANDING_HOSTS = (process.env.NEXT_PUBLIC_LANDING_HOSTS || 'voicecon.ai,www
   .filter(Boolean)
 
 // Public pages the landing hosts serve themselves; they need no session.
-// '/' and '/landing-page' both serve the full marketing site; '/coming-soon'
-// is kept reachable but no longer the root.
-const MARKETING_PATHS = new Set(['/', '/coming-soon', '/landing-page', '/privacy', '/terms'])
+// '/' is the full marketing site and each of its sections has a clean URL
+// (/pricing, /faq, ...; see SECTION_PATHS). '/coming-soon' is kept reachable
+// but is no longer the root.
+const MARKETING_PATHS = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
 
 function requestHost(request: NextRequest): string {
   // Behind Traefik the forwarded host is the one the visitor typed.
@@ -39,9 +41,23 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // The marketing site lives at the root now; send the old URL there.
+  if (pathname === '/landing-page') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.redirect(url, 308)
+  }
+
+  // Section URLs render the home page; SmoothScroll then scrolls to the section.
+  if (SECTION_PATHS[pathname]) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.rewrite(url)
+  }
+
   // The coming-soon page used to be served at the root here. It is switched off
-  // so '/' renders the full marketing site (src/app/page.tsx, the same page as
-  // /landing-page). Uncomment to bring the coming-soon page back.
+  // so '/' renders the full marketing site (src/app/page.tsx). Uncomment to
+  // bring the coming-soon page back.
   // if (pathname === '/') {
   //   const url = request.nextUrl.clone()
   //   url.pathname = '/coming-soon'

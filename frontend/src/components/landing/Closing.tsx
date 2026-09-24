@@ -121,20 +121,20 @@ const FOOTER_COLUMNS = [
   {
     title: 'Product',
     links: [
-      { label: 'Features', href: '/landing-page#features' },
-      { label: 'Product tour', href: '/landing-page#product' },
-      { label: 'Workflows', href: '/landing-page#workflows' },
-      { label: 'Integrations', href: '/landing-page#integrations' },
-      { label: 'Pricing', href: '/landing-page#pricing' },
+      { label: 'Features', href: '/product' },
+      { label: 'Product tour', href: '/product-tour' },
+      { label: 'Workflows', href: '/workflows' },
+      { label: 'Integrations', href: '/integrations' },
+      { label: 'Pricing', href: '/pricing' },
     ],
   },
   {
     title: 'Solutions',
     links: [
-      { label: 'Customer support', href: '/landing-page#use-cases' },
-      { label: 'Lead qualification', href: '/landing-page#use-cases' },
-      { label: 'Appointment booking', href: '/landing-page#use-cases' },
-      { label: 'Order status', href: '/landing-page#use-cases' },
+      { label: 'Customer support', href: '/use-cases' },
+      { label: 'Lead qualification', href: '/use-cases' },
+      { label: 'Appointment booking', href: '/use-cases' },
+      { label: 'Order status', href: '/use-cases' },
     ],
   },
   {
@@ -153,7 +153,7 @@ const FOOTER_COLUMNS = [
       { label: 'Start free trial', href: ROUTES.register },
       { label: 'Log in', href: ROUTES.login },
       { label: 'Reset password', href: '/forgot-password' },
-      { label: 'FAQ', href: '/landing-page#faq' },
+      { label: 'FAQ', href: '/faq' },
     ],
   },
   {
@@ -172,7 +172,7 @@ export function Footer() {
       <div className="mx-auto max-w-6xl">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_repeat(5,1fr)] lg:gap-8">
           <div className="max-w-xs">
-            <a href="/landing-page" aria-label="Voicecon home" className="inline-block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200">
+            <a href="/" aria-label="Voicecon home" className="inline-block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200">
               <Logo />
             </a>
             <p className="mt-4 text-sm leading-relaxed text-white/55">

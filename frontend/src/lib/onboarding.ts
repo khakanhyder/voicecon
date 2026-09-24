@@ -23,6 +23,8 @@ export interface SubscriptionPlan {
   max_phone_numbers: number
   max_knowledge_bases: number
   features: { highlights?: string[] } & Record<string, unknown>
+  /** The admin's feature toggles and limits — what the backend enforces. */
+  entitlements?: { features?: Record<string, boolean>; limits?: Record<string, number> }
   trial_days: number
   is_active: boolean
   is_public: boolean

@@ -106,11 +106,67 @@ class TrelloConnector(BaseConnector):
         except Exception as e:
             raise ConnectorError(f"Trello add_comment failed: {e}")
 
-    async def update_card(self, card_id: str, **fields) -> Dict[str, Any]:
-        """Update a card. Accepts name, desc, due, idList, closed, etc."""
+    async def update_card(
+        self,
+        card_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        due: Optional[str] = None,
+        move_to_list_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Rename a card, change its description or due date, or move it to
+        another list. Explicit arguments rather than ``**fields``, so an agent
+        cannot archive (``closed``) or re-home a card by naming a field."""
+        extra: Dict[str, Any] = {}
+        if name is not None:
+            extra["name"] = name
+        if description is not None:
+            extra["desc"] = description
+        if due:
+            extra["due"] = due
+        if move_to_list_id:
+            extra["idList"] = move_to_list_id
+        if not extra:
+            raise ConnectorError("Nothing to change: give a new name, description, due date or list.")
         try:
-            extra = {k: v for k, v in fields.items() if v is not None}
             res = await self.put(f"/cards/{card_id}", params=await self._auth_params(extra))
-            return {"id": res.get("id"), "name": res.get("name")}
+            return {"id": res.get("id"), "name": res.get("name"), "list_id": res.get("idList"),
+                    "url": res.get("url"), "updated": True}
         except Exception as e:
             raise ConnectorError(f"Trello update_card failed: {e}")
+
+    async def archive_card(self, card_id: str) -> Dict[str, Any]:
+        """Archive a card. Trello's own "delete" is permanent; archiving hides
+        it and can be undone from the board's archive."""
+        try:
+            res = await self.put(f"/cards/{card_id}", params=await self._auth_params({"closed": "true"}))
+        except Exception as e:
+            raise ConnectorError(f"Trello archive_card failed: {e}")
+        return {"id": res.get("id") or card_id, "archived": True}
+
+    async def get_card(self, card_id: str) -> Dict[str, Any]:
+        """One card, including the board it is on (used to check scope)."""
+        try:
+            c = await self.get(f"/cards/{card_id}",
+                               params=await self._auth_params({"fields": "name,desc,due,idList,idBoard,url,closed"}))
+        except Exception as e:
+            raise ConnectorError(f"Trello get_card failed: {e}")
+        return {"id": c.get("id"), "name": c.get("name"), "description": c.get("desc"), "due": c.get("due"),
+                "list_id": c.get("idList"), "board_id": c.get("idBoard"), "url": c.get("url"),
+                "closed": c.get("closed")}
+
+    async def find_cards(self, board_id: str, query: Optional[str] = None) -> Dict[str, Any]:
+        """Open cards on a board whose name or description contains ``query``."""
+        try:
+            cards = await self.get(f"/boards/{board_id}/cards",
+                                   params=await self._auth_params({"fields": "name,desc,due,idList,url"}))
+        except Exception as e:
+            raise ConnectorError(f"Trello find_cards failed: {e}")
+        needle = (query or "").strip().lower()
+        items = [
+            {"id": c.get("id"), "name": c.get("name"), "due": c.get("due"),
+             "list_id": c.get("idList"), "url": c.get("url")}
+            for c in cards or []
+            if not needle or needle in (c.get("name") or "").lower() or needle in (c.get("desc") or "").lower()
+        ]
+        return {"cards": items[:25], "count": len(items)}

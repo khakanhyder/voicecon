@@ -7,12 +7,12 @@ import { Logo, ROUTES, buttonClass } from './primitives'
 import { getLenis } from './SmoothScroll'
 
 const LINKS = [
-  { label: 'Product', href: '/landing-page#features' },
-  { label: 'How it works', href: '/landing-page#how-it-works' },
-  { label: 'Workflows', href: '/landing-page#workflows' },
-  { label: 'Integrations', href: '/landing-page#integrations' },
-  { label: 'Pricing', href: '/landing-page#pricing' },
-  { label: 'FAQ', href: '/landing-page#faq' },
+  { label: 'Product', href: '/product' },
+  { label: 'How it works', href: '/how-it-works' },
+  { label: 'Workflows', href: '/workflows' },
+  { label: 'Integrations', href: '/integrations' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'FAQ', href: '/faq' },
 ]
 
 export function Navbar() {
@@ -60,7 +60,7 @@ export function Navbar() {
           className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4"
         >
           <a
-            href="/landing-page"
+            href="/"
             aria-label="Voicecon home"
             className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
             onClick={() => setOpen(false)}

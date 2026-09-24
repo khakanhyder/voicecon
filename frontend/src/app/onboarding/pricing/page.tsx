@@ -4,15 +4,22 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getErrorMessage } from '@/lib/api'
+import { entitlementService } from '@/lib/entitlements'
 import { Check, ArrowUpRight } from 'lucide-react'
 import { VoiceconLogo, SalesChatbotIcon, VoiceAiIcon } from '@/lib/icons'
 import { FREE_TRIAL_DAYS, QUERY_KEYS } from '@/lib/constants'
 import { onboardingService, type SubscriptionPlan } from '@/lib/onboarding'
+import { periodPrice, planCardBullets, yearlySavingPercent } from '@/lib/pricing'
 import { useOnboardingStore } from '@/store/onboardingStore'
 
+/** Yearly falls back to monthly when the admin set no yearly price (monthly-only plan). */
 function planPrice(plan: SubscriptionPlan, period: 'monthly' | 'yearly'): number {
-  if (period === 'yearly') return plan.price_yearly ?? plan.price_monthly * 12 * 0.75
-  return plan.price_monthly
+  return periodPrice(plan, period) ?? plan.price_monthly
+}
+
+function billedYearly(plan: SubscriptionPlan, period: 'monthly' | 'yearly'): boolean {
+  return period === 'yearly' && periodPrice(plan, 'yearly') !== null
 }
 
 function nextPaymentDate(period: 'monthly' | 'yearly'): string {
@@ -28,6 +35,16 @@ export default function PricingPage() {
     useOnboardingStore()
   const [promoInput, setPromoInput] = useState(promoCode)
 
+  // A returning user whose trial is used up cannot "skip" into one; offer the
+  // button only when the server would accept it. A failed lookup leaves it on
+  // — the server refuses a second trial anyway.
+  const { data: entitlements } = useQuery({
+    queryKey: ['entitlements', 'onboarding'],
+    queryFn: () => entitlementService.get(true),
+    retry: false,
+  })
+  const trialUsed = entitlements?.trial_used ?? false
+
   const { data: plans = [], isLoading } = useQuery({
     queryKey: QUERY_KEYS.BILLING_PLANS,
     queryFn: onboardingService.getPlans,
@@ -40,6 +57,10 @@ export default function PricingPage() {
   }, [plans, selectedPlan])
 
   const trialDays = activePlan?.trial_days ?? FREE_TRIAL_DAYS
+  // Card copy, prices and the yearly saving all come from the admin's plans.
+  const bulletsByPlan = useMemo(() => planCardBullets(plans), [plans])
+  const yearlySaving = useMemo(() => yearlySavingPercent(plans), [plans])
+  const anyYearly = plans.some((p) => p.price_yearly != null)
 
   const trialMutation = useMutation({
     mutationFn: () =>
@@ -48,7 +69,7 @@ export default function PricingPage() {
       toast.success(`Your ${trialDays}-day free trial has started!`)
       router.push('/dashboard')
     },
-    onError: (err: any) => toast.error(err.response?.data?.detail || 'Could not start trial'),
+    onError: (err: any) => toast.error(getErrorMessage(err)),
   })
 
   const handleSelect = (plan: SubscriptionPlan) => setSelectedPlan(plan)
@@ -80,7 +101,8 @@ export default function PricingPage() {
         <h1 className="text-[28px] font-medium md:font-bold text-slate-900">Pricing and Plans</h1>
         <p className="mt-1 text-sm text-slate-500">Choose the plan that fits your team</p>
 
-        {/* Billing toggle */}
+        {/* Billing toggle — only when some plan can actually be paid yearly */}
+        {anyYearly && (
         <div className="mt-5 flex items-center gap-3">
           <span
             className={`text-sm font-medium ${billingPeriod === 'monthly' ? 'text-slate-900' : 'text-slate-400'}`}
@@ -103,10 +125,13 @@ export default function PricingPage() {
           >
             Yearly
           </span>
-          <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-semibold text-white">
-            Save 25%
-          </span>
+          {yearlySaving > 0 && (
+            <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+              Save {yearlySaving}%
+            </span>
+          )}
         </div>
+        )}
       </div>
 
       {/* Plan cards */}
@@ -119,7 +144,8 @@ export default function PricingPage() {
           {plans.map((plan, idx) => {
             const isSelected = activePlan?.id === plan.id
             const highlight = idx === plans.length - 1 // styled (green) card like Figma
-            const bullets = (plan.features?.highlights as string[]) ?? []
+            const bullets = bulletsByPlan[idx] ?? []
+            const yearly = billedYearly(plan, billingPeriod)
             return (
               <div
                 key={plan.id}
@@ -139,15 +165,25 @@ export default function PricingPage() {
                     {plan.name}
                   </p>
                 </div>
+                {plan.description && (
+                  <p className={`mt-3 text-sm ${highlight ? 'text-white/80' : 'text-slate-500'}`}>
+                    {plan.description}
+                  </p>
+                )}
                 <p className={`mt-5 text-xl font-semibold ${highlight ? 'text-[#FFFFFF]' : 'text-[#333333]'}`}>
                   Starting from
                 </p>
                 <div className="mt-1 flex items-end gap-1.5">
                   <span className="text-[32px] font-bold">${planPrice(plan, billingPeriod).toFixed(0)}</span>
                   <span className={`pb-1 text-base font-normal ${highlight ? 'text-white' : 'text-[#333333]'}`}>
-                    {billingPeriod === 'yearly' ? '/year' : 'Setup fee'}
+                    {yearly ? '/year' : '/month'}
                   </span>
                 </div>
+                {billingPeriod === 'yearly' && !yearly && (
+                  <p className={`mt-1 text-xs ${highlight ? 'text-white/80' : 'text-slate-500'}`}>
+                    Billed monthly — yearly billing isn&apos;t offered on this plan.
+                  </p>
+                )}
 
                 <ul className="mt-5 flex-1 space-y-2.5">
                   {bullets.map((b) => (
@@ -180,7 +216,8 @@ export default function PricingPage() {
         </div>
       )}
 
-      {/* Skip for now */}
+      {/* Skip for now — starts the free trial, so only while one is available. */}
+      {!trialUsed && (
       <div className="mt-12 text-center">
         <button
           type="button"
@@ -191,6 +228,7 @@ export default function PricingPage() {
           {trialMutation.isPending ? 'Starting trial…' : 'Skip for now'}
         </button>
       </div>
+      )}
 
       {/* Promo code */}
       <div className="mt-6 border-t-[1.4px] border-[#0F6A59] pt-6">
@@ -227,7 +265,8 @@ export default function PricingPage() {
             <div>
               <p className="text-sm text-slate-600">Total Amount</p>
               <p className="mt-1 text-xs text-slate-400">
-                Your next payment will be on {nextPaymentDate(billingPeriod)}.
+                Your next payment will be on{' '}
+                {nextPaymentDate(billedYearly(activePlan, billingPeriod) ? 'yearly' : 'monthly')}.
               </p>
             </div>
             <div className="flex flex-col items-end gap-3">

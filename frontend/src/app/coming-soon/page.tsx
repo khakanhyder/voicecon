@@ -2,9 +2,8 @@ import type { Metadata } from 'next'
 import { ComingSoon } from '@/components/landing/ComingSoon'
 
 /**
- * The page voicecon.ai serves at its root. The middleware rewrites "/" here, so
- * visitors keep the bare domain in the address bar. The full marketing site is
- * still built and served from /landing-page.
+ * The coming-soon page. It used to be voicecon.ai's root (the middleware
+ * rewrite for that is commented out); the full marketing site is the root now.
  */
 
 const TITLE = 'Voicecon AI - Native AI Voice Large Language Model'

@@ -8,7 +8,7 @@ from app.models.user import User, Organization, OrganizationMember, ApiKey
 from app.models.company import CompanyProfile
 from app.models.agent import Agent, AgentFunction, Squad, SquadMember, KnowledgeBaseDocument, AgentFlow
 from app.models.call import PhoneNumber, Call, CallLog
-from app.models.integration import IntegrationConnector, IntegrationConnection, Workflow, WorkflowExecution
+from app.models.integration import IntegrationConnector, IntegrationConnection, Workflow, WorkflowExecution, IntegrationChange
 from app.models.analytics import (
     CallMetrics, AgentMetrics, IntegrationMetrics,
     DailySummary, RealTimeMetrics, MetricsCache
@@ -66,6 +66,7 @@ __all__ = [
     "IntegrationConnection",
     "Workflow",
     "WorkflowExecution",
+    "IntegrationChange",
     # Analytics models
     "CallMetrics",
     "AgentMetrics",

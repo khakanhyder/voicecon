@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   Elements,
@@ -17,6 +17,7 @@ import { VoiceconLogo } from '@/lib/icons'
 import { BrandPanel } from '@/components/auth/BrandPanel'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
 import { onboardingService } from '@/lib/onboarding'
+import { getErrorMessage } from '@/lib/api'
 import { entitlementService } from '@/lib/entitlements'
 import { useOnboardingStore } from '@/store/onboardingStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
@@ -61,7 +62,7 @@ const cardFieldBox =
   'flex h-12 items-center rounded-lg border border-white/20 bg-white/5 px-3'
 
 function priceFor(period: 'monthly' | 'yearly', monthly: number, yearly: number | null) {
-  return period === 'yearly' ? (yearly ?? monthly * 12 * 0.75) : monthly
+  return period === 'yearly' && yearly != null ? yearly : monthly
 }
 
 function nextPaymentDate(period: 'monthly' | 'yearly'): string {
@@ -106,7 +107,11 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
   const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
-  const { selectedPlan, billingPeriod, setBillingPeriod, finish } = useOnboardingStore()
+  const { selectedPlan, billingPeriod: chosenPeriod, setBillingPeriod, finish } = useOnboardingStore()
+  // Yearly only where the admin priced the plan yearly; the backend refuses a
+  // yearly checkout without a yearly price, so never send one.
+  const offersYearly = selectedPlan?.price_yearly != null
+  const billingPeriod: 'monthly' | 'yearly' = chosenPeriod === 'yearly' && offersYearly ? 'yearly' : 'monthly'
   const [country, setCountry] = useState(COUNTRIES[0])
   const [authorize, setAuthorize] = useState(false)
   const [agree, setAgree] = useState(false)
@@ -125,6 +130,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
     retry: false,
   })
   const trialUsed = entitlements?.trial_used ?? false
+  const queryClient = useQueryClient()
 
   // A plan persisted by an older session may predate the field, hence the fallback.
   const trialDays = selectedPlan?.trial_days ?? FREE_TRIAL_DAYS
@@ -165,8 +171,11 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
       toast.success('Subscription activated! Welcome to Voicecon.')
       router.push('/dashboard')
     },
-    onError: (err: any) =>
-      toast.error(err.response?.data?.detail || err.message || 'Payment failed'),
+    onError: (err: any) => {
+      // 409 can mean the admin switched payment provider mid-checkout.
+      if (err?.response?.status === 409) queryClient.invalidateQueries({ queryKey: ['billing', 'config'] })
+      toast.error(getErrorMessage(err))
+    },
   })
 
   // Leaves the page for Polar's checkout; the plan is activated by Polar's
@@ -181,8 +190,10 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         cancel_path: '/onboarding/billing',
       })
     },
-    onError: (err: any) =>
-      toast.error(err.response?.data?.detail || err.message || 'Could not open checkout'),
+    onError: (err: any) => {
+      if (err?.response?.status === 409) queryClient.invalidateQueries({ queryKey: ['billing', 'config'] })
+      toast.error(getErrorMessage(err))
+    },
   })
 
   const trialMutation = useMutation({
@@ -193,7 +204,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
       toast.success(`Your ${trialDays}-day free trial has started!`)
       router.push('/dashboard')
     },
-    onError: (err: any) => toast.error(err.response?.data?.detail || 'Could not start trial'),
+    onError: (err: any) => toast.error(getErrorMessage(err)),
   })
 
   const handleGetStarted = () => {
@@ -229,6 +240,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
           price={price}
           periodLabel={periodLabel}
           footer={
+            offersYearly && (
             <button
               type="button"
               onClick={() => setBillingPeriod(billingPeriod === 'monthly' ? 'yearly' : 'monthly')}
@@ -236,6 +248,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
             >
               Change Frequency
             </button>
+            )
           }
         />
       </div>
@@ -396,7 +409,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
       <p className="mt-3 text-[11px] text-slate-400">
         {trialUsed
           ? 'Your free trial has already been used — a free trial is available once per account. Choose a plan to continue.'
-          : 'The trial will be converted to the selected subscription unless canceled before the end of the trial period.'}
+          : 'The free trial needs no card and never charges you. When it ends, choose a plan to keep your agents running.'}
       </p>
     </div>
   )

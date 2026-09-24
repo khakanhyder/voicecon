@@ -56,6 +56,73 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["block_id", "text"],
             },
         },
+        {
+            "action": "find_database_items",
+            "label": "Find Database Rows",
+            "description": "Find rows in a Notion database with the given text in any column (name, email, phone, status...). Returns each row's id, which Update and Archive need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "database_id": {"type": "string", "description": "Database to search (defaults to the connection's database)",
+                                    "title": "Database", "x-resource": "databases"},
+                    "query": {"type": "string", "description": "Text to look for, e.g. the caller's name or email"},
+                },
+                "required": ["database_id", "query"],
+            },
+        },
+        {
+            "action": "update_database_item",
+            "label": "Update Database Row",
+            "description": "Change columns of a database row using plain values, e.g. {\"Status\": \"Done\", \"Due\": \"2026-10-02\"}. Get the row id from Find Database Rows first.",
+            "x-snapshot": {"method": "get_page_summary", "args": ["page_id"]},
+            "x-scope": [{"param": "database_id", "field": "database_id", "label": "database"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Row id, from Find Database Rows",
+                                "title": "Row", "x-runtime": True},
+                    "database_id": {"type": "string", "description": "Database the row must be in (defaults to the connection's database)",
+                                    "title": "Database", "x-resource": "databases", "x-ui-only": True},
+                    "values": {"type": "object", "description": "Columns to change by name, with plain values"},
+                },
+                "required": ["page_id", "values"],
+            },
+        },
+        {
+            "action": "update_page_title",
+            "label": "Rename Page",
+            "description": "Change the title of a page or database row.",
+            "x-snapshot": {"method": "get_page_summary", "args": ["page_id"]},
+            "x-scope": [{"param": "database_id", "field": "database_id", "label": "database"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page or row id",
+                                "title": "Page", "x-runtime": True},
+                    "database_id": {"type": "string", "description": "Database the row must be in (defaults to the connection's database)",
+                                    "title": "Database", "x-resource": "databases", "x-ui-only": True},
+                    "title": {"type": "string", "description": "New title"},
+                },
+                "required": ["page_id", "title"],
+            },
+        },
+        {
+            "action": "archive_page",
+            "label": "Archive Page",
+            "description": "Archive (delete) a page or database row. It can be restored from Notion's Trash. Get the id from Find Database Rows or Search first.",
+            "x-snapshot": {"method": "get_page_summary", "args": ["page_id"]},
+            "x-scope": [{"param": "database_id", "field": "database_id", "label": "database"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page or row id",
+                                "title": "Page", "x-runtime": True},
+                    "database_id": {"type": "string", "description": "Database the row must be in (defaults to the connection's database)",
+                                    "title": "Database", "x-resource": "databases", "x-ui-only": True},
+                },
+                "required": ["page_id"],
+            },
+        },
     ],
 
     "clickup": [
@@ -103,6 +170,60 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["task_id", "comment_text"],
             },
         },
+        {
+            "action": "find_tasks",
+            "label": "Find ClickUp Tasks",
+            "description": "Find tasks in a list by words in their name or description. Returns each task's id, which Update ClickUp Task needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "list_id": {"type": "string", "description": "List to search (defaults to the connection's list)",
+                                "title": "List"},
+                    "query": {"type": "string", "description": "Words to look for, e.g. the caller's name or order number"},
+                },
+                "required": ["list_id"],
+            },
+        },
+        {
+            "action": "update_task",
+            "label": "Update ClickUp Task",
+            "description": "Change a task's name, description, status, priority or due date. Get the task id from Find ClickUp Tasks first.",
+            "x-snapshot": {"method": "get_task", "args": ["task_id"]},
+            "x-scope": [{"param": "list_id", "field": "list.id", "label": "list"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Id of the task, from Find ClickUp Tasks",
+                                "title": "Task", "x-runtime": True},
+                    # Not passed to ClickUp: the task must be on this list.
+                    "list_id": {"type": "string", "description": "List the task must be on (defaults to the connection's list)",
+                                "title": "List", "x-ui-only": True},
+                    "name": {"type": "string", "description": "New task name"},
+                    "description": {"type": "string", "description": "New description"},
+                    "status": {"type": "string", "description": "New status, exactly as named in ClickUp (e.g. 'in progress', 'complete')"},
+                    "priority": {"type": "string", "description": "urgent, high, normal or low"},
+                    "due_date": {"type": "string", "description": "New due date, YYYY-MM-DD or ISO 8601"},
+                },
+                "required": ["task_id"],
+            },
+        },
+        {
+            "action": "delete_task",
+            "label": "Delete ClickUp Task",
+            "description": "Delete a task (ClickUp keeps it in Trash for 30 days). Get the task id from Find ClickUp Tasks first.",
+            "x-snapshot": {"method": "get_task", "args": ["task_id"]},
+            "x-scope": [{"param": "list_id", "field": "list.id", "label": "list"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Id of the task, from Find ClickUp Tasks",
+                                "title": "Task", "x-runtime": True},
+                    "list_id": {"type": "string", "description": "List the task must be on (defaults to the connection's list)",
+                                "title": "List", "x-ui-only": True},
+                },
+                "required": ["task_id"],
+            },
+        },
     ],
 
     "trello": [
@@ -143,6 +264,59 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "text": {"type": "string", "description": "Comment text"},
                 },
                 "required": ["card_id", "text"],
+            },
+        },
+        {
+            "action": "find_cards",
+            "label": "Find Trello Cards",
+            "description": "Find open cards on a board by words in their title or description. Returns each card's id, which Update Trello Card needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_id": {"type": "string", "description": "Board to search (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards"},
+                    "query": {"type": "string", "description": "Words to look for, e.g. the caller's name"},
+                },
+                "required": ["board_id"],
+            },
+        },
+        {
+            "action": "update_card",
+            "label": "Update Trello Card",
+            "description": "Rename a card, change its description or due date, or move it to another list. Get the card id from Find Trello Cards first.",
+            "x-snapshot": {"method": "get_card", "args": ["card_id"]},
+            "x-scope": [{"param": "board_id", "field": "board_id", "label": "board"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "card_id": {"type": "string", "description": "Id of the card, from Find Trello Cards",
+                                "title": "Card", "x-runtime": True},
+                    # Not passed to Trello: the card must be on this board.
+                    "board_id": {"type": "string", "description": "Board the card must be on (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards", "x-ui-only": True},
+                    "name": {"type": "string", "description": "New card title"},
+                    "description": {"type": "string", "description": "New description"},
+                    "due": {"type": "string", "description": "New due date, ISO 8601"},
+                    "move_to_list_id": {"type": "string", "description": "Id of the list to move the card to (from the card's board)"},
+                },
+                "required": ["card_id"],
+            },
+        },
+        {
+            "action": "archive_card",
+            "label": "Archive Trello Card",
+            "description": "Archive a card; it can be restored from the board's archive. Get the card id from Find Trello Cards first.",
+            "x-snapshot": {"method": "get_card", "args": ["card_id"]},
+            "x-scope": [{"param": "board_id", "field": "board_id", "label": "board"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "card_id": {"type": "string", "description": "Id of the card, from Find Trello Cards",
+                                "title": "Card", "x-runtime": True},
+                    "board_id": {"type": "string", "description": "Board the card must be on (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards", "x-ui-only": True},
+                },
+                "required": ["card_id"],
             },
         },
     ],
@@ -224,17 +398,66 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
         {
             "action": "update_contact",
             "label": "Update Contact",
-            "description": "Update an existing HubSpot contact's information",
+            "description": "Update an existing HubSpot contact's details. Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "contact_id": {"type": "string", "description": "HubSpot contact ID",
+                    "contact_id": {"type": "string", "description": "HubSpot contact ID, from Search Contacts",
                                    "title": "Contact", "x-runtime": True},
+                    "email": {"type": "string", "description": "New email address"},
+                    "first_name": {"type": "string", "description": "New first name"},
+                    "last_name": {"type": "string", "description": "New last name"},
                     "phone": {"type": "string", "description": "New phone number"},
                     "company": {"type": "string", "description": "New company name"},
-                    "additional_properties": {"type": "object", "description": "Additional properties to update"},
+                    "additional_properties": {"type": "object", "description": "Other HubSpot properties to update, by internal name"},
                 },
                 "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "delete_contact",
+            "label": "Delete Contact",
+            "description": "Delete a HubSpot contact (HubSpot keeps it restorable for 90 days). Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "HubSpot contact ID, from Search Contacts",
+                                   "title": "Contact", "x-runtime": True},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "search_deals",
+            "label": "Find Deals",
+            "description": "Find deals by name or other text. Returns each deal's id, which Update Deal needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Text to search for, e.g. the deal or company name"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "update_deal",
+            "label": "Update Deal",
+            "description": "Change a deal's name, stage, amount or close date. Get the deal id from Find Deals first.",
+            "x-snapshot": {"method": "get_deal", "args": ["deal_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "deal_id": {"type": "string", "description": "HubSpot deal ID, from Find Deals",
+                                "title": "Deal", "x-runtime": True},
+                    "deal_name": {"type": "string", "description": "New deal name"},
+                    "stage": {"type": "string", "description": "New deal stage id (e.g. appointmentscheduled, qualifiedtobuy, closedwon)"},
+                    "amount": {"type": "number", "description": "New deal amount"},
+                    "close_date": {"type": "string", "description": "New expected close date, YYYY-MM-DD"},
+                    "additional_properties": {"type": "object", "description": "Other HubSpot deal properties, by internal name"},
+                },
+                "required": ["deal_id"],
             },
         },
     ],
@@ -283,6 +506,71 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "query": {"type": "string", "description": "Name or email to search for"},
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "action": "search_leads",
+            "label": "Search Leads",
+            "description": "Find leads by name, email, phone or company. Returns each lead's Id, which Update Lead needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Name, email, phone or company to search for"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "update_contact",
+            "label": "Update Contact",
+            "description": "Change an existing contact's details. Get the contact Id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Salesforce contact Id, from Search Contacts",
+                                   "title": "Contact", "x-runtime": True},
+                    "first_name": {"type": "string", "description": "New first name"},
+                    "last_name": {"type": "string", "description": "New last name"},
+                    "email": {"type": "string", "description": "New email address"},
+                    "phone": {"type": "string", "description": "New phone number"},
+                    "title": {"type": "string", "description": "New job title"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "update_lead",
+            "label": "Update Lead",
+            "description": "Change an existing lead's details or status. Get the lead Id from Search Leads first.",
+            "x-snapshot": {"method": "get_lead", "args": ["lead_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lead_id": {"type": "string", "description": "Salesforce lead Id, from Search Leads",
+                                "title": "Lead", "x-runtime": True},
+                    "first_name": {"type": "string", "description": "New first name"},
+                    "last_name": {"type": "string", "description": "New last name"},
+                    "email": {"type": "string", "description": "New email address"},
+                    "phone": {"type": "string", "description": "New phone number"},
+                    "company": {"type": "string", "description": "New company name"},
+                    "status": {"type": "string", "description": "New lead status, exactly as named in Salesforce (e.g. 'Working - Contacted')"},
+                },
+                "required": ["lead_id"],
+            },
+        },
+        {
+            "action": "delete_contact",
+            "label": "Delete Contact",
+            "description": "Delete a Salesforce contact (it goes to the Recycle Bin). Get the contact Id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Salesforce contact Id, from Search Contacts",
+                                   "title": "Contact", "x-runtime": True},
+                },
+                "required": ["contact_id"],
             },
         },
     ],
@@ -361,6 +649,74 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["start_date"],
             },
         },
+        {
+            # The lookup half of reschedule/cancel: those need an event id, and
+            # the agent must get it from here rather than guess one.
+            "action": "find_events",
+            "label": "Find Appointments",
+            "description": (
+                "Find existing appointments that mention the caller, e.g. by their email, "
+                "phone number or name. Returns each event's id, which Reschedule Appointment "
+                "and Cancel Appointment need."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Text to search for: the caller's email, phone number or name"},
+                    "start_date": {"type": "string", "description": "Search from this date, YYYY-MM-DD (default: today)"},
+                    "end_date": {"type": "string", "description": "Search up to this date, YYYY-MM-DD (default: 90 days ahead)"},
+                    "time_zone": {"type": "string", "description": "Time zone for the returned times, e.g. Asia/Karachi"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to the connection's calendar)",
+                                    "title": "Calendar", "x-resource": "calendars"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "update_event",
+            "operation": "update",
+            "label": "Reschedule Appointment",
+            "description": (
+                "Move an existing appointment to a new time, or change its title or notes. "
+                "Get the event id from Find Appointments first. Attendees, location and the "
+                "meeting link are kept."
+            ),
+            # Loaded before the change so the audit log records what it was.
+            "x-snapshot": {"method": "get_event", "args": ["event_id", "calendar_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string", "description": "Id of the appointment, from Find Appointments"},
+                    "start_time": {"type": "string", "description": "New start time in ISO 8601 format"},
+                    "end_time": {"type": "string", "description": "New end time in ISO 8601 format (default: keeps the current length)"},
+                    "time_zone": {"type": "string", "description": "Time zone of the new times if they carry no offset, e.g. Asia/Karachi (default: the appointment's own)"},
+                    "title": {"type": "string", "description": "New title (leave out to keep it)"},
+                    "description": {"type": "string", "description": "New notes (leave out to keep them)"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to the connection's calendar)",
+                                    "title": "Calendar", "x-resource": "calendars"},
+                },
+                "required": ["event_id"],
+            },
+        },
+        {
+            "action": "delete_event",
+            "operation": "delete",
+            "label": "Cancel Appointment",
+            "description": (
+                "Cancel an existing appointment. Get the event id from Find Appointments first. "
+                "Attendees are emailed the cancellation."
+            ),
+            "x-snapshot": {"method": "get_event", "args": ["event_id", "calendar_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string", "description": "Id of the appointment, from Find Appointments"},
+                    "calendar_id": {"type": "string", "description": "Calendar ID (defaults to the connection's calendar)",
+                                    "title": "Calendar", "x-resource": "calendars"},
+                },
+                "required": ["event_id"],
+            },
+        },
     ],
 
     "slack": [
@@ -379,6 +735,35 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["channel", "message"],
             },
         },
+        {
+            "action": "update_message",
+            "label": "Edit Message",
+            "description": "Edit a message this agent posted earlier in the call (Slack only allows editing the app's own messages). Use the ts returned by Send Message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel": {"type": "string", "description": "Channel the message is in (defaults to the connection's channel)",
+                                "title": "Channel", "x-resource": "channels"},
+                    "ts": {"type": "string", "description": "The message's ts, from Send Message"},
+                    "message": {"type": "string", "description": "New message text"},
+                },
+                "required": ["channel", "ts", "message"],
+            },
+        },
+        {
+            "action": "delete_message",
+            "label": "Delete Message",
+            "description": "Delete a message this agent posted earlier in the call. Use the ts returned by Send Message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "channel": {"type": "string", "description": "Channel the message is in (defaults to the connection's channel)",
+                                "title": "Channel", "x-resource": "channels"},
+                    "ts": {"type": "string", "description": "The message's ts, from Send Message"},
+                },
+                "required": ["channel", "ts"],
+            },
+        },
     ],
 
     "sendgrid": [
@@ -395,6 +780,63 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "to_name": {"type": "string", "description": "Recipient's name (optional)"},
                 },
                 "required": ["to_email", "subject", "body"],
+            },
+        },
+        {
+            "action": "find_contact",
+            "label": "Find Contact",
+            "description": "Look up a marketing contact by email. Returns the contact id, which the other contact actions need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "Contact's email address"},
+                },
+                "required": ["email"],
+            },
+        },
+        {
+            "action": "add_contact",
+            "operation": "update",
+            "label": "Add or Update Contact",
+            "description": "Add a contact to your marketing contacts, or update their name if the email already exists, and optionally put them on a list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "Contact's email address"},
+                    "first_name": {"type": "string", "description": "First name"},
+                    "last_name": {"type": "string", "description": "Last name"},
+                    "list_id": {"type": "string", "description": "List to add them to (defaults to the connection's list)",
+                                "title": "Contact list", "x-resource": "lists"},
+                },
+                "required": ["email"],
+            },
+        },
+        {
+            "action": "remove_contact_from_list",
+            "label": "Remove From List",
+            "description": "Take a contact off a list, e.g. a caller who no longer wants those emails. The contact is kept. Get the contact id from Find Contact first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "list_id": {"type": "string", "description": "List (defaults to the connection's list)",
+                                "title": "Contact list", "x-resource": "lists"},
+                    "contact_id": {"type": "string", "description": "SendGrid contact id, from Find Contact"},
+                },
+                "required": ["list_id", "contact_id"],
+            },
+        },
+        {
+            "action": "delete_contact",
+            "label": "Delete Contact",
+            "description": "Delete a marketing contact entirely. Get the contact id from Find Contact first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "SendGrid contact id, from Find Contact"},
+                },
+                "required": ["contact_id"],
             },
         },
     ],
@@ -486,6 +928,75 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["customer_id"],
             },
         },
+        {
+            "action": "find_customers",
+            "label": "Find Customer",
+            "description": "Find Stripe customers by email. Returns each customer's id, which the other Stripe actions need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "Customer's email address"},
+                },
+                "required": ["email"],
+            },
+        },
+        {
+            "action": "update_customer",
+            "label": "Update Customer",
+            "description": "Change a customer's name, email, phone or description. Get the customer id from Find Customer first.",
+            "x-snapshot": {"method": "get_customer", "args": ["customer_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {"type": "string", "description": "Stripe customer id (cus_...), from Find Customer"},
+                    "name": {"type": "string", "description": "New name"},
+                    "email": {"type": "string", "description": "New email address"},
+                    "phone": {"type": "string", "description": "New phone number"},
+                    "description": {"type": "string", "description": "New description"},
+                },
+                "required": ["customer_id"],
+            },
+        },
+        {
+            "action": "list_subscriptions",
+            "label": "List Subscriptions",
+            "description": "List a customer's subscriptions. Returns each subscription's id, which Cancel Subscription needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {"type": "string", "description": "Stripe customer id (cus_...), from Find Customer"},
+                    "status": {"type": "string", "enum": ["active", "trialing", "past_due", "all"], "description": "Which subscriptions to list (default active)"},
+                },
+                "required": ["customer_id"],
+            },
+        },
+        {
+            "action": "cancel_subscription",
+            "label": "Cancel Subscription",
+            "description": "Cancel a customer's subscription, by default at the end of the period they have paid for. Get the subscription id from List Subscriptions first.",
+            "x-snapshot": {"method": "get_subscription", "args": ["subscription_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string", "description": "Stripe subscription id (sub_...), from List Subscriptions"},
+                    "immediately": {"type": "boolean", "description": "End it now instead of at the end of the paid period (default false)"},
+                },
+                "required": ["subscription_id"],
+            },
+        },
+        {
+            "action": "cancel_payment_intent",
+            "label": "Cancel Payment",
+            "description": "Cancel a payment that has not been captured yet, e.g. one created earlier in this call.",
+            "x-snapshot": {"method": "get_payment_intent", "args": ["intent_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intent_id": {"type": "string", "description": "Payment intent id (pi_...)"},
+                },
+                "required": ["intent_id"],
+            },
+        },
     ],
     "airtable": [
         {
@@ -499,6 +1010,50 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "fields": {"type": "object", "description": "Record fields"},
                 },
                 "required": ["table_name", "fields"],
+            },
+        },
+        {
+            "action": "find_records",
+            "label": "Find Records",
+            "description": "Find records in a table where a field matches a value, e.g. Email is the caller's email. Returns each record's id, which Update Record needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Name of the table"},
+                    "field": {"type": "string", "description": "Field (column) to search, e.g. Email or Phone"},
+                    "value": {"type": "string", "description": "Value to look for"},
+                    "match": {"type": "string", "enum": ["exact", "contains"], "description": "exact (default, ignores case) or contains"},
+                },
+                "required": ["table_name", "field", "value"],
+            },
+        },
+        {
+            "action": "update_record",
+            "label": "Update Record",
+            "description": "Change fields on an existing record. Only the fields given are changed. Get the record id from Find Records first.",
+            "x-snapshot": {"method": "get_record", "args": ["table_name", "record_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Name of the table"},
+                    "record_id": {"type": "string", "description": "Id of the record (starts with 'rec'), from Find Records"},
+                    "fields": {"type": "object", "description": "Fields to change, e.g. {\"Status\": \"Booked\"}"},
+                },
+                "required": ["table_name", "record_id", "fields"],
+            },
+        },
+        {
+            "action": "delete_record",
+            "label": "Delete Record",
+            "description": "Delete a record. Get the record id from Find Records first.",
+            "x-snapshot": {"method": "get_record", "args": ["table_name", "record_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Name of the table"},
+                    "record_id": {"type": "string", "description": "Id of the record (starts with 'rec'), from Find Records"},
+                },
+                "required": ["table_name", "record_id"],
             },
         },
     ],
@@ -516,6 +1071,159 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "phone": {"type": "string"},
                 },
                 "required": [],
+            },
+        },
+        {
+            "action": "search_contacts",
+            "label": "Search Contacts",
+            "description": "Find contacts by name, email or phone. Returns each contact's id, which the other GoHighLevel actions need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Name, email or phone to search for"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "update_contact",
+            "label": "Update Contact",
+            "description": "Change an existing contact's name, email, phone or company. Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "GoHighLevel contact id, from Search Contacts",
+                                   "title": "Contact", "x-runtime": True},
+                    "first_name": {"type": "string", "description": "New first name"},
+                    "last_name": {"type": "string", "description": "New last name"},
+                    "email": {"type": "string", "description": "New email address"},
+                    "phone": {"type": "string", "description": "New phone number"},
+                    "company_name": {"type": "string", "description": "New company name"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "book_appointment",
+            "label": "Book Appointment",
+            "description": "Book an appointment on a GoHighLevel calendar for a contact. Get the contact id from Search Contacts (or Create Contact) first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "calendar_id": {"type": "string", "description": "Calendar to book on",
+                                    "title": "Calendar", "x-resource": "calendars"},
+                    "contact_id": {"type": "string", "description": "Contact id the appointment is for"},
+                    "start_time": {"type": "string", "description": "Start time in ISO 8601 format"},
+                    "end_time": {"type": "string", "description": "End time in ISO 8601 format"},
+                    "title": {"type": "string", "description": "Appointment title"},
+                },
+                "required": ["calendar_id", "contact_id", "start_time", "end_time"],
+            },
+        },
+        {
+            "action": "create_opportunity",
+            "label": "Create Opportunity",
+            "description": "Add an opportunity to a pipeline for a contact.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pipeline_id": {"type": "string", "description": "Pipeline (defaults to the connection's pipeline)",
+                                    "title": "Pipeline", "x-resource": "pipelines"},
+                    "title": {"type": "string", "description": "Opportunity title"},
+                    "stage": {"type": "string", "description": "Stage name, e.g. 'New Lead' (default: the pipeline's first stage)"},
+                    "contact_id": {"type": "string", "description": "Contact id the opportunity is for"},
+                    "monetary_value": {"type": "number", "description": "Value of the opportunity"},
+                },
+                "required": ["pipeline_id", "title"],
+            },
+        },
+        {
+            "action": "delete_contact",
+            "label": "Delete Contact",
+            "description": "Delete a contact. Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "GoHighLevel contact id, from Search Contacts",
+                                   "title": "Contact", "x-runtime": True},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "find_appointments",
+            "label": "Find Appointments",
+            "description": "List a contact's appointments. Returns each appointment's id, which Reschedule and Cancel Appointment need. Get the contact id from Search Contacts first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "GoHighLevel contact id, from Search Contacts"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "reschedule_appointment",
+            "operation": "update",
+            "label": "Reschedule Appointment",
+            "description": "Move an appointment to a new start time; it keeps its length. Get the appointment id from Find Appointments first.",
+            "x-snapshot": {"method": "get_appointment", "args": ["appointment_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appointment_id": {"type": "string", "description": "Appointment id, from Find Appointments"},
+                    "start_time": {"type": "string", "description": "New start time in ISO 8601 format"},
+                    "time_zone": {"type": "string", "description": "Time zone of the new time, e.g. America/New_York"},
+                },
+                "required": ["appointment_id", "start_time"],
+            },
+        },
+        {
+            "action": "cancel_appointment",
+            "label": "Cancel Appointment",
+            "description": "Mark an appointment as cancelled. Get the appointment id from Find Appointments first.",
+            "x-snapshot": {"method": "get_appointment", "args": ["appointment_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appointment_id": {"type": "string", "description": "Appointment id, from Find Appointments"},
+                },
+                "required": ["appointment_id"],
+            },
+        },
+        {
+            "action": "find_opportunities",
+            "label": "Find Opportunities",
+            "description": "Find opportunities in a pipeline by contact name, email or phone. Returns each opportunity's id, which Update Opportunity needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pipeline_id": {"type": "string", "description": "Pipeline (defaults to the connection's pipeline)",
+                                    "title": "Pipeline", "x-resource": "pipelines"},
+                    "query": {"type": "string", "description": "Name, email or phone to search for"},
+                },
+                "required": ["pipeline_id", "query"],
+            },
+        },
+        {
+            "action": "update_opportunity",
+            "label": "Update Opportunity",
+            "description": "Move an opportunity to another stage (by name), mark it won or lost, or change its title or value. Get the opportunity id from Find Opportunities first.",
+            "x-snapshot": {"method": "get_opportunity", "args": ["pipeline_id", "opportunity_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pipeline_id": {"type": "string", "description": "Pipeline (defaults to the connection's pipeline)",
+                                    "title": "Pipeline", "x-resource": "pipelines"},
+                    "opportunity_id": {"type": "string", "description": "Opportunity id, from Find Opportunities"},
+                    "stage": {"type": "string", "description": "New stage name, e.g. 'Booked'"},
+                    "status": {"type": "string", "enum": ["open", "won", "lost", "abandoned"], "description": "New status"},
+                    "title": {"type": "string", "description": "New title"},
+                    "monetary_value": {"type": "number", "description": "New value"},
+                },
+                "required": ["pipeline_id", "opportunity_id"],
             },
         },
     ],
@@ -563,6 +1271,32 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": [],
             },
         },
+        {
+            "action": "find_events",
+            "label": "Find Caller's Bookings",
+            "description": "Find the caller's upcoming Calendly bookings by their email. Each result has the event id Cancel Booking needs, and a reschedule link you can offer the caller (Calendly cannot move a booking directly).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "invitee_email": {"type": "string", "description": "The caller's email address"},
+                },
+                "required": ["invitee_email"],
+            },
+        },
+        {
+            "action": "cancel_event",
+            "label": "Cancel Booking",
+            "description": "Cancel a Calendly booking; Calendly notifies the invitee. Get the event id from Find Caller's Bookings first.",
+            "x-snapshot": {"method": "get_event_details", "args": ["event_uuid"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_uuid": {"type": "string", "description": "Event id, from Find Caller's Bookings"},
+                    "reason": {"type": "string", "description": "Reason, shared with the invitee"},
+                },
+                "required": ["event_uuid"],
+            },
+        },
     ],
     "google-sheets": [
         {
@@ -578,6 +1312,78 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
                 },
                 "required": ["spreadsheet_id", "range_name", "values"],
+            },
+        },
+        {
+            "action": "find_rows",
+            "label": "Find Rows",
+            "description": "Find rows where a column matches a value, e.g. Phone is the caller's number. The first row of the sheet must hold the column names. Phone numbers match however they are formatted.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet (defaults to the connection's spreadsheet)",
+                                       "title": "Spreadsheet", "x-resource": "spreadsheets"},
+                    "sheet": {"type": "string", "description": "Tab name (default: the first tab)"},
+                    "column": {"type": "string", "description": "Column to search, by its header, e.g. Phone or Email"},
+                    "value": {"type": "string", "description": "Value to look for"},
+                    "match": {"type": "string", "enum": ["exact", "contains"], "description": "exact (default, ignores case) or contains"},
+                },
+                "required": ["spreadsheet_id", "column", "value"],
+            },
+        },
+        {
+            "action": "update_row",
+            "label": "Update Row",
+            "description": "Change cells in the row where a column matches a value (e.g. set Status to Cancelled where Phone is the caller's number). Other cells are kept. If several rows match, give the row number from Find Rows.",
+            "x-snapshot": {"method": "get_row", "args": ["spreadsheet_id", "sheet", "row_number", "column", "value"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet (defaults to the connection's spreadsheet)",
+                                       "title": "Spreadsheet", "x-resource": "spreadsheets"},
+                    "sheet": {"type": "string", "description": "Tab name (default: the first tab)"},
+                    "column": {"type": "string", "description": "Column to match on, by its header, e.g. Phone or Email"},
+                    "value": {"type": "string", "description": "Value that identifies the row, e.g. the caller's phone number"},
+                    "row_number": {"type": "integer", "description": "Row number from Find Rows, if several rows match (checked against the column and value)"},
+                    "values": {"type": "object", "description": "Cells to change by column name, e.g. {\"Status\": \"Cancelled\"}"},
+                },
+                "required": ["spreadsheet_id", "column", "value", "values"],
+            },
+        },
+        {
+            "action": "upsert_row",
+            "operation": "update",
+            "label": "Add or Update Row",
+            "description": "Update the row where a column matches a value, or add a new row if there is none. Use for 'save this caller's details' when they may already be in the sheet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet (defaults to the connection's spreadsheet)",
+                                       "title": "Spreadsheet", "x-resource": "spreadsheets"},
+                    "sheet": {"type": "string", "description": "Tab name (default: the first tab)"},
+                    "column": {"type": "string", "description": "Column that identifies the row, e.g. Phone or Email"},
+                    "value": {"type": "string", "description": "Value that identifies the row"},
+                    "values": {"type": "object", "description": "Cells to set by column name, e.g. {\"Name\": \"Sara\", \"Status\": \"Booked\"}"},
+                },
+                "required": ["spreadsheet_id", "column", "value", "values"],
+            },
+        },
+        {
+            "action": "delete_row",
+            "label": "Delete Row",
+            "description": "Delete the row where a column matches a value. The rows below move up. If several rows match, give the row number from Find Rows.",
+            "x-snapshot": {"method": "get_row", "args": ["spreadsheet_id", "sheet", "row_number", "column", "value"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {"type": "string", "description": "Spreadsheet (defaults to the connection's spreadsheet)",
+                                       "title": "Spreadsheet", "x-resource": "spreadsheets"},
+                    "sheet": {"type": "string", "description": "Tab name (default: the first tab)"},
+                    "column": {"type": "string", "description": "Column to match on, by its header, e.g. Phone or Email"},
+                    "value": {"type": "string", "description": "Value that identifies the row, e.g. the caller's phone number"},
+                    "row_number": {"type": "integer", "description": "Row number from Find Rows, if several rows match (checked against the column and value)"},
+                },
+                "required": ["spreadsheet_id", "column", "value"],
             },
         },
     ],
@@ -606,6 +1412,48 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": [],
             },
         },
+        {
+            "action": "find_bookings",
+            "label": "Find Bookings",
+            "description": "Find the caller's upcoming bookings by their email or name. Returns each booking's id, which Reschedule and Cancel Booking need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "attendee": {"type": "string", "description": "The caller's email address or name"},
+                },
+                "required": ["attendee"],
+            },
+        },
+        {
+            "action": "reschedule_booking",
+            "operation": "update",
+            "label": "Reschedule Booking",
+            "description": "Move a booking to a new time; without an end time it keeps its length. Get the booking id from Find Bookings first.",
+            "x-snapshot": {"method": "get_booking", "args": ["booking_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "integer", "description": "Booking id, from Find Bookings"},
+                    "start_time": {"type": "string", "description": "New start time in ISO 8601 format"},
+                    "end_time": {"type": "string", "description": "New end time (default: keeps the current length)"},
+                },
+                "required": ["booking_id", "start_time"],
+            },
+        },
+        {
+            "action": "cancel_booking",
+            "label": "Cancel Booking",
+            "description": "Cancel a booking; Cal.com emails the attendees. Get the booking id from Find Bookings first.",
+            "x-snapshot": {"method": "get_booking", "args": ["booking_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "booking_id": {"type": "integer", "description": "Booking id, from Find Bookings"},
+                    "reason": {"type": "string", "description": "Reason, shared with the attendees"},
+                },
+                "required": ["booking_id"],
+            },
+        },
     ],
     "monday": [
         {
@@ -616,6 +1464,69 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "type": "object",
                 "properties": {},
                 "required": [],
+            },
+        },
+        {
+            "action": "find_items",
+            "label": "Find Items",
+            "description": "Find items on a board with the given text in their name or any column. Returns each item's id, which Update and Archive Item need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_id": {"type": "string", "description": "Board (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards"},
+                    "query": {"type": "string", "description": "Text to look for, e.g. the caller's name or phone"},
+                },
+                "required": ["board_id", "query"],
+            },
+        },
+        {
+            "action": "create_item",
+            "label": "Create Item",
+            "description": "Add an item to a board, filling columns by their titles.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_id": {"type": "string", "description": "Board (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards"},
+                    "item_name": {"type": "string", "description": "Item name"},
+                    "values": {"type": "object", "description": "Columns by title, e.g. {\"Status\": \"New\", \"Phone\": \"+923001234567\"}"},
+                },
+                "required": ["board_id", "item_name"],
+            },
+        },
+        {
+            "action": "update_item",
+            "label": "Update Item",
+            "description": "Change an item's columns (by title) or its name. Get the item id from Find Items first.",
+            "x-snapshot": {"method": "get_item", "args": ["item_id"]},
+            "x-scope": [{"param": "board_id", "field": "board_id", "label": "board"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_id": {"type": "string", "description": "Board (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards"},
+                    "item_id": {"type": "string", "description": "Item id, from Find Items"},
+                    "values": {"type": "object", "description": "Columns to change by title, e.g. {\"Status\": \"Done\"}"},
+                    "item_name": {"type": "string", "description": "New item name"},
+                },
+                "required": ["board_id", "item_id"],
+            },
+        },
+        {
+            "action": "archive_item",
+            "label": "Archive Item",
+            "description": "Archive an item (restorable from the board's archive for 30 days). Get the item id from Find Items first.",
+            "x-snapshot": {"method": "get_item", "args": ["item_id"]},
+            "x-scope": [{"param": "board_id", "field": "board_id", "label": "board"}],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_id": {"type": "string", "description": "Board the item must be on (defaults to the connection's board)",
+                                 "title": "Board", "x-resource": "boards", "x-ui-only": True},
+                    "item_id": {"type": "string", "description": "Item id, from Find Items"},
+                },
+                "required": ["item_id"],
             },
         },
     ],
@@ -755,6 +1666,78 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["content"],
             },
         },
+        {
+            "action": "update_person",
+            "label": "Update Person",
+            "description": "Change a person's name, email or phone. Get the person id from Search Persons first.",
+            "x-snapshot": {"method": "get_person", "args": ["person_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "person_id": {"type": "integer", "description": "Person id, from Search Persons"},
+                    "name": {"type": "string", "description": "New name"},
+                    "email": {"type": "string", "description": "New email (becomes the primary email)"},
+                    "phone": {"type": "string", "description": "New phone (becomes the primary phone)"},
+                },
+                "required": ["person_id"],
+            },
+        },
+        {
+            "action": "delete_person",
+            "label": "Delete Person",
+            "description": "Delete a person (restorable in Pipedrive for 30 days). Get the person id from Search Persons first.",
+            "x-snapshot": {"method": "get_person", "args": ["person_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "person_id": {"type": "integer", "description": "Person id, from Search Persons"},
+                },
+                "required": ["person_id"],
+            },
+        },
+        {
+            "action": "search_deals",
+            "label": "Find Deals",
+            "description": "Find deals by title, person or organisation. Returns each deal's id, which Update and Delete Deal need.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Text to search for"},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "action": "update_deal",
+            "label": "Update Deal",
+            "description": "Change a deal's title or value, move it to a stage (by name), or mark it won or lost. Get the deal id from Find Deals first.",
+            "x-snapshot": {"method": "get_deal", "args": ["deal_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "deal_id": {"type": "integer", "description": "Deal id, from Find Deals"},
+                    "title": {"type": "string", "description": "New title"},
+                    "value": {"type": "number", "description": "New value"},
+                    "stage": {"type": "string", "description": "Stage name to move the deal to, e.g. 'Proposal Made'"},
+                    "status": {"type": "string", "enum": ["open", "won", "lost"], "description": "New status"},
+                    "lost_reason": {"type": "string", "description": "Why the deal was lost (with status lost)"},
+                },
+                "required": ["deal_id"],
+            },
+        },
+        {
+            "action": "delete_deal",
+            "label": "Delete Deal",
+            "description": "Delete a deal (restorable in Pipedrive for 30 days). Get the deal id from Find Deals first.",
+            "x-snapshot": {"method": "get_deal", "args": ["deal_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "deal_id": {"type": "integer", "description": "Deal id, from Find Deals"},
+                },
+                "required": ["deal_id"],
+            },
+        },
     ],
 
     "zendesk": [
@@ -798,6 +1781,25 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "query": {"type": "string", "description": "Search term, e.g. an email address or status:open"},
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "action": "update_ticket",
+            "label": "Update Ticket",
+            "description": "Change a ticket's status (open, pending, hold, solved), priority or subject, add tags, and optionally leave a note. Get the ticket id from Search Tickets first.",
+            "x-snapshot": {"method": "get_ticket", "args": ["ticket_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "integer", "description": "Ticket number, from Search Tickets"},
+                    "status": {"type": "string", "enum": ["open", "pending", "hold", "solved"], "description": "New status"},
+                    "priority": {"type": "string", "enum": ["urgent", "high", "normal", "low"], "description": "New priority"},
+                    "subject": {"type": "string", "description": "New subject"},
+                    "add_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to add"},
+                    "comment": {"type": "string", "description": "Note explaining the change"},
+                    "public": {"type": "boolean", "description": "Show the note to the customer (default: internal only)"},
+                },
+                "required": ["ticket_id"],
             },
         },
     ],
@@ -855,6 +1857,63 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "required": ["contact_id", "message"],
             },
         },
+        {
+            "action": "update_contact",
+            "label": "Update Contact",
+            "description": "Change a contact's name, email or phone. Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Intercom contact id, from Search Contacts"},
+                    "name": {"type": "string", "description": "New name"},
+                    "email": {"type": "string", "description": "New email address"},
+                    "phone": {"type": "string", "description": "New phone number"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "archive_contact",
+            "label": "Archive Contact",
+            "description": "Archive a contact (Intercom can unarchive it). Get the contact id from Search Contacts first.",
+            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Intercom contact id, from Search Contacts"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "find_conversations",
+            "label": "Find Conversations",
+            "description": "List a contact's conversations (open ones by default). Returns each conversation's id, which Close Conversation needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Intercom contact id, from Search Contacts"},
+                    "state": {"type": "string", "enum": ["open", "closed", "snoozed", "all"], "description": "Which conversations (default open)"},
+                },
+                "required": ["contact_id"],
+            },
+        },
+        {
+            "action": "close_conversation",
+            "operation": "update",
+            "label": "Close Conversation",
+            "description": "Close a conversation, e.g. once the caller's issue is resolved on the call. Get the conversation id from Find Conversations first.",
+            "x-snapshot": {"method": "get_conversation", "args": ["conversation_id"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "conversation_id": {"type": "string", "description": "Conversation id, from Find Conversations"},
+                    "note": {"type": "string", "description": "Closing note"},
+                },
+                "required": ["conversation_id"],
+            },
+        },
     ],
 
     "supabase": [
@@ -865,10 +1924,76 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "table_name": {"type": "string", "description": "Table name"},
+                    "table_name": {"type": "string", "description": "Table name (defaults to the connection's table)",
+                                   "title": "Table", "x-resource": "tables"},
                     "limit": {"type": "integer", "description": "Max rows to fetch"},
                 },
                 "required": ["table_name"],
+            },
+        },
+        {
+            "action": "find_rows",
+            "label": "Find Rows",
+            "description": "Find rows where a column equals a value, e.g. phone is the caller's number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table (defaults to the connection's table)",
+                                   "title": "Table", "x-resource": "tables"},
+                    "column": {"type": "string", "description": "Column to match, e.g. phone or email"},
+                    "value": {"type": "string", "description": "Value to look for"},
+                },
+                "required": ["table_name", "column", "value"],
+            },
+        },
+        {
+            "action": "insert_row",
+            "label": "Insert Row",
+            "description": "Add a row to the table.",
+            "x-requires-default": ["table_name"],
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table (defaults to the connection's table)",
+                                   "title": "Table", "x-resource": "tables"},
+                    "values": {"type": "object", "description": "Columns to set, e.g. {\"name\": \"Sara\"}"},
+                },
+                "required": ["table_name", "values"],
+            },
+        },
+        {
+            "action": "update_row",
+            "label": "Update Row",
+            "description": "Change columns of the one row where a column equals a value. Refused if more than one row matches.",
+            "x-requires-default": ["table_name"],
+            "x-snapshot": {"method": "get_row", "args": ["table_name", "column", "value"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table (defaults to the connection's table)",
+                                   "title": "Table", "x-resource": "tables"},
+                    "column": {"type": "string", "description": "Column that identifies the row, ideally a unique one such as id, email or phone"},
+                    "value": {"type": "string", "description": "Value of that column for the row"},
+                    "values": {"type": "object", "description": "Columns to change, e.g. {\"status\": \"cancelled\"}"},
+                },
+                "required": ["table_name", "column", "value", "values"],
+            },
+        },
+        {
+            "action": "delete_row",
+            "label": "Delete Row",
+            "description": "Delete the one row where a column equals a value. Refused if more than one row matches.",
+            "x-requires-default": ["table_name"],
+            "x-snapshot": {"method": "get_row", "args": ["table_name", "column", "value"]},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table (defaults to the connection's table)",
+                                   "title": "Table", "x-resource": "tables"},
+                    "column": {"type": "string", "description": "Column that identifies the row, ideally a unique one such as id, email or phone"},
+                    "value": {"type": "string", "description": "Value of that column for the row"},
+                },
+                "required": ["table_name", "column", "value"],
             },
         },
     ],
@@ -1087,6 +2212,22 @@ def _adapt_gcal_find_slots(p: Dict[str, Any]) -> Dict[str, Any]:
     return p
 
 
+def _adapt_gcal_find_events(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "start_date" in p:
+        p.setdefault("time_min", _as_iso(p.pop("start_date")))
+    if "end_date" in p:
+        p.setdefault("time_max", _as_iso(p.pop("end_date"), end_of_day=True))
+    return p
+
+
+def _adapt_gcal_update_event(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "title" in p:
+        p.setdefault("summary", p.pop("title"))
+    if "time_zone" in p:
+        p.setdefault("timezone", p.pop("time_zone"))
+    return p
+
+
 def _adapt_gcal_check_availability(p: Dict[str, Any]) -> Dict[str, Any]:
     calendar = p.pop("calendar_id", None)
     if calendar:
@@ -1106,7 +2247,10 @@ def _adapt_hubspot_update_contact(p: Dict[str, Any]) -> Dict[str, Any]:
     # where a dict belongs must not take the whole tool call down.
     supplied = p.pop("additional_properties", None)
     properties = dict(supplied) if isinstance(supplied, dict) else {}
-    for schema_name, hubspot_property in (("phone", "phone"), ("company", "company")):
+    for schema_name, hubspot_property in (
+        ("phone", "phone"), ("company", "company"), ("email", "email"),
+        ("first_name", "firstname"), ("last_name", "lastname"),
+    ):
         if schema_name in p:
             properties[hubspot_property] = p.pop(schema_name)
     if properties:
@@ -1153,6 +2297,60 @@ def _adapt_sendgrid_send_email(p: Dict[str, Any]) -> Dict[str, Any]:
     return p
 
 
+def _adapt_hubspot_update_deal(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold the flat deal fields into HubSpot's property bag."""
+    supplied = p.pop("additional_properties", None)
+    properties = dict(supplied) if isinstance(supplied, dict) else {}
+    for schema_name, hubspot_property in (
+        ("deal_name", "dealname"), ("stage", "dealstage"), ("amount", "amount"), ("close_date", "closedate"),
+    ):
+        if p.get(schema_name) not in (None, ""):
+            properties[hubspot_property] = p.pop(schema_name)
+        else:
+            p.pop(schema_name, None)
+    p["properties"] = properties
+    return p
+
+
+def _salesforce_fields(p: Dict[str, Any], mapping) -> Dict[str, Any]:
+    fields = {}
+    for schema_name, sf_field in mapping:
+        value = p.pop(schema_name, None)
+        if value not in (None, ""):
+            fields[sf_field] = value
+    p["fields"] = fields
+    return p
+
+
+def _adapt_salesforce_update_contact(p: Dict[str, Any]) -> Dict[str, Any]:
+    return _salesforce_fields(p, (("first_name", "FirstName"), ("last_name", "LastName"), ("email", "Email"),
+                                  ("phone", "Phone"), ("title", "Title")))
+
+
+def _adapt_salesforce_update_lead(p: Dict[str, Any]) -> Dict[str, Any]:
+    return _salesforce_fields(p, (("first_name", "FirstName"), ("last_name", "LastName"), ("email", "Email"),
+                                  ("phone", "Phone"), ("company", "Company"), ("status", "Status")))
+
+
+def _adapt_ghl_create_opportunity(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "stage" in p:
+        p.setdefault("stage_id", p.pop("stage"))
+    return p
+
+
+def _adapt_slack_update_message(p: Dict[str, Any]) -> Dict[str, Any]:
+    if "message" in p:
+        p.setdefault("text", p.pop("message"))
+    return p
+
+
+def _adapt_sendgrid_add_contact(p: Dict[str, Any]) -> Dict[str, Any]:
+    list_id = p.pop("list_id", None)
+    if list_id:
+        p.setdefault("list_ids", [list_id])
+    return p
+
+
 #: (slug, action) → function mapping the schema's public parameter names onto
 #: the connector method's actual arguments.
 #:
@@ -1177,12 +2375,22 @@ ACTION_ADAPTERS: Dict[Tuple[str, str], Callable[[Dict[str, Any]], Dict[str, Any]
     ("google_calendar", "find_available_slots"): _adapt_gcal_find_slots,
     ("google-calendar", "check_availability"): _adapt_gcal_check_availability,
     ("google_calendar", "check_availability"): _adapt_gcal_check_availability,
+    ("google-calendar", "find_events"): _adapt_gcal_find_events,
+    ("google_calendar", "find_events"): _adapt_gcal_find_events,
+    ("google-calendar", "update_event"): _adapt_gcal_update_event,
+    ("google_calendar", "update_event"): _adapt_gcal_update_event,
     ("slack", "send_message"): _adapt_slack_send_message,
     ("sendgrid", "send_email"): _adapt_sendgrid_send_email,
     ("hubspot", "update_contact"): _adapt_hubspot_update_contact,
     ("hubspot", "create_deal"): _adapt_hubspot_create_deal,
     ("salesforce", "create_contact"): _adapt_salesforce_create_contact,
     ("salesforce", "create_lead"): _adapt_salesforce_create_lead,
+    ("hubspot", "update_deal"): _adapt_hubspot_update_deal,
+    ("salesforce", "update_contact"): _adapt_salesforce_update_contact,
+    ("salesforce", "update_lead"): _adapt_salesforce_update_lead,
+    ("gohighlevel", "create_opportunity"): _adapt_ghl_create_opportunity,
+    ("slack", "update_message"): _adapt_slack_update_message,
+    ("sendgrid", "add_contact"): _adapt_sendgrid_add_contact,
 }
 
 
@@ -1202,8 +2410,58 @@ def adapt_parameters(
 
 
 def get_actions_for_connector(connector_slug: str) -> List[Dict[str, Any]]:
-    """Return the list of available actions for a given connector."""
-    return INTEGRATION_ACTIONS.get(connector_slug, [])
+    """Return the list of available actions for a given connector.
+
+    Each carries its ``operation`` and ``destructive`` flag, so the Tools page
+    and the workflow builder can group actions and warn before a delete.
+    """
+    return [
+        {**a, "operation": operation_of(a), "destructive": is_destructive(a)}
+        for a in INTEGRATION_ACTIONS.get(connector_slug, [])
+    ]
+
+
+# ---- What an action does to the data in the connected app ----
+#
+# Agents may create and read freely. Changing or removing a record that already
+# exists is different: it happens mid-call on the strength of what an LLM heard,
+# so update and delete actions carry extra rules (see action_runner). The
+# operation is declared on the action where it matters and otherwise inferred
+# from the method name, which is consistent across the connectors.
+
+OP_CREATE = "create"
+OP_READ = "read"
+OP_UPDATE = "update"
+OP_DELETE = "delete"
+
+_READ_PREFIXES = ("search", "list_", "get_", "find_", "check_", "fetch_", "query", "lookup", "generate_presigned")
+_UPDATE_PREFIXES = ("update_",)
+_DELETE_PREFIXES = ("delete_", "cancel_", "archive_", "remove_")
+
+
+def operation_of(action_def: Dict[str, Any]) -> str:
+    """``create``, ``read``, ``update`` or ``delete`` for a registry entry."""
+    declared = action_def.get("operation")
+    if declared in (OP_CREATE, OP_READ, OP_UPDATE, OP_DELETE):
+        return declared
+    name = str(action_def.get("action") or "")
+    if name.startswith(_DELETE_PREFIXES):
+        return OP_DELETE
+    if name.startswith(_UPDATE_PREFIXES):
+        return OP_UPDATE
+    if name.startswith(_READ_PREFIXES):
+        return OP_READ
+    return OP_CREATE
+
+
+def is_destructive(action_def: Dict[str, Any]) -> bool:
+    """Deletes, and anything explicitly marked ``destructive``."""
+    return bool(action_def.get("destructive")) or operation_of(action_def) == OP_DELETE
+
+
+def changes_existing_data(action_def: Dict[str, Any]) -> bool:
+    """Update and delete: the actions an agent must confirm with the caller."""
+    return operation_of(action_def) in (OP_UPDATE, OP_DELETE)
 
 
 def get_action_schema(connector_slug: str, action: str) -> Dict[str, Any]:

@@ -110,3 +110,44 @@ class ZendeskConnector(BaseConnector):
     async def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         response = await self.get(f"/api/v2/tickets/{ticket_id}.json")
         return {"success": True, "ticket": response.get("ticket") or {}}
+
+    async def update_ticket(
+        self,
+        ticket_id: int,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        subject: Optional[str] = None,
+        add_tags: Optional[List[str]] = None,
+        comment: Optional[str] = None,
+        public: bool = False,
+    ) -> Dict[str, Any]:
+        """Change a ticket's status, priority or subject, add tags, and
+        optionally leave a note saying why (private unless ``public``).
+
+        "closed" is not offered: Zendesk only closes solved tickets itself.
+        """
+        ticket: Dict[str, Any] = {}
+        if status:
+            allowed = {"open", "pending", "hold", "solved"}
+            if status.lower() not in allowed:
+                raise ConnectorError(f"status must be one of {sorted(allowed)}, got '{status}'")
+            ticket["status"] = status.lower()
+        if priority:
+            allowed = {"urgent", "high", "normal", "low"}
+            if priority.lower() not in allowed:
+                raise ConnectorError(f"priority must be one of {sorted(allowed)}, got '{priority}'")
+            ticket["priority"] = priority.lower()
+        if subject:
+            ticket["subject"] = subject
+        if add_tags:
+            tags = add_tags if isinstance(add_tags, list) else [add_tags]
+            ticket["additional_tags"] = [str(t) for t in tags]
+        if comment:
+            ticket["comment"] = {"body": comment, "public": bool(public)}
+        if not ticket:
+            raise ConnectorError("Nothing to change: give a new status, priority, subject, tags or a note.")
+        response = await self.put(f"/api/v2/tickets/{ticket_id}.json", json={"ticket": ticket})
+        updated = response.get("ticket") or {}
+        return {"success": True, "id": updated.get("id") or ticket_id, "status": updated.get("status"),
+                "priority": updated.get("priority"), "updated": True}
+

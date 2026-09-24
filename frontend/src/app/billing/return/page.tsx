@@ -69,7 +69,14 @@ export default function BillingReturnPage() {
       let status: CheckoutStatus | null = null
       try {
         status = await billingService.checkoutStatus(checkoutId)
-      } catch {
+      } catch (err) {
+        // 404: this checkout does not belong to the selected workspace (or
+        // does not exist). Waiting will not change that — say so instead of
+        // eventually implying the payment went through.
+        if ((err as { response?: { status?: number } })?.response?.status === 404) {
+          if (!cancelled) setView('error')
+          return
+        }
         status = null // transient; keep waiting until the deadline
       }
       if (cancelled) return

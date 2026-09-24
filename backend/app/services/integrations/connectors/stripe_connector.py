@@ -142,6 +142,20 @@ class StripeConnector(BaseConnector):
             logger.error(f"Failed to get Stripe customer: {e}", exc_info=True)
             raise ConnectorError(f"Failed to get customer: {str(e)}")
 
+    async def find_customers(self, email: str, limit: int = 5) -> Dict[str, Any]:
+        """Customers with this email (Stripe matches it exactly, ignoring case)."""
+        if not (email or "").strip():
+            raise ConnectorError("Give the customer's email to look them up.")
+        try:
+            response = await self.get("/v1/customers", params={"email": email.strip(), "limit": max(1, min(int(limit or 5), 20))})
+        except Exception as e:
+            raise ConnectorError(f"Failed to find customers: {e}")
+        customers = [
+            {"id": c.get("id"), "name": c.get("name"), "email": c.get("email"), "phone": c.get("phone")}
+            for c in response.get("data", [])
+        ]
+        return {"customers": customers, "count": len(customers)}
+
     async def update_customer(
         self,
         customer_id: str,
@@ -330,6 +344,15 @@ class StripeConnector(BaseConnector):
             logger.error(f"Failed to confirm Stripe payment intent: {e}", exc_info=True)
             raise ConnectorError(f"Failed to confirm payment intent: {str(e)}")
 
+    async def get_payment_intent(self, intent_id: str) -> Dict[str, Any]:
+        """A payment intent by id."""
+        try:
+            pi = await self.get(f"/v1/payment_intents/{intent_id}")
+        except Exception as e:
+            raise ConnectorError(f"Failed to get payment intent: {e}")
+        return {"id": pi.get("id"), "amount": pi.get("amount"), "currency": pi.get("currency"),
+                "status": pi.get("status"), "customer": pi.get("customer"), "description": pi.get("description")}
+
     async def cancel_payment_intent(
         self,
         intent_id: str,
@@ -413,6 +436,23 @@ class StripeConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to create Stripe subscription: {e}", exc_info=True)
             raise ConnectorError(f"Failed to create subscription: {str(e)}")
+
+    async def get_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        """A subscription by id."""
+        try:
+            sub = await self.get(f"/v1/subscriptions/{subscription_id}")
+        except Exception as e:
+            raise ConnectorError(f"Failed to get subscription: {e}")
+        return _subscription_summary(sub)
+
+    async def list_subscriptions(self, customer_id: str, status: str = "active") -> Dict[str, Any]:
+        """A customer's subscriptions: the lookup before cancelling one."""
+        try:
+            response = await self.get("/v1/subscriptions", params={"customer": customer_id, "status": status or "all", "limit": 20})
+        except Exception as e:
+            raise ConnectorError(f"Failed to list subscriptions: {e}")
+        subs = [_subscription_summary(s) for s in response.get("data", [])]
+        return {"subscriptions": subs, "count": len(subs)}
 
     async def cancel_subscription(
         self,
@@ -694,3 +734,25 @@ class StripeConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to list Stripe charges: {e}", exc_info=True)
             raise ConnectorError(f"Failed to list charges: {str(e)}")
+
+
+def _subscription_summary(sub: Dict[str, Any]) -> Dict[str, Any]:
+    """The parts of a subscription a caller asks about."""
+    items = ((sub.get("items") or {}).get("data") or [])
+    return {
+        "id": sub.get("id"),
+        "status": sub.get("status"),
+        "customer": sub.get("customer"),
+        "cancel_at_period_end": sub.get("cancel_at_period_end"),
+        "current_period_end": sub.get("current_period_end"),
+        "plans": [
+            {
+                "price": (i.get("price") or {}).get("id"),
+                "product": (i.get("price") or {}).get("product"),
+                "amount": (i.get("price") or {}).get("unit_amount"),
+                "interval": ((i.get("price") or {}).get("recurring") or {}).get("interval"),
+            }
+            for i in items
+        ],
+    }
+

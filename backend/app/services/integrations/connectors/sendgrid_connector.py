@@ -545,3 +545,37 @@ class SendGridConnector(BaseConnector):
         except Exception as e:
             logger.error(f"Failed to get SendGrid bounces: {e}", exc_info=True)
             raise ConnectorError(f"Failed to get bounces: {str(e)}")
+
+    # ------------------------------------------------------------ changes
+
+    async def find_contact(self, email: str) -> Dict[str, Any]:
+        """A marketing contact by exact email (no query language for the model to write)."""
+        if not (email or "").strip():
+            raise ConnectorError("Give the contact's email address.")
+        try:
+            response = await self.post("/v3/marketing/contacts/search/emails", json={"emails": [email.strip()]})
+        except Exception as e:
+            if "HTTP 404" in str(e):
+                return {"found": False, "note": f"No contact with the email {email}."}
+            raise ConnectorError(f"Failed to find contact: {e}")
+        match = ((response.get("result") or {}).get(email.strip()) or {}).get("contact") or {}
+        if not match:
+            return {"found": False, "note": f"No contact with the email {email}."}
+        return {"found": True, "id": match.get("id"), "email": match.get("email"),
+                "first_name": match.get("first_name"), "last_name": match.get("last_name"),
+                "list_ids": match.get("list_ids") or []}
+
+    async def get_contact(self, contact_id: str) -> Dict[str, Any]:
+        c = await self.get(f"/v3/marketing/contacts/{contact_id}")
+        return {"id": c.get("id"), "email": c.get("email"), "first_name": c.get("first_name"),
+                "last_name": c.get("last_name"), "list_ids": c.get("list_ids") or []}
+
+    async def remove_contact_from_list(self, list_id: str, contact_id: str) -> Dict[str, Any]:
+        """Take a contact off one list (e.g. a caller who no longer wants those emails).
+        The contact itself is kept."""
+        try:
+            await self.delete(f"/v3/marketing/lists/{list_id}/contacts", params={"contact_ids": contact_id})
+        except Exception as e:
+            raise ConnectorError(f"Failed to remove contact from list: {e}")
+        return {"success": True, "list_id": list_id, "contact_id": contact_id, "removed": True}
+

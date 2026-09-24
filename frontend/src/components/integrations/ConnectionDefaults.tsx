@@ -30,6 +30,8 @@ interface Kind {
   kind: string
   label: string
   supports_url: boolean
+  /** False for kinds only given by link or id (e.g. a spreadsheet). */
+  listable?: boolean
 }
 
 interface DefaultsPayload {
@@ -135,6 +137,7 @@ export function ConnectionDefaults({
               supportsUrl={
                 payload.kinds?.find((k) => k.kind === ask.kind)?.supports_url ?? false
               }
+              listable={payload.kinds?.find((k) => k.kind === ask.kind)?.listable ?? true}
               isDefaultEditor
               onChange={(next) => setDraft((d) => ({ ...d, [ask.key]: next }))}
             />

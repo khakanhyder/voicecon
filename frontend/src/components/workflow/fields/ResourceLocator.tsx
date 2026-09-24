@@ -52,6 +52,7 @@ export function ResourceLocator({
   parentValue,
   parentLabel,
   supportsUrl,
+  listable = true,
   isDefaultEditor = false,
   placeholder,
   onChange,
@@ -71,6 +72,12 @@ export function ResourceLocator({
    * mode that can only ever fail.
    */
   supportsUrl?: boolean
+  /**
+   * False when the app offers no listing for this kind (a Google spreadsheet:
+   * the Sheets scope cannot list files), so the picker opens on the link or
+   * id mode instead of a list that can only fail.
+   */
+  listable?: boolean
   /** True when editing the connection default itself, so the "leave blank to
    *  use the default" hint would be circular. */
   isDefaultEditor?: boolean
@@ -80,7 +87,9 @@ export function ResourceLocator({
   // An expression can never come from a dropdown, so a value that looks like
   // one starts in the mode that can actually represent it.
   const looksLikeExpression = typeof value === 'string' && value.includes('{{')
-  const [mode, setMode] = useState<Mode>(looksLikeExpression ? 'id' : 'list')
+  const [mode, setMode] = useState<Mode>(
+    looksLikeExpression || (!listable && !supportsUrl) ? 'id' : !listable ? 'url' : 'list',
+  )
   const [items, setItems] = useState<ResourceItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
@@ -138,7 +147,7 @@ export function ResourceLocator({
       previousParent.current = parentValue
       if (value && !looksLikeExpression) onChange('')
     }
-    if (mode === 'list') void load()
+    if (mode === 'list' && listable) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, kind, parentValue, mode])
 
@@ -172,8 +181,13 @@ export function ResourceLocator({
       )
       onChange(res.data.id)
       setUrlDraft('')
-      setMode('list')
-      void load(true)
+      if (listable) {
+        setMode('list')
+        void load(true)
+      } else {
+        // Nothing to list: show the id the link resolved to.
+        setMode('id')
+      }
     } catch (e: any) {
       const body = e?.response?.data?.detail
       setUrlError(typeof body === 'string' ? body : body?.detail ?? 'That link was not recognised')
@@ -187,7 +201,7 @@ export function ResourceLocator({
   }
 
   const modes: { key: Mode; label: string }[] = [
-    { key: 'list', label: 'From list' },
+    ...(listable ? [{ key: 'list' as Mode, label: 'From list' }] : []),
     // Hidden until known to work, rather than shown and then vanishing.
     ...(urlModeAvailable ? [{ key: 'url' as Mode, label: 'From link' }] : []),
     { key: 'id', label: 'By ID' },

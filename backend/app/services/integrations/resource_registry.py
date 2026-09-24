@@ -128,6 +128,14 @@ RESOURCE_PROVIDERS: Dict[str, Dict[str, ResourceSpec]] = {
             result_keys=("result", "lists"),
         ),
     },
+    "supabase": {
+        "tables": ResourceSpec(
+            method="list_tables",
+            label="Table",
+            result_keys=("tables",),
+            empty_hint="No tables are exposed through this project's REST API.",
+        ),
+    },
     "gohighlevel": {
         "pipelines": ResourceSpec(
             method="list_pipelines",
@@ -311,7 +319,8 @@ def kinds_for_connector(connector_slug: str) -> Dict[str, ResourceSpec]:
 def describe_kinds(connector_slug: str) -> List[Dict[str, Any]]:
     """What this connector can offer a picker for — used by the setup screen."""
     described = []
-    for kind, spec in kinds_for_connector(connector_slug).items():
+    listed = kinds_for_connector(connector_slug)
+    for kind, spec in listed.items():
         described.append(
             {
                 "kind": kind,
@@ -319,8 +328,22 @@ def describe_kinds(connector_slug: str) -> List[Dict[str, Any]]:
                 "parent_kind": spec.parent_kind,
                 "supports_url": supports_url(connector_slug, kind),
                 "empty_hint": spec.empty_hint,
+                "listable": True,
             }
         )
+    # Kinds asked about at connect time that can only be given by link.
+    for ask in defaults_for_connector(connector_slug):
+        if ask["kind"] not in listed:
+            described.append(
+                {
+                    "kind": ask["kind"],
+                    "label": ask["kind"].rstrip("s").capitalize(),
+                    "parent_kind": None,
+                    "supports_url": supports_url(connector_slug, ask["kind"]),
+                    "empty_hint": "",
+                    "listable": False,
+                }
+            )
     return described
 
 
@@ -358,6 +381,20 @@ CONNECTION_DEFAULTS: Dict[str, List[Dict[str, str]]] = {
     "gohighlevel": [
         {"kind": "pipelines", "key": "pipeline_id", "prompt": "Which pipeline should opportunities go to?"},
     ],
+    # Link-only: the Sheets scope cannot list files and Notion has no list
+    # method here, so these are answered by pasting the spreadsheet or database
+    # URL. They are what pins an agent's row lookups and changes to one sheet
+    # or database.
+    "google-sheets": [
+        {"kind": "spreadsheets", "key": "spreadsheet_id", "prompt": "Which spreadsheet should agents read and update? Paste its link."},
+    ],
+    "notion": [
+        {"kind": "databases", "key": "database_id", "prompt": "Which database should agents look up and update? Paste its link."},
+    ],
+    # Also the allowlist: agents may only write to the table chosen here.
+    "supabase": [
+        {"kind": "tables", "key": "table_name", "prompt": "Which table may agents read and change?"},
+    ],
 }
 
 
@@ -369,6 +406,7 @@ def apply_connection_defaults(
     parameters: Dict[str, Any],
     connection_config: Optional[Dict[str, Any]],
     accepted_keys: Optional[set] = None,
+    pin_keys: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Fill in parameters the author left blank from the connection's defaults.
 
@@ -382,6 +420,11 @@ def apply_connection_defaults(
     anyway raises ``TypeError: got an unexpected keyword argument`` — turning
     a helpful default into a broken step. Without it, every default leaks into
     every action on that connection.
+
+    ``pin_keys`` are keys where the default *replaces* whatever was supplied.
+    Agent tools pin their resource fields (the calendar, the list): the value
+    there came from an LLM, and an agent set up for one calendar must not be
+    able to reschedule or cancel events on another by naming it.
     """
     if not connection_config:
         return parameters
@@ -396,7 +439,7 @@ def apply_connection_defaults(
             continue
         if accepted_keys is not None and key not in accepted_keys:
             continue
-        if filled.get(key) in (None, ""):
+        if filled.get(key) in (None, "") or (pin_keys and key in pin_keys):
             filled[key] = value
             logger.debug(f"Filled '{key}' from the connection default")
     return filled

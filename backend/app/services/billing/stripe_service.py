@@ -36,6 +36,7 @@ from app.models.subscription import (
     LIVE_STATUSES,
     SubscriptionPlan,
     Subscription,
+    SubscriptionEvent,
     UsageRecord,
     Invoice,
     PaymentFailure,
@@ -295,10 +296,17 @@ class StripeService:
             )
 
         # Update database
-        subscription.status = stripe_subscription.status
-        subscription.canceled_at = datetime.utcnow()
+        now = datetime.utcnow()
+        subscription.status = (
+            local_status_for_stripe(stripe_subscription.status) or subscription.status
+        )
+        subscription.canceled_at = now
         if immediate:
-            subscription.ended_at = datetime.utcnow()
+            # Ended now, as a Polar revoke or a cancelled trial is — not at a
+            # period end that is still in the future.
+            subscription.ended_at = now
+            subscription.current_period_end = min(subscription.current_period_end, now)
+            subscription.cancel_at_period_end = False
 
         await db.commit()
         await db.refresh(subscription)
@@ -340,27 +348,18 @@ class StripeService:
         if not new_plan:
             raise ValueError(f"Plan {new_plan_id} not found")
 
-        # Get Stripe subscription
-        stripe_subscription = await asyncio.to_thread(
-            stripe.Subscription.retrieve, subscription.stripe_subscription_id
-        )
-
-        # Update subscription items
-        stripe_subscription = await asyncio.to_thread(
-            stripe.Subscription.modify,
-            subscription.stripe_subscription_id,
-            items=[
-                {
-                    "id": stripe_subscription["items"]["data"][0].id,
-                    "price": new_plan.stripe_price_id,
-                }
-            ],
+        stripe_subscription = await self.set_subscription_price(
+            db,
+            subscription,
+            new_plan,
             proration_behavior="create_prorations" if prorate else "none",
         )
 
         # Update database
         subscription.plan_id = new_plan_id
-        subscription.status = stripe_subscription.status
+        subscription.status = (
+            local_status_for_stripe(stripe_subscription.status) or subscription.status
+        )
 
         await db.commit()
         await db.refresh(subscription)
@@ -369,6 +368,39 @@ class StripeService:
             f"Updated subscription {subscription_id} to plan {new_plan_id}"
         )
         return subscription
+
+    async def set_subscription_price(
+        self,
+        db: AsyncSession,
+        subscription: Subscription,
+        plan: SubscriptionPlan,
+        *,
+        proration_behavior: str,
+    ):
+        """Point the Stripe subscription at ``plan``'s price for its own interval.
+
+        Always the subscription's billing period: using the plan's monthly price
+        for a yearly subscriber silently moved them onto monthly billing.
+        ``proration_behavior="none"`` changes only what the *next* invoice
+        charges, which is how a downgrade is deferred to the end of the period.
+        """
+        price_id = await self.ensure_stripe_price(
+            db=db, plan=plan, billing_period=subscription.billing_period or "monthly"
+        )
+        stripe_subscription = await asyncio.to_thread(
+            stripe.Subscription.retrieve, subscription.stripe_subscription_id
+        )
+        return await asyncio.to_thread(
+            stripe.Subscription.modify,
+            subscription.stripe_subscription_id,
+            items=[
+                {
+                    "id": stripe_subscription["items"]["data"][0].id,
+                    "price": price_id,
+                }
+            ],
+            proration_behavior=proration_behavior,
+        )
 
     # ==================== Usage Tracking ====================
 
@@ -867,16 +899,18 @@ class StripeService:
     async def _on_invoice_paid(
         self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
     ) -> None:
-        """A paid invoice starts a new billing period — roll the usage counters.
+        """A paid invoice: the subscription is in good standing again.
 
-        Resetting here rather than on a calendar cron is what keeps the counters
-        aligned with the period the customer is actually being billed for.
+        A renewal (``subscription_cycle``) or the first invoice also starts a
+        new billing period, so the usage counters roll here — on the payment,
+        not on a calendar cron. A proration invoice from a mid-period upgrade
+        does not start a period and leaves the counters alone.
         """
         from app.services.billing import events as billing_events
         from app.services.billing.entitlements import invalidate_entitlements
 
         subscription = await self._subscription_by_stripe_id(
-            db, data.get("subscription")
+            db, invoice_subscription_id(data)
         )
         if subscription is None:
             return
@@ -885,27 +919,35 @@ class StripeService:
         subscription.status = "active"
         subscription.grace_period_end = None
         subscription.expired_at = None
-        subscription.current_period_minutes = 0
-        subscription.current_period_calls = 0
-        subscription.current_period_sms = 0
-        subscription.current_period_emails = 0
 
-        period_start = data.get("period_start")
-        period_end = data.get("period_end")
-        if period_start:
-            subscription.current_period_start = utc_from_timestamp(period_start)
-        if period_end:
-            subscription.current_period_end = utc_from_timestamp(period_end)
+        billing_reason = data.get("billing_reason")
+        starts_period = billing_reason in ("subscription_cycle", "subscription_create")
+        if starts_period:
+            subscription.current_period_minutes = 0
+            subscription.current_period_calls = 0
+            subscription.current_period_sms = 0
+            subscription.current_period_emails = 0
+
+            # ``invoice.period_*`` on a renewal is the period just *ended*; the
+            # period being paid for is on the subscription line item.
+            period_start, period_end = invoice_service_period(data)
+            if period_start and period_end:
+                apply_scheduled_plan_on_rollover(db, subscription, period_start, event_id)
+                subscription.current_period_start = period_start
+                subscription.current_period_end = period_end
 
         await billing_events.record_event(
             db,
             organization_id=subscription.organization_id,
-            event_type=billing_events.RENEWED,
+            event_type=billing_events.RENEWED
+            if billing_reason == "subscription_cycle"
+            else billing_events.ACTIVATED,
             subscription=subscription,
             from_status=previous_status,
             to_status=subscription.status,
             actor_type=billing_events.ACTOR_STRIPE,
             stripe_event_id=event_id,
+            payload={"billing_reason": billing_reason},
         )
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
@@ -926,7 +968,7 @@ class StripeService:
         )
 
         subscription = await self._subscription_by_stripe_id(
-            db, data.get("subscription")
+            db, invoice_subscription_id(data)
         )
         if subscription is None:
             return
@@ -973,71 +1015,34 @@ class StripeService:
     async def _on_subscription_updated(
         self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
     ) -> None:
-        from app.services.billing import events as billing_events
         from app.services.billing.entitlements import invalidate_entitlements
 
         subscription = await self._subscription_by_stripe_id(db, data.get("id"))
         if subscription is None:
             return
-
-        previous_status = subscription.status
-        subscription.status = data["status"]
-        subscription.current_period_start = utc_from_timestamp(
-            data["current_period_start"]
-        )
-        subscription.current_period_end = utc_from_timestamp(
-            data["current_period_end"]
-        )
-        subscription.cancel_at_period_end = bool(data.get("cancel_at_period_end", False))
-        if subscription.status == "active":
-            subscription.grace_period_end = None
-            subscription.expired_at = None
-
-        if previous_status != subscription.status:
-            await billing_events.record_event(
-                db,
-                organization_id=subscription.organization_id,
-                event_type=billing_events.ACTIVATED
-                if subscription.status == "active"
-                else billing_events.PAST_DUE,
-                subscription=subscription,
-                from_status=previous_status,
-                to_status=subscription.status,
-                actor_type=billing_events.ACTOR_STRIPE,
-                stripe_event_id=event_id,
-            )
+        await apply_stripe_subscription(db, subscription, data, event_id)
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
 
     async def _on_subscription_deleted(
         self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
     ) -> None:
-        """Cancelled at Stripe. Access persists until the paid period runs out.
+        """The Stripe subscription has ended.
 
-        The reconciler moves it to ``expired`` once ``current_period_end``
-        passes — this only records that it will.
+        Stripe sends this when the subscription actually stops — at the end of
+        the paid period for a scheduled cancellation, or right away for an
+        immediate cancellation or exhausted dunning. Access ends at Stripe's
+        ``ended_at``, never at a period end that may still be in the future:
+        otherwise a customer whose card never paid for the new period would
+        keep a free month.
         """
-        from app.services.billing import events as billing_events
         from app.services.billing.entitlements import invalidate_entitlements
 
         subscription = await self._subscription_by_stripe_id(db, data.get("id"))
         if subscription is None:
             return
-
-        previous_status = subscription.status
-        subscription.status = "canceled"
-        subscription.ended_at = datetime.utcnow()
-        subscription.canceled_at = subscription.canceled_at or datetime.utcnow()
-
-        await billing_events.record_event(
-            db,
-            organization_id=subscription.organization_id,
-            event_type=billing_events.CANCELED,
-            subscription=subscription,
-            from_status=previous_status,
-            to_status=subscription.status,
-            actor_type=billing_events.ACTOR_STRIPE,
-            stripe_event_id=event_id,
+        await apply_stripe_subscription(
+            db, subscription, {**_as_dict(data), "status": "canceled"}, event_id
         )
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
@@ -1138,6 +1143,201 @@ class StripeService:
 
         await db.flush()
         return price_id
+
+
+# ==================== Stripe payload helpers ====================
+#
+# Webhook payloads are rendered in the *webhook endpoint's* API version, not the
+# version this SDK pins for requests. From 2025-03-31 ("basil") Stripe moved
+# ``current_period_*`` onto subscription items and ``invoice.subscription``
+# under ``invoice.parent``. Every read below accepts both shapes, so a webhook
+# endpoint created on a newer version cannot silently break renewals.
+
+
+def _as_dict(obj: Any) -> Dict[str, Any]:
+    if obj is None:
+        return {}
+    if hasattr(obj, "to_dict_recursive"):
+        return obj.to_dict_recursive()
+    return dict(obj)
+
+
+def _get(obj: Any, key: str, default: Any = None) -> Any:
+    try:
+        return obj.get(key, default)
+    except AttributeError:
+        return getattr(obj, key, default)
+
+
+def invoice_subscription_id(invoice: Any) -> Optional[str]:
+    sub = _get(invoice, "subscription")
+    if sub:
+        return sub if isinstance(sub, str) else _get(sub, "id")
+    parent = _get(invoice, "parent") or {}
+    details = _get(parent, "subscription_details") or {}
+    sub = _get(details, "subscription")
+    if sub:
+        return sub if isinstance(sub, str) else _get(sub, "id")
+    return None
+
+
+def invoice_service_period(invoice: Any) -> tuple[Optional[datetime], Optional[datetime]]:
+    """The period a subscription invoice pays for, from its line items.
+
+    Not ``invoice.period_start/end``: on a renewal those describe the period
+    that just ended, so copying them onto the subscription would wind
+    ``current_period_end`` back to the renewal moment.
+    """
+    lines = _get(_get(invoice, "lines") or {}, "data") or []
+    best: tuple[Optional[int], Optional[int]] = (None, None)
+    for line in lines:
+        period = _get(line, "period") or {}
+        start, end = _get(period, "start"), _get(period, "end")
+        if start and end and (best[1] is None or end > best[1]):
+            best = (start, end)
+    return utc_from_timestamp(best[0]), utc_from_timestamp(best[1])
+
+
+def subscription_period(data: Any) -> tuple[Optional[datetime], Optional[datetime]]:
+    start = _get(data, "current_period_start")
+    end = _get(data, "current_period_end")
+    if not (start and end):
+        items = _get(_get(data, "items") or {}, "data") or []
+        if items:
+            start = start or _get(items[0], "current_period_start")
+            end = end or _get(items[0], "current_period_end")
+    return utc_from_timestamp(start), utc_from_timestamp(end)
+
+
+def local_status_for_stripe(stripe_status: str) -> Optional[str]:
+    """Map a Stripe subscription status onto the statuses this app persists.
+
+    Stripe's raw values must never be written through: ``unpaid`` or ``paused``
+    would be statuses no gate recognises, and ``trialing`` would hand a paying
+    customer the restrictive card-free-trial entitlements.
+    """
+    if stripe_status in ("active", "trialing"):
+        return "active"
+    if stripe_status in ("past_due", "unpaid"):
+        return "past_due"
+    if stripe_status in ("canceled", "incomplete_expired"):
+        return "canceled"
+    # incomplete / paused: nothing we act on.
+    return None
+
+
+def apply_scheduled_plan_on_rollover(
+    db: AsyncSession,
+    subscription: Subscription,
+    new_period_start: Optional[datetime],
+    event_id: Optional[str] = None,
+) -> bool:
+    """Apply a queued downgrade once the provider starts the next period.
+
+    The reconciler cannot do this for provider-billed rows: the renewal webhook
+    moves ``current_period_end`` forward at the same moment the period ends, so
+    a "period has ended" sweep would almost never see it. Returns ``True`` when
+    a plan change was applied.
+    """
+    if (
+        subscription.scheduled_plan_id is None
+        or new_period_start is None
+        or subscription.current_period_start is None
+        or new_period_start <= subscription.current_period_start
+    ):
+        return False
+    from app.services.billing import events as billing_events
+
+    previous_plan_id = subscription.plan_id
+    subscription.plan_id = subscription.scheduled_plan_id
+    subscription.scheduled_plan_id = None
+    db.add(
+        SubscriptionEvent(
+            organization_id=subscription.organization_id,
+            subscription_id=subscription.id,
+            event_type=billing_events.PLAN_CHANGED,
+            from_plan_id=previous_plan_id,
+            to_plan_id=subscription.plan_id,
+            actor_type=billing_events.ACTOR_STRIPE
+            if subscription.source == "stripe"
+            else billing_events.ACTOR_SYSTEM,
+            stripe_event_id=event_id,
+            payload={"trigger": "scheduled_downgrade"},
+        )
+    )
+    return True
+
+
+async def apply_stripe_subscription(
+    db: AsyncSession,
+    subscription: Subscription,
+    data: Any,
+    event_id: Optional[str] = None,
+) -> None:
+    """Bring a local row in line with a Stripe subscription object. No commit.
+
+    Shared by ``customer.subscription.updated``/``deleted`` and by the
+    reconciler's re-sync of rows whose renewal webhook never arrived.
+    """
+    from app.services.billing import events as billing_events
+    from app.services.billing.entitlements import PAYMENT_GRACE_DAYS
+
+    now = datetime.utcnow()
+    previous_status = subscription.status
+    new_status = local_status_for_stripe(str(_get(data, "status") or ""))
+
+    period_start, period_end = subscription_period(data)
+    if period_start:
+        apply_scheduled_plan_on_rollover(db, subscription, period_start, event_id)
+        subscription.current_period_start = period_start
+    if period_end:
+        subscription.current_period_end = period_end
+
+    subscription.cancel_at_period_end = bool(_get(data, "cancel_at_period_end", False))
+    if subscription.cancel_at_period_end:
+        subscription.canceled_at = (
+            subscription.canceled_at
+            or utc_from_timestamp(_get(data, "canceled_at"))
+            or now
+        )
+
+    if new_status == "active":
+        subscription.status = "active"
+        subscription.grace_period_end = None
+        subscription.expired_at = None
+        if not subscription.cancel_at_period_end:
+            subscription.canceled_at = None
+    elif new_status == "past_due":
+        subscription.status = "past_due"
+        if subscription.grace_period_end is None:
+            subscription.grace_period_end = now + timedelta(days=PAYMENT_GRACE_DAYS)
+    elif new_status == "canceled" and previous_status not in ("canceled", "expired"):
+        ended = utc_from_timestamp(_get(data, "ended_at")) or now
+        subscription.status = "canceled"
+        subscription.ended_at = ended
+        subscription.canceled_at = (
+            subscription.canceled_at
+            or utc_from_timestamp(_get(data, "canceled_at"))
+            or ended
+        )
+        subscription.current_period_end = min(subscription.current_period_end, ended)
+        subscription.cancel_at_period_end = False
+
+    if previous_status != subscription.status:
+        await billing_events.record_event(
+            db,
+            organization_id=subscription.organization_id,
+            event_type={
+                "active": billing_events.ACTIVATED,
+                "past_due": billing_events.PAST_DUE,
+                "canceled": billing_events.CANCELED,
+            }.get(subscription.status, billing_events.PAST_DUE),
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            actor_type=billing_events.ACTOR_STRIPE,
+            stripe_event_id=event_id,
+        )
 
 
 # Dependency for FastAPI

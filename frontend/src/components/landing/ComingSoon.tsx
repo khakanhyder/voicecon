@@ -13,7 +13,7 @@ import { Logo, ROUTES, buttonClass } from './primitives'
  * additions are the Log in / Get started buttons in the nav, which point at the
  * same app routes as the marketing navbar.
  *
- * The full marketing site it replaces at the root still lives at /landing-page.
+ * The full marketing site it used to replace is served at the root.
  */
 
 const FEATURES = [

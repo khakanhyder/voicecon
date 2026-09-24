@@ -260,6 +260,48 @@ class IntegrationLog(Base):
         return f"<IntegrationLog(id={self.id}, method={self.method}, success={self.success})>"
 
 
+class IntegrationChange(Base):
+    """An update or delete made in a connected app by an agent or a workflow.
+
+    One row per attempt, successful or not, so "who moved my appointment?" has
+    an answer: which call or workflow did it, what was sent, and what the
+    record looked like just before. ``connection_id`` deliberately has no
+    foreign key, so the history outlives disconnecting the app.
+    """
+
+    __tablename__ = "integration_changes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), index=True)
+    connector_slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    #: "update" or "delete"
+    operation: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: The id of the record changed in the connected app, when known.
+    record_id: Mapped[Optional[str]] = mapped_column(String(255))
+
+    #: "agent" (a tool call during a call or chat) or "workflow"
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    tool_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True))
+    call_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+
+    parameters: Mapped[Optional[dict]] = mapped_column(JSON)
+    before: Mapped[Optional[dict]] = mapped_column(JSON)
+    result: Mapped[Optional[dict]] = mapped_column(JSON)
+    success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self) -> str:
+        return f"<IntegrationChange({self.connector_slug}.{self.action} {self.record_id} ok={self.success})>"
+
+
 # Forward references
 from typing import TYPE_CHECKING
 

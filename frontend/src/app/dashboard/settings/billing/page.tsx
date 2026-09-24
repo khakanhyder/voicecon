@@ -20,6 +20,7 @@ import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutM
 import { entitlementService, FEATURE_LABELS } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
+import { planCardBullets, yearlySavingPercent } from '@/lib/pricing';
 
 import { useConfirm } from '@/hooks/use-confirm';
 
@@ -58,6 +59,8 @@ interface Subscription {
   current_period_start: string;
   current_period_end: string;
   trial_end: string | null;
+  scheduled_plan_id?: string | null;
+  scheduled_plan_name?: string | null;
   canceled_at: string | null;
   current_period_minutes: number;
   current_period_calls: number;
@@ -144,9 +147,11 @@ export default function BillingPage() {
       const target = plans.find((p) => p.id === planId);
       const isUpgrade = (target?.tier ?? 0) >= (currentPlan?.tier ?? 0);
       toast.success(
-        isUpgrade
-          ? 'Plan upgraded — the new limits are active now'
-          : `Downgrade scheduled for ${formatDate(updated.current_period_end)}`
+        planId === subscription?.plan_id
+          ? `Scheduled change cancelled — you stay on ${target?.name ?? 'your plan'}`
+          : isUpgrade
+            ? 'Plan upgraded — the new limits are active now'
+            : `Downgrade scheduled for ${formatDate(updated.current_period_end)}`
       );
       await fetchAll();
     } catch (err: any) {
@@ -166,18 +171,26 @@ export default function BillingPage() {
   };
 
   const cancelSubscription = async () => {
+    // A card-free trial has no paid period to run out: ending it is immediate.
+    const endingTrial = !!entitlements?.is_trial;
     const ok = await confirm({
-      title: 'Cancel Subscription',
-      description: 'Cancel your subscription at the end of the current period? You keep access until then.',
-      confirmText: 'Cancel Subscription',
-      cancelText: 'Keep Subscription',
+      title: endingTrial ? 'End free trial' : 'Cancel Subscription',
+      description: endingTrial
+        ? 'End your free trial now? Your agents stop and the workspace becomes read-only straight away. A trial cannot be restarted.'
+        : 'Cancel your subscription at the end of the current period? You keep access until then.',
+      confirmText: endingTrial ? 'End trial' : 'Cancel Subscription',
+      cancelText: endingTrial ? 'Keep trial' : 'Keep Subscription',
       isDestructive: true,
     });
     if (!ok) return;
     setActionBusy(true);
     try {
       await entitlementService.cancel();
-      toast.success('Subscription cancelled — you keep access until the period ends');
+      toast.success(
+        endingTrial
+          ? 'Free trial ended'
+          : 'Subscription cancelled — you keep access until the period ends'
+      );
       await fetchAll();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -202,12 +215,14 @@ export default function BillingPage() {
   /**
    * Choosing a plan.
    *
-   * A workspace on a *paid* plan switches in place — the card is already on
-   * file. A trial, a lapsed trial or an expired subscription has no card, so it
-   * goes through checkout; the backend converts the existing subscription
-   * rather than creating a second one.
+   * A workspace a provider already bills (Stripe or Polar) switches in place —
+   * change-plan goes to whichever provider the subscription lives on. A trial,
+   * a staff comp, a lapsed trial or an expired subscription has nothing to
+   * charge, so it goes through checkout; the backend converts the existing
+   * subscription rather than creating a second one.
    */
-  const needsCheckout = !subscription || entitlements?.source !== 'stripe';
+  const providerBilled = entitlements?.source === 'stripe' || entitlements?.source === 'polar';
+  const needsCheckout = !subscription || !providerBilled;
 
   const choosePlan = (plan: SubscriptionPlan) => {
     if (!needsCheckout) {
@@ -262,6 +277,11 @@ export default function BillingPage() {
     });
 
   const currentPlan = plans.find((p) => p.id === subscription?.plan_id);
+  const visiblePlans = plans.filter((p) => p.is_active && p.is_public);
+  const yearlySaving = yearlySavingPercent(visiblePlans);
+  const bulletsByPlanId: Record<string, string[]> = Object.fromEntries(
+    planCardBullets(visiblePlans).map((lines, i) => [visiblePlans[i].id, lines])
+  );
 
   return (
     <div className="space-y-6">
@@ -308,9 +328,17 @@ export default function BillingPage() {
                   {subscription.plan_name}
                   {entitlements?.is_trial && <span className="ml-2 text-[14px] text-amber-600 font-semibold">(Free Trial)</span>}
                 </div>
-                {currentPlan && (
+                {currentPlan && !entitlements?.is_trial && (
                   <div className="text-[14px] font-poppins text-black/60">
-                    ${currentPlan.price_monthly}/month
+                    {subscription.billing_period === 'yearly' && currentPlan.price_yearly
+                      ? `$${currentPlan.price_yearly}/year`
+                      : `$${currentPlan.price_monthly}/month`}
+                  </div>
+                )}
+                {subscription.scheduled_plan_name && (
+                  <div className="text-[12px] font-poppins text-amber-700 mt-1">
+                    Switching to {subscription.scheduled_plan_name} on{' '}
+                    {formatDate(subscription.current_period_end)}
                   </div>
                 )}
               </div>
@@ -324,7 +352,11 @@ export default function BillingPage() {
                 </div>
                 <div className="text-[12px] font-poppins text-black/50 mt-1 flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
-                  {entitlements?.is_trial
+                  {entitlements?.status === 'grace'
+                    ? `Trial ended — agents pause in ${entitlements.grace_days_remaining ?? 0} ${
+                        entitlements.grace_days_remaining === 1 ? 'day' : 'days'
+                      }`
+                    : entitlements?.status === 'trialing'
                     ? `${entitlements.days_remaining ?? 0} ${
                         entitlements.days_remaining === 1 ? 'day' : 'days'
                       } left`
@@ -343,7 +375,7 @@ export default function BillingPage() {
                     {subscription.billing_period}
                   </span>
                 </div>
-                {subscription.canceled_at && (
+                {subscription.canceled_at && !entitlements?.is_trial && (
                   <div className="text-xs text-red-600 mt-1">
                     Cancels {formatDate(subscription.current_period_end)}
                   </div>
@@ -384,12 +416,14 @@ export default function BillingPage() {
                 </Button>
               )}
 
-              {entitlements?.cancel_at_period_end ? (
+              {entitlements?.cancel_at_period_end && entitlements.is_live ? (
                 <Button onClick={reactivateSubscription} disabled={actionBusy}>
                   Reactivate subscription
                 </Button>
               ) : (
-                entitlements?.is_live && (
+                // Nothing to end once a trial is already over (grace).
+                entitlements?.is_live &&
+                entitlements.status !== 'grace' && (
                   <Button
                     variant="outline"
                     className="text-red-600 border-red-200 hover:bg-red-50"
@@ -519,7 +553,9 @@ export default function BillingPage() {
                 }`}
               >
                 Yearly
-                <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-green-100 text-green-700">Save 15%</span>
+                {yearlySaving > 0 && (
+                  <span className="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-green-100 text-green-700">Save {yearlySaving}%</span>
+                )}
               </button>
             </div>
           </div>
@@ -562,10 +598,9 @@ export default function BillingPage() {
                       <div className="flex items-baseline gap-2">
                         <span className="text-[40px] font-bold text-[#000000] font-poppins">
                           $
-                          {billingPeriod === 'monthly'
+                          {billingPeriod === 'monthly' || !plan.price_yearly
                             ? plan.price_monthly
-                            : Math.round(((plan.price_yearly ?? plan.price_monthly * 10) / 12) * 10) /
-                              10}
+                            : Math.round((plan.price_yearly / 12) * 10) / 10}
                         </span>
                         <span className="text-gray-500 font-medium text-sm">/month</span>
                       </div>
@@ -574,32 +609,23 @@ export default function BillingPage() {
                           Billed ${plan.price_yearly} annually
                         </p>
                       )}
+                      {billingPeriod === 'yearly' && plan.price_yearly == null && (
+                        <p className="text-[12px] text-black/50 mt-1">
+                          Billed monthly — yearly billing isn&apos;t offered on this plan.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-3.5 mb-8 flex-1">
-                      {/* Driven by code, not by `included_minutes`: that column
-                          is legacy pricing data and no longer caps anything, so
-                          rendering it would advertise a limit that is not real. */}
-                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
-                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
-                        <span><strong className="font-semibold">Unlimited</strong> calls &amp; minutes</span>
-                      </div>
-                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
-                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
-                        <span>Up to <strong className="font-semibold">{plan.max_agents}</strong> agents</span>
-                      </div>
-                      <div className="flex items-center gap-2.5 text-[14px] text-gray-700 font-poppins">
-                        <CheckCircle className="w-[18px] h-[18px] text-[#106959]" />
-                        <span>Up to <strong className="font-semibold">{plan.max_phone_numbers}</strong> phone numbers</span>
-                      </div>
-                      {/* Marketing bullets from the plan's `features` copy. */}
-                      {(plan.features?.highlights ?? []).map((highlight: string) => (
+                      {/* Built from the admin's live limits, features and bullet
+                          points — the same copy the landing page and onboarding show. */}
+                      {(bulletsByPlanId[plan.id] ?? []).map((line) => (
                         <div
-                          key={highlight}
+                          key={line}
                           className="flex items-start gap-2.5 text-[14px] text-gray-700 font-poppins"
                         >
-                          <CheckCircle className="w-[18px] h-[18px] text-[#106959] mt-0.5" />
-                          <span className="leading-tight">{highlight}</span>
+                          <CheckCircle className="w-[18px] h-[18px] text-[#106959] mt-0.5 flex-shrink-0" />
+                          <span className="leading-tight">{line}</span>
                         </div>
                       ))}
 
@@ -622,9 +648,24 @@ export default function BillingPage() {
                         ))}
                     </div>
 
-                    {plan.id === subscription?.plan_id && entitlements?.is_live ? (
+                    {plan.id === subscription?.plan_id &&
+                    entitlements?.is_live &&
+                    !entitlements.is_trial &&
+                    subscription?.scheduled_plan_id ? (
+                      // A downgrade is queued: picking the current plan again keeps it.
+                      <Button
+                        variant="outline"
+                        className="w-full h-[45px] font-poppins text-sm rounded-[8px]"
+                        onClick={() => switchPlan(plan.id)}
+                        disabled={actionBusy}
+                      >
+                        Keep {plan.name}
+                      </Button>
+                    ) : plan.id === subscription?.plan_id &&
+                      entitlements?.is_live &&
+                      !entitlements.is_trial ? (
                       <Button disabled className="w-full h-[45px] font-poppins text-sm rounded-[8px]">
-                        {entitlements.is_trial ? 'Currently trialling' : 'Current Plan'}
+                        Current Plan
                       </Button>
                     ) : (
                       <Button
@@ -634,7 +675,9 @@ export default function BillingPage() {
                       >
                         {needsCheckout
                           ? entitlements?.is_trial
-                            ? `Upgrade to ${plan.name}`
+                            ? plan.id === subscription?.plan_id
+                              ? `Subscribe to ${plan.name}`
+                              : `Upgrade to ${plan.name}`
                             : 'Get Started'
                           : (plan.tier ?? 0) >= (currentPlan?.tier ?? 0)
                             ? 'Upgrade'
@@ -644,15 +687,11 @@ export default function BillingPage() {
 
                     {plan.id === subscription?.plan_id && entitlements?.is_trial && (
                       <p className="mt-2 text-center text-[12px] text-black/50 font-poppins">
-                        Your trial includes every feature — usage is capped until you
-                        upgrade.
+                        You&apos;re trialling this plan. Subscribe to keep it — trial
+                        limits on agents, numbers and team members lift once you do.
                       </p>
                     )}
 
-                    <div className="mt-5 pt-4 border-t border-slate-200 text-[12px] text-gray-500 font-poppins flex flex-col gap-1">
-                      <div>Overage minutes: <span className="font-medium text-gray-900">${plan.overage_rate_per_minute}/min</span></div>
-                      <div>Extra calls: <span className="font-medium text-gray-900">${plan.overage_rate_per_call}/call</span></div>
-                    </div>
                   </div>
                 ))}
             </div>

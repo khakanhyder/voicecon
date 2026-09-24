@@ -142,6 +142,84 @@ class NotionConnector(BaseConnector):
         except Exception as e:
             raise ConnectorError(f"Notion add_comment failed: {e}")
 
+    # ------------------------------------------------------------ changes
+
+    async def find_database_items(self, database_id: str, query: str) -> Dict[str, Any]:
+        """Rows of a database with ``query`` in any text column (title, text,
+        email, phone, select). The lookup before updating or archiving one."""
+        needle = (query or "").strip().lower()
+        if not needle:
+            raise ConnectorError("Say what to look for, e.g. the caller's name or email.")
+        try:
+            res = await self.post(f"/v1/databases/{database_id}/query",
+                                  json={"page_size": 100}, headers=self._headers)
+        except Exception as e:
+            raise ConnectorError(f"Notion find_database_items failed: {e}")
+        items = []
+        for page in res.get("results", []):
+            values = _plain_properties(page)
+            if any(needle in str(v).lower() for v in values.values()):
+                items.append({"id": page.get("id"), "title": self._extract_title(page),
+                              "url": page.get("url"), "values": values})
+        return {"items": items[:25], "count": len(items)}
+
+    async def get_page_summary(self, page_id: str) -> Dict[str, Any]:
+        """A page with its column values as plain text (used for audit snapshots)."""
+        page = await self.get_page(page_id)
+        return {
+            "id": page.get("id"),
+            "title": self._extract_title(page),
+            "database_id": (page.get("parent") or {}).get("database_id"),
+            "archived": page.get("archived"),
+            "values": _plain_properties(page),
+        }
+
+    async def update_database_item(self, page_id: str, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Change columns of a database row using plain values.
+
+        Each value is converted to the Notion property shape its column needs
+        (title, text, number, select, multi-select, status, date, checkbox,
+        email, phone, URL), read from the row itself, so the model never has
+        to write Notion's JSON.
+        """
+        if not isinstance(values, dict) or not values:
+            raise ConnectorError('Give the columns to change, e.g. {"Status": "Done"}.')
+        page = await self.get_page(page_id)
+        columns = page.get("properties") or {}
+        by_name = {name.lower(): name for name in columns}
+        properties: Dict[str, Any] = {}
+        for column, value in values.items():
+            name = by_name.get(str(column).strip().lower())
+            if name is None:
+                raise ConnectorError(f"No column called '{column}'. Columns: {', '.join(columns)}.")
+            properties[name] = _property_value(columns[name].get("type"), value, name)
+        try:
+            res = await self.patch(f"/v1/pages/{page_id}", json={"properties": properties}, headers=self._headers)
+        except Exception as e:
+            raise ConnectorError(f"Notion update failed: {e}")
+        return {"id": res.get("id") or page_id, "url": res.get("url"), "updated": True,
+                "values": _plain_properties(res) if res.get("properties") else values}
+
+    async def update_page_title(self, page_id: str, title: str) -> Dict[str, Any]:
+        """Rename a page (or a database row, via its title column)."""
+        page = await self.get_page(page_id)
+        title_column = next((n for n, p in (page.get("properties") or {}).items() if p.get("type") == "title"), "title")
+        try:
+            res = await self.patch(f"/v1/pages/{page_id}",
+                                   json={"properties": {title_column: {"title": self._rich_text(title)}}},
+                                   headers=self._headers)
+        except Exception as e:
+            raise ConnectorError(f"Notion rename failed: {e}")
+        return {"id": res.get("id") or page_id, "title": title, "updated": True}
+
+    async def archive_page(self, page_id: str) -> Dict[str, Any]:
+        """Archive a page or database row (Notion's delete; restorable from Trash)."""
+        try:
+            await self.patch(f"/v1/pages/{page_id}", json={"archived": True}, headers=self._headers)
+        except Exception as e:
+            raise ConnectorError(f"Notion archive failed: {e}")
+        return {"id": page_id, "archived": True}
+
     @staticmethod
     def _extract_title(obj: Dict[str, Any]) -> str:
         """Best-effort title extraction from a page/database object."""
@@ -155,3 +233,51 @@ class NotionConnector(BaseConnector):
         if isinstance(title, list) and title:
             return "".join(p.get("plain_text", "") for p in title)
         return ""
+
+
+def _plain_properties(page: Dict[str, Any]) -> Dict[str, Any]:
+    """A page's column values as plain Python values."""
+    out: Dict[str, Any] = {}
+    for name, prop in (page.get("properties") or {}).items():
+        kind = prop.get("type")
+        value = prop.get(kind)
+        if kind in ("title", "rich_text"):
+            out[name] = "".join(p.get("plain_text") or (p.get("text") or {}).get("content", "") for p in value or [])
+        elif kind in ("select", "status"):
+            out[name] = (value or {}).get("name")
+        elif kind == "multi_select":
+            out[name] = [o.get("name") for o in value or []]
+        elif kind == "date":
+            out[name] = (value or {}).get("start")
+        elif kind in ("number", "checkbox", "email", "phone_number", "url"):
+            out[name] = value
+    return out
+
+
+def _property_value(kind: str, value: Any, name: str) -> Dict[str, Any]:
+    """A plain value in the property shape a Notion column of ``kind`` expects."""
+    text = "" if value is None else str(value)
+    if kind == "title":
+        return {"title": [{"type": "text", "text": {"content": text[:2000]}}]}
+    if kind == "rich_text":
+        return {"rich_text": [{"type": "text", "text": {"content": text[:2000]}}]}
+    if kind == "number":
+        try:
+            return {"number": None if text == "" else float(value)}
+        except (TypeError, ValueError):
+            raise ConnectorError(f"'{name}' needs a number.")
+    if kind == "select":
+        return {"select": {"name": text} if text else None}
+    if kind == "status":
+        return {"status": {"name": text}}
+    if kind == "multi_select":
+        names = value if isinstance(value, list) else [v.strip() for v in text.split(",") if v.strip()]
+        return {"multi_select": [{"name": str(n)} for n in names]}
+    if kind == "date":
+        return {"date": {"start": text} if text else None}
+    if kind == "checkbox":
+        return {"checkbox": value if isinstance(value, bool) else text.strip().lower() in ("true", "yes", "1", "done")}
+    if kind in ("email", "phone_number", "url"):
+        return {kind: text or None}
+    raise ConnectorError(f"The '{name}' column ({kind}) cannot be changed this way.")
+
