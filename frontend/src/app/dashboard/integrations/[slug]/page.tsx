@@ -281,24 +281,24 @@ const integrationData: Record<string, any> = {
   },
   // Monday.com
   monday: {
+    // Connects with the user's personal API token, not OAuth: monday only
+    // grants OAuth to an app installed in the user's account, and many
+    // accounts let only admins install apps. The backend connector row stays
+    // oauth2 and accepts the token (see personal_token in oauth_providers.py).
     slug: 'monday', name: 'Monday.com', icon: '📋',
     description: 'Update boards and items in Monday.com from call outcomes',
-    category: 'productivity', authType: 'oauth2',
+    category: 'productivity', authType: 'api_key',
     features: ['Board Updates', 'Item Creation', 'Status Tracking', 'Automations'],
     popular: false,
-    permissions: ['Read boards and items', 'Create and update items', 'Manage workspaces'],
-    scopes: ['boards:read', 'boards:write'],
-    oauthUrl: 'https://auth.monday.com/oauth2/authorize',
-    setupSteps: ['Click "Connect with Monday.com"', 'Select your workspace', 'Grant board permissions', 'Choose default boards'],
-    personalToken: {
-      label: 'monday API token',
-      url: 'https://auth.monday.com/login',
-      steps: [
-        'In monday.com, click your profile picture (top right) and choose Developers',
-        'Open "My access tokens" and click Show, then Copy',
-        'Paste the token below',
-      ],
-    },
+    permissions: ['Read boards and items', 'Create and update items'],
+    apiKeyFields: [
+      { name: 'api_token', label: 'monday API Token', type: 'password', required: true },
+    ],
+    setupSteps: [
+      'In monday.com, click your profile picture (top right) and choose Developers',
+      'Open "API token" (My access tokens), click Show, then Copy',
+      'Paste the token above and click Connect Integration',
+    ],
   },
   // Phone Providers
   telnyx: {

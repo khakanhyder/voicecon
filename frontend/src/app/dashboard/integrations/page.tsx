@@ -56,7 +56,7 @@ const integrationCatalog: Integration[] = [
   // CRM (extended)
   { id: '19', slug: 'gohighlevel', name: 'GoHighLevel', description: 'All-in-one CRM — sync contacts, pipelines, and SMS from voice calls', category: 'crm', icon: '🚀', authType: 'api_key', features: ['Contact Sync', 'Pipeline Management', 'SMS Campaigns', 'Appointment Booking'], popular: true },
   { id: '20', slug: 'notion', name: 'Notion', description: 'Create and update Notion pages and databases from voice conversations', category: 'productivity', icon: '📝', authType: 'oauth2', features: ['Page Creation', 'Database Updates', 'Notes', 'Task Tracking'], popular: false },
-  { id: '21', slug: 'monday', name: 'Monday.com', description: 'Update boards and items in Monday.com from call outcomes', category: 'productivity', icon: '📋', authType: 'oauth2', features: ['Board Updates', 'Item Creation', 'Status Tracking', 'Automations'], popular: false },
+  { id: '21', slug: 'monday', name: 'Monday.com', description: 'Update boards and items in Monday.com from call outcomes', category: 'productivity', icon: '📋', authType: 'api_key', features: ['Board Updates', 'Item Creation', 'Status Tracking', 'Automations'], popular: false },
   // Phone Providers
   { id: '22', slug: 'telnyx', name: 'Telnyx', description: 'Carrier-grade VoIP and SIP trunking for voice AI deployments', category: 'phone', icon: '📱', authType: 'api_key', features: ['SIP Trunking', 'Phone Numbers', 'SMS', 'Call Control API'], popular: true },
   { id: '23', slug: 'vonage', name: 'Vonage (Nexmo)', description: 'Global cloud communications — calls, SMS, and phone number management', category: 'phone', icon: '☎️', authType: 'api_key', features: ['Voice Calls', 'SMS', 'Phone Numbers', 'WebRTC'], popular: false },
