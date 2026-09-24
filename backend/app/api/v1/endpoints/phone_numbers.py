@@ -218,6 +218,19 @@ async def search_phone_numbers(
     The carrier is chosen explicitly with `provider`; when the user has only one
     connected it is selected automatically.
     """
+    # Carriers reject a malformed North American area code with a generic
+    # 400, which reads as a carrier outage. Say what is wrong instead.
+    area_code = (area_code or "").strip() or None
+    if (
+        area_code
+        and country_code.upper() in ("US", "CA")
+        and not (area_code.isdigit() and len(area_code) == 3)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="US and Canadian area codes are 3 digits, for example 415.",
+        )
+
     try:
         resolved = await resolve_provider(
             db, org_id, slug=provider, connection_id=connection_id

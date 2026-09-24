@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -285,6 +287,26 @@ async def voicecon_exception_handler(request: Request, exc: VoiceconException):
             "details": exc.details,
         },
     )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def upstream_failure_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Send upstream failures as 503 instead of 502/504.
+
+    The API sits behind Cloudflare, which swaps any origin 502 or 504 for its
+    own HTML error page. That page carries no CORS headers, so the browser
+    reports a bare "Network Error" and the ``detail`` written for the user —
+    "Twilio rejected the stored credentials", say — never arrives. Endpoints
+    still raise 502 where a carrier or provider failed; the status is changed
+    only on the way out.
+    """
+    if exc.status_code in (status.HTTP_502_BAD_GATEWAY, status.HTTP_504_GATEWAY_TIMEOUT):
+        exc = StarletteHTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.detail,
+            headers=exc.headers,
+        )
+    return await http_exception_handler(request, exc)
 
 
 @app.exception_handler(RequestValidationError)

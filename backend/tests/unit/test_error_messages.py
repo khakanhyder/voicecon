@@ -94,3 +94,47 @@ class TestIntegrationErrors:
 
 def test_user_facing_errors_expose_their_message():
     assert UserFacingError("That code has expired.").public_message == "That code has expired."
+
+
+class TestUpstreamFailureStatus:
+    """Cloudflare replaces an origin 502/504 with its own page, dropping CORS."""
+
+    @staticmethod
+    def _client():
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+        from app.main import upstream_failure_exception_handler
+
+        app = FastAPI()
+        app.add_exception_handler(StarletteHTTPException, upstream_failure_exception_handler)
+
+        @app.get("/fail/{code}")
+        async def fail(code: int):
+            raise HTTPException(status_code=code, detail="Twilio is having problems right now.")
+
+        return TestClient(app)
+
+    @pytest.mark.parametrize("code", [502, 504])
+    def test_gateway_errors_leave_as_503_with_their_detail(self, code):
+        res = self._client().get(f"/fail/{code}")
+        assert res.status_code == 503
+        assert res.json()["detail"] == "Twilio is having problems right now."
+
+    @pytest.mark.parametrize("code", [400, 401, 404, 500])
+    def test_other_errors_are_untouched(self, code):
+        assert self._client().get(f"/fail/{code}").status_code == code
+
+
+class TestAreaCodeValidation:
+    @pytest.mark.parametrize("area_code", ["12", "1234", "4a5"])
+    async def test_malformed_us_area_code_is_a_400(self, area_code):
+        from app.api.v1.endpoints.phone_numbers import search_phone_numbers
+
+        with pytest.raises(HTTPException) as exc:
+            await search_phone_numbers(
+                country_code="US", area_code=area_code, contains=None, limit=10,
+                provider=None, connection_id=None, current_user=None, org_id=None, db=None,
+            )
+        assert exc.value.status_code == 400
+        assert "3 digits" in exc.value.detail

@@ -11,7 +11,7 @@ import {
   Wrench, Plus, Search, Phone, PhoneForwarded, PhoneOff,
   MessageSquare, Voicemail, Hash, ArrowLeftRight, Bot,
   Database, Zap, Globe, Sheet, Calendar, Trash2,
-  X, ChevronRight, ToggleLeft, ToggleRight, FlaskConical,
+  X, ChevronRight, ToggleLeft, ToggleRight,
   Loader2, CheckCircle2, XCircle, Settings2, Pencil,
   Link2, Puzzle, Users, Workflow,
 } from 'lucide-react'
@@ -818,20 +818,9 @@ function ToolCard({ tool, onEdit, onDelete, onToggle }: {
 }) {
   const typeMeta = getTypeMeta(tool.tool_type)
   const catMeta = getCategoryMeta(tool.category)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
   const Icon = typeMeta?.icon || Wrench
   const CatIcon = catMeta?.icon || Wrench
-
-  const handleTest = async (e: React.MouseEvent) => {
-    e.stopPropagation(); setTesting(true); setTestResult(null)
-    try {
-      const res = await apiClient.post<{ success: boolean; message: string }>(API_ENDPOINTS.TOOL_TEST(tool.id), { parameters: {} })
-      setTestResult({ success: res.data.success, message: res.data.message })
-    } catch (err) { setTestResult({ success: false, message: getErrorMessage(err) }) }
-    finally { setTesting(false) }
-  }
 
   const c = tool.config as Record<string, string>
   const configPreview = c.url || c.destination || c.webhook_url || c.server_url || c.api_key?.slice(0, 8) + '…' || null
@@ -854,10 +843,6 @@ function ToolCard({ tool, onEdit, onDelete, onToggle }: {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto flex-shrink-0 sm:ml-auto">
-          <button onClick={handleTest} disabled={testing} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-slate-500 hover:text-[#106959] bg-white border border-slate-200 px-3 py-2 rounded-[8px] transition-all disabled:opacity-50 text-sm font-medium shadow-sm hover:border-[#106959]/30 hover:bg-[#106959]/5" title="Test Tool">
-            {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-            Test
-          </button>
           <button onClick={e => { e.stopPropagation(); onDelete(tool.id) }} className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-red-600 bg-white border border-red-200 hover:bg-red-50 px-3 md:px-4 py-2 rounded-[8px] text-sm font-medium transition-all shadow-sm" title="Delete Tool">
             <Trash2 className="h-4 w-4" />
             Delete
@@ -885,12 +870,8 @@ function ToolCard({ tool, onEdit, onDelete, onToggle }: {
           </span>
         </div>
 
-        {/* Row 2: Test bottom-left, Delete+Edit bottom-right */}
-        <div className="flex items-center justify-between mt-3">
-          <button onClick={handleTest} disabled={testing} className="flex items-center justify-center gap-1.5 text-slate-500 hover:text-[#106959] bg-white border border-slate-200 px-3 py-2 rounded-[8px] transition-all disabled:opacity-50 text-sm font-medium shadow-sm hover:border-[#106959]/30 hover:bg-[#106959]/5" title="Test Tool">
-            {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-            Test
-          </button>
+        {/* Row 2: Delete+Edit bottom-right */}
+        <div className="flex items-center justify-end mt-3">
           <div className="flex items-center gap-2">
             <button onClick={e => { e.stopPropagation(); onDelete(tool.id) }} className="flex items-center justify-center gap-1.5 text-red-600 bg-white border border-red-200 hover:bg-red-50 px-3 py-2 rounded-[8px] text-sm font-medium transition-all shadow-sm" title="Delete Tool">
               <Trash2 className="h-4 w-4" />
