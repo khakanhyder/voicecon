@@ -236,6 +236,13 @@ class Settings(BaseSettings):
     # Default From identity for all outbound mail.
     EMAIL_FROM: str = Field(default="noreply@voicecon.ai", description="Default From address")
     EMAIL_FROM_NAME: str = Field(default="Voicecon", description="Default From display name")
+    # Where replies go. A monitored inbox on the same domain as EMAIL_FROM: a
+    # noreply From with nowhere to reply to reads as bulk mail to filters and
+    # people alike. Empty disables the header.
+    EMAIL_REPLY_TO: Optional[str] = Field(default="support@voicecon.ai", description="Reply-To address")
+    # Name the app gives the SMTP server in EHLO. Defaults to the From domain;
+    # inside a container it would otherwise be the container's random id.
+    SMTP_HELO_NAME: Optional[str] = None
 
     # Sign-up requires confirming the email address with a one-time code. Turn
     # off only for automated tests or a closed demo — with it off, anyone can

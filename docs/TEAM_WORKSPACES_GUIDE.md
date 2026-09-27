@@ -54,9 +54,8 @@ membership that was revoked while the workspace still exists.
 | Rename the workspace | — | — | ✅ | ✅ |
 | View billing | — | — | ✅ | ✅ |
 | **Invite or promote an admin** | — | — | — | ✅ |
-| **Act on an admin or the owner** | — | — | — | ✅ |
+| **Act on an admin** | — | — | — | ✅ |
 | **Change plan / manage billing** | — | — | — | ✅ |
-| **Transfer ownership** | — | — | — | ✅ |
 | **Delete the workspace** | — | — | — | ✅ |
 
 Permissions are *not* purely hierarchical. Everything that moves power inside a
@@ -67,13 +66,18 @@ over. Concretely, an admin cannot:
 - remove or demote a fellow admin,
 - promote anyone — including themselves — to admin or owner,
 - invite someone as an admin,
-- transfer ownership or delete the workspace,
+- delete the workspace,
 - change their own role.
 
-Ownership moves only through `POST /workspaces/current/transfer-ownership`,
-which is owner-only. It promotes the target and demotes the outgoing owner to
-admin in one transaction, so the workspace always has exactly one owner and
-`organizations.owner_id` can never disagree with the membership rows.
+**Ownership never moves.** The user who creates a workspace is its only owner
+for the life of the workspace; there is no transfer endpoint (it was removed on
+2026-09-27). Invites and role changes accept only `admin`, `member` or
+`viewer`. Nobody can change the owner's role or remove the owner — not an
+admin, and not the owner through the team API (`can_act_on` refuses any
+action whose target is the owner, and `team.py` also treats the user in
+`organizations.owner_id` as the owner). The owner can re-role or remove every
+other member, admins included. The owner cannot leave; deleting the workspace
+is their way out.
 
 ## Enforcement
 
@@ -104,7 +108,6 @@ strings. That is presentation only — the API refuses the request either way.
 | `POST` | `/api/v1/workspaces` | any user — creates and switches into a new workspace |
 | `POST` | `/api/v1/workspaces/{id}/switch` | any member of `{id}` |
 | `PATCH` | `/api/v1/workspaces/current` | admin+ (rename) |
-| `POST` | `/api/v1/workspaces/current/transfer-ownership` | owner |
 | `POST` | `/api/v1/workspaces/current/leave` | any member except the owner |
 | `DELETE` | `/api/v1/workspaces/current` | owner, and never their last workspace |
 | `GET` | `/api/v1/team/members` | any member |

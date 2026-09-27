@@ -1,10 +1,12 @@
 """
-Invitation lifecycle: create → (accept | reject | cancel | expire).
+Invitation lifecycle: create → (resend)* → (accept | reject | cancel | expire).
 
 Keeps the create/accept/reject logic in one place so the team endpoints, the
 public token endpoints, and the notification-bell actions all behave
 identically. On create we also fan out an in-app notification (if the invitee
-already has an account) and an email (via the pluggable email service).
+already has an account) and an email (via the pluggable email service). When
+an invitation is accepted, the workspace owner (and the inviter, if that was
+someone else) is told by email and in-app.
 """
 import logging
 import secrets
@@ -18,7 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import UserFacingError
 from app.models.invitation import Invitation
-from app.models.notification import Notification, NOTIFY_TEAM_INVITATION
+from app.models.notification import (
+    NOTIFY_TEAM_INVITATION,
+    NOTIFY_TEAM_MEMBER_JOINED,
+    Notification,
+)
 from app.models.user import User, Organization, OrganizationMember
 from app.services.email import email_service
 
@@ -27,6 +33,10 @@ logger = logging.getLogger(__name__)
 from app.core.permissions import ASSIGNABLE_ROLES
 
 INVITE_TTL_DAYS = 7
+#: Minimum gap between two emails for the same invitation, so a double click
+#: (or an impatient owner) can't flood someone's inbox — which is also exactly
+#: the pattern that gets a sender marked as spam.
+RESEND_COOLDOWN_SECONDS = 60
 
 
 def _accept_url(token: str) -> str:
@@ -35,6 +45,34 @@ def _accept_url(token: str) -> str:
 
 def _reject_url(token: str) -> str:
     return f"{_accept_url(token)}?action=reject"
+
+
+def _team_url() -> str:
+    return f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/settings/team"
+
+
+def _display_name(user: Optional[User]) -> Optional[str]:
+    if user is None:
+        return None
+    return user.full_name or user.email
+
+
+async def _send_invitation_email(
+    invitation: Invitation,
+    organization: Organization,
+    inviter_name: Optional[str],
+    expires_at: Optional[datetime] = None,
+) -> bool:
+    """Email the invitee their Accept/Decline links. Returns whether it was sent."""
+    return await email_service.send_invitation(
+        to_email=invitation.email,
+        organization_name=organization.name,
+        inviter_name=inviter_name,
+        role=invitation.role,
+        accept_url=_accept_url(invitation.token),
+        reject_url=_reject_url(invitation.token),
+        expires_at=expires_at or invitation.expires_at,
+    )
 
 
 async def _user_by_email(db: AsyncSession, email: str) -> Optional[User]:
@@ -131,17 +169,65 @@ async def create_invitation(
     await db.commit()
     await db.refresh(invitation)
 
-    # Send the email (best-effort; failures are logged, not raised).
-    await email_service.send_invitation(
-        to_email=email,
-        organization_name=organization.name,
-        inviter_name=inviter.full_name or inviter.email,
-        role=role,
-        accept_url=_accept_url(invitation.token),
-        reject_url=_reject_url(invitation.token),
-        expires_at=expires_at,
+    # Send the email. A failure doesn't undo the invitation (it can be resent),
+    # but the caller is told, so the UI can say so instead of a false "sent".
+    invitation.email_sent = await _send_invitation_email(
+        invitation, organization, _display_name(inviter)
     )
+    return invitation
 
+
+async def resend_invitation(
+    db: AsyncSession, *, invitation: Invitation, organization: Organization
+) -> Invitation:
+    """Email the same pending invitation again.
+
+    The invitation row and its token stay the same — no duplicate is created,
+    and a link from an earlier email keeps working. The expiry is pushed out a
+    full ``INVITE_TTL_DAYS`` so a lapsed invite can be revived by resending it.
+    The new expiry is only saved once the email has actually gone out.
+
+    Raises ``InvitationError`` with code 'not_pending', 'too_soon' or
+    'email_failed'.
+    """
+    if invitation.status != "pending":
+        raise _err("not_pending", "Only pending invitations can be resent.")
+
+    now = datetime.utcnow()
+    last_sent = invitation.updated_at or invitation.created_at
+    if last_sent is not None:
+        wait = RESEND_COOLDOWN_SECONDS - int((now - last_sent).total_seconds())
+        if wait > 0:
+            raise _err(
+                "too_soon",
+                f"This invitation was just sent. Please wait {wait} seconds before resending it.",
+            )
+
+    inviter = await db.get(User, invitation.invited_by) if invitation.invited_by else None
+    new_expiry = now + timedelta(days=INVITE_TTL_DAYS)
+
+    # Nothing is written until the email has gone out, so a failed send leaves
+    # the invitation exactly as it was (and the cooldown untouched).
+    sent = await _send_invitation_email(
+        invitation, organization, _display_name(inviter), expires_at=new_expiry
+    )
+    if not sent:
+        raise _err(
+            "email_failed",
+            "We couldn't send the invitation email. Please try again in a moment.",
+        )
+
+    invitation.expires_at = new_expiry
+    invitation.updated_at = now
+    # They may have signed up since the first email; link the account so the
+    # accept page and notifications recognise them.
+    if invitation.invited_user_id is None:
+        existing_user = await _user_by_email(db, invitation.email)
+        if existing_user is not None:
+            invitation.invited_user_id = existing_user.id
+    await db.commit()
+    await db.refresh(invitation)
+    invitation.email_sent = True
     return invitation
 
 
@@ -172,7 +258,8 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
         raise _err("org_inactive", "That workspace is no longer available")
 
     # Create membership if not already present.
-    if not await _is_member(db, invitation.organization_id, user.id):
+    joined = not await _is_member(db, invitation.organization_id, user.id)
+    if joined:
         db.add(
             OrganizationMember(
                 organization_id=invitation.organization_id,
@@ -199,7 +286,66 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
             OrganizationMember.user_id == user.id,
         )
     )
-    return result.scalar_one()
+    membership = result.scalar_one()
+
+    # Only after the membership is committed, and only when this acceptance is
+    # what added them — never for someone who was already a member.
+    if joined:
+        await _notify_member_joined(db, organization, invitation, user)
+    return membership
+
+
+async def _notify_member_joined(
+    db: AsyncSession, organization: Organization, invitation: Invitation, member: User
+) -> None:
+    """Tell the owner (and the inviter, if different) that someone joined.
+
+    Best-effort: the member has already joined, so a notification failure is
+    logged and never turns a successful acceptance into an error.
+    """
+    try:
+        recipient_ids = [organization.owner_id]
+        if invitation.invited_by and invitation.invited_by != organization.owner_id:
+            recipient_ids.append(invitation.invited_by)
+
+        member_name = _display_name(member) or invitation.email
+        recipients = []
+        for user_id in recipient_ids:
+            if user_id is None or user_id == member.id:
+                continue
+            recipient = await db.get(User, user_id)
+            if recipient is None or not recipient.is_active:
+                continue
+            recipients.append(recipient)
+            db.add(
+                Notification(
+                    user_id=recipient.id,
+                    type=NOTIFY_TEAM_MEMBER_JOINED,
+                    title=f"{member_name} joined {organization.name}",
+                    body=f"{member_name} has accepted your invitation and joined "
+                    f"{organization.name} as a {invitation.role}.",
+                    data={
+                        "organization_id": str(organization.id),
+                        "organization_name": organization.name,
+                        "member_email": member.email,
+                        "role": invitation.role,
+                    },
+                )
+            )
+        await db.commit()
+
+        for recipient in recipients:
+            await email_service.send_member_joined(
+                to_email=recipient.email,
+                recipient_name=recipient.full_name,
+                member_name=member_name,
+                member_email=member.email,
+                organization_name=organization.name,
+                role=invitation.role,
+                team_url=_team_url(),
+            )
+    except Exception:  # noqa: BLE001 — the join itself already succeeded
+        logger.exception("Could not notify the owner that %s joined %s", member.email, organization.id)
 
 
 async def reject_invitation(db: AsyncSession, invitation: Invitation) -> None:

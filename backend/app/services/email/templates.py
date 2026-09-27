@@ -5,7 +5,8 @@ A single branded base layout wraps each email's body. Templates are kept inline
 (DictLoader) so the service has no filesystem dependency; add new emails by
 adding a template string and a render helper.
 """
-from jinja2 import Environment, DictLoader, select_autoescape
+from jinja2 import Environment, DictLoader
+from markupsafe import Markup
 
 BASE_LAYOUT = """
 <!DOCTYPE html>
@@ -107,6 +108,24 @@ BILLING_NOTICE_BODY = """
 </p>
 """
 
+MEMBER_JOINED_BODY = """
+<h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ member_name }} joined {{ organization_name }}</h1>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 20px;">
+  {{ greeting }}<strong>{{ member_name }}</strong>{% if member_email != member_name %} ({{ member_email }}){% endif %}
+  has accepted your invitation and joined <strong>{{ organization_name }}</strong> as a <strong>{{ role }}</strong>.
+</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+  <tr><td>
+    <a href="{{ team_url }}" style="display:inline-block;background:#0F6A59;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 26px;border-radius:9px;">
+      View your team
+    </a>
+  </td></tr>
+</table>
+<p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">
+  You can change their role or remove them from the workspace at any time on the Team page.
+</p>
+"""
+
 _env = Environment(
     loader=DictLoader(
         {
@@ -114,14 +133,20 @@ _env = Environment(
             "invitation": INVITATION_BODY,
             "verification_code": VERIFICATION_CODE_BODY,
             "billing_notice": BILLING_NOTICE_BODY,
+            "member_joined": MEMBER_JOINED_BODY,
         }
     ),
-    autoescape=select_autoescape(["html", "xml"]),
+    # Always escape. select_autoescape(["html", "xml"]) decides by file
+    # extension, and these inline templates have none, so it escaped nothing:
+    # a workspace or user name containing HTML (a link, say) was sent verbatim
+    # from our domain — a phishing vector and a spam-filter red flag.
+    autoescape=True,
 )
 
 
 def _wrap(body_html: str, footer: str, brand: str) -> str:
-    return _env.get_template("base").render(body=body_html, footer=footer, brand=brand)
+    # body_html was rendered (and escaped) by one of the body templates above.
+    return _env.get_template("base").render(body=Markup(body_html), footer=footer, brand=brand)
 
 
 def render_verification_code_email(
@@ -265,3 +290,38 @@ def render_invitation_email(
         f"This invitation expires on {expires_human}."
     )
     return html, text
+
+
+def render_member_joined_email(
+    *,
+    brand: str,
+    member_name: str,
+    member_email: str,
+    organization_name: str,
+    role: str,
+    team_url: str,
+    recipient_name: str | None = None,
+) -> tuple[str, str, str]:
+    """Return (html, text, subject) telling the owner an invitee has joined."""
+    greeting = f"Hi {recipient_name}, " if recipient_name else ""
+    subject = f"{member_name} joined {organization_name} on {brand}"
+    body = _env.get_template("member_joined").render(
+        greeting=greeting,
+        member_name=member_name,
+        member_email=member_email,
+        organization_name=organization_name,
+        role=role,
+        team_url=team_url,
+    )
+    html = _wrap(
+        body,
+        footer=f"You received this because you manage the {organization_name} workspace on {brand}.",
+        brand=brand,
+    )
+    who = member_name if member_email == member_name else f"{member_name} ({member_email})"
+    text = (
+        f"{greeting}{who} has accepted your invitation and joined {organization_name} as a {role}.\n\n"
+        f"View your team: {team_url}\n\n"
+        f"You received this because you manage the {organization_name} workspace on {brand}."
+    )
+    return html, text, subject

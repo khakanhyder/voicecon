@@ -39,6 +39,8 @@ from app.schemas.agent import (
 from app.services.agent_service import get_agent_service
 from app.services.voice.llm_service import get_llm_service, ChatMessage
 from app.services.voice.tts_service import get_tts_service
+from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
+from app.services.knowledge_base.agent_context import get_agent_kb_context
 
 logger = logging.getLogger(__name__)
 
@@ -647,6 +649,15 @@ async def agent_respond(
                 "Never use lists, bullet points, or markdown. "
                 "Speak naturally and conversationally."
             )
+            system_text += VOICE_RULES
+            # The agent's attached knowledge bases, searched with this turn's
+            # words. This endpoint used to skip them entirely, so a test call
+            # could only answer from the prompt: a fee that lived only in the
+            # KB came back as "I can't see that in our notes". Uses the
+            # stream's own session (`db` here), never the request's.
+            kb_context = await get_agent_kb_context(db, agent, request.message)
+            if kb_context:
+                system_text += KB_CONTEXT_INTRO + kb_context
             if end_call_phrases:
                 phrases_str = ", ".join(f'"{p}"' for p in end_call_phrases)
                 system_text += (
@@ -694,7 +705,7 @@ async def agent_respond(
 
             def _start_tts(text: str) -> "asyncio.Task | None":
                 """Fire-and-forget TTS task — never blocks the LLM loop."""
-                text = text.strip()
+                text = strip_for_speech(text.strip())
                 if len(text) < 2:
                     return None
 
@@ -885,6 +896,8 @@ async def agent_respond(
                         end_call_triggered = True
                         break
 
+            # The transcript shows what was spoken, so it drops emoji too.
+            full_response = strip_for_speech(full_response)
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_response, 'end_call': end_call_triggered})}\n\n"
 
         except Exception as e:

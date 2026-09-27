@@ -437,41 +437,63 @@ class TestOwnerProtections:
         )
         assert res.status_code == 403
 
-    async def test_admin_cannot_transfer_ownership(self, client, team):
-        res = await as_user(client, team["admin"]).post(
+    async def test_ownership_transfer_endpoint_is_gone(self, client, team):
+        res = await as_user(client, team["owner"]).post(
             "/api/v1/workspaces/current/transfer-ownership",
             json={"user_id": str(team["admin"].id)},
         )
-        assert res.status_code == 403
+        assert res.status_code in (404, 405)
 
     async def test_admin_cannot_delete_the_workspace(self, client, team):
         res = await as_user(client, team["admin"]).delete("/api/v1/workspaces/current")
         assert res.status_code == 403
 
-    async def test_owner_transfers_ownership_and_becomes_admin(self, client, db_session, team):
-        res = await as_user(client, team["owner"]).post(
-            "/api/v1/workspaces/current/transfer-ownership",
-            json={"user_id": str(team["admin"].id)},
-        )
-        assert res.status_code == 200, res.text
-        assert res.json()["role"] == "admin"
-        assert res.json()["is_owner"] is False
-
-        # Exactly one owner, and organizations.owner_id agrees with it.
-        org = await db_session.get(Organization, team["acme"].id)
-        await db_session.refresh(org)
-        assert org.owner_id == team["admin"].id
-        owners = (
+    async def test_owner_can_change_and_remove_an_admin(self, client, team, db_session):
+        admin_membership = (
             await db_session.execute(
                 select(OrganizationMember).where(
+                    OrganizationMember.user_id == team["admin"].id,
                     OrganizationMember.organization_id == team["acme"].id,
-                    OrganizationMember.role == "owner",
                 )
             )
-        ).scalars().all()
-        assert [m.user_id for m in owners] == [team["admin"].id]
+        ).scalar_one()
+        res = await as_user(client, team["owner"]).patch(
+            f"/api/v1/team/members/{admin_membership.id}", json={"role": "viewer"}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["role"] == "viewer"
 
-    async def test_owner_cannot_leave_without_transferring(self, client, team):
+        res = await as_user(client, team["owner"]).delete(
+            f"/api/v1/team/members/{admin_membership.id}"
+        )
+        assert res.status_code == 204, res.text
+
+    async def test_nobody_can_make_the_owner_anything_else(self, client, team, db_session):
+        owner_membership = (
+            await db_session.execute(
+                select(OrganizationMember).where(
+                    OrganizationMember.user_id == team["owner"].id,
+                    OrganizationMember.organization_id == team["acme"].id,
+                )
+            )
+        ).scalar_one()
+        for role in ("admin", "member", "viewer"):
+            res = await as_user(client, team[role], team["acme"]).patch(
+                f"/api/v1/team/members/{owner_membership.id}", json={"role": "viewer"}
+            )
+            assert res.status_code == 403, (role, res.text)
+            res = await as_user(client, team[role], team["acme"]).delete(
+                f"/api/v1/team/members/{owner_membership.id}"
+            )
+            assert res.status_code in (400, 403), (role, res.text)
+
+        org = await db_session.get(Organization, team["acme"].id)
+        await db_session.refresh(org)
+        await db_session.refresh(owner_membership)
+        assert org.owner_id == team["owner"].id
+        assert owner_membership.role == "owner"
+
+    async def test_owner_cannot_leave_their_workspace(self, client, team):
         res = await as_user(client, team["owner"]).post("/api/v1/workspaces/current/leave")
         assert res.status_code == 400
 

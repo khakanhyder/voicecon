@@ -75,7 +75,7 @@ export const ALL_PERMISSIONS = [
   'team:read', 'team:manage', 'team:manage_admins',
   'billing:read', 'billing:manage',
   'api_keys:read', 'api_keys:manage',
-  'workspace:manage', 'workspace:delete', 'workspace:transfer_ownership',
+  'workspace:manage', 'workspace:delete',
 ]
 
 /** A read-only member: may look at agents, may not change them. */

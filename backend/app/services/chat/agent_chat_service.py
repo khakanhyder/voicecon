@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
 from app.services.function_executor import get_function_executor, sanitize_function_name
+from app.services.knowledge_base.agent_context import get_agent_kb_context
+from app.services.voice.guardrails import CONDUCT_RULES
 from app.services.voice.llm_service import get_llm_service
 from app.services.voice.providers.base import ChatMessage
 
@@ -128,7 +130,7 @@ class AgentChatService:
     ) -> List[ChatMessage]:
         """Assemble system prompt (+ KB context) + history + the new message."""
         system_text = agent.system_prompt or "You are a helpful assistant."
-        system_text += TEXT_CHANNEL_GUIDANCE
+        system_text += TEXT_CHANNEL_GUIDANCE + CONDUCT_RULES
 
         kb_context = await self._knowledge_context(agent, user_message)
         if kb_context:
@@ -151,68 +153,8 @@ class AgentChatService:
         return messages
 
     async def _knowledge_context(self, agent: Agent, query: str) -> Optional[str]:
-        """
-        Retrieve relevant knowledge base chunks, best-effort.
-
-        The same knowledge base the voice agent uses. Any failure (no KB, no
-        embeddings, provider down) degrades to no context rather than breaking
-        the reply.
-        """
-        try:
-            from sqlalchemy import select
-            from app.core.config import settings
-            from app.models.knowledge_base import AgentKnowledgeBase
-            from app.services.knowledge_base.rag_service import search_knowledge_base_db
-
-            # Primary source: knowledge bases attached via the agent's Knowledge
-            # tab (the AgentKnowledgeBase table). This is the same set the voice
-            # agent uses, so chat and calls stay in sync.
-            links = (
-                await self.db.execute(
-                    select(AgentKnowledgeBase)
-                    .where(
-                        AgentKnowledgeBase.agent_id == agent.id,
-                        AgentKnowledgeBase.is_active == True,  # noqa: E712
-                        AgentKnowledgeBase.auto_inject == True,  # noqa: E712
-                    )
-                    .order_by(AgentKnowledgeBase.priority.desc())
-                )
-            ).scalars().all()
-
-            kb_targets = [
-                (str(l.knowledge_base_id), l.max_results or 4, l.min_similarity or 0.2)
-                for l in links
-            ]
-
-            # Fall back to the legacy single-KB config field if nothing is
-            # attached the new way, so older agents keep working.
-            if not kb_targets:
-                config = agent.knowledge_base_config or {}
-                legacy_id = config.get("knowledge_base_id") or config.get("id")
-                if legacy_id:
-                    kb_targets = [(str(legacy_id), 4, 0.2)]
-
-            if not kb_targets:
-                return None
-
-            passages = []
-            for kb_id, top_k, min_sim in kb_targets:
-                chunks = await search_knowledge_base_db(
-                    db=self.db,
-                    knowledge_base_id=kb_id,
-                    query=query,
-                    api_key=settings.OPENAI_API_KEY,
-                    top_k=top_k,
-                    min_similarity=min_sim,
-                )
-                passages.extend(c.get("content", "") for c in chunks if c.get("content"))
-
-            if not passages:
-                return None
-            return "\n\n".join(passages[:5])
-        except Exception as e:
-            logger.debug(f"Knowledge base lookup skipped: {e}")
-            return None
+        """Relevant knowledge base passages for this turn (see get_agent_kb_context)."""
+        return await get_agent_kb_context(self.db, agent, query)
 
     async def _run_tool(
         self,

@@ -3,7 +3,7 @@ Unit tests for the workspace permission matrix.
 
 These pin the *shape* of the role model, independent of any endpoint: which
 capabilities each role has, and — more importantly — which ones an admin must
-never have. If someone widens `_ADMIN` to include ownership transfer or
+never have. If someone widens `_ADMIN` to include workspace deletion or
 `team:manage_admins`, these fail immediately, before any integration test gets
 the chance to.
 """
@@ -58,7 +58,6 @@ class TestPermissionSets:
             perms.TEAM_MANAGE_ADMINS,
             perms.BILLING_MANAGE,
             perms.WORKSPACE_DELETE,
-            perms.WORKSPACE_TRANSFER_OWNERSHIP,
         ):
             assert not perms.has_permission(perms.ROLE_ADMIN, withheld), withheld
 
@@ -66,7 +65,7 @@ class TestPermissionSets:
         assert perms.permissions_for(perms.ROLE_OWNER) == perms.ALL_PERMISSIONS
 
     def test_owner_is_never_assignable(self):
-        """Ownership moves only through an explicit transfer."""
+        """The creator is the only owner; the role can't be handed out."""
         assert perms.ROLE_OWNER not in perms.ASSIGNABLE_ROLES
         assert perms.ASSIGNABLE_ROLES < perms.ALL_ROLES
 
@@ -99,6 +98,14 @@ class TestCanActOn:
     def test_an_unknown_role_can_neither_act_nor_be_shielded_by_rank(self):
         assert perms.can_act_on("wizard", perms.ROLE_VIEWER) is False
         assert perms.can_act_on(perms.ROLE_ADMIN, "wizard") is True
+
+    @pytest.mark.parametrize("actor", sorted(perms.ALL_ROLES))
+    def test_nobody_may_act_on_the_owner(self, actor):
+        """Not even the owner: the owner's membership is fixed."""
+        assert perms.can_act_on(actor, perms.ROLE_OWNER) is False
+
+    def test_ownership_cannot_be_transferred(self):
+        assert not any("transfer" in p for p in perms.ALL_PERMISSIONS)
 
     def test_outranks_is_strict(self):
         assert perms.outranks(perms.ROLE_OWNER, perms.ROLE_ADMIN)

@@ -6,6 +6,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy import select, func, and_, or_, desc, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics import (
@@ -15,6 +16,18 @@ from app.models.analytics import (
 from app.models.call import Call, CallLog
 from app.models.agent import Agent
 from app.models.integration import Workflow, WorkflowExecution
+
+
+# The trend columns are Numeric(5, 2). Going from 1 call to 11 is +1000%,
+# which Postgres rejects ("numeric field overflow") and fails the whole
+# summary, so the change is clamped to what the column can hold.
+_MAX_PERCENT_CHANGE = Decimal("999.99")
+
+
+def _percent_change(current, previous) -> Decimal:
+    change = (Decimal(str(current)) - Decimal(str(previous))) / Decimal(str(previous)) * 100
+    change = max(-_MAX_PERCENT_CHANGE, min(_MAX_PERCENT_CHANGE, change))
+    return change.quantize(Decimal("0.01"))
 
 
 class AnalyticsService:
@@ -509,6 +522,20 @@ class AnalyticsService:
         Generate comprehensive daily summary.
         Aggregates all metrics into a single summary record.
         """
+        try:
+            return await self._generate_daily_summary(organization_id, summary_date)
+        except IntegrityError:
+            # Another request (a second tab, the nightly job) inserted this
+            # organization's row for the day between our lookup and commit.
+            # The retry finds that row and updates it instead.
+            await self.db.rollback()
+            return await self._generate_daily_summary(organization_id, summary_date)
+
+    async def _generate_daily_summary(
+        self,
+        organization_id: uuid.UUID,
+        summary_date: date
+    ) -> DailySummary:
 
         # Get or create summary
         existing = await self.db.execute(
@@ -620,17 +647,11 @@ class AnalyticsService:
 
         if prev_summary and call_row:
             if prev_summary.total_calls and call_row.total_calls:
-                call_volume_change = Decimal(
-                    ((call_row.total_calls - prev_summary.total_calls) / prev_summary.total_calls) * 100
-                )
+                call_volume_change = _percent_change(call_row.total_calls, prev_summary.total_calls)
             if prev_summary.total_call_cost and call_row.total_cost:
-                cost_change = Decimal(
-                    ((call_row.total_cost - prev_summary.total_call_cost) / prev_summary.total_call_cost) * 100
-                )
+                cost_change = _percent_change(call_row.total_cost, prev_summary.total_call_cost)
             if prev_summary.avg_sentiment_score and call_row.avg_sentiment:
-                sentiment_change = Decimal(
-                    ((call_row.avg_sentiment - prev_summary.avg_sentiment_score) / prev_summary.avg_sentiment_score) * 100
-                )
+                sentiment_change = _percent_change(call_row.avg_sentiment, prev_summary.avg_sentiment_score)
 
         # Update summary
         summary.total_calls = call_row.total_calls or 0 if call_row else 0
@@ -680,7 +701,10 @@ class AnalyticsService:
                 RealTimeMetrics.organization_id == organization_id
             )
         )
-        metrics = existing.scalar_one_or_none()
+        # Nothing stops two first-time requests (the dashboard and realtime
+        # endpoints load together, plus the minute job) from each inserting a
+        # row; scalar_one_or_none() would then 500 on every later call.
+        metrics = existing.scalars().first()
 
         if not metrics:
             metrics = RealTimeMetrics(organization_id=organization_id)

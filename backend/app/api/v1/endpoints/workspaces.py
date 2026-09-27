@@ -5,9 +5,9 @@ A user belongs to their own workspace plus any they were invited to. These
 endpoints back the workspace switcher and expose the caller's role and
 permission set so the UI can hide what the API would refuse anyway.
 
-Ownership is deliberately narrow here: only the owner may rename or delete the
-workspace, and only the owner may hand ownership to someone else. An admin can
-run the team but cannot seize or destroy the workspace.
+Ownership is deliberately narrow here: only the owner may delete the workspace,
+and ownership never moves — the user who created a workspace owns it for its
+whole life. An admin can run the team but cannot seize or destroy it.
 """
 import re
 import uuid
@@ -18,7 +18,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core import permissions as perms
 from app.core.dependencies import get_current_user, get_workspace, require_permission
@@ -68,13 +67,6 @@ class WorkspaceUpdate(BaseModel):
     # page header blank. NonBlankName trims first, so the check sees what will
     # actually be saved.
     name: NonBlankName
-
-
-class TransferOwnershipRequest(BaseModel):
-    """Who to hand the workspace to — by membership id or by user id."""
-
-    member_id: Optional[uuid.UUID] = None
-    user_id: Optional[uuid.UUID] = None
 
 
 class SwitchResponse(BaseModel):
@@ -263,58 +255,6 @@ async def create_workspace(
     return await _detail(db, organization, membership)
 
 
-@router.post("/current/transfer-ownership", response_model=WorkspaceDetail)
-async def transfer_ownership(
-    payload: TransferOwnershipRequest,
-    workspace: WorkspaceContext = Depends(
-        require_permission(perms.WORKSPACE_TRANSFER_OWNERSHIP)
-    ),
-    db: AsyncSession = Depends(get_db),
-):
-    """Hand the workspace to another member. Owner only.
-
-    The outgoing owner is demoted to admin rather than removed, so the
-    workspace always has exactly one owner and the former owner doesn't lose
-    access by accident. ``Organization.owner_id`` is updated in the same
-    transaction as the two membership rows so the two can never disagree.
-    """
-    if payload.member_id is None and payload.user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Specify the member to transfer ownership to",
-        )
-
-    query = select(OrganizationMember).options(
-        selectinload(OrganizationMember.user)
-    ).where(OrganizationMember.organization_id == workspace.organization_id)
-    if payload.member_id is not None:
-        query = query.where(OrganizationMember.id == payload.member_id)
-    else:
-        query = query.where(OrganizationMember.user_id == payload.user_id)
-
-    target = (await db.execute(query)).scalar_one_or_none()
-    if target is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Member not found"
-        )
-    if target.user_id == workspace.user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You already own this workspace",
-        )
-
-    target.role = perms.ROLE_OWNER
-    workspace.membership.role = perms.ROLE_ADMIN
-    workspace.organization.owner_id = target.user_id
-    await db.commit()
-    await db.refresh(workspace.organization)
-    await db.refresh(workspace.membership)
-
-    return await _detail(
-        db, workspace.organization, workspace.membership, workspace.permissions
-    )
-
-
 @router.post("/current/leave", status_code=status.HTTP_204_NO_CONTENT)
 async def leave_workspace(
     workspace: WorkspaceContext = Depends(get_workspace),
@@ -323,13 +263,13 @@ async def leave_workspace(
     """Leave the current workspace.
 
     The owner cannot walk away — that would strand the workspace with no one
-    able to manage billing or members. They must transfer ownership (or delete
-    the workspace) first.
+    able to manage billing or members, and ownership can't be handed on. The
+    owner's only way out is deleting the workspace.
     """
     if workspace.is_owner:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Transfer ownership before leaving this workspace",
+            detail="The owner can't leave their own workspace. Delete the workspace instead.",
         )
 
     await db.delete(workspace.membership)

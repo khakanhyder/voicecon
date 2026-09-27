@@ -53,6 +53,10 @@ class Invitation(Base):
     )
 
     # Relationships
+    #: Not stored. Set by the invitation service after sending, so the API can
+    #: tell the inviter whether the email actually went out.
+    email_sent = None
+
     organization: Mapped["Organization"] = relationship("Organization", foreign_keys=[organization_id])
     inviter: Mapped[Optional["User"]] = relationship("User", foreign_keys=[invited_by])
 

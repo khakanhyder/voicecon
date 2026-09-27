@@ -41,9 +41,9 @@ from app.services.team.invitation_service import InvitationError
 router = APIRouter()
 
 ROLE_HIERARCHY = perms.ROLE_HIERARCHY
-#: "owner" is never assignable through an invite or a role change — ownership
-#: moves only via POST /workspaces/current/transfer-ownership, which is
-#: owner-only. This is what stops an admin from promoting themselves.
+#: "owner" is never assignable through an invite or a role change: the user who
+#: created the workspace is its only owner, for good. This is also what stops
+#: an admin from promoting themselves.
 ASSIGNABLE_ROLES = perms.ASSIGNABLE_ROLES
 
 
@@ -86,6 +86,15 @@ def _require_min_role(membership: OrganizationMember, minimum: str) -> None:
         )
 
 
+def _is_workspace_owner(workspace: WorkspaceContext, member: OrganizationMember) -> bool:
+    """The owner, by role or by ``organizations.owner_id`` — either one protects.
+
+    Checking both means a membership row whose role drifted out of step with
+    the organization record still can't be demoted or removed.
+    """
+    return member.role == perms.ROLE_OWNER or member.user_id == workspace.organization.owner_id
+
+
 def _require_can_act_on(actor: OrganizationMember, target: OrganizationMember) -> None:
     """Guard every action that changes another member's standing.
 
@@ -98,7 +107,7 @@ def _require_can_act_on(actor: OrganizationMember, target: OrganizationMember) -
         return
 
     if target.role == perms.ROLE_OWNER:
-        detail = "Only the workspace owner can change the owner's membership."
+        detail = "The workspace owner's role can't be changed."
     elif target.role == actor.role:
         detail = f"You cannot manage another {target.role}."
     else:
@@ -153,6 +162,8 @@ def _invitation_response(inv: Invitation, inviter: Optional[User]) -> Invitation
         invited_by_name=(inviter.full_name or inviter.email) if inviter else None,
         expires_at=inv.expires_at,
         created_at=inv.created_at,
+        last_sent_at=inv.updated_at or inv.created_at,
+        email_sent=inv.email_sent,
     )
 
 
@@ -248,6 +259,54 @@ async def cancel_invitation(
     await invitation_service.cancel_invitation(db, invitation)
 
 
+@router.post("/invitations/{invitation_id}/resend", response_model=InvitationResponse)
+async def resend_invitation(
+    invitation_id: uuid.UUID,
+    workspace: WorkspaceContext = Depends(require_permission(perms.TEAM_MANAGE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email a pending invitation again (owner/admin only).
+
+    Re-sends the *same* invitation — same row, same link — and extends its
+    expiry, so nothing is duplicated and an older email's link keeps working.
+    Resending an admin invitation is owner-only, like sending one.
+    """
+    result = await db.execute(
+        select(Invitation)
+        .options(selectinload(Invitation.inviter))
+        .where(
+            Invitation.id == invitation_id,
+            Invitation.organization_id == workspace.organization_id,
+        )
+    )
+    invitation = result.scalar_one_or_none()
+    if invitation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+
+    if perms.role_rank(invitation.role) >= perms.role_rank(perms.ROLE_ADMIN) and not workspace.has(
+        perms.TEAM_MANAGE_ADMINS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the workspace owner can resend an admin invitation.",
+        )
+
+    try:
+        invitation = await invitation_service.resend_invitation(
+            db, invitation=invitation, organization=workspace.organization
+        )
+    except InvitationError as exc:
+        http_status = {
+            "not_pending": status.HTTP_409_CONFLICT,
+            "too_soon": status.HTTP_429_TOO_MANY_REQUESTS,
+            "email_failed": status.HTTP_502_BAD_GATEWAY,
+        }.get(exc.code, status.HTTP_400_BAD_REQUEST)
+        raise HTTPException(status_code=http_status, detail=exc.public_message)
+
+    inviter = await db.get(User, invitation.invited_by) if invitation.invited_by else None
+    return _invitation_response(invitation, inviter)
+
+
 @router.patch("/members/{member_id}", response_model=TeamMemberResponse)
 async def update_member_role(
     member_id: uuid.UUID,
@@ -258,7 +317,7 @@ async def update_member_role(
     """Change a member's role (owner/admin only).
 
     Three separate guards, each closing a different escalation:
-      * "owner" is not an assignable role — ownership moves only by transfer;
+      * "owner" is not an assignable role — the creator is the only owner;
       * you cannot act on a peer or a superior, so an admin cannot demote the
         owner or another admin;
       * promoting someone *to* admin needs owner rank, so an admin cannot
@@ -270,7 +329,7 @@ async def update_member_role(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Ownership can only be moved with a workspace ownership transfer."
+                "The owner role can't be assigned. Invited users can be admin, member or viewer."
                 if role == perms.ROLE_OWNER
                 else "Invalid role"
             ),
@@ -291,6 +350,12 @@ async def update_member_role(
     if target.id == workspace.membership.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot change your own role"
+        )
+
+    if _is_workspace_owner(workspace, target):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The workspace owner's role can't be changed.",
         )
 
     _require_can_act_on(workspace.membership, target)
@@ -333,10 +398,10 @@ async def remove_member(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    if target.role == perms.ROLE_OWNER:
+    if _is_workspace_owner(workspace, target):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The workspace owner cannot be removed. Transfer ownership first.",
+            detail="The workspace owner cannot be removed.",
         )
 
     if target.id == workspace.membership.id:

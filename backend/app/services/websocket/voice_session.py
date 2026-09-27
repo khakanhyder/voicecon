@@ -17,6 +17,7 @@ import aiohttp
 from app.core.config import settings
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
+from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
 from app.services.voice.llm_service import get_llm_service, ConversationContext
 from app.services.voice.providers.base import ChatMessage
 from app.services.workflows.channels import VoiceChannel
@@ -168,7 +169,7 @@ class VoiceSession:
             )
 
             # Create conversation context
-            system_prompt = self.agent.system_prompt or "You are a helpful AI assistant."
+            system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
             self.conversation = self.llm_service.create_conversation(
                 conversation_id=f"call-{self.call_id}",
                 system_prompt=system_prompt,
@@ -987,6 +988,7 @@ class VoiceSession:
             text: Text to speak
         """
         self.state = SessionState.SPEAKING
+        text = strip_for_speech(text)
 
         try:
             provider = self.agent.tts_provider or "elevenlabs"

@@ -18,6 +18,7 @@ from app.database import Base
 
 # Notification type constants
 NOTIFY_TEAM_INVITATION = "team_invitation"
+NOTIFY_TEAM_MEMBER_JOINED = "team_member_joined"
 
 
 class Notification(Base):

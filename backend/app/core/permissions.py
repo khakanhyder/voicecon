@@ -6,9 +6,13 @@ frontend (via ``GET /workspaces/current``) can never drift apart.
 
 Roles are a strict hierarchy — ``owner > admin > member > viewer`` — but
 permissions are *not* purely hierarchical: a few owner-only capabilities
-(deleting the workspace, transferring ownership, touching another owner or
-admin) are deliberately withheld from admins. Anything that mutates who holds
-power in the workspace belongs to the owner alone.
+(deleting the workspace, managing billing, touching an admin) are deliberately
+withheld from admins. Anything that mutates who holds power in the workspace
+belongs to the owner alone.
+
+Ownership is fixed: the owner is the user who created the workspace, there is
+exactly one, and it can never be transferred, assigned, changed or removed —
+not by an admin, and not through the team API by the owner either.
 """
 from __future__ import annotations
 
@@ -30,7 +34,7 @@ ROLE_HIERARCHY: Dict[str, int] = {
 ALL_ROLES = frozenset(ROLE_HIERARCHY)
 
 #: Roles that may be handed out via invite or a role change. "owner" is never
-#: assignable — it moves only through an explicit ownership transfer.
+#: assignable: the creator of a workspace is its owner for good.
 ASSIGNABLE_ROLES = frozenset({ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER})
 
 
@@ -76,7 +80,6 @@ API_KEYS_MANAGE = "api_keys:manage"
 WORKSPACE_READ = "workspace:read"
 WORKSPACE_MANAGE = "workspace:manage"  # rename, settings
 WORKSPACE_DELETE = "workspace:delete"
-WORKSPACE_TRANSFER_OWNERSHIP = "workspace:transfer_ownership"
 
 
 _READ_ONLY: FrozenSet[str] = frozenset(
@@ -114,14 +117,13 @@ _ADMIN: FrozenSet[str] = _CONTRIBUTOR | {
     WORKSPACE_MANAGE,
 }
 
-#: Owner-only. Admins are intentionally excluded: these either transfer power
-#: or destroy the workspace.
+#: Owner-only. Admins are intentionally excluded: these either shift power
+#: (acting on admins, billing) or destroy the workspace.
 _OWNER_ONLY: FrozenSet[str] = frozenset(
     {
         TEAM_MANAGE_ADMINS,
         BILLING_MANAGE,
         WORKSPACE_DELETE,
-        WORKSPACE_TRANSFER_OWNERSHIP,
     }
 )
 
@@ -148,7 +150,6 @@ API_KEY_FORBIDDEN: FrozenSet[str] = frozenset(
         TEAM_MANAGE_ADMINS,
         BILLING_MANAGE,
         WORKSPACE_DELETE,
-        WORKSPACE_TRANSFER_OWNERSHIP,
     }
 )
 
@@ -183,7 +184,12 @@ def can_act_on(actor_role: str, target_role: str) -> bool:
     Managing a peer or a superior is forbidden — that is what stops an admin
     from demoting or removing the owner, or from turning on a fellow admin.
     The owner is above everyone, so only the owner may act on an admin.
+
+    Nobody may act on the owner — the owner's membership is fixed for the life
+    of the workspace.
     """
+    if (target_role or "").lower() == ROLE_OWNER:
+        return False
     if not has_permission(actor_role, TEAM_MANAGE):
         return False
     if role_rank(target_role) >= role_rank(ROLE_ADMIN):

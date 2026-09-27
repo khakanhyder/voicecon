@@ -22,6 +22,10 @@ class InvitationResponse(BaseModel):
     invited_by_name: Optional[str] = None
     expires_at: datetime
     created_at: datetime
+    #: When the invitation email was last sent. Resending is rate-limited from it.
+    last_sent_at: Optional[datetime] = None
+    #: Set on create/resend only: whether the email actually went out.
+    email_sent: Optional[bool] = None
 
 
 class PublicInvitationResponse(BaseModel):

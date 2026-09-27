@@ -17,6 +17,7 @@ from app.services.email.providers import ConsoleProvider, SMTPProvider, SendGrid
 from app.services.email.templates import (
     render_billing_notice_email,
     render_invitation_email,
+    render_member_joined_email,
     render_verification_code_email,
 )
 
@@ -124,6 +125,32 @@ class EmailService:
             text=text,
         )
         return await self.send(message, raise_on_error=raise_on_error)
+
+    async def send_member_joined(
+        self,
+        *,
+        to_email: str,
+        recipient_name: Optional[str],
+        member_name: str,
+        member_email: str,
+        organization_name: str,
+        role: str,
+        team_url: str,
+    ) -> bool:
+        """Tell a workspace owner that an invitee accepted and joined."""
+        html, text, subject = render_member_joined_email(
+            brand=settings.APP_NAME,
+            member_name=member_name,
+            member_email=member_email,
+            organization_name=organization_name,
+            role=role,
+            team_url=team_url,
+            recipient_name=recipient_name,
+        )
+        message = EmailMessage(
+            to=to_email, to_name=recipient_name, subject=subject, html=html, text=text
+        )
+        return await self.send(message)
 
     async def send_billing_notice(
         self,

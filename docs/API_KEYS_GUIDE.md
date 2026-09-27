@@ -82,7 +82,7 @@ These require an interactive login regardless of role or scopes
 | `api_keys:manage` | A leaked key must not be able to mint replacements for itself |
 | `team:manage`, `team:manage_admins` | A leaked key must not be able to rewrite who has access |
 | `billing:manage` | Moving money is a human decision |
-| `workspace:delete`, `workspace:transfer_ownership` | A leaked key must not be able to destroy or seize the workspace |
+| `workspace:delete` | A leaked key must not be able to destroy the workspace |
 
 The property being protected: **recovering from a compromised key must never
 require that key's cooperation.** An attacker holding a key can misuse the

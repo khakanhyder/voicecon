@@ -7,7 +7,7 @@ from typing import Optional
 from decimal import Decimal
 from sqlalchemy import (
     Boolean, Column, DateTime, String, Text, ForeignKey, Integer,
-    JSON, Numeric, Date, Index, func, Uuid
+    JSON, Numeric, Date, Index, UniqueConstraint, func, Uuid
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
@@ -226,8 +226,10 @@ class DailySummary(Base):
         Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
 
-    # Date
-    summary_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    # Date — one summary per organization per day (see __table_args__). It
+    # used to be unique on its own, so only the first organization to open
+    # the dashboard each day got a summary and every other one got a 500.
+    summary_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Overall call metrics
     total_calls: Mapped[int] = mapped_column(Integer, default=0)
@@ -271,6 +273,7 @@ class DailySummary(Base):
 
     # Indexes
     __table_args__ = (
+        UniqueConstraint('organization_id', 'summary_date', name='uq_daily_summary_org_date'),
         Index('idx_daily_summary_org_date', 'organization_id', 'summary_date'),
     )
 

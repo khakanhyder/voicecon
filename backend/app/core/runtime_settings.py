@@ -141,6 +141,7 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("EMAIL_PROVIDER", "Provider", "email", "choice", "auto picks SMTP, then SendGrid, then logs to console.", choices=("auto", "smtp", "sendgrid", "console")),
     _S("EMAIL_FROM", "From address", "email", placeholder="noreply@voicecon.ai"),
     _S("EMAIL_FROM_NAME", "From name", "email", placeholder="Voicecon"),
+    _S("EMAIL_REPLY_TO", "Reply-To address", "email", description="A monitored inbox on the same domain as the From address.", placeholder="support@voicecon.ai"),
     _S("SMTP_HOST", "SMTP host", "email"),
     _S("SMTP_PORT", "SMTP port", "email", "int"),
     _S("SMTP_USERNAME", "SMTP username", "email"),

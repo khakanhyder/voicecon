@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
+from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
 from app.services.voice.llm_service import get_llm_service
 from app.services.voice.providers.base import ChatMessage, AudioChunk, TranscriptionResult
 from app.services.voice.audio_utils import AudioBuffer, AudioStream
@@ -266,7 +267,7 @@ class CallSession:
 
             if not context:
                 # Create new conversation with agent's system prompt
-                system_prompt = self.agent.system_prompt or "You are a helpful AI assistant."
+                system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
                 context = llm.create_conversation(
                     conversation_id=conversation_id,
                     system_prompt=system_prompt,
@@ -342,6 +343,7 @@ class CallSession:
         Args:
             text: Text to convert to speech
         """
+        text = strip_for_speech(text)
         try:
             tts = get_tts_service()
 
