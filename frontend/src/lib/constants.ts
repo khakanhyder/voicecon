@@ -104,7 +104,6 @@ export const API_ENDPOINTS = {
   WORKSPACES: `${API_BASE}/api/v1/workspaces`,
   WORKSPACE_CURRENT: `${API_BASE}/api/v1/workspaces/current`,
   WORKSPACE_SWITCH: (id: string) => `${API_BASE}/api/v1/workspaces/${id}/switch`,
-  WORKSPACE_TRANSFER_OWNERSHIP: `${API_BASE}/api/v1/workspaces/current/transfer-ownership`,
   WORKSPACE_LEAVE: `${API_BASE}/api/v1/workspaces/current/leave`,
   WORKSPACE_DELETE: `${API_BASE}/api/v1/workspaces/current`,
 
@@ -114,6 +113,7 @@ export const API_ENDPOINTS = {
   TEAM_MEMBER: (id: string) => `${API_BASE}/api/v1/team/members/${id}`,
   TEAM_INVITATIONS: `${API_BASE}/api/v1/team/invitations`,
   TEAM_INVITATION: (id: string) => `${API_BASE}/api/v1/team/invitations/${id}`,
+  TEAM_INVITATION_RESEND: (id: string) => `${API_BASE}/api/v1/team/invitations/${id}/resend`,
 
   // Invitations (public token-addressed)
   INVITATION: (token: string) => `${API_BASE}/api/v1/invitations/${token}`,

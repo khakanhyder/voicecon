@@ -114,6 +114,9 @@ export function CallTestPanel({
   const streamRespRef     = useRef<(t: string) => Promise<void>>(async () => {})
   const resetIdleRef      = useRef<() => void>(() => {})
   const endCallRef        = useRef<() => void>(() => {})
+  // No microphone (denied, absent, or blocked by the browser): the call runs
+  // on typed messages only and never tries to start speech recognition.
+  const textOnlyRef       = useRef(false)
 
   useEffect(() => { callStateRef.current = callState }, [callState])
 
@@ -417,6 +420,7 @@ export function CallTestPanel({
 
   const startListening = useCallback(() => {
     if (!isActiveRef.current) return
+    if (textOnlyRef.current) { setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current(); return }
     if (dgWsRef.current?.readyState === WebSocket.OPEN) { setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current() }
     else if (dgAvailRef.current) startDgRef.current()
     else startWebSpeechRef.current()
@@ -441,7 +445,7 @@ export function CallTestPanel({
       await audio.play()
       await new Promise<void>(r2 => { audio.onended = () => r2() })
     } catch {}
-    if (isActiveRef.current) startDeepgramSession()
+    if (isActiveRef.current) startListening()
   }
 
   const startCall = async () => {
@@ -451,11 +455,18 @@ export function CallTestPanel({
     finalBufRef.current = ''
     isActiveRef.current = true
     dgAvailRef.current  = true
+    textOnlyRef.current = false
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
       startVolumeMonitor(stream)
-    } catch { toast.error('Microphone access denied.'); setCallState('idle'); return }
+    } catch {
+      // The panel promises "real voice or text input": without a microphone,
+      // keep the call going on typed messages instead of refusing to start.
+      textOnlyRef.current = true
+      dgAvailRef.current  = false
+      toast.info('Microphone unavailable — continuing in text-only mode. Type your messages below.')
+    }
     timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
     if (maxDurRef.current > 0) {
       maxTimerRef.current = setTimeout(() => {
@@ -467,7 +478,7 @@ export function CallTestPanel({
       addMessage('agent', agent.first_message)
       await streamGreeting(agent.first_message)
     } else {
-      startDeepgramSession()
+      startListening()
     }
   }
 

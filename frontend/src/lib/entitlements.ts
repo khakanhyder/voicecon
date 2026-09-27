@@ -77,6 +77,20 @@ export const FEATURE_LABELS: Record<string, string> = {
   [FEATURES.PHONE_NUMBER_PURCHASE]: 'Buying phone numbers',
 }
 
+/**
+ * Plan flags with no feature behind them yet. They can be toggled in the admin
+ * console but nothing in the product uses them, so no pricing card or plan
+ * comparison may mention them — not even greyed out as "not included", which
+ * reads as "available on a higher plan".
+ */
+export const UNSHIPPED_FEATURES: ReadonlySet<string> = new Set([
+  FEATURES.OUTBOUND_CAMPAIGNS,
+  FEATURES.VIRTUAL_MEETINGS,
+  FEATURES.LEAD_SCORING,
+  FEATURES.CUSTOM_VOICE,
+  FEATURES.WHITE_LABEL,
+])
+
 export const LIMIT_LABELS: Record<string, string> = {
   [LIMITS.AGENTS]: 'AI agents',
   [LIMITS.PHONE_NUMBERS]: 'phone numbers',

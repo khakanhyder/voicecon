@@ -22,6 +22,9 @@ export function getStripe(key?: string | null): Promise<Stripe | null> {
   let loader = loaders.get(resolved)
   if (!loader) {
     loader = loadStripe(resolved)
+    // A failed load (blocked script, network blip) must not be cached, or
+    // every later checkout on this page would fail without trying again.
+    loader.catch(() => loaders.delete(resolved))
     loaders.set(resolved, loader)
   }
   return loader

@@ -55,7 +55,6 @@ export const PERMISSIONS = {
   apiKeysManage: 'api_keys:manage',
   workspaceManage: 'workspace:manage',
   workspaceDelete: 'workspace:delete',
-  workspaceTransferOwnership: 'workspace:transfer_ownership',
 } as const
 
 export function getActiveWorkspaceId(): string | null {
@@ -105,14 +104,6 @@ export const workspaceService = {
     const { data } = await apiClient.patch<WorkspaceDetail>(API_ENDPOINTS.WORKSPACE_CURRENT, {
       name,
     })
-    return data
-  },
-
-  async transferOwnership(userId: string): Promise<WorkspaceDetail> {
-    const { data } = await apiClient.post<WorkspaceDetail>(
-      API_ENDPOINTS.WORKSPACE_TRANSFER_OWNERSHIP,
-      { user_id: userId }
-    )
     return data
   },
 

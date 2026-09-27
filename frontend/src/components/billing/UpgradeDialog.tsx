@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation'
 import { Lock, X, ArrowRight } from 'lucide-react'
 
 import { EntitlementErrorBody, PLAN_LABELS } from '@/lib/entitlements'
+import { useEntitlementStore } from '@/store/entitlementStore'
 
 function planLabel(slug: string): string {
   return PLAN_LABELS[slug] ?? slug
@@ -47,6 +48,7 @@ function copyFor(body: EntitlementErrorBody): { title: string; message: string }
 export function UpgradeDialog() {
   const router = useRouter()
   const [blocked, setBlocked] = useState<EntitlementErrorBody | null>(null)
+  const entitlements = useEntitlementStore((s) => s.entitlements)
 
   useEffect(() => {
     const onBlocked = (event: Event) => {
@@ -64,6 +66,11 @@ export function UpgradeDialog() {
 
   const { title, message } = copyFor(blocked)
   const suggested = blocked.required_plans?.[0]
+  // A trial of the suggested plan doesn't include every feature of the paid
+  // plan (API access, buying numbers). "Available on Voice AI" to someone
+  // trialling Voice AI reads as a contradiction; say what actually unlocks it.
+  const trialOfSuggested =
+    !!suggested && !!entitlements?.is_trial && entitlements.plan_slug === suggested
 
   const goToBilling = () => {
     setBlocked(null)
@@ -114,7 +121,16 @@ export function UpgradeDialog() {
 
         {suggested && (
           <p className="mt-3 text-sm text-slate-600">
-            Available on <strong>{planLabel(suggested)}</strong>.
+            {trialOfSuggested ? (
+              <>
+                Not included in the free trial. It unlocks when you subscribe to{' '}
+                <strong>{planLabel(suggested)}</strong>.
+              </>
+            ) : (
+              <>
+                Available on <strong>{planLabel(suggested)}</strong>.
+              </>
+            )}
           </p>
         )}
 
@@ -123,7 +139,9 @@ export function UpgradeDialog() {
             onClick={goToBilling}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
           >
-            {suggested ? `Upgrade to ${planLabel(suggested)}` : 'View plans'}
+            {suggested
+              ? `${trialOfSuggested ? 'Subscribe to' : 'Upgrade to'} ${planLabel(suggested)}`
+              : 'View plans'}
             <ArrowRight className="h-4 w-4" />
           </button>
           <button

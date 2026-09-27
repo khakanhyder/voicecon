@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
@@ -10,7 +10,7 @@ import {
   ChevronDown, X, Plug, ChevronUp
 } from 'lucide-react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { FEATURES } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { PhoneNumberPaywall } from '@/components/billing/PhoneNumberPaywall'
@@ -79,11 +79,34 @@ function CapBadge({ label, active }: { label: string; active: boolean }) {
   )
 }
 
+/**
+ * Opens the purchase modal for `?tab=search` — the target of the layout
+ * header's "Purchase Number" button and of any deep link — then drops the
+ * param so closing the modal doesn't leave a URL that reopens it on refresh.
+ * A separate component so useSearchParams can sit in its own Suspense boundary.
+ */
+function OpenPurchaseFromUrl({ onOpen }: { onOpen: () => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const wantsSearch = searchParams.get('tab') === 'search'
+
+  useEffect(() => {
+    if (!wantsSearch) return
+    onOpen()
+    router.replace(pathname, { scroll: false })
+  }, [wantsSearch, onOpen, router, pathname])
+
+  return null
+}
+
 export default function PhoneNumbersPage() {
   const { confirm, ConfirmDialog } = useConfirm()
   const [numbers, setNumbers] = useState<PhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  // Stable identity: OpenPurchaseFromUrl lists it as an effect dependency.
+  const [openPurchaseModal] = useState(() => () => setIsCreateModalOpen(true))
 
   // Search state
   const [countryCode, setCountryCode] = useState('US')
@@ -235,13 +258,16 @@ export default function PhoneNumbersPage() {
 
   return (
     <div className="space-y-6 relative">
+      <Suspense fallback={null}>
+        <OpenPurchaseFromUrl onOpen={openPurchaseModal} />
+      </Suspense>
       {/* Search & Purchase Phone Number Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-4xl flex flex-col rounded-[16px] bg-[#ECF3F2] border border-[#2E2E2E] shadow-xl overflow-hidden relative max-h-[90vh]">
+          <div role="dialog" aria-modal="true" aria-label="Purchase Phone Number" className="w-full max-w-4xl flex flex-col rounded-[16px] bg-[#ECF3F2] border border-[#2E2E2E] shadow-xl overflow-hidden relative max-h-[90vh]">
             <div className="flex items-center justify-between p-5 pb-3">
               <h2 className="text-[18px] font-bold text-[#000000] tracking-tight">Purchase Phone Number</h2>
-              <button onClick={() => setIsCreateModalOpen(false)} className="text-[#3c7849] hover:bg-[#106959]/10 p-1 rounded-sm transition-colors mt-[-5px]">
+              <button onClick={() => setIsCreateModalOpen(false)} aria-label="Close" className="text-[#3c7849] hover:bg-[#106959]/10 p-1 rounded-sm transition-colors mt-[-5px]">
                 <X className="h-6 w-6" strokeWidth={2} />
               </button>
             </div>
@@ -512,11 +538,13 @@ export default function PhoneNumbersPage() {
         </div>
       )}
 
-      {/* Header operations */}
+      {/* Header operations. "Purchase Number" lives in the layout header
+          (Header.tsx → ?tab=search); on small screens, where that button is
+          hidden, this one stands in for it. */}
       <div className="flex items-center justify-end -mb-2 gap-3">
         <button
           onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-1.5 rounded-[8px] bg-[#106959] hover:bg-[#0c5044] px-4 py-2 text-sm font-semibold text-white transition-all shadow-sm"
+          className="flex sm:hidden items-center gap-1.5 rounded-[8px] bg-[#106959] hover:bg-[#0c5044] px-4 py-2 text-sm font-semibold text-white transition-all shadow-sm"
         >
           <Plus className="h-4 w-4" />
           Purchase Number

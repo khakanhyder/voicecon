@@ -1,4 +1,13 @@
 User-agent: *
 Allow: /
+# The dashboard, sign-in and invite pages are private or per-user.
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /billing
+Disallow: /invite
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
 
-Sitemap: https://voicecon.com/sitemap.xml
+Sitemap: https://voicecon.ai/sitemap.xml

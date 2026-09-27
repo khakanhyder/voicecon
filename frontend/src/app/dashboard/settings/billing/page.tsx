@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { apiClient, getErrorMessage } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutModal';
-import { entitlementService, FEATURE_LABELS } from '@/lib/entitlements';
+import { entitlementService, FEATURE_LABELS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
 import { planCardBullets, yearlySavingPercent } from '@/lib/pricing';
@@ -634,7 +634,7 @@ export default function BillingPage() {
                           feature nobody upgrades for. */}
                       {Object.entries(plan.entitlements?.features ?? {})
                         .filter(([, enabled]) => !enabled)
-                        .filter(([key]) => FEATURE_LABELS[key])
+                        .filter(([key]) => FEATURE_LABELS[key] && !UNSHIPPED_FEATURES.has(key))
                         .map(([key]) => (
                           <div
                             key={key}

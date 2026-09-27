@@ -39,6 +39,10 @@ const nextConfig = {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000',
   },
   transpilePackages: ['react-flow-renderer'],
+  // Browsers ask for /favicon.ico on their own; the icon is app/icon.svg.
+  async rewrites() {
+    return [{ source: '/favicon.ico', destination: '/icon.svg' }]
+  },
   // M-05: Security headers for the frontend origin
   async headers() {
     return [
@@ -50,14 +54,23 @@ const nextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          // The browser test call needs the microphone on this origin, and
+          // Stripe's card field may use the Payment Request API; nothing else.
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(self), geolocation=(), payment=(self "https://js.stripe.com"), usb=()',
+          },
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
               // Social sign-in SDKs: Sign in with Apple JS and Google Identity Services.
               // Cloudflare Web Analytics is injected by the proxy in front of voicecon.ai.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com",
-              "frame-src https://appleid.apple.com https://accounts.google.com",
+              // Stripe.js must load from js.stripe.com and mounts its card field and
+              // 3-D Secure challenge in iframes; without these checkout never opens
+              // (its API calls to api.stripe.com are covered by connect-src https:).
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com",
+              "frame-src https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data: https:",

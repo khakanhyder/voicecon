@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/store/authStore'
 import { authService } from '@/lib/auth'
 import { getErrorMessage } from '@/lib/api'
+import { useConfirm } from '@/hooks/use-confirm'
 
 export default function ProfileSettingsPage() {
   const router = useRouter()
@@ -34,7 +35,7 @@ export default function ProfileSettingsPage() {
   const [changingPw, setChangingPw] = useState(false)
 
   // Delete account
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { confirm, ConfirmDialog } = useConfirm()
   const [deleting, setDeleting] = useState(false)
 
   const hydrate = (u: NonNullable<typeof user>) =>
@@ -135,7 +136,19 @@ export default function ProfileSettingsPage() {
     }
   }
 
+  // A modal like every other destructive action in the app. The old inline
+  // "Are you sure?" row swapped in silently and read as a dead button.
   const handleDelete = async () => {
+    const ok = await confirm({
+      title: 'Delete your account?',
+      description:
+        'You will be signed out everywhere and can no longer log in. Workspaces you own are ' +
+        'deactivated and their subscriptions cancelled. Contact support if you need the account restored.',
+      confirmText: 'Delete my account',
+      cancelText: 'Keep my account',
+      isDestructive: true,
+    })
+    if (!ok) return
     setDeleting(true)
     try {
       await authService.deleteAccount()
@@ -307,26 +320,11 @@ export default function ProfileSettingsPage() {
             it.
           </p>
         </div>
-        {confirmDelete ? (
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">Are you sure?</span>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Deactivating…' : 'Yes, deactivate my account'}
-            </Button>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => setConfirmDelete(true)}
-          >
-            Delete Account
-          </Button>
-        )}
+        <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
+          {deleting ? 'Deleting…' : 'Delete Account'}
+        </Button>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { appDisplayName } from '@/lib/appNames'
 
 interface WorkflowTemplate {
   slug: string
@@ -184,7 +185,7 @@ export default function NewWorkflowPage() {
                       {needs.length ? (
                         <>
                           <Plug className="h-3 w-3" />
-                          Needs {needs.join(', ')}
+                          Needs {needs.map(appDisplayName).join(', ')}
                         </>
                       ) : (
                         'No setup needed'

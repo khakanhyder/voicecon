@@ -622,9 +622,19 @@ export default function TestAgentPage() {
     try { recognition.start() } catch {}
   }, [stopAudioNow])
 
+  // No microphone (denied, absent, or blocked): the call runs on typed
+  // messages only and never tries to start speech recognition.
+  const textOnlyRef = useRef(false)
+
   // ── UNIFIED START LISTENING ────────────────────────────────────────────────
   const startListening = useCallback(() => {
     if (!isActiveRef.current) return
+    if (textOnlyRef.current) {
+      setCallState('listening')
+      callStateRef.current = 'listening'
+      resetIdleTimerRef.current()
+      return
+    }
     if (deepgramWsRef.current?.readyState === WebSocket.OPEN) {
       setCallState('listening')
       callStateRef.current = 'listening'
@@ -653,6 +663,7 @@ export default function TestAgentPage() {
     historyRef.current = []
     isActiveRef.current = true
     deepgramAvailableRef.current = true
+    textOnlyRef.current = false
     callStartedAtRef.current = new Date()
     elapsedSecondsRef.current = 0
 
@@ -661,9 +672,11 @@ export default function TestAgentPage() {
       streamRef.current = stream
       startVolumeMonitor(stream)
     } catch {
-      toast.error('Microphone access denied.')
-      setCallState('idle')
-      return
+      // Without a microphone the test still works by typing: the call starts
+      // in text-only mode rather than refusing to start at all.
+      textOnlyRef.current = true
+      deepgramAvailableRef.current = false
+      toast.info('Microphone unavailable — continuing in text-only mode. Type your messages below.')
     }
 
     timerRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000)
@@ -684,7 +697,7 @@ export default function TestAgentPage() {
       addMessage('agent', agent.first_message)
       await streamGreeting(agent.first_message)
     } else {
-      startDeepgramSession()
+      startListening()
     }
   }
 
@@ -711,7 +724,7 @@ export default function TestAgentPage() {
       await audio.play()
       await new Promise<void>(r => { audio.onended = () => r() })
     } catch {}
-    if (isActiveRef.current) startDeepgramSession()
+    if (isActiveRef.current) startListening()
   }
 
   // ── TEXT SEND ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { toast } from 'sonner'
@@ -152,6 +152,21 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
     [config?.checkout_mode, config?.publishable_key]
   )
 
+  // <Elements> never surfaces a failed Stripe.js load; without this the modal
+  // shows an empty card box and "Pay" does nothing useful.
+  const [stripeFailed, setStripeFailed] = useState(false)
+  useEffect(() => {
+    if (!stripePromise) return
+    let active = true
+    setStripeFailed(false)
+    stripePromise
+      .then((stripe) => active && !stripe && setStripeFailed(true))
+      .catch(() => active && setStripeFailed(true))
+    return () => {
+      active = false
+    }
+  }, [stripePromise])
+
   const price = priceFor(billingPeriod, plan.price_monthly, plan.price_yearly)
   const trialDays = plan.trial_days ?? FREE_TRIAL_DAYS
   const busy = submitting || startingTrial
@@ -188,10 +203,15 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="checkout-modal-title"
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+      >
         <div className="space-y-4">
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Subscribe to {plan.name}</h3>
+            <h3 id="checkout-modal-title" className="text-lg font-bold text-gray-900">Subscribe to {plan.name}</h3>
             <p className="text-sm text-gray-600">
               ${price}/{billingPeriod === 'yearly' ? 'year' : 'month'}, billed {billingPeriod}.
             </p>
@@ -208,6 +228,11 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
             </p>
           ) : hosted ? (
             <HostedPayment {...payProps} />
+          ) : stripeFailed ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              The secure payment form couldn&apos;t load. Check your connection or disable any
+              content blocker for this site, then close this window and try again.
+            </p>
           ) : (
             <Elements key={config?.publishable_key ?? ''} stripe={stripePromise}>
               <CardPayment {...payProps} />

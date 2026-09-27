@@ -69,8 +69,8 @@ export default function WorkspaceSettingsPage() {
 
   const canRename = can(PERMISSIONS.workspaceManage)
   const canDelete = can(PERMISSIONS.workspaceDelete)
-  // Leaving is for everyone *except* the owner — an owner would strand the
-  // workspace, so the server makes them transfer ownership first.
+  // Leaving is for everyone *except* the owner — ownership can't be handed on,
+  // so the owner's only way out is deleting the workspace.
   const canLeave = Boolean(current) && !current?.is_owner
   // The server refuses to delete or leave your last workspace; say so up front
   // rather than letting the user find out from an error.
@@ -256,7 +256,7 @@ export default function WorkspaceSettingsPage() {
                 Members &amp; Roles
               </span>
               <span className="block text-[14px] text-black/60 font-poppins">
-                Invite people, change roles, and transfer ownership.
+                Invite people, change roles, and remove members.
               </span>
             </span>
           </Link>

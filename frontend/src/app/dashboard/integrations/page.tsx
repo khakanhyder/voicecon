@@ -161,9 +161,13 @@ export default function IntegrationsPage() {
           Category sidebar & Search
         */}
         <div className="w-full lg:w-[200px] flex-shrink-0 lg:sticky lg:top-0 self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto pt-2 pb-2 lg:pb-4">
-          <button className="w-full rounded bg-[#106959] text-white py-2 mb-4 lg:mb-6 text-[14px] font-medium font-poppins text-center">
+          {/* There is no in-app request queue; requests go to the support inbox. */}
+          <a
+            href={`mailto:support@voicecon.ai?subject=${encodeURIComponent('Integration request')}&body=${encodeURIComponent('Which app would you like Voicecon to connect to, and what should it do?\n\n')}`}
+            className="block w-full rounded bg-[#106959] text-white py-2 mb-4 lg:mb-6 text-[14px] font-medium font-poppins text-center hover:bg-[#0c5044] transition-colors"
+          >
             Request Integration
-          </button>
+          </a>
           {/* Filters the category list below */}
           <div className="relative mb-4 lg:mb-6">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />

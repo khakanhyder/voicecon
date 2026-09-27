@@ -34,6 +34,7 @@ import type { TriggerState } from './TriggerConfig'
 import {
   autoLayout,
   flowNodeComponent,
+  flowToApi,
   validateFlow,
   type FlowNode,
   type Issue,
@@ -154,15 +155,26 @@ function CanvasInner({
   // run-status overlay), so a test run does not trigger an autosave.
   const suppressDirty = useRef(false)
 
+  // What would be saved. React Flow also replaces `nodes` for node size
+  // measurements and selection — on open, before anyone touches anything —
+  // and those used to mark the graph dirty and trigger an autosave PATCH.
+  // Only a change to the saved form of the graph counts as an edit.
+  const savedSignature = useRef<string | null>(null)
+
   useEffect(() => {
+    const signature = JSON.stringify(flowToApi(nodes, edges))
     if (firstRender.current) {
       firstRender.current = false
+      savedSignature.current = signature
       return
     }
     if (suppressDirty.current) {
       suppressDirty.current = false
+      savedSignature.current = signature
       return
     }
+    if (signature === savedSignature.current) return
+    savedSignature.current = signature
     onDirtyChange?.(true)
     onGraphChange?.(nodes, edges)
   }, [nodes, edges, onDirtyChange, onGraphChange])

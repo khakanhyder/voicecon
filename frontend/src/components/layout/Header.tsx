@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -71,6 +72,13 @@ export function Header({ onMenuClick }: HeaderProps) {
   }
 
   const pageInfo = getPageInfo(pathname)
+
+  // Every dashboard page otherwise shares the root layout's <title>, so tabs,
+  // history and bookmarks all read the same. The dashboard layout is a client
+  // component and can't export per-page metadata, so set it here.
+  useEffect(() => {
+    document.title = pageInfo.title && pageInfo.title !== 'Voicecon' ? `${pageInfo.title} · Voicecon` : 'Voicecon'
+  }, [pageInfo.title])
 
   return (
     // The header floats as its own rounded panel, matching the sidebar and the

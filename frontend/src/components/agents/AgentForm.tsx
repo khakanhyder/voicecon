@@ -966,10 +966,19 @@ export function AgentTabContent({ tab, form, set }: {
  * Step row from the design — the active step is a solid green pill, the rest
  * are plain text.
  */
-export function AgentTabBar({ activeTab, onChange }: { activeTab: AgentTabId; onChange: (tab: AgentTabId) => void }) {
+export function AgentTabBar({
+  activeTab,
+  onChange,
+  hidden = [],
+}: {
+  activeTab: AgentTabId
+  onChange: (tab: AgentTabId) => void
+  /** Tabs that can't apply here (e.g. Call History before the agent exists). */
+  hidden?: AgentTabId[]
+}) {
   return (
     <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {AGENT_TABS.map(({ id, label }) => {
+      {AGENT_TABS.filter(({ id }) => !hidden.includes(id)).map(({ id, label }) => {
         const active = activeTab === id
         return (
           <button

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { apiClient } from '@/lib/api'
+import { apiClient, getErrorMessage } from '@/lib/api'
 import {
   Phone, Clock, DollarSign, TrendingUp, TrendingDown,
   Users, Zap, RefreshCw, Download, Activity,
@@ -116,7 +116,8 @@ function HealthBadge({ health }: { health: string }) {
     degraded: { label: 'Degraded', color: 'text-amber-700 bg-amber-50 border-amber-200', icon: AlertCircle },
     down: { label: 'Down', color: 'text-red-700 bg-red-50 border-red-200', icon: XCircle },
   }
-  const cfg = map[health] || map.healthy
+  const unknown = { label: 'Unknown', color: 'text-slate-600 bg-slate-50 border-slate-200', icon: AlertCircle }
+  const cfg = map[health] || unknown
   const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${cfg.color}`}>
@@ -139,6 +140,10 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  // Sections whose request failed on the last load. Without this a server
+  // error rendered as a page of zeros and "Healthy", indistinguishable from
+  // a workspace with no calls.
+  const [loadErrors, setLoadErrors] = useState<{ section: string; message: string }[]>([])
   const [dateRange, setDateRange] = useState({
     start: new Date(Date.now() - 30 * 86_400_000).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0],
@@ -156,7 +161,13 @@ export default function AnalyticsPage() {
       if (dashRes.status === 'fulfilled') setDashboard(dashRes.value.data)
       if (metricsRes.status === 'fulfilled') setCallMetrics(metricsRes.value.data)
       if (rtRes.status === 'fulfilled') setRealtime(rtRes.value.data)
-      setLastUpdated(new Date())
+
+      const errors: { section: string; message: string }[] = []
+      if (dashRes.status === 'rejected') errors.push({ section: "Today's summary", message: getErrorMessage(dashRes.reason) })
+      if (metricsRes.status === 'rejected') errors.push({ section: 'Call metrics', message: getErrorMessage(metricsRes.reason) })
+      if (rtRes.status === 'rejected') errors.push({ section: 'Live metrics', message: getErrorMessage(rtRes.reason) })
+      setLoadErrors(errors)
+      if (errors.length < 3) setLastUpdated(new Date())
     } catch (e) {
       console.error('Analytics fetch error:', e)
     } finally {
@@ -216,6 +227,31 @@ export default function AnalyticsPage() {
         </button>
       </div>
 
+      {!loading && loadErrors.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+          <div className="flex items-start gap-3">
+            <XCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+            <div>
+              <p className="font-semibold text-red-800">
+                {loadErrors.length === 3 ? "Analytics couldn't be loaded" : 'Some analytics couldn\'t be loaded'}
+              </p>
+              <p className="mt-0.5 text-sm text-red-700">
+                {loadErrors.map((e) => e.section).join(', ')} failed ({loadErrors[0].message}). Figures
+                from these sections below are placeholders, not your data.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => fetchAll(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* System health banner */}
       {loading ? (
         <Skeleton className="h-16 w-full" />
@@ -231,7 +267,7 @@ export default function AnalyticsPage() {
               dashboard?.realtime.system_health === 'degraded' ? 'bg-amber-500' : 'bg-red-500'
             }`} />
             <span className="font-semibold text-slate-800">System Status</span>
-            <HealthBadge health={dashboard?.realtime.system_health ?? 'healthy'} />
+            <HealthBadge health={dashboard?.realtime.system_health ?? 'unknown'} />
           </div>
           <div className="flex flex-wrap items-center gap-6 text-sm text-slate-600">
             <span>Active calls: <strong className="text-slate-900">{dashboard?.realtime.active_calls ?? 0}</strong></span>

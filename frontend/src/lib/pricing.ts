@@ -213,14 +213,26 @@ function featureLines(f: Record<string, boolean>): string[] {
   ].filter(Boolean) as string[]
 }
 
+/** Whether allowance `a` is at least `b`, treating -1 as unlimited. */
+function atLeast(a: number | undefined, b: number | undefined): boolean {
+  if (b === undefined || b === 0) return true
+  if (a === UNLIMITED) return true
+  if (b === UNLIMITED) return false
+  return (a ?? 0) >= b
+}
+
 const MARKETED = ['inbound_calls', 'outbound_calls', 'crm_integrations', 'workflow_scheduling', 'webhooks', 'call_recordings', 'analytics']
 
 /** Bullet points for a paid plan, built from its live limits and features. */
 export function planBullets(plan: PricingPlan, previous?: PricingPlan): string[] {
   const { limits: l, features: f } = plan
-  // "Everything in X" only when this plan really includes all of X's features.
+  // "Everything in X" only when this plan really includes all of X's features
+  // and at least X's allowances — otherwise the card contradicts itself
+  // ("everything in Sales Chatbot" beside fewer calls than Sales Chatbot).
   const includesPrevious =
-    !!previous && MARKETED.every((key) => !previous.features[key] || f[key])
+    !!previous &&
+    MARKETED.every((key) => !previous.features[key] || f[key]) &&
+    Object.entries(previous.limits).every(([key, n]) => atLeast(l[key as keyof Limits], n))
   const shown = includesPrevious
     ? Object.fromEntries(MARKETED.map((key) => [key, f[key] && !previous!.features[key]]))
     : f

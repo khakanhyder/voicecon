@@ -668,12 +668,14 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
   const clientErrors = validateTool({ toolType: selectedType, name, description, config, params })
   const errors: ToolErrors = attempted ? { ...serverErrors, ...clientErrors } : {}
 
-  const pickType = (type: string, label: string) => {
+  const pickType = (type: string) => {
     // Fields from a previously chosen type would otherwise be saved into this
     // one — a Send Text's message riding along on a Transfer Call.
     if (type !== selectedType) { setConfig({}); setParams([]); setServerErrors({}); setAttempted(false) }
     setSelectedType(type)
-    if (!name.trim() || name === typeMeta?.label) setName(label)
+    // The name used to be pre-filled with the type label ("API Request"), so
+    // typing appended to it and tools ended up named after their type. The
+    // label is only a placeholder now.
     setStep('configure')
   }
 
@@ -753,7 +755,7 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
                       {creatable.map(t => {
                         const TIcon = t.icon
                         return (
-                          <button key={t.type} onClick={() => pickType(t.type, t.label)}
+                          <button key={t.type} onClick={() => pickType(t.type)}
                             className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-white text-left transition-all hover:border-slate-300 hover:bg-slate-50">
                             <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${cat.bg} border ${cat.border}`}>
                               <TIcon className={`h-3.5 w-3.5 ${cat.color}`} />
@@ -781,7 +783,7 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
                   <span className="text-slate-500">Type: <span className="font-medium text-slate-700">{typeMeta.label}</span></span>
                 </div>
               )}
-              <Field label="Tool Name" required error={errors.name}><TI value={name} onChange={setName} placeholder="My Tool" /></Field>
+              <Field label="Tool Name" required error={errors.name}><TI value={name} onChange={setName} placeholder={typeMeta ? `e.g. ${typeMeta.label} for bookings` : 'My Tool'} /></Field>
               <Field label="Description" required hint="Tells the AI when to use this tool" error={errors.description}>
                 <TA value={description} onChange={setDescription} placeholder="Use this tool to book an appointment. Collect the customer's name and preferred time." rows={2} />
               </Field>

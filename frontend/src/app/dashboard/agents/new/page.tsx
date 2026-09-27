@@ -16,6 +16,9 @@ import { AssistantsRail } from '@/components/agents/AssistantsRail'
 // Tabs that hold create-time form fields. Tools, Knowledge and the Chat Widget
 // attach to an agent that already exists, so they stay on the edit screen.
 const FORM_TABS: AgentTabId[] = ['basic', 'llm', 'stt', 'voice', 'conversation', 'advanced']
+// A new assistant has no widget to embed and no calls yet, so these tabs
+// could only ever show a placeholder.
+const CREATE_HIDDEN_TABS: AgentTabId[] = ['widget', 'calls']
 
 export default function NewAgentPage() {
   const router    = useRouter()
@@ -67,7 +70,11 @@ export default function NewAgentPage() {
   const activeLabel = AGENT_TABS.find(t => t.id === tab)?.label ?? ''
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    // noValidate: the browser's own `required` check stopped the submit before
+    // handleSubmit ran, so from any tab but the one holding the empty field
+    // "Create Assistant" did nothing visible. handleSubmit validates instead,
+    // with a toast and a jump to the tab that needs attention.
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/dashboard/agents" className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
@@ -78,14 +85,15 @@ export default function NewAgentPage() {
 
       {/* Step row + search */}
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 lg:flex-row lg:items-center lg:justify-between">
-        <AgentTabBar activeTab={tab} onChange={setTab} />
+        <AgentTabBar activeTab={tab} onChange={setTab} hidden={CREATE_HIDDEN_TABS} />
         <div className="relative w-full lg:w-60 flex-shrink-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by user, roles"
+            placeholder="Search assistants"
+            aria-label="Search assistants"
             className="w-full rounded-full border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15"
           />
         </div>

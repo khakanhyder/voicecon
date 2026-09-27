@@ -85,9 +85,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     } else if (diffDays < 7) {
       return `${diffDays} days ago`;
     } else if (diffDays < 30) {
-      return `${Math.floor(diffDays / 7)} weeks ago`;
+      const weeks = Math.floor(diffDays / 7);
+      return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
     } else if (diffDays < 365) {
-      return `${Math.floor(diffDays / 30)} months ago`;
+      const months = Math.floor(diffDays / 30);
+      return `${months} ${months === 1 ? 'month' : 'months'} ago`;
     } else {
       return date.toLocaleDateString();
     }

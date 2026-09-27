@@ -101,7 +101,7 @@ export default function ApiKeysPage() {
       />
       <Callout kind="note" title="Some scopes cannot be granted to a key at all">
         Anything that changes who holds power or spends money — managing team roles, changing
-        the plan, transferring ownership, deleting the workspace — is not assignable to an API
+        the plan, deleting the workspace — is not assignable to an API
         key under any circumstances. Attempting it is rejected at creation rather than
         accepted and silently ignored.
       </Callout>

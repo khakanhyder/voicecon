@@ -196,6 +196,28 @@ export default function KnowledgeBaseDetailPage() {
     return { label: ext ? ext.substring(0,3).toUpperCase() : 'DOC', bg: 'bg-slate-500', name: mime || 'Document' };
   }
 
+  // Also on the list card; here too, because this is where people look for it
+  // and a plan capped at one knowledge base can only replace it by deleting.
+  const [isDeletingKb, setIsDeletingKb] = useState(false)
+  const handleDeleteKb = async () => {
+    const ok = await confirm({
+      title: 'Delete Knowledge Base',
+      description: `Delete "${kb?.name ?? 'this knowledge base'}" and all its documents? Agents using it will stop answering from it. This cannot be undone.`,
+      confirmText: 'Delete',
+      isDestructive: true,
+    })
+    if (!ok) return
+    setIsDeletingKb(true)
+    try {
+      await apiClient.delete(API_ENDPOINTS.KNOWLEDGE_BASE(kbId))
+      toast.success('Knowledge base deleted')
+      router.push('/dashboard/knowledge')
+    } catch (error) {
+      toast.error(getErrorMessage(error))
+      setIsDeletingKb(false)
+    }
+  }
+
   const handleDeleteDoc = async (doc: KBDocument) => {
     const ok = await confirm({
       title: 'Delete Document',
@@ -238,13 +260,25 @@ export default function KnowledgeBaseDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/dashboard/knowledge"
-        className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4 mr-1.5" />
-        Back to Knowledge Base
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/dashboard/knowledge"
+          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1.5" />
+          Back to Knowledge Base
+        </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDeleteKb}
+          disabled={isDeletingKb}
+          className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 rounded-xl h-[40px]"
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          {isDeletingKb ? 'Deleting…' : 'Delete knowledge base'}
+        </Button>
+      </div>
 
       <div>
         {kb.description && <p className="text-black/60 font-poppins text-[14px]">{kb.description}</p>}

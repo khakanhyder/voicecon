@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +10,8 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { PERMISSIONS } from '@/lib/workspace'
 import { usePermission } from '@/store/workspaceStore'
+import { useEntitlementStore } from '@/store/entitlementStore'
+import { FEATURES, LIMITS, PLAN_LABELS } from '@/lib/entitlements'
 
 import { useConfirm } from '@/hooks/use-confirm'
 
@@ -60,6 +63,18 @@ export default function APIKeysPage() {
   const [showScopePicker, setShowScopePicker] = useState(false)
 
   const [creating, setCreating] = useState(false)
+  // `creating` disables the button only after a re-render; a fast double
+  // click or a repeated Enter can land before that and post twice.
+  const submittingRef = useRef(false)
+
+  // Keys need the API-access feature and room under the plan's key limit.
+  // Showing the whole form and refusing on submit (402) wasted the user's
+  // time — the trial allows no keys at all.
+  const entitlements = useEntitlementStore((s) => s.entitlements)
+  const hasFeature = useEntitlementStore((s) => s.has)
+  const withinLimit = useEntitlementStore((s) => s.within)
+  const apiAccess = !entitlements || hasFeature(FEATURES.API_ACCESS)
+  const roomForKey = !entitlements || withinLimit(LIMITS.API_KEYS)
   const [loading, setLoading] = useState(true)
   const [newKey, setNewKey] = useState('')
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -98,7 +113,8 @@ export default function APIKeysPage() {
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!keyName.trim()) return
+    if (!keyName.trim() || submittingRef.current) return
+    submittingRef.current = true
     setCreating(true)
     try {
       const expires_at =
@@ -120,6 +136,7 @@ export default function APIKeysPage() {
     } catch (err) {
       toast.error(getErrorMessage(err))
     } finally {
+      submittingRef.current = false
       setCreating(false)
     }
   }
@@ -231,8 +248,28 @@ export default function APIKeysPage() {
         </div>
       )}
 
-      {/* Create API Key */}
-      {canManage && (
+      {/* Create API Key — or why keys can't be created on this plan */}
+      {canManage && (!apiAccess || !roomForKey) && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 space-y-2">
+          <h2 className="text-xl font-semibold">Create New API Key</h2>
+          <p className="text-sm text-slate-600">
+            {!apiAccess
+              ? entitlements && !entitlements.is_live
+                ? 'Your subscription isn’t active, so new API keys can’t be created. Renew it to continue.'
+                : entitlements?.is_trial
+                ? 'API keys aren’t included in the free trial. They unlock when you subscribe to a plan with API access.'
+                : `API access isn’t included in ${entitlements?.plan_name ?? 'your current plan'}. It’s available on ${PLAN_LABELS['voice-ai']}.`
+              : `You’ve created all ${entitlements?.limits?.[LIMITS.API_KEYS] ?? ''} API keys your plan allows. Revoke one below or upgrade for more.`}
+          </p>
+          <Link
+            href="/dashboard/settings/billing"
+            className="inline-flex text-sm font-semibold text-[#0F6A59] hover:underline"
+          >
+            View plans and billing →
+          </Link>
+        </div>
+      )}
+      {canManage && apiAccess && roomForKey && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 className="text-xl font-semibold">Create New API Key</h2>
           <form onSubmit={handleCreateKey} className="space-y-4">

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { CalendarClock, AlertCircle, History, Trash2 } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { appDisplayName } from '@/lib/appNames'
 
 interface Change {
   id: string
@@ -18,28 +19,6 @@ interface Change {
   created_at: string | null
 }
 
-const APP_NAMES: Record<string, string> = {
-  'google-calendar': 'Google Calendar',
-  google_calendar: 'Google Calendar',
-  clickup: 'ClickUp',
-  trello: 'Trello',
-  airtable: 'Airtable',
-  hubspot: 'HubSpot',
-  salesforce: 'Salesforce',
-  gohighlevel: 'GoHighLevel',
-  stripe: 'Stripe',
-  'google-sheets': 'Google Sheets',
-  'cal-com': 'Cal.com',
-  calendly: 'Calendly',
-  notion: 'Notion',
-  zendesk: 'Zendesk',
-  pipedrive: 'Pipedrive',
-  supabase: 'Supabase',
-  monday: 'monday.com',
-  intercom: 'Intercom',
-  slack: 'Slack',
-  sendgrid: 'SendGrid',
-}
 
 const ACTION_LABELS: Record<string, string> = {
   update_event: 'Rescheduled appointment',
@@ -160,7 +139,7 @@ export function IntegrationChanges({ callId }: { callId: string }) {
               <div className="min-w-0">
                 <p className="font-semibold text-black/80">
                   {ACTION_LABELS[change.action] || change.action.replace(/_/g, ' ')}
-                  <span className="font-normal text-black/40"> · {APP_NAMES[change.connector_slug] || change.connector_slug}</span>
+                  <span className="font-normal text-black/40"> · {appDisplayName(change.connector_slug)}</span>
                   {!change.success && <span className="ml-1 font-normal text-amber-700">(failed)</span>}
                 </p>
                 <p className="break-words text-black/60">{summary(change)}</p>

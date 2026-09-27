@@ -42,15 +42,15 @@ export default function TeamPage() {
         headers={['Role', 'In one line']}
         widths={['w-[16%]']}
         rows={[
-          [<Strong>Owner</Strong>, 'Full control, including deleting the workspace and transferring ownership. Exactly one per workspace.'],
-          [<Strong>Admin</Strong>, 'Everything an owner can do except transfer power or destroy the workspace.'],
+          [<Strong>Owner</Strong>, 'The person who created the workspace. Full control, including billing and deleting the workspace. Exactly one per workspace, and it never changes.'],
+          [<Strong>Admin</Strong>, 'Runs the team day to day, but cannot touch the owner or other admins, change the plan, or delete the workspace.'],
           [<Strong>Member</Strong>, 'Builds and runs things — agents, workflows, tools, integrations. No team or billing access.'],
           [<Strong>Viewer</Strong>, 'Read-only. Can see everything, change nothing.'],
         ]}
       />
       <Callout kind="note" title="Why admins cannot do everything">
-        Anything that changes who holds power — removing another admin, transferring ownership,
-        deleting the workspace — belongs to the owner alone. An admin who could remove the
+        Anything that changes who holds power — removing another admin, promoting someone to
+        admin, deleting the workspace — belongs to the owner alone. An admin who could remove the
         owner would not really be an admin.
       </Callout>
 
@@ -76,7 +76,6 @@ export default function TeamPage() {
           [<>View billing and invoices</>, <Y />, <Y />, <N />, <N />],
           [<>Change the plan or payment method</>, <Y />, <N />, <N />, <N />],
           [<>Rename the workspace and change settings</>, <Y />, <Y />, <N />, <N />],
-          [<>Transfer ownership</>, <Y />, <N />, <N />, <N />],
           [<>Delete the workspace</>, <Y />, <N />, <N />, <N />],
         ]}
       />
@@ -180,9 +179,9 @@ export default function TeamPage() {
       />
       <UL>
         <LI>
-          <Strong>The owner cannot leave.</Strong> Leaving would strand the workspace with
-          nobody able to administer it, so transfer ownership first — see below — and then
-          leave as an admin.
+          <Strong>The owner cannot leave.</Strong> Ownership can&apos;t be handed on, so leaving
+          would strand the workspace with nobody able to administer it. The owner&apos;s way
+          out is deleting the workspace.
         </LI>
         <LI>
           <Strong>You cannot leave or delete your last workspace.</Strong> You would have
@@ -200,15 +199,21 @@ export default function TeamPage() {
         caller dialling a dead number is the part of this nobody notices until it is too late.
       </Callout>
 
-      <H2 id="ownership">Transferring ownership</H2>
+      <H2 id="ownership">Ownership</H2>
       <P>
-        The owner may transfer ownership to another member. The recipient becomes owner and
-        the previous owner becomes an admin.
+        The user who creates a workspace is its owner, permanently. Ownership cannot be
+        transferred, shared or assigned.
       </P>
       <UL>
-        <LI>Do this before an owner leaves the organisation, not after.</LI>
-        <LI>A workspace whose owner has departed with no transfer needs support intervention.</LI>
-        <LI>Ownership cannot be shared — there is exactly one owner.</LI>
+        <LI>There is exactly one owner. Invited people can only be admins, members or viewers.</LI>
+        <LI>
+          No one — not an admin, and not the owner through the team page — can change the
+          owner&apos;s role or remove the owner. The API refuses it however the request is made.
+        </LI>
+        <LI>
+          The owner can change the role of, or remove, anyone else in the workspace, including
+          admins.
+        </LI>
       </UL>
     </DocPage>
   )

@@ -596,6 +596,7 @@ export default function AgentDetailPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.name.trim()) { toast.error('Agent name is required'); setTab('basic'); return }
+    if (!form.system_prompt.trim()) { toast.error('System prompt is required'); setTab('basic'); return }
     setLoading(true)
     try {
       await apiClient.patch(API_ENDPOINTS.AGENT(agentId), {
@@ -743,7 +744,8 @@ export default function AgentDetailPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by user, roles"
+            placeholder="Search assistants"
+            aria-label="Search assistants"
             className="w-full rounded-full border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15"
           />
         </div>
@@ -769,7 +771,7 @@ export default function AgentDetailPage() {
               <AgentCallsTab agentId={agentId} />
             </div>
           ) : (
-            <form id="agent-edit-form" onSubmit={handleSubmit} className="space-y-5">
+            <form id="agent-edit-form" onSubmit={handleSubmit} noValidate className="space-y-5">
               <AgentTabContent tab={tab} form={form} set={set} />
 
               {/* Step controls */}
@@ -794,19 +796,25 @@ export default function AgentDetailPage() {
         <aside className="min-w-0 space-y-4">
           {!isCustomTab && <AgentIdentityFields form={form} set={set} />}
 
-          <button
-            type="submit"
-            form="agent-edit-form"
-            disabled={loading || isCustomTab}
-            className="w-full rounded-xl bg-[#0F6A59] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c] disabled:opacity-60"
-          >
-            {loading ? 'Saving…' : 'Save Changes'}
-          </button>
-          <Link href="/dashboard/agents" className="block">
-            <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
-              Cancel
-            </button>
-          </Link>
+          {/* Tools, Knowledge base and Chat Widget save as you change them and
+              Call History is read-only; a Save button there did nothing. */}
+          {!isCustomTab && (
+            <>
+              <button
+                type="submit"
+                form="agent-edit-form"
+                disabled={loading}
+                className="w-full rounded-xl bg-[#0F6A59] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c] disabled:opacity-60"
+              >
+                {loading ? 'Saving…' : 'Save Changes'}
+              </button>
+              <Link href="/dashboard/agents" className="block">
+                <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
+                  Cancel
+                </button>
+              </Link>
+            </>
+          )}
           {isCustomTab && (
             <p className="text-center text-xs text-slate-400">
               {isCallsTab ? 'Call history is read-only' : `${activeLabel} saves on its own`}

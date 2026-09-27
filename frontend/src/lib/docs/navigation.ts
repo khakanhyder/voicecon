@@ -688,7 +688,7 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'inviting', title: 'Inviting people' },
           { id: 'changing-roles', title: 'Changing roles and removing members' },
           { id: 'workspace-settings', title: 'Workspace settings' },
-          { id: 'ownership', title: 'Transferring ownership' },
+          { id: 'ownership', title: 'Ownership' },
         ],
         keywords: [
           'roles', 'owner', 'admin', 'member', 'viewer', 'permissions', 'invite',

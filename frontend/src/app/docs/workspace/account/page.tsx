@@ -81,9 +81,9 @@ export default function AccountPage() {
       </P>
       <Callout kind="warning" title="This is about you, not your workspace">
         Deactivating your account does not delete any workspace, and it does not hand your
-        workspaces to anyone else. If you own one, transfer ownership first — otherwise you
-        leave a workspace nobody can administer. See{' '}
-        <A href="/docs/workspace/team#ownership">Transferring ownership</A>. To step out of a
+        workspaces to anyone else — ownership can&apos;t be transferred. If you own a workspace
+        that others still use, delete it or agree a plan with them first; see{' '}
+        <A href="/docs/workspace/team#ownership">Ownership</A>. To step out of a
         single workspace while keeping your account, leave it from{' '}
         <A href="/docs/workspace/team#workspace-settings">Workspace settings</A> instead.
       </Callout>

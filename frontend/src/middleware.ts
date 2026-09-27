@@ -22,6 +22,11 @@ const LANDING_HOSTS = (process.env.NEXT_PUBLIC_LANDING_HOSTS || 'voicecon.ai,www
 // but is no longer the root.
 const MARKETING_PATHS = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
 
+// Retired hosts that still route to this deployment (the old nip.io domains).
+// They serve the production bundle, whose API rejects their origin, so login
+// there always fails with a CORS "Network Error". Send them to the app host.
+const LEGACY_HOST_SUFFIXES = ['.nip.io']
+
 function requestHost(request: NextRequest): string {
   // Behind Traefik the forwarded host is the one the visitor typed.
   const raw = request.headers.get('x-forwarded-host') || request.headers.get('host') || ''
@@ -39,6 +44,10 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(`https://${APP_HOST}/login`, 307)
     }
     return NextResponse.next()
+  }
+
+  if (LEGACY_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+    return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 308)
   }
 
   // The marketing site lives at the root now; send the old URL there.
