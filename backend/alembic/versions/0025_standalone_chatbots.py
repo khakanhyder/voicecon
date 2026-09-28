@@ -52,14 +52,30 @@ def upgrade() -> None:
         )
         op.execute("UPDATE chat_widgets SET name = 'Website chatbot' WHERE name IS NULL")
 
-    # One agent may now answer several chatbots: replace the unique index.
-    for index in inspector.get_indexes(_TABLE):
-        if index["column_names"] == ["agent_id"] and index.get("unique"):
-            op.drop_index(index["name"], table_name=_TABLE)
-            op.create_index("ix_chat_widgets_agent_id", _TABLE, ["agent_id"], unique=False)
+    # One agent may now answer several chatbots: drop whatever enforces
+    # "one per agent". It exists in two shapes. A database built by migration
+    # 0006 has a unique *constraint*; one built by ``create_all`` has a unique
+    # *index*. Postgres lists a constraint's backing index among the indexes
+    # too, and refuses to drop it on its own, so constraints go first and any
+    # index that belongs to one is left to go with it.
+    constraint_names = set()
     for constraint in inspector.get_unique_constraints(_TABLE):
         if constraint["column_names"] == ["agent_id"]:
+            constraint_names.add(constraint["name"])
             op.drop_constraint(constraint["name"], _TABLE, type_="unique")
+
+    has_plain_index = False
+    for index in inspector.get_indexes(_TABLE):
+        if index["column_names"] != ["agent_id"]:
+            continue
+        if index["name"] in constraint_names or index.get("duplicates_constraint"):
+            continue
+        if index.get("unique"):
+            op.drop_index(index["name"], table_name=_TABLE)
+        else:
+            has_plain_index = True
+    if not has_plain_index:
+        op.create_index("ix_chat_widgets_agent_id", _TABLE, ["agent_id"], unique=False)
 
     if not columns["agent_id"]["nullable"]:
         op.alter_column(_TABLE, "agent_id", existing_type=sa.Uuid(), nullable=True)
