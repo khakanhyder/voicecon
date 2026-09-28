@@ -8,7 +8,7 @@ anything else the ``:write`` one. Authorization is therefore the default for a
 newly added endpoint rather than something each author must remember.
 
 Routes that genuinely have no workspace (carrier webhooks, Stripe webhooks, the
-public chat widget, the marketplace catalogue) live on a separate
+public chat widget, the workflow template catalogue) live on a separate
 ``public_router`` in their module and are mounted without the guard.
 """
 from fastapi import APIRouter, Depends
@@ -116,9 +116,10 @@ api_router.include_router(
     chat.router, prefix="/chat", tags=["chat-widget"],
     dependencies=_guard(perms.AGENTS_READ, perms.AGENTS_WRITE),
 )
+# Only workflow templates live here now, and installing one creates a workflow.
 api_router.include_router(
     marketplace.router, prefix="/marketplace", tags=["marketplace"],
-    dependencies=_guard(perms.AGENTS_READ, perms.AGENTS_WRITE),
+    dependencies=_guard(perms.WORKFLOWS_READ, perms.WORKFLOWS_WRITE),
 )
 api_router.include_router(
     telephony.router, prefix="/telephony", tags=["telephony"],

@@ -175,16 +175,17 @@ export default function KnowledgeBasesPage() {
            <select 
              value={sortBy}
              onChange={(e) => setSortBy(e.target.value)}
+             aria-label="Sort knowledge bases"
              className="border border-slate-200 rounded-lg text-sm font-medium text-slate-600 py-2 pl-3 pr-8 outline-none bg-white hover:bg-slate-50 appearance-none cursor-pointer shadow-sm"
            >
              <option value="Recently Updated">Sort by: Recently Updated</option>
              <option value="Name">Sort by: Name</option>
            </select>
            <div className="hidden sm:flex bg-slate-50 rounded-lg p-1 border border-slate-200 items-center">
-             <button onClick={() => setViewMode('grid')} className={`rounded p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+             <button type="button" aria-label="Grid view" aria-pressed={viewMode === 'grid'} onClick={() => setViewMode('grid')} className={`rounded p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
                 <LayoutGrid className={`w-4 h-4 ${viewMode === 'grid' ? 'text-emerald-600' : 'text-slate-400'}`} />
              </button>
-             <button onClick={() => setViewMode('list')} className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
+             <button type="button" aria-label="List view" aria-pressed={viewMode === 'list'} onClick={() => setViewMode('list')} className={`rounded p-1.5 transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-slate-100'}`}>
                 <List className={`w-4 h-4 ${viewMode === 'list' ? 'text-emerald-600' : 'text-slate-400'}`} />
              </button>
            </div>

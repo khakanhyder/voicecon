@@ -46,6 +46,13 @@ const nextConfig = {
   // M-05: Security headers for the frontend origin
   async headers() {
     return [
+      // Signed-in and per-user pages must stay out of search results. robots.txt
+      // alone does not do that: a disallowed URL can still be listed from a
+      // link to it, so these answer with noindex as well.
+      {
+        source: '/:area(dashboard|admin|onboarding|billing|invite|login|register|forgot-password)/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
       {
         source: '/(.*)',
         headers: [

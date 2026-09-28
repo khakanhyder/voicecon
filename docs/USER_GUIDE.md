@@ -245,7 +245,7 @@ Before deploying, test your agent:
 #### Step 1: Navigate to Phone Numbers
 
 1. Click **Phone Numbers** in sidebar
-2. Click **Purchase Number** button
+2. Click **Buy a number** (**Find a number** on the empty page)
 
 #### Step 2: Choose the account to buy on
 

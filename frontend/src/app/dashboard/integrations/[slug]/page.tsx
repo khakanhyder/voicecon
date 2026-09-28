@@ -620,7 +620,7 @@ export default function IntegrationDetailPage() {
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-2xl font-bold text-slate-900">{integration.name}</h1>
+                <h2 className="text-2xl font-bold text-slate-900">{integration.name}</h2>
                 {connectorId ? (
                   <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2.5 py-1 font-medium">
                     Ready to Connect

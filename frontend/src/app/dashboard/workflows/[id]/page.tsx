@@ -204,7 +204,7 @@ export default function WorkflowDetailPage() {
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{workflow.name}</h1>
+            <h2 className="text-3xl font-bold tracking-tight">{workflow.name}</h2>
             <div className={`px-3 py-1 rounded-full text-xs font-medium ${
               workflow.is_active
                 ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400'

@@ -53,7 +53,7 @@ export default function PhoneNumbersPage() {
 
       <H2 id="searching">Searching for a number</H2>
       <P>
-        <Strong>Phone Numbers</Strong> → <Strong>Purchase Number</Strong> searches the
+        <Strong>Phone Numbers</Strong> → <Strong>Buy a number</Strong> searches the
         carrier&rsquo;s live inventory.
       </P>
       <ParamTable

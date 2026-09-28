@@ -133,7 +133,7 @@ export default function WorkflowHistoryPage() {
             Back
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">{workflowName}</h1>
+            <h2 className="truncate text-sm font-semibold">{workflowName}</h2>
             <p className="text-xs text-muted-foreground">Execution history</p>
           </div>
         </div>

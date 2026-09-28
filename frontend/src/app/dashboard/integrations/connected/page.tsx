@@ -214,6 +214,7 @@ export default function ConnectedIntegrationsPage() {
             <Input
               type="text"
               placeholder="Search connected integrations..."
+              aria-label="Search connected integrations"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"

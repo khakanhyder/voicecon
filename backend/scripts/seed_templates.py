@@ -130,8 +130,8 @@ def main():
     asyncio.run(seed_templates())
 
     print("\n🎉 Template seeding completed successfully!")
-    print("\nYou can now view templates in the marketplace at:")
-    print("  http://localhost:3000/marketplace\n")
+    print("\nWorkflow templates appear under New Workflow:")
+    print("  http://localhost:3000/dashboard/workflows/new\n")
 
 
 if __name__ == "__main__":

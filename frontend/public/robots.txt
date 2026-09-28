@@ -1,13 +1,12 @@
 User-agent: *
 Allow: /
-# The dashboard, sign-in and invite pages are private or per-user.
+# The dashboard, onboarding and invite pages are private or per-user.
 Disallow: /dashboard
 Disallow: /admin
 Disallow: /onboarding
 Disallow: /billing
 Disallow: /invite
-Disallow: /login
-Disallow: /register
-Disallow: /forgot-password
+# The sign-in pages are left crawlable on purpose: they answer with noindex,
+# which a crawler can only see if it is allowed to fetch them.
 
 Sitemap: https://voicecon.ai/sitemap.xml

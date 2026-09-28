@@ -127,6 +127,7 @@ export default function CallsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by phone number…"
+            aria-label="Search calls by phone number"
             className="w-full h-[45px] rounded-xl bg-white border border-slate-200 pl-9 pr-4 font-poppins text-[14px] text-black placeholder:text-black/40 outline-none focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 transition-colors"
           />
         </div>
@@ -134,6 +135,7 @@ export default function CallsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter calls by status"
             className="appearance-none h-[45px] rounded-xl bg-white border border-slate-200 pl-4 pr-9 font-poppins text-[14px] text-black outline-none cursor-pointer focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 transition-colors"
           >
             <option value="all">All statuses</option>
@@ -159,11 +161,10 @@ export default function CallsPage() {
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <div className="min-w-[90rem] w-full">
-            {/* Table Header Always Visible */}
-            <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200 text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
-              <div className="flex items-center">
-                <input title="Select all" type="checkbox" className="rounded-[4px] border border-slate-300 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
-              </div>
+            {/* Table Header Always Visible. There is no selection column: nothing
+                acts on selected calls, so the checkboxes that used to sit here
+                selected nothing. */}
+            <div className="grid grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200 text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
               <div>Call ID</div>
               <div>Assistant</div>
               <div>Assistant Phone Number</div>
@@ -223,11 +224,7 @@ export default function CallsPage() {
 
                   return (
                     <Link key={call.id} href={`/dashboard/calls/${call.id}`} className="block">
-                      <div className="grid grid-cols-[2.5rem_6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
-                        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-                          <input type="checkbox" title="Select call" className="rounded-[4px] border border-slate-300 text-[#106959] focus:ring-[#106959] h-4 w-4 cursor-pointer" />
-                        </div>
-
+                      <div className="grid grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
                         <div className="text-[13px] font-poppins text-black/80 truncate font-medium" title={call.id}>
                           {call.id.slice(0, 8).toUpperCase()}
                         </div>

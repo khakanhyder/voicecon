@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Plug, Sparkles } from 'lucide-react'
+import {
+  Bell, CalendarDays, Headphones, Loader2, Plug, RefreshCw, Sparkles, Target, Workflow,
+  type LucideIcon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,9 +20,20 @@ interface WorkflowTemplate {
   slug: string
   name: string
   description: string
-  icon: string | null
+  category?: string | null
   tags: string[]
   required_integrations: string[] | null
+}
+
+// The catalogue stores an emoji per template, which renders differently on
+// every platform and matched nothing else in the dashboard. Templates are shown
+// with the same line icons as the rest of the product, picked by category.
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  lead_capture: Target,
+  notifications: Bell,
+  data_sync: RefreshCw,
+  scheduling: CalendarDays,
+  customer_support: Headphones,
 }
 
 const INPUT_CLASS =
@@ -52,7 +66,7 @@ export default function NewWorkflowPage() {
         if (!cancelled) setTemplates(res.data || [])
       })
       .catch(() => {
-        // A marketplace that is unreachable must not block creating a workflow
+        // Templates that fail to load must not block creating a workflow
         // by hand, so this degrades to the blank form rather than erroring.
         if (!cancelled) setTemplates([])
       })
@@ -139,6 +153,7 @@ export default function NewWorkflowPage() {
               {templates.map((template) => {
                 const needs = template.required_integrations ?? []
                 const isInstalling = installing === template.slug
+                const Icon = CATEGORY_ICONS[template.category ?? ''] ?? Workflow
 
                 return (
                   <button
@@ -153,8 +168,8 @@ export default function NewWorkflowPage() {
                     )}
                   >
                     <div className="flex items-start gap-2.5">
-                      <span className="text-xl leading-none">
-                        {template.icon || '⚙️'}
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0F6A59]/10 text-[#0F6A59]">
+                        <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-[#000000]">

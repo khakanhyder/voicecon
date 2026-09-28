@@ -176,9 +176,9 @@ export default function DashboardPage() {
             All systems operational
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight md:text-4xl">
+          <h2 className="text-2xl font-bold tracking-tight md:text-4xl">
             Good day, {firstName}
-          </h1>
+          </h2>
           <p className="mt-2.5 max-w-lg text-sm leading-relaxed text-emerald-50/80 md:text-base">
             Your voice AI platform is ready. Create your first agent or explore integrations to get started.
           </p>
@@ -201,31 +201,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Live stats strip on banner */}
-        {!isLoading && stats && (
-          <div className="relative mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: 'Active Agents', value: stats.activeAgents, icon: Bot },
-              { label: 'Total Calls', value: stats.callsToday, icon: Phone },
-              { label: 'Integrations', value: stats.integrations, icon: Plug },
-              { label: 'Workflows', value: stats.workflows, icon: GitBranch },
-            ].map(item => {
-              const Icon = item.icon
-              return (
-                <div
-                  key={item.label}
-                  className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm transition-colors hover:bg-white/[0.16]"
-                >
-                  <div className="text-2xl font-bold tabular-nums text-white">{item.value}</div>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-50/75">
-                    <Icon className="h-5 w-5 mb-1" />
-                    {item.label}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
       </section>
 
       {/* ── Stat cards ── */}

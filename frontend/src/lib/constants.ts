@@ -78,10 +78,9 @@ export const API_ENDPOINTS = {
   // webhook-triggered workflow. Shown to the user, not called by the app.
   WORKFLOW_WEBHOOK: (key: string) => `${API_BASE}/api/v1/workflows/webhook/${key}`,
 
-  // Marketplace templates
+  // Workflow templates ("Start from a template" on the New Workflow page). The
+  // path still says marketplace; it is the API's name for the template catalogue.
   WORKFLOW_TEMPLATES: `${API_BASE}/api/v1/marketplace/templates/workflows`,
-  WORKFLOW_TEMPLATE: (slug: string) =>
-    `${API_BASE}/api/v1/marketplace/templates/workflows/${slug}`,
   WORKFLOW_TEMPLATE_INSTALL: (slug: string) =>
     `${API_BASE}/api/v1/marketplace/templates/workflows/${slug}/install`,
 

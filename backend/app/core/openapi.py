@@ -177,7 +177,7 @@ Webhook payloads are signed with HMAC-SHA256 for security verification.
             },
             {
                 "name": "Marketplace",
-                "description": "Browse and install pre-built templates"
+                "description": "Browse and install workflow templates"
             },
             {
                 "name": "Knowledge Base",

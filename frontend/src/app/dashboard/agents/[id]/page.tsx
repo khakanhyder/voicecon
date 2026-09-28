@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, Wrench, Plus, Loader2, Trash2, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X, PhoneCall, ToggleLeft, ToggleRight, Link2, Puzzle, Users } from 'lucide-react'
+import { ArrowLeft, Check, Search, Wrench, Plus, Loader2, Trash2, MessageSquare, Database, Globe, Settings2, Sheet, Calendar, PhoneForwarded, PhoneOff, Hash, ArrowLeftRight, Voicemail, Workflow, X, PhoneCall, ToggleLeft, ToggleRight, Link2, Puzzle, Users } from 'lucide-react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
@@ -110,7 +110,7 @@ function CreateToolForm({
           <Workflow className="h-4 w-4 text-indigo-600" />
           <h4 className="text-sm font-semibold text-slate-800">New workflow tool</h4>
         </div>
-        <button onClick={onCancel} className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-600">
+        <button type="button" aria-label="Close" onClick={onCancel} className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-600">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -121,8 +121,9 @@ function CreateToolForm({
       </p>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-600">Tool name</label>
+        <label htmlFor="new-tool-name" className="text-xs font-medium text-slate-600">Tool name</label>
         <input
+          id="new-tool-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="book_appointment"
@@ -131,10 +132,11 @@ function CreateToolForm({
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-600">
+        <label htmlFor="new-tool-description" className="text-xs font-medium text-slate-600">
           When should the agent use it?
         </label>
         <textarea
+          id="new-tool-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
@@ -148,8 +150,9 @@ function CreateToolForm({
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-600">Runs this workflow</label>
+        <label htmlFor="new-tool-workflow" className="text-xs font-medium text-slate-600">Runs this workflow</label>
         <select
+          id="new-tool-workflow"
           value={workflowId}
           onChange={(e) => setWorkflowId(e.target.value)}
           disabled={loadingWorkflows}
@@ -172,10 +175,11 @@ function CreateToolForm({
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-600">
+        <label htmlFor="new-tool-filler" className="text-xs font-medium text-slate-600">
           Holding line while it runs
         </label>
         <input
+          id="new-tool-filler"
           value={filler}
           onChange={(e) => setFiller(e.target.value)}
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-300"
@@ -208,47 +212,48 @@ interface KnowledgeBaseOption {
   document_count: number
 }
 
-function AgentKnowledgeTab({ agentId }: { agentId: string }) {
+/**
+ * Which knowledge bases the agent answers from. The list is the same one the
+ * "Files" picker on the Prompt tab edits, so the selection is owned by the page
+ * (`selected` / `onChange`) rather than kept here: two copies meant saving the
+ * form could write back a stale list over a change made on this tab.
+ *
+ * Each change is saved as it is made, like the Tools tab.
+ */
+function AgentKnowledgeTab({ agentId, selected, onChange }: {
+  agentId: string
+  selected: string[]
+  onChange: (ids: string[]) => void
+}) {
   const [available, setAvailable] = useState<KnowledgeBaseOption[]>([])
-  const [selected, setSelected] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!agentId) return
-    Promise.all([
-      apiClient.get<KnowledgeBaseOption[]>(API_ENDPOINTS.KNOWLEDGE_BASES),
-      apiClient.get<{ knowledge_base_id: string }[]>(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId)),
-    ])
-      .then(([all, attached]) => {
-        setAvailable(all.data || [])
-        setSelected((attached.data || []).map((a) => a.knowledge_base_id))
-      })
+    apiClient.get<KnowledgeBaseOption[]>(API_ENDPOINTS.KNOWLEDGE_BASES)
+      .then((all) => setAvailable(Array.isArray(all.data) ? all.data : []))
       .catch((e) => toast.error(getErrorMessage(e)))
       .finally(() => setLoading(false))
-  }, [agentId])
+  }, [])
 
-  const toggle = (id: string) =>
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-
-  const save = async () => {
-    setSaving(true)
+  const toggle = async (kb: KnowledgeBaseOption) => {
+    const attached = selected.includes(kb.id)
+    const next = attached ? selected.filter((x) => x !== kb.id) : [...selected, kb.id]
+    onChange(next)
+    setSavingId(kb.id)
     try {
       await apiClient.put(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId), {
-        knowledge_base_ids: selected,
+        knowledge_base_ids: next,
         max_results: 3,
         min_similarity: 0.2,
         auto_inject: true,
       })
-      toast.success(
-        selected.length
-          ? `Agent will answer from ${selected.length} knowledge base(s)`
-          : 'Knowledge bases detached'
-      )
+      toast.success(attached ? `${kb.name} detached` : `${kb.name} attached`)
     } catch (e) {
+      onChange(selected) // put the tick back where the server still has it
       toast.error(getErrorMessage(e))
     } finally {
-      setSaving(false)
+      setSavingId(null)
     }
   }
 
@@ -274,36 +279,44 @@ function AgentKnowledgeTab({ agentId }: { agentId: string }) {
           </Link>
         </div>
       ) : (
-        <>
-          <div className="space-y-2">
-            {available.map((kb) => (
-              <label
+        <div className="space-y-2">
+          {available.map((kb) => {
+            const checked = selected.includes(kb.id)
+            return (
+              <button
                 key={kb.id}
-                className="flex items-start gap-3 rounded-md border p-3 cursor-pointer hover:bg-muted/50"
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
+                disabled={savingId !== null}
+                onClick={() => toggle(kb)}
+                className={`flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors disabled:cursor-wait ${
+                  checked ? 'border-[#0F6A59] bg-[#0F6A59]/[0.04]' : 'hover:bg-muted/50'
+                }`}
               >
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={selected.includes(kb.id)}
-                  onChange={() => toggle(kb.id)}
-                />
-                <div className="min-w-0">
-                  <p className="font-medium">{kb.name}</p>
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${
+                    checked ? 'border-[#0F6A59] bg-[#0F6A59] text-white' : 'border-slate-300 bg-white'
+                  }`}
+                >
+                  {savingId === kb.id
+                    ? <Loader2 className={`h-3 w-3 animate-spin ${checked ? '' : 'text-slate-400'}`} />
+                    : checked && <Check className="h-3 w-3" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium">{kb.name}</span>
                   {kb.description && (
-                    <p className="text-sm text-muted-foreground">{kb.description}</p>
+                    <span className="block text-sm text-muted-foreground">{kb.description}</span>
                   )}
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
                     {kb.document_count} document(s)
-                  </p>
-                </div>
-              </label>
-            ))}
-          </div>
-
-          <Button onClick={save} disabled={saving}>
-            {saving ? 'Saving...' : 'Save knowledge bases'}
-          </Button>
-        </>
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )
@@ -515,6 +528,17 @@ export default function AgentDetailPage() {
   const set = (key: keyof AgentFormState, value: any) =>
     setForm(f => ({ ...f, [key]: value }))
 
+  // `?test=1` opens the test call straight away — where the retired full-page
+  // test console (agents/[id]/test) now sends its visitors. The param is
+  // dropped so a refresh doesn't reopen the panel.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('test') !== '1') return
+    setPanelOpen(true)
+    url.searchParams.delete('test')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
+
   // Knowledge bases live on their own endpoint — load them alongside the agent
   // so the "Files" picker in the Model card starts in sync.
   useEffect(() => {
@@ -681,12 +705,12 @@ export default function AgentDetailPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/dashboard/agents" className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
+          <Link href="/dashboard/agents" aria-label="Back to agents" className="flex h-9 w-9 max-sm:h-11 max-sm:w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold text-slate-900 leading-tight">Assistant</h1>
+              <h2 className="text-xl font-semibold text-slate-900 leading-tight">Assistant</h2>
               <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
                 isActive
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -709,11 +733,6 @@ export default function AgentDetailPage() {
           >
             <PhoneCall className="h-4 w-4" /> Test Call
           </button>
-          <Link href={`/dashboard/agents/${agentId}/test`} className="w-full sm:w-auto">
-            <button type="button" className="w-full rounded-xl border border-[#0F6A59] px-4 py-2.5 text-sm font-medium text-[#0F6A59] transition-colors hover:bg-[#0F6A59]/5">
-              Talk to Assistant
-            </button>
-          </Link>
           <button
             type="button"
             onClick={handleToggle}
@@ -762,7 +781,11 @@ export default function AgentDetailPage() {
             </div>
           ) : isKnowledgeTab ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-              <AgentKnowledgeTab agentId={agentId} />
+              <AgentKnowledgeTab
+                agentId={agentId}
+                selected={form.knowledge_base_ids}
+                onChange={(ids) => set('knowledge_base_ids', ids)}
+              />
             </div>
           ) : isCallsTab ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">

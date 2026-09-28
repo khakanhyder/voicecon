@@ -38,8 +38,8 @@ const statusStyle: Record<string, string> = {
 }
 
 /**
- * Opens the purchase dialog for `?tab=search` — the target of the layout
- * header's "Buy a Number" button and of any deep link — then drops the param
+ * Opens the purchase dialog for `?tab=search` — a deep link from elsewhere in
+ * the app or the docs — then drops the param
  * so a refresh doesn't reopen it. Its own component so useSearchParams sits in
  * a Suspense boundary.
  */
@@ -220,6 +220,7 @@ export default function PhoneNumbersPage() {
   ]
 
   const voiceconDown = options?.voicecon_available === false
+  const hasNumbers = numbers.length > 0
 
   return (
     <div className="space-y-6">
@@ -227,21 +228,27 @@ export default function PhoneNumbersPage() {
         <OpenPurchaseFromUrl onOpen={openVoicecon} />
       </Suspense>
 
-      {/* Actions. "Buy a Number" is also in the layout header (Header.tsx);
-          on small screens that one is hidden, so this row carries it. */}
+      {/* Actions. While there are no numbers the empty state below offers both
+          ways to get one, so they are not repeated here. */}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          onClick={openVoicecon}
-          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c5a4b] sm:hidden"
-        >
-          <Plus className="h-4 w-4" /> Buy a number
-        </button>
-        <button
-          onClick={() => setOwnOpen(true)}
-          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <Plug className="h-4 w-4" /> Use your own provider
-        </button>
+        {hasNumbers && (
+          <>
+            <button
+              onClick={openVoicecon}
+              disabled={voiceconDown}
+              title={voiceconDown ? 'Voicecon numbers are temporarily unavailable' : undefined}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c5a4b] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" /> Buy a number
+            </button>
+            <button
+              onClick={() => setOwnOpen(true)}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Plug className="h-4 w-4" /> Use your own provider
+            </button>
+          </>
+        )}
         <button
           onClick={() => { fetchNumbers(); fetchOptions() }}
           className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
@@ -256,11 +263,7 @@ export default function PhoneNumbersPage() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <p>
-            Voicecon numbers are temporarily unavailable. You can still{' '}
-            <button type="button" onClick={() => setOwnOpen(true)} className="font-semibold underline">
-              use your own provider
-            </button>
-            .
+            Voicecon numbers are temporarily unavailable. You can still use your own provider.
           </p>
         </div>
       )}

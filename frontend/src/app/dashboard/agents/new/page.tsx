@@ -77,10 +77,10 @@ export default function NewAgentPage() {
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link href="/dashboard/agents" className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
+        <Link href="/dashboard/agents" aria-label="Back to agents" className="flex h-9 w-9 max-sm:h-11 max-sm:w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h1 className="text-xl font-semibold text-slate-900">Assistant</h1>
+        <h2 className="text-xl font-semibold text-slate-900">Assistant</h2>
       </div>
 
       {/* Step row + search */}

@@ -98,7 +98,9 @@ export default function DashboardLayout({
           {isFullBleed ? (
             children
           ) : (
-            <div className="p-4 md:p-5">
+            // touch-targets: see globals.css. Not applied to the full-bleed
+            // canvases, whose node handles are sized by the canvas itself.
+            <div className="touch-targets p-4 md:p-5">
               {children}
             </div>
           )}

@@ -111,6 +111,7 @@ export default function CallerHistory() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search callers…"
+            aria-label="Search callers"
             className="w-56 rounded-lg border border-slate-300 bg-white pl-8 pr-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all"
           />
         </div>

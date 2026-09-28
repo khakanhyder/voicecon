@@ -414,7 +414,10 @@ export default function TeamSettingsPage() {
                         disabled={busyId === member.id}
                         onValueChange={(value) => handleRoleChange(member, value)}
                       >
-                        <SelectTrigger className={selectTriggerClassSmall}>
+                        <SelectTrigger
+                          aria-label={`Role for ${member.name || member.email}`}
+                          className={selectTriggerClassSmall}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

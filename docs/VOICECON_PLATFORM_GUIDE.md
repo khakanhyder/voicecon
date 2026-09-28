@@ -421,10 +421,11 @@ will not appear. Check this before assuming the aggregation is broken.
 
 ---
 
-### 2.9 Marketplace (`/dashboard/marketplace`)
+### 2.9 Marketplace — removed
 
-Agent/workflow templates. Backed by real queries (19 `select(` calls). Browse and install
-templates as starting points.
+The `/dashboard/marketplace` page and its agent-template, review and installation
+endpoints no longer exist. Workflow templates remain, offered on
+`/dashboard/workflows/new` ("Start from a template").
 
 ---
 

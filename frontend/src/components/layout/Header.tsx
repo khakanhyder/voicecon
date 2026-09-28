@@ -27,8 +27,15 @@ const pageTitles: Record<
   '/dashboard': { title: 'Dashboard', description: 'Overview of your voice AI platform' },
   '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new', permission: PERMISSIONS.agentsWrite } },
   '/dashboard/chatbot': { title: 'Chatbot', description: 'Website chat, answered by your agents', action: { label: 'New Chatbot', href: '/dashboard/chatbot/new', permission: PERMISSIONS.agentsWrite } },
+  '/dashboard/agents/new': { title: 'New Agent', description: 'Set up a new AI voice agent' },
+  '/dashboard/chatbot/new': { title: 'New Chatbot', description: 'Add website chat answered by an agent' },
+  '/dashboard/knowledge/new': { title: 'New Knowledge Base', description: 'Add documents for your agents to answer from' },
+  '/dashboard/workflows/new': { title: 'New Workflow', description: 'Start from a template or a blank canvas' },
+  '/dashboard/integrations/connected': { title: 'Connected Integrations', description: 'Apps connected to this workspace' },
   '/dashboard/calls': { title: 'Call History', description: 'View and manage all calls' },
-  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Buy a Number', href: '/dashboard/phone-numbers?tab=search', permission: PERMISSIONS.phoneNumbersWrite } },
+  // No header action here: the page offers "Buy a number" itself, in its empty
+  // state or its toolbar, and a third copy up here was one action too many.
+  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers' },
   '/dashboard/tools': { title: 'Tools', description: 'Manage integration tools' },
   '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new', permission: PERMISSIONS.knowledgeWrite } },
   '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new', permission: PERMISSIONS.workflowsWrite } },
@@ -84,13 +91,13 @@ export function Header({ onMenuClick }: HeaderProps) {
   return (
     // The header floats as its own rounded panel, matching the sidebar and the
     // cards below instead of sitting on a flat full-bleed bar.
-    <div className="flex-shrink-0 px-4 pt-4 md:px-5 md:pt-5">
+    <div className="touch-targets flex-shrink-0 px-4 pt-4 md:px-5 md:pt-5">
       <header className="flex h-[68px] items-center gap-4 rounded-2xl border border-slate-200 bg-white px-3 shadow-[0_1px_2px_0_rgba(15,23,42,0.04)] md:px-4">
         {/* Mobile menu trigger */}
         <button
           onClick={onMenuClick}
           aria-label="Open navigation"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/5 hover:text-[#0F6A59] lg:hidden"
+          className="flex h-10 w-10 max-sm:h-11 max-sm:w-11 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:border-[#0F6A59]/30 hover:bg-[#0F6A59]/5 hover:text-[#0F6A59] lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -99,6 +106,8 @@ export function Header({ onMenuClick }: HeaderProps) {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="hidden h-9 w-1 flex-shrink-0 rounded-full bg-gradient-to-b from-[#0F6A59] to-[#1fa183] sm:block" />
           <div className="min-w-0">
+            {/* The only h1 on a dashboard page: headings inside a page start at
+                h2, so a screen reader never meets two page titles. */}
             <h1 className="truncate text-lg font-semibold leading-tight text-slate-900">{pageInfo.title}</h1>
             {pageInfo.description && (
               <p className="hidden truncate text-xs text-slate-500 sm:block">{pageInfo.description}</p>

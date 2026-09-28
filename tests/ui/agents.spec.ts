@@ -275,7 +275,9 @@ test.describe('Agents', () => {
       await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
 
       await expect(page.getByRole('button', { name: 'Test Call' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Talk to Assistant' })).toBeVisible()
+      // One test console, not two: the full-page "Talk to Assistant" duplicate
+      // of the Test Call drawer is gone.
+      await expect(page.getByRole('button', { name: 'Talk to Assistant' })).toHaveCount(0)
       await expect(page.getByRole('button', { name: /Deactivate|Activate/ })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
       // The redundant "Edit" action is gone — this page is the editor.
@@ -320,10 +322,35 @@ test.describe('Agents', () => {
       await expect(page.getByText('completed')).toBeVisible()
     })
 
-    test('Talk to Assistant goes to the live call page', async ({ page, api }) => {
+    test('the retired /test page opens the Test Call drawer instead', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}/test`)
+      // A client-side redirect; see the note on navigation timeouts in the README.
+      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}$`), { timeout: 30_000 })
+      await expect(page.getByRole('dialog', { name: 'Live test call' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Start Call' })).toBeVisible()
+    })
+
+    test('the closed Test Call drawer is out of the tab order', async ({ page, api }) => {
       await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
-      await page.getByRole('button', { name: 'Talk to Assistant' }).click()
-      await expect(page).toHaveURL(new RegExp(`/dashboard/agents/${AGENT_ID}/test$`))
+      await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
+      const drawer = page.locator('[role="dialog"][aria-label="Live test call"]')
+      await expect(drawer).toHaveAttribute('aria-hidden', 'true')
+      await expect(drawer).toHaveAttribute('inert', '')
+    })
+
+    test('the shell header is the only h1', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await expect(page.getByPlaceholder('e.g. Riley')).toHaveValue('Riley')
+      await expect(page.locator('h1')).toHaveCount(1)
+      await expect(page.locator('h1')).toHaveText('Agents')
+    })
+
+    test('every Prompt field is reachable by its label', async ({ page, api }) => {
+      await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
+      await expect(page.getByLabel('Assistant Name')).toHaveValue('Riley')
+      for (const label of ['First Message', 'System Prompt', 'Provider', 'Model', 'Files', 'Temperature', 'Max Token', 'Description']) {
+        await expect(page.getByLabel(label).first(), label).toBeVisible()
+      }
     })
 
     test('clicking an agent card opens the editor directly', async ({ page, api }) => {

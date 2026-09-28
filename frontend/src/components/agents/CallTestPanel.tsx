@@ -511,8 +511,14 @@ export function CallTestPanel({
         onClick={onClose}
       />
 
-      {/* Sliding panel */}
-      <div className={`fixed top-0 right-0 bottom-0 z-50 w-full sm:w-[480px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      {/* Sliding panel. While closed it is only moved off screen, so it is made
+          inert as well — otherwise its buttons stay in the tab order. */}
+      <div
+        role="dialog"
+        aria-label="Live test call"
+        aria-hidden={!open}
+        {...(!open ? { inert: '' } : {})}
+        className={`touch-targets fixed top-0 right-0 bottom-0 z-50 w-full sm:w-[480px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}>
 
         {/* Panel header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 flex-shrink-0">
@@ -525,7 +531,7 @@ export function CallTestPanel({
               <p className="text-xs text-slate-500">{agent.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+          <button type="button" aria-label="Close test call" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
             <X className="h-4.5 w-4.5" />
           </button>
         </div>
@@ -672,11 +678,13 @@ export function CallTestPanel({
                   value={textInput}
                   onChange={e => { setTextInput(e.target.value); resetIdleRef.current(); }}
                   placeholder={callState === 'listening' ? 'Speaking or type a message…' : 'Type a message…'}
+                  aria-label="Message to the assistant"
                   disabled={callState === 'processing'}
                   className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 transition-all"
                 />
                 <button
                   type="submit"
+                  aria-label="Send message"
                   disabled={!textInput.trim() || callState === 'processing'}
                   className="flex items-center justify-center h-10 w-10 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-all flex-shrink-0"
                 >

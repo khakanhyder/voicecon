@@ -382,6 +382,7 @@ export default function AgentsPage() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
+            aria-label="Sort agents"
             className="border border-slate-200 rounded-lg text-sm font-medium text-slate-600 py-2 pl-3 pr-8 outline-none bg-white hover:bg-slate-50 appearance-none cursor-pointer"
           >
             <option value="Newest">Sort by: Newest</option>

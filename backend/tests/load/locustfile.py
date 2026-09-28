@@ -122,43 +122,29 @@ class BillingBehavior(SequentialTaskSet):
 
 
 class MarketplaceBehavior(SequentialTaskSet):
-    """Sequence of marketplace-related tasks."""
-
-    @task
-    def list_agent_templates(self):
-        """List agent templates."""
-        self.client.get("/api/v1/marketplace/templates/agents")
-
-    @task
-    def search_templates(self):
-        """Search templates."""
-        queries = ["support", "sales", "scheduling", "ecommerce"]
-        query = random.choice(queries)
-        self.client.get(f"/api/v1/marketplace/templates/agents?search={query}")
-
-    @task
-    def filter_by_category(self):
-        """Filter templates by category."""
-        categories = ["customer_support", "sales", "scheduling", "ecommerce"]
-        category = random.choice(categories)
-        self.client.get(f"/api/v1/marketplace/templates/agents?category={category}")
-
-    @task
-    def get_template_details(self):
-        """Get template details."""
-        # First get list
-        response = self.client.get("/api/v1/marketplace/templates/agents?limit=5")
-
-        if response.status_code == 200:
-            templates = response.json()
-            if templates:
-                slug = templates[0]["slug"]
-                self.client.get(f"/api/v1/marketplace/templates/agents/{slug}")
+    """Browse the workflow template catalogue (the New Workflow page)."""
 
     @task
     def list_workflow_templates(self):
         """List workflow templates."""
         self.client.get("/api/v1/marketplace/templates/workflows")
+
+    @task
+    def search_templates(self):
+        """Search templates."""
+        query = random.choice(["slack", "hubspot", "digest", "webhook"])
+        self.client.get(f"/api/v1/marketplace/templates/workflows?search={query}")
+
+    @task
+    def get_template_details(self):
+        """Get template details."""
+        response = self.client.get("/api/v1/marketplace/templates/workflows?limit=5")
+
+        if response.status_code == 200:
+            templates = response.json()
+            if templates:
+                slug = templates[0]["slug"]
+                self.client.get(f"/api/v1/marketplace/templates/workflows/{slug}")
 
 
 class CallFlowBehavior(SequentialTaskSet):
@@ -396,7 +382,7 @@ class AdminUser(HttpUser):
 
 
 class AnonymousUser(HttpUser):
-    """Anonymous user browsing marketplace."""
+    """Anonymous user browsing workflow templates."""
 
     wait_time = between(1, 2)
     weight = 2
@@ -424,7 +410,7 @@ class StressTest(HttpUser):
     @task(2)
     def list_templates_rapid(self):
         """Rapidly list templates."""
-        self.client.get("/api/v1/marketplace/templates/agents")
+        self.client.get("/api/v1/marketplace/templates/workflows")
 
     @task(1)
     def get_metrics_rapid(self):
@@ -443,7 +429,7 @@ class SpikeTest(HttpUser):
         # Burst of requests
         for _ in range(10):
             self.client.get("/api/v1/agents")
-            self.client.get("/api/v1/marketplace/templates/agents")
+            self.client.get("/api/v1/marketplace/templates/workflows")
             self.client.get("/api/v1/billing/plans")
 
 
@@ -477,7 +463,7 @@ def print_stats():
     print("\n" + "=" * 80)
     print("ADDITIONAL SCENARIOS:")
     print("=" * 80)
-    print("  - Template Marketplace Browsing")
+    print("  - Workflow Template Browsing")
     print("  - Analytics & Metrics Monitoring")
     print("  - Call Metrics & Performance Tracking")
     print("\n" + "=" * 80)

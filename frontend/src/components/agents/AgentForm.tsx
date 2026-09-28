@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen, ChevronUp, ChevronDown, Check, Phone,
 } from 'lucide-react'
@@ -210,28 +210,30 @@ function SliderField({ label, value, min, max, step, format, onChange, hints }: 
   format?: (v: number) => string; onChange: (v: number) => void
   hints?: [string, string, string?]
 }) {
+  const id = useId()
   const display = format ? format(value) : String(value)
   const pct = ((value - min) / (max - min)) * 100
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <Label className="text-[15px] font-semibold text-[#000000] font-poppins flex items-center gap-2">
-          {label} <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
+        <Label htmlFor={id} className="text-[15px] font-semibold text-[#000000] font-poppins flex items-center gap-2">
+          {label} <span aria-hidden="true" className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
         </Label>
         <span className="min-w-[50px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-[13px] font-medium text-[#000000] font-poppins">
           {display}
         </span>
       </div>
-      <div className="relative pt-1 flex items-center h-4">
-        {/* Track below thumb */}
+      {/* The input fills the whole row, so the 2px track is only what is drawn:
+          the area that takes a tap or a drag is as tall as the row. */}
+      <div className="relative flex h-6 items-center max-sm:h-11">
         <div className="absolute w-full h-[2px] bg-slate-200 rounded-full" />
         <div className="absolute h-[2px] bg-[#106959] rounded-full" style={{ width: `${pct}%` }} />
-        <input type="range" min={min} max={max} step={step} value={value}
+        <input id={id} type="range" min={min} max={max} step={step} value={value}
+          aria-valuetext={display}
           onChange={e => onChange(step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value))}
-          className="w-full appearance-none cursor-pointer bg-transparent absolute"
+          className="absolute inset-0 h-full w-full appearance-none cursor-pointer bg-transparent"
           style={{ WebkitAppearance: 'none' }}
         />
-        {/* Simple style to make standard thumb invisible or styled. Here we just rely on browser thumb, it works fine for standard inputs. But we can style it via global css if needed. */}
       </div>
       {hints && (
         <div className="flex justify-between text-xs text-slate-400">
@@ -242,11 +244,14 @@ function SliderField({ label, value, min, max, step, format, onChange, hints }: 
   )
 }
 
-function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <button type="button" onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-[#0F6A59]' : 'bg-slate-300'}`}>
-      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+    // The button is the tap area; the 36x20 track inside it is only the drawing.
+    <button type="button" role="switch" aria-checked={enabled} aria-label={label} onClick={() => onChange(!enabled)}
+      className="group inline-flex flex-shrink-0 items-center justify-center rounded-full focus:outline-none max-sm:min-w-[44px]">
+      <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors group-focus-visible:ring-2 group-focus-visible:ring-[#0F6A59]/40 group-focus-visible:ring-offset-2 ${enabled ? 'bg-[#0F6A59]' : 'bg-slate-300'}`}>
+        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+      </span>
     </button>
   )
 }
@@ -264,6 +269,7 @@ function SectionCard({ title, subtitle, icon: Icon, children, hint }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
         className="flex w-full items-start justify-between gap-3 px-4 pt-5 pb-4 text-left sm:px-6"
       >
         <div className="flex min-w-0 items-start gap-2.5">
@@ -288,7 +294,7 @@ function SectionCard({ title, subtitle, icon: Icon, children, hint }: {
  * answers from. Multi-select, because an agent can hold several; the Knowledge
  * tab edits the same attachment list.
  */
-function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+function KnowledgeBaseSelect({ id, value, onChange }: { id?: string; value: string[]; onChange: (ids: string[]) => void }) {
   const [options, setOptions] = useState<{ id: string; name: string }[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -326,7 +332,10 @@ function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (
   return (
     <div className="relative" ref={boxRef}>
       <button
+        id={id}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
         className="flex h-[42px] w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-[14px] font-poppins text-[#000000] outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15"
       >
@@ -335,7 +344,7 @@ function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+        <div role="listbox" aria-multiselectable="true" className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
           {options.length === 0 ? (
             <p className="px-3 py-2.5 text-sm text-slate-400">No knowledge bases yet</p>
           ) : (
@@ -343,6 +352,8 @@ function KnowledgeBaseSelect({ value, onChange }: { value: string[]; onChange: (
               <button
                 key={o.id}
                 type="button"
+                role="option"
+                aria-selected={value.includes(o.id)}
                 onClick={() => toggle(o.id)}
                 className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
               >
@@ -371,8 +382,9 @@ export function AgentIdentityFields({ form, set }: {
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="space-y-2">
-        <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Assistant Name <span className="text-red-500">*</span></Label>
+        <Label htmlFor="agent-name" className="text-[14px] font-bold text-[#000000] font-poppins block">Assistant Name <span aria-hidden="true" className="text-red-500">*</span></Label>
         <Input
+          id="agent-name"
           placeholder="e.g. Riley"
           value={form.name}
           onChange={e => set('name', e.target.value)}
@@ -381,8 +393,9 @@ export function AgentIdentityFields({ form, set }: {
         />
       </div>
       <div className="space-y-2">
-        <Label className="text-[14px] font-bold text-[#000000] font-poppins block mt-1">Description</Label>
+        <Label htmlFor="agent-description" className="text-[14px] font-bold text-[#000000] font-poppins block mt-1">Description</Label>
         <Textarea
+          id="agent-description"
           placeholder="What does this assistant do?"
           value={form.description}
           onChange={e => set('description', e.target.value)}
@@ -413,8 +426,9 @@ export function AgentTabContent({ tab, form, set }: {
             {/* Left column */}
             <div className="space-y-6">
               <div className="space-y-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">First Message</Label>
-                <Input 
+                <Label htmlFor="agent-first-message" className="text-[15px] font-bold text-[#000000] font-poppins block">First Message</Label>
+                <Input
+                  id="agent-first-message"
                   value={form.first_message} 
                   onChange={e => set('first_message', e.target.value)} 
                   placeholder="Thank you for calling Wellness Partners..."
@@ -422,8 +436,9 @@ export function AgentTabContent({ tab, form, set }: {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins block mt-4">System Prompt</Label>
+                <Label htmlFor="agent-system-prompt" className="text-[15px] font-bold text-[#000000] font-poppins block mt-4">System Prompt</Label>
                 <Textarea
+                  id="agent-system-prompt"
                   placeholder="You are a helpful voice assistant."
                   value={form.system_prompt} 
                   onChange={e => set('system_prompt', e.target.value)}
@@ -436,50 +451,33 @@ export function AgentTabContent({ tab, form, set }: {
             {/* Right column */}
             <div className="space-y-6">
               <div className="space-y-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Provider</Label>
-                {/* Visual match for Provider via input style */}
-                <div className="relative">
-                   <Input 
-                     value={LLM_PROVIDERS.find(p => p.value === form.llm_provider)?.label || 'open.ai'}
-                     readOnly
-                     className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins pl-4 pr-10 font-medium cursor-pointer"
-                   />
-                   <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
-                     <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
-                     <SelectContent>
-                       {LLM_PROVIDERS.map(p => (
-                         <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                       ))}
-                     </SelectContent>
-                   </Select>
-                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#106959]" />
-                </div>
+                <Label htmlFor="agent-prompt-provider" className="text-[15px] font-bold text-[#000000] font-poppins block">Provider</Label>
+                <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
+                  <SelectTrigger id="agent-prompt-provider" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 font-medium"><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    {LLM_PROVIDERS.map(p => (
+                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Model</Label>
-                {/* Visual match for Model via input style */}
-                <div className="relative">
-                   <Input 
-                     value={(LLM_MODELS[form.llm_provider] || []).find(m => m.value === form.llm_model)?.label.split(' ')[0] || 'GPT-4'}
-                     readOnly
-                     className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins pl-4 pr-10 font-medium cursor-pointer"
-                   />
-                   <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
-                     <SelectTrigger className="absolute inset-0 opacity-0 cursor-pointer h-[45px]"><SelectValue/></SelectTrigger>
-                     <SelectContent>
-                       {(LLM_MODELS[form.llm_provider] || []).map(m => (
-                         <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                       ))}
-                     </SelectContent>
-                   </Select>
-                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#106959]" />
-                </div>
+                <Label htmlFor="agent-prompt-model" className="text-[15px] font-bold text-[#000000] font-poppins block">Model</Label>
+                <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
+                  <SelectTrigger id="agent-prompt-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 font-medium"><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    {(LLM_MODELS[form.llm_provider] || []).map(m => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins block">Files</Label>
+                <Label htmlFor="agent-files" className="text-[15px] font-bold text-[#000000] font-poppins block">Files</Label>
                 <KnowledgeBaseSelect
+                  id="agent-files"
                   value={form.knowledge_base_ids}
                   onChange={ids => set('knowledge_base_ids', ids)}
                 />
@@ -491,10 +489,11 @@ export function AgentTabContent({ tab, form, set }: {
               </div>
 
               <div className="space-y-2 pt-2">
-                <Label className="text-[15px] font-bold text-[#000000] font-poppins flex items-center gap-2">
-                  Max Token <span className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
+                <Label htmlFor="agent-max-tokens" className="text-[15px] font-bold text-[#000000] font-poppins flex items-center gap-2">
+                  Max Token <span aria-hidden="true" className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
                 </Label>
                 <Input
+                  id="agent-max-tokens"
                   type="number" min={100} max={4000} step={50}
                   value={form.llm_max_tokens}
                   onChange={e => set('llm_max_tokens', parseInt(e.target.value) || 0)}
@@ -513,9 +512,9 @@ export function AgentTabContent({ tab, form, set }: {
       <SectionCard title="LLM Selection" subtitle="Pick the model that powers the conversation" icon={Cpu} hint={`${LLM_PROVIDERS.length} providers`}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
+          <Label htmlFor="agent-llm-provider" className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
           <Select value={form.llm_provider || 'openai'} onValueChange={v => { set('llm_provider', v); set('llm_model', (LLM_MODELS[v] || LLM_MODELS.openai)[0]?.value || 'gpt-5.4-nano') }}>
-            <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+            <SelectTrigger id="agent-llm-provider" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {LLM_PROVIDERS.map(p => (
                 <SelectItem key={p.value} value={p.value}>
@@ -526,9 +525,9 @@ export function AgentTabContent({ tab, form, set }: {
           </Select>
         </div>
         <div className="space-y-2">
-          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
+          <Label htmlFor="agent-llm-model" className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
           <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
-            <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+            <SelectTrigger id="agent-llm-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
               {(LLM_MODELS[form.llm_provider] || []).map(m => (
                 <SelectItem key={m.value} value={m.value}>
@@ -542,8 +541,8 @@ export function AgentTabContent({ tab, form, set }: {
 
       {form.llm_provider === 'custom' && (
         <div className="space-y-2">
-          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Custom LLM Endpoint URL</Label>
-          <Input value={form.llm_custom_url} onChange={e => set('llm_custom_url', e.target.value)}
+          <Label htmlFor="agent-llm-custom-url" className="text-[14px] font-bold text-[#000000] font-poppins block">Custom LLM Endpoint URL</Label>
+          <Input id="agent-llm-custom-url" value={form.llm_custom_url} onChange={e => set('llm_custom_url', e.target.value)}
             placeholder="https://your-llm-server.com/v1" className="font-mono text-sm"/>
           <p className="text-xs text-slate-400">Must be OpenAI-compatible (chat completions endpoint)</p>
         </div>
@@ -569,7 +568,7 @@ export function AgentTabContent({ tab, form, set }: {
     <div className="flex w-full flex-col">
       <SectionCard title="Voice Selection" subtitle="Choose how the assistant sounds" icon={Volume2}>
         <div className="space-y-2">
-          <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
+          <p className="text-[14px] font-bold leading-none text-[#000000] font-poppins">Provider</p>
           <div className="flex h-[45px] w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-3 font-poppins text-sm text-[#000000] sm:max-w-sm">
             <span>{TTS_PROVIDERS[0].label}</span><span className="ml-2 text-xs text-slate-400">{TTS_PROVIDERS[0].badge}</span>
           </div>
@@ -603,15 +602,15 @@ export function AgentTabContent({ tab, form, set }: {
       <SectionCard title="Transcriber" subtitle="Speech-to-text engine for incoming audio" icon={Mic}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
-            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Provider</Label>
+            <p className="text-[14px] font-bold leading-none text-[#000000] font-poppins">Provider</p>
             <div className="flex h-[45px] w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-3 font-poppins text-sm text-[#000000]">
               <span>{STT_PROVIDERS[0].label}</span><span className="ml-2 text-xs text-slate-400">{STT_PROVIDERS[0].badge}</span>
             </div>
           </div>
           <div className="space-y-2">
-            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
+            <Label htmlFor="agent-stt-model" className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
             <Select value={form.stt_model || defaultSttModel} onValueChange={v => set('stt_model', v)}>
-              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger id="agent-stt-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {sttModels.map(m => (
                   <SelectItem key={m.value} value={m.value}>
@@ -622,9 +621,9 @@ export function AgentTabContent({ tab, form, set }: {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label className="text-[14px] font-bold text-[#000000] font-poppins block">Language</Label>
+            <Label htmlFor="agent-stt-language" className="text-[14px] font-bold text-[#000000] font-poppins block">Language</Label>
             <Select value={form.stt_language} onValueChange={v => set('stt_language', v)}>
-              <SelectTrigger className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
+              <SelectTrigger id="agent-stt-language" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
               </SelectContent>
@@ -644,7 +643,7 @@ export function AgentTabContent({ tab, form, set }: {
           <p className="text-sm font-medium text-slate-800">Allow Interruptions (Barge-in)</p>
           <p className="text-xs text-slate-400 mt-0.5">User can speak while agent is talking</p>
         </div>
-        <Toggle enabled={form.interrupt_enabled} onChange={v => set('interrupt_enabled', v)}/>
+        <Toggle label="Allow interruptions" enabled={form.interrupt_enabled} onChange={v => set('interrupt_enabled', v)}/>
       </div>
       {form.interrupt_enabled && (
         <SliderField label="Interrupt Sensitivity" value={form.interrupt_sensitivity} min={0} max={1} step={0.1}
@@ -674,7 +673,7 @@ export function AgentTabContent({ tab, form, set }: {
             <p className="text-sm font-medium text-slate-800">{label}</p>
             <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
           </div>
-          <Toggle enabled={(form as any)[key]} onChange={v => set(key as keyof AgentFormState, v)}/>
+          <Toggle label={label} enabled={(form as any)[key]} onChange={v => set(key as keyof AgentFormState, v)}/>
         </div>
       ))}
     </SectionCard>

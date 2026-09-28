@@ -118,6 +118,8 @@ export default function WorkflowsPage() {
       ref={fileInput}
       type="file"
       accept="application/json,.json"
+      aria-label="Import workflow from a JSON file"
+      tabIndex={-1}
       className="hidden"
       onChange={handleImportFile}
     />

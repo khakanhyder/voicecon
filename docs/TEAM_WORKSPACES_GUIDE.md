@@ -93,7 +93,7 @@ Two independent layers, both server-side:
    `team.py`/`workspaces.py`.
 
 Genuinely public routes (carrier webhooks, the Stripe webhook, the embeddable
-chat widget, the marketplace catalogue) live on a separate `public_router` in
+chat widget, the workflow template catalogue) live on a separate `public_router` in
 their module and are mounted without the guard.
 
 The frontend hides controls the caller can't use, driven by the same permission

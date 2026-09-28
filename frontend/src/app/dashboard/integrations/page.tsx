@@ -173,7 +173,8 @@ export default function IntegrationsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
               type="text"
-              placeholder="Search..."
+              placeholder="Search categories"
+              aria-label="Search categories"
               value={categoryQuery}
               onChange={(e) => setCategoryQuery(e.target.value)}
               className="pl-10 bg-white border border-slate-200 rounded-full h-[36px]"
@@ -211,7 +212,8 @@ export default function IntegrationsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
                 type="text"
-                placeholder="Search..."
+                placeholder="Search apps"
+                aria-label="Search apps"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 bg-white border border-slate-200 rounded-full h-[40px]"

@@ -757,54 +757,71 @@ GET /api/v1/billing/usage
 
 ### Marketplace Endpoints
 
-#### List Agent Templates
+Workflow templates: the catalogue behind **Start from a template** on the New
+Workflow page. The agent-template, review, installation-list and category
+endpoints that used to live under `/marketplace` were removed together with the
+dashboard's Marketplace page. Agent templates are listed by
+`GET /api/v1/agents/templates/list`.
+
+#### List Workflow Templates
 
 ```http
-GET /api/v1/marketplace/templates/agents?category=customer_support&sort_by=popular
+GET /api/v1/marketplace/templates/workflows?sort_by=popular&limit=12
 ```
+
+Public. Optional filters: `category`, `tag`, `search`, `featured_only`.
 
 **Response:** `200 OK`
 ```json
-{
-  "templates": [
-    {
-      "slug": "customer-support-agent",
-      "name": "Customer Support Agent",
-      "description": "Pre-configured agent for customer support",
-      "category": "customer_support",
-      "version": "2.1.0",
-      "install_count": 1250,
-      "average_rating": 4.8,
-      "is_official": true
-    }
-  ]
-}
+[
+  {
+    "slug": "call-summary-to-slack",
+    "name": "Post a call summary to Slack",
+    "description": "...",
+    "category": "notifications",
+    "required_integrations": ["slack"],
+    "install_count": 12
+  }
+]
 ```
 
 ---
 
-#### Install Template
+#### Get Workflow Template
 
 ```http
-POST /api/v1/marketplace/templates/agents/{slug}/install
+GET /api/v1/marketplace/templates/workflows/{slug}
 ```
+
+Public. Adds `workflow_definition`, `trigger_type`, `trigger_config` and
+`setup_guide` to the fields above.
+
+---
+
+#### Install Workflow Template
+
+```http
+POST /api/v1/marketplace/templates/workflows/{slug}/install
+```
+
+Needs `workflows:write` in the current workspace and a plan that includes
+workflows. Creates an **inactive** copy of the template as an ordinary workflow.
 
 **Request Body:**
 ```json
 {
-  "customizations": {
-    "company_name": "Acme Corp",
-    "support_hours": "9 AM - 5 PM EST"
-  }
+  "customizations": { "name": "Support digest" }
 }
 ```
 
 **Response:** `201 Created`
 ```json
 {
-  "agent_id": "agent-a50e8400-e29b-41d4-a716-446655440000",
-  "name": "Customer Support Agent - Acme Corp",
-  "installed_at": "2025-01-01T10:00:00Z"
+  "id": "0b0e8400-e29b-41d4-a716-446655440000",
+  "template_type": "workflow",
+  "template_name": "Send a daily digest",
+  "created_workflow_id": "a50e8400-e29b-41d4-a716-446655440000",
+  "installed_at": "2026-09-28T10:00:00Z"
 }
 ```
 

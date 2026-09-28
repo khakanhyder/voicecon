@@ -152,7 +152,7 @@ Rules:
         </Step>
         <Step n={2} title="Search for a number">
           <P>
-            Go to <Strong>Phone Numbers</Strong> → <Strong>Purchase Number</Strong>. Filter by
+            Go to <Strong>Phone Numbers</Strong> → <Strong>Buy a number</Strong>. Filter by
             country and area code, and pick one with voice capability.
           </P>
         </Step>

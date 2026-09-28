@@ -204,10 +204,10 @@ export default function AnalyticsPage() {
           )}
         </div>
         <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-          <input type="date" value={dateRange.start} onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+          <input type="date" aria-label="Start date" max={dateRange.end || undefined} value={dateRange.start} onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
             className="border-0 outline-none text-slate-700 bg-transparent text-sm" />
           <span className="text-slate-300">→</span>
-          <input type="date" value={dateRange.end} onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+          <input type="date" aria-label="End date" min={dateRange.start || undefined} value={dateRange.end} onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
             className="border-0 outline-none text-slate-700 bg-transparent text-sm" />
         </div>
         <button

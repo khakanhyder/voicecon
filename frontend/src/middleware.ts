@@ -15,11 +15,14 @@ const LANDING_HOSTS = (process.env.NEXT_PUBLIC_LANDING_HOSTS || 'voicecon.ai,www
   .split(',')
   .map((h) => h.trim().toLowerCase())
   .filter(Boolean)
+// The first landing host is the canonical one. The others (www) serve the same
+// pages, so they redirect to it rather than answering 200 on two origins.
+const CANONICAL_LANDING_HOST = LANDING_HOSTS[0]
 
 // Public pages the landing hosts serve themselves; they need no session.
 // '/' is the full marketing site and each of its sections has a clean URL
-// (/pricing, /faq, ...; see SECTION_PATHS). '/coming-soon' is kept reachable
-// but is no longer the root.
+// (/pricing, /faq, ...; see SECTION_PATHS) served by app/[section].
+// '/coming-soon' is kept reachable but is no longer the root.
 const MARKETING_PATHS = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
 
 // Retired hosts that still route to this deployment (the old nip.io domains).
@@ -43,6 +46,11 @@ export function middleware(request: NextRequest) {
     if (pathname === '/') {
       return NextResponse.redirect(`https://${APP_HOST}/login`, 307)
     }
+    // Section URLs (/pricing, /faq, ...) are marketing pages; the app host
+    // never served them, so send them to the site that does.
+    if (SECTION_PATHS[pathname]) {
+      return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${pathname}${search}`, 308)
+    }
     return NextResponse.next()
   }
 
@@ -50,18 +58,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 308)
   }
 
+  if (LANDING_HOSTS.includes(host) && host !== CANONICAL_LANDING_HOST && MARKETING_PATHS.has(pathname)) {
+    return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${pathname}${search}`, 308)
+  }
+
   // The marketing site lives at the root now; send the old URL there.
   if (pathname === '/landing-page') {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url, 308)
-  }
-
-  // Section URLs render the home page; SmoothScroll then scrolls to the section.
-  if (SECTION_PATHS[pathname]) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.rewrite(url)
   }
 
   // The coming-soon page used to be served at the root here. It is switched off

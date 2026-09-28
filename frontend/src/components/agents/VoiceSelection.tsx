@@ -180,7 +180,7 @@ function PreviewButton({ name, status, onClick }: {
       onClick={onClick}
       aria-label={label}
       title={status === 'playing' ? 'Pause' : status === 'loading' ? 'Loading' : 'Listen'}
-      className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40 ${
+      className={`flex h-10 w-10 max-sm:h-11 max-sm:w-11 flex-shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40 ${
         status === 'idle'
           ? 'bg-[#0F6A59]/10 text-[#0F6A59] hover:bg-[#0F6A59]/20'
           : 'bg-[#0F6A59] text-white'

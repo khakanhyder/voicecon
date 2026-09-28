@@ -30,7 +30,8 @@ import { FlowValidation } from './FlowValidation';
 import { TemplateLibrary } from './TemplateLibrary';
 import { CallTestPanel, TestCallAgent } from './CallTestPanel';
 import { validateFlow } from '@/lib/flowValidation';
-import { apiClient } from '@/lib/api';
+import { apiClient, getErrorMessage } from '@/lib/api';
+import { toast } from 'sonner';
 import { useFlowHistory } from '@/hooks/useFlowHistory';
 import { Button } from '@/components/ui/button';
 import { Save, FileJson, AlertCircle, Check, BookTemplate, Undo, Redo, Play } from 'lucide-react';
@@ -247,10 +248,9 @@ export const FlowBuilder: React.FC<FlowBuilderProps> = ({
         setTestAgent(res.data);
         setTestModalOpen(true);
       } catch (error) {
-        console.error('Failed to load agent for testing:', error);
+        // The button used to fail silently here, which looked like a dead control.
+        toast.error(getErrorMessage(error));
       }
-    } else {
-      console.warn('Cannot test flow without a saved agent ID');
     }
   };
 

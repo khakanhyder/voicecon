@@ -1038,7 +1038,7 @@ export default function ToolsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tools…"
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tools…" aria-label="Search tools"
               className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition-all" />
           </div>
           <button onClick={() => { setPrefillType(null); setFormTool('new') }}

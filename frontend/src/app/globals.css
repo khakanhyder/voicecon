@@ -333,3 +333,29 @@
     display: block !important;
   }
 }
+
+/* Touch targets. On phones, every control inside a .touch-targets region is at
+   least 44px tall (WCAG 2.5.5), whatever height its own classes ask for. Width
+   is deliberately left alone: a min-width replaces a flex item's automatic
+   minimum, which let the buttons in a scrolling row (the agent tab bar) shrink
+   into each other. Icon-only buttons set their own width instead. :where() keeps the specificity at zero so a component can still opt
+   out with its own min-h-* / min-w-*. Inline text links are unaffected: a
+   min-height does nothing to an inline box, and WCAG exempts them. */
+@media (max-width: 639px) {
+  .touch-targets :where(
+    button,
+    a,
+    select,
+    textarea,
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    [role='button'],
+    [role='combobox']
+  ) {
+    min-height: 44px;
+  }
+  .touch-targets :where(input[type='checkbox'], input[type='radio']) {
+    width: 24px;
+    height: 24px;
+  }
+}
+

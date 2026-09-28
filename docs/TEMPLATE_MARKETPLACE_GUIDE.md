@@ -1,5 +1,11 @@
 # Template Marketplace Guide
 
+> **Out of date (2026-09-28).** The dashboard's Marketplace page has been removed,
+> along with the agent-template, review and installation endpoints described
+> below. What remains is the workflow template catalogue on **Workflows → New
+> Workflow → Start from a template** (see `docs/API_DOCUMENTATION.md`, "Marketplace
+> Endpoints"). Kept for history only.
+
 Complete guide for using and managing templates in the Voicecon marketplace.
 
 ## Table of Contents

@@ -11,7 +11,7 @@ export default function AgentTestingPage() {
     <DocPage href="/docs/agents/testing">
       <H2 id="browser-test">Testing in the browser</H2>
       <P>
-        Open an agent and choose <Strong>Test</Strong>. This starts a live conversation over
+        Open an agent and choose <Strong>Test Call</Strong>. This starts a live conversation over
         your computer&rsquo;s microphone and speakers — the same pipeline as a phone call,
         without the phone or the telephony charge.
       </P>

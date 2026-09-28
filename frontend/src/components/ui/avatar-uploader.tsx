@@ -191,6 +191,8 @@ export function AvatarUploader({
         ref={inputRef}
         type="file"
         accept={ACCEPTED.join(',')}
+        aria-label="Upload a profile photo"
+        tabIndex={-1}
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
