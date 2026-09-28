@@ -16,6 +16,7 @@ from app.services.email.base import EmailMessage, EmailProvider
 from app.services.email.providers import ConsoleProvider, SMTPProvider, SendGridProvider
 from app.services.email.templates import (
     render_billing_notice_email,
+    render_email_changed_notice,
     render_invitation_email,
     render_member_joined_email,
     render_verification_code_email,
@@ -74,7 +75,8 @@ class EmailService:
         raise_on_error: bool = False,
     ) -> bool:
         """
-        Send a one-time code for sign-up verification or password reset.
+        Send a one-time code for sign-up verification, password reset or
+        confirming a new email address.
 
         Unlike an invitation, the user is waiting on this email, so callers pass
         ``raise_on_error=True`` to surface a dead mail server rather than
@@ -95,6 +97,36 @@ class EmailService:
             text=text,
         )
         return await self.send(message, raise_on_error=raise_on_error)
+
+    async def send_email_changed_notice(
+        self,
+        *,
+        old_email: str,
+        new_email: str,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Tell the previous address that the account has moved to a new one.
+
+        This is how the owner finds out about a change they did not make, so it
+        goes to the *old* address. It never raises: the change has already
+        happened and must not be reported as failed because a notice bounced.
+        """
+        html, text, subject = render_email_changed_notice(
+            brand=settings.APP_NAME,
+            old_email=old_email,
+            new_email=new_email,
+            support_email=settings.EMAIL_REPLY_TO or "support@voicecon.ai",
+            recipient_name=recipient_name,
+        )
+        message = EmailMessage(
+            to=old_email,
+            to_name=recipient_name,
+            subject=subject,
+            html=html,
+            text=text,
+        )
+        return await self.send(message)
 
     async def send_invitation(
         self,

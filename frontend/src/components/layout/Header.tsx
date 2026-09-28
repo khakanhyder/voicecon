@@ -26,8 +26,9 @@ const pageTitles: Record<
 > = {
   '/dashboard': { title: 'Dashboard', description: 'Overview of your voice AI platform' },
   '/dashboard/agents': { title: 'Agents', description: 'Manage your AI voice agents', action: { label: 'New Agent', href: '/dashboard/agents/new', permission: PERMISSIONS.agentsWrite } },
+  '/dashboard/chatbot': { title: 'Chatbot', description: 'Website chat, answered by your agents', action: { label: 'New Chatbot', href: '/dashboard/chatbot/new', permission: PERMISSIONS.agentsWrite } },
   '/dashboard/calls': { title: 'Call History', description: 'View and manage all calls' },
-  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Purchase Number', href: '/dashboard/phone-numbers?tab=search', permission: PERMISSIONS.phoneNumbersWrite } },
+  '/dashboard/phone-numbers': { title: 'Phone Numbers', description: 'Manage your phone numbers', action: { label: 'Buy a Number', href: '/dashboard/phone-numbers?tab=search', permission: PERMISSIONS.phoneNumbersWrite } },
   '/dashboard/tools': { title: 'Tools', description: 'Manage integration tools' },
   '/dashboard/knowledge': { title: 'Knowledge Base', description: 'Documents your agents answer from', action: { label: 'New Knowledge Base', href: '/dashboard/knowledge/new', permission: PERMISSIONS.knowledgeWrite } },
   '/dashboard/workflows': { title: 'Workflows', description: 'Automate with visual workflows', action: { label: 'New Workflow', href: '/dashboard/workflows/new', permission: PERMISSIONS.workflowsWrite } },

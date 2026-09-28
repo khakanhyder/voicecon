@@ -1,11 +1,13 @@
 """
 One-time codes emailed to a user to prove they control an address.
 
-Used by two flows:
+Used by three flows:
 
 - ``email_verification`` — proving the address at sign-up, before the account
   exists (so the row is keyed by email, not by user id).
 - ``password_reset`` — proving the address before setting a new password.
+- ``email_change`` — proving a signed-in user controls the *new* address
+  before their account moves to it. The code is also bound to that user.
 
 Only the HMAC of the code is stored, so a database leak does not hand out
 working codes. Rows are single-use (``consumed_at``), expire, and count failed
@@ -23,6 +25,7 @@ from app.database import Base
 #: What a code authorises. Kept as plain strings to avoid a DB enum migration.
 PURPOSE_EMAIL_VERIFICATION = "email_verification"
 PURPOSE_PASSWORD_RESET = "password_reset"
+PURPOSE_EMAIL_CHANGE = "email_change"
 
 
 class VerificationCode(Base):

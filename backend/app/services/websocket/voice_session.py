@@ -17,6 +17,7 @@ import aiohttp
 from app.core.config import settings
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
+from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
 from app.services.voice.llm_service import get_llm_service, ConversationContext
 from app.services.voice.providers.base import ChatMessage
@@ -95,6 +96,8 @@ class VoiceSession:
         # Services
         self.stt_service = get_stt_service()
         self.tts_service = get_tts_service()
+        self._tts_key: Optional[str] = None
+        self._tts_key_resolved = False
         self.llm_service = get_llm_service()
         self.transcript_service = get_transcript_service()
         self.analytics_service = get_analytics_service()
@@ -980,6 +983,23 @@ class VoiceSession:
         except Exception as e:
             logger.error(f"Failed to execute telephony action '{action}': {e}", exc_info=True)
 
+    async def _tts_api_key(self) -> Optional[str]:
+        """The workspace's own provider key when the agent speaks with one of
+        its custom voices, else None. Looked up once per call, on a session
+        of its own: the call's session may be mid-query when speech starts."""
+        if not self._tts_key_resolved:
+            from app.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                self._tts_key = await resolve_tts_api_key(
+                    db,
+                    self.agent.organization_id,
+                    self.agent.tts_provider or "elevenlabs",
+                    self.agent.tts_voice_id,
+                )
+            self._tts_key_resolved = True
+        return self._tts_key
+
     async def _speak_response(self, text: str) -> None:
         """
         Synthesize speech and send to caller.
@@ -997,7 +1017,12 @@ class VoiceSession:
             # Request Twilio-native audio (8kHz mulaw) straight from the provider
             # so no local decoding/resampling is needed. ElevenLabs supports
             # "ulaw_8000"; other providers fall back through _to_twilio_mulaw.
-            tts_kwargs = {"text": text, "provider": provider, "voice_id": voice_id}
+            tts_kwargs = {
+                "text": text,
+                "provider": provider,
+                "voice_id": voice_id,
+                "api_key": await self._tts_api_key(),
+            }
             if provider == "elevenlabs":
                 tts_kwargs["output_format"] = "ulaw_8000"
 

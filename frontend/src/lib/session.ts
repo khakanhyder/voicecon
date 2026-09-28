@@ -120,6 +120,23 @@ export function storeSession(
   if (data.user) localStorage.setItem(k.user, JSON.stringify(data.user))
 }
 
+/**
+ * Swap in new tokens for the session that is already signed in.
+ *
+ * Unlike `storeSession`, the workspace and profile are left alone: this is the
+ * same person in the same workspace, whose old tokens the server has just
+ * retired (after an email change, say).
+ */
+export function replaceSessionTokens(
+  data: { access_token?: string; refresh_token?: string },
+  scope: SessionScope = currentScope(),
+): void {
+  if (typeof window === 'undefined' || !data?.access_token) return
+  const k = keys(scope)
+  localStorage.setItem(k.accessToken, data.access_token)
+  if (data.refresh_token) localStorage.setItem(k.refreshToken, data.refresh_token)
+}
+
 /** Drop one scope's credentials. The other scope's session is left alone. */
 export function clearScope(scope: SessionScope = currentScope()): void {
   if (typeof window === 'undefined') return

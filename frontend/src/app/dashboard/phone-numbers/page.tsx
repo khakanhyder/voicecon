@@ -1,89 +1,47 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
-import { apiClient, getErrorMessage } from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
-import { toast } from 'sonner'
-import {
-  Phone, Plus, Search, DollarSign, TrendingUp,
-  CheckCircle, Bot, Loader2, RefreshCw,
-  ChevronDown, X, Plug, ChevronUp
-} from 'lucide-react'
+/**
+ * Phone Numbers.
+ *
+ * Two separate ways to get a number:
+ *  1. Buy a Voicecon number — search, select, buy, done. Provider-agnostic:
+ *     nothing here names the carrier behind Voicecon numbers.
+ *  2. Connect your own provider — the advanced flow, and the only place
+ *     carrier names (Twilio, Telnyx, …) appear.
+ */
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
+import {
+  AlertCircle, ArrowRight, Bot, Check, DollarSign, MessageSquare, Phone, PhoneCall,
+  Plug, Plus, RefreshCw, Trash2, TrendingUp,
+} from 'lucide-react'
+import { apiClient } from '@/lib/api'
+import { API_ENDPOINTS } from '@/lib/constants'
 import { FEATURES } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
-import { PhoneNumberPaywall } from '@/components/billing/PhoneNumberPaywall'
-
 import { useConfirm } from '@/hooks/use-confirm'
-
-interface PhoneNumber {
-  id: string
-  phone_number: string
-  country_code: string | null
-  area_code: string | null
-  provider: string
-  agent_id: string | null
-  capabilities: Record<string, boolean>
-  status: string
-  monthly_cost: number | null
-  created_at: string
-}
-
-interface AvailableNumber {
-  phone_number: string
-  friendly_name: string
-  provider: string
-  locality: string | null
-  region: string | null
-  capabilities: Record<string, boolean>
-  monthly_cost: number | null
-  setup_cost: number | null
-  currency: string | null
-}
-
-/**
- * A carrier account the user can buy numbers from — either Voicecon's own
- * Twilio ('platform') or a carrier they connected under Integrations.
- */
-interface TelephonyProvider {
-  slug: string
-  name: string
-  source: 'integration' | 'platform'
-  connection_id: string | null
-  connection_name: string | null
-  is_default?: boolean
-}
-
-/** Keyed by account, so the same carrier can appear as platform *and* own. */
-const providerKey = (p: TelephonyProvider) => p.connection_id ?? p.slug
-
-/** Which account the number is billed to — the thing users actually pick on. */
-const providerAccountLabel = (p: TelephonyProvider) =>
-  p.source === 'platform'
-    ? 'Voicecon shared account'
-    : p.connection_name || 'Your connected account'
+import { appDisplayName } from '@/lib/appNames'
+import {
+  type NumberSource, type OwnProvider, type PhoneNumber, type PurchaseOptions,
+  formatMonthly, formatPhoneNumber, friendlyPhoneError, hasSms, hasVoice, phoneNumberService,
+} from '@/lib/phoneNumbers'
+import { BuyNumberDialog } from '@/components/phone-numbers/BuyNumberDialog'
+import { OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
 
 const statusStyle: Record<string, string> = {
-  active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  inactive: 'bg-slate-50 text-slate-600 border-slate-200',
-  pending: 'bg-amber-50 text-amber-700 border-amber-200',
-}
-
-function CapBadge({ label, active }: { label: string; active: boolean }) {
-  return (
-    <span className={`px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wide ${active ? 'bg-[#ECF3F2] text-[#106959]' : 'bg-slate-50 text-slate-400 line-through'
-      }`}>
-      {label}
-    </span>
-  )
+  active: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
+  inactive: 'bg-slate-100 text-slate-600 ring-slate-500/15',
+  pending: 'bg-amber-50 text-amber-700 ring-amber-600/15',
 }
 
 /**
- * Opens the purchase modal for `?tab=search` — the target of the layout
- * header's "Purchase Number" button and of any deep link — then drops the
- * param so closing the modal doesn't leave a URL that reopens it on refresh.
- * A separate component so useSearchParams can sit in its own Suspense boundary.
+ * Opens the purchase dialog for `?tab=search` — the target of the layout
+ * header's "Buy a Number" button and of any deep link — then drops the param
+ * so a refresh doesn't reopen it. Its own component so useSearchParams sits in
+ * a Suspense boundary.
  */
 function OpenPurchaseFromUrl({ onOpen }: { onOpen: () => void }) {
   const searchParams = useSearchParams()
@@ -100,577 +58,408 @@ function OpenPurchaseFromUrl({ onOpen }: { onOpen: () => void }) {
   return null
 }
 
+/** One of the two ways to get a number, on the empty state. */
+function ChoiceCard({
+  icon, badge, title, description, points, cta, onClick, featured = false, disabled = false, disabledNote,
+}: {
+  icon: React.ReactNode
+  badge?: { label: string; tone: 'brand' | 'muted' }
+  title: string
+  description: string
+  points: string[]
+  cta: string
+  onClick: () => void
+  featured?: boolean
+  disabled?: boolean
+  disabledNote?: string
+}) {
+  const accent = featured && !disabled
+  return (
+    <div
+      className={`relative flex h-full flex-col rounded-2xl border bg-white p-6 transition-all ${
+        disabled
+          ? 'border-slate-200 opacity-70'
+          : accent
+            ? 'border-[#0F6A59]/30 shadow-[0_8px_30px_-12px_rgba(15,106,89,0.35)] hover:border-[#0F6A59]/60'
+            : 'border-slate-200 hover:border-slate-300 hover:shadow-[0_8px_30px_-14px_rgba(15,23,42,0.2)]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span
+          className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+            accent ? 'bg-[#0F6A59] text-white' : 'bg-slate-100 text-slate-600'
+          }`}
+        >
+          {icon}
+        </span>
+        {badge && (
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+              badge.tone === 'brand' ? 'bg-[#0F6A59]/10 text-[#0F6A59]' : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            {badge.label}
+          </span>
+        )}
+      </div>
+
+      <h4 className="mt-5 text-[16px] font-semibold tracking-tight text-slate-900">{title}</h4>
+      <p className="mt-1 text-[13.5px] leading-relaxed text-slate-500">{description}</p>
+
+      <ul className="mt-5 space-y-2.5">
+        {points.map((point) => (
+          <li key={point} className="flex items-start gap-2.5 text-[13.5px] text-slate-700">
+            <span
+              className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full ${
+                accent ? 'bg-[#0F6A59]/10 text-[#0F6A59]' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              <Check className="h-2.5 w-2.5" strokeWidth={3} />
+            </span>
+            {point}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-auto pt-6">
+        {disabled && disabledNote && <p className="mb-3 text-[12px] text-slate-500">{disabledNote}</p>}
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className={`group inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-[14px] font-semibold transition-colors disabled:cursor-not-allowed ${
+            accent
+              ? 'bg-[#0F6A59] text-white shadow-sm hover:bg-[#0c5a4b]'
+              : 'border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-400'
+          }`}
+        >
+          {cta}
+          {!disabled && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function PhoneNumbersPage() {
   const { confirm, ConfirmDialog } = useConfirm()
   const [numbers, setNumbers] = useState<PhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  // Stable identity: OpenPurchaseFromUrl lists it as an effect dependency.
-  const [openPurchaseModal] = useState(() => () => setIsCreateModalOpen(true))
+  const [listError, setListError] = useState<string | null>(null)
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
+  const [options, setOptions] = useState<PurchaseOptions | null>(null)
 
-  // Search state
-  const [countryCode, setCountryCode] = useState('US')
-  const [areaCode, setAreaCode] = useState('')
-  const [contains, setContains] = useState('')
-  const [searchResults, setSearchResults] = useState<AvailableNumber[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [isPurchasing, setIsPurchasing] = useState<string | null>(null)
+  // Which dialog is open. `buy` carries the flow and, for own-provider
+  // purchases, the connected account to buy on.
+  const [buy, setBuy] = useState<{ source: NumberSource; provider?: OwnProvider } | null>(null)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const openVoicecon = useCallback(() => setBuy({ source: 'voicecon' }), [])
 
-  // Whether this plan may buy numbers at all. The backend refuses the purchase
-  // regardless; this only decides whether we show someone a flow that would.
+  // Whether this plan may buy numbers at all. The API refuses regardless; this
+  // decides whether to show the purchase flow or the upgrade card.
   const canPurchase = useEntitlementStore((s) => s.has)(FEATURES.PHONE_NUMBER_PURCHASE)
   const entitlementsLoading = useEntitlementStore((s) => s.isLoading)
 
-  // Agent selector state for provisioning
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
-  const [selectedAgent, setSelectedAgent] = useState('')
-  const [purchaseTarget, setPurchaseTarget] = useState<AvailableNumber | null>(null)
-
-  // Connected carriers the user can buy from
-  const [providers, setProviders] = useState<TelephonyProvider[]>([])
-  const [selectedProvider, setSelectedProvider] = useState('')
-  const [providersLoading, setProvidersLoading] = useState(true)
-
-  useEffect(() => {
-    fetchNumbers()
-    fetchAgents()
-    fetchProviders()
-  }, [])
-
-  const fetchNumbers = async () => {
+  const fetchNumbers = useCallback(async () => {
     setIsLoading(true)
+    setListError(null)
     try {
       const res = await apiClient.get<PhoneNumber[]>(API_ENDPOINTS.PHONE_NUMBERS)
       setNumbers(Array.isArray(res.data) ? res.data : [])
     } catch (e) {
-      toast.error(getErrorMessage(e))
+      setListError(friendlyPhoneError(e, 'list'))
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
-  const fetchAgents = async () => {
+  const fetchOptions = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ agents: { id: string; name: string }[] }>(API_ENDPOINTS.AGENTS)
-      setAgents(res.data.agents || [])
-    } catch { }
-  }
-
-  const fetchProviders = async () => {
-    setProvidersLoading(true)
-    try {
-      const res = await apiClient.get<TelephonyProvider[]>(API_ENDPOINTS.PHONE_NUMBERS_PROVIDERS)
-      const list = Array.isArray(res.data) ? res.data : []
-      setProviders(list)
-      // Keep the current pick if it survived a refresh, else fall back to the
-      // account the API marks as default (Twilio, own connection before shared).
-      const fallback = list.find(p => p.is_default) ?? list[0]
-      setSelectedProvider(prev =>
-        list.some(p => providerKey(p) === prev) ? prev : (fallback ? providerKey(fallback) : '')
-      )
-    } catch (e) {
-      setProviders([])
-    } finally {
-      setProvidersLoading(false)
+      setOptions(await phoneNumberService.purchaseOptions())
+    } catch {
+      setOptions(null) // the dialogs still work; they report their own errors
     }
-  }
+  }, [])
 
-  const activeProvider = providers.find(p => providerKey(p) === selectedProvider) || null
+  useEffect(() => {
+    fetchNumbers()
+    fetchOptions()
+    apiClient
+      .get<{ agents: { id: string; name: string }[] }>(API_ENDPOINTS.AGENTS)
+      .then((res) => setAgents(res.data.agents || []))
+      .catch(() => setAgents([]))
+  }, [fetchNumbers, fetchOptions])
 
-  const searchNumbers = async () => {
-    if (!activeProvider) {
-      toast.error('Connect a phone provider before searching for numbers')
-      return
-    }
-    setIsSearching(true)
-    setSearchResults([])
-    try {
-      const params = new URLSearchParams({ country_code: countryCode, limit: '10' })
-      if (areaCode) params.set('area_code', areaCode)
-      if (contains) params.set('contains', contains)
-      params.set('provider', activeProvider.slug)
-      if (activeProvider.connection_id) params.set('connection_id', activeProvider.connection_id)
-      const res = await apiClient.get<AvailableNumber[]>(
-        `${API_ENDPOINTS.PHONE_NUMBERS_SEARCH}?${params}`
-      )
-      setSearchResults(Array.isArray(res.data) ? res.data : [])
-      if (!res.data?.length) toast.info('No numbers found for that search. Try different criteria.')
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    } finally {
-      setIsSearching(false)
-    }
-  }
+  const agentNames = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents])
 
-  const purchaseNumber = async (num: AvailableNumber) => {
-    if (!selectedAgent) { toast.error('Please select an agent to assign this number to'); return }
-    if (!activeProvider) { toast.error('Connect a phone provider before purchasing'); return }
-    setIsPurchasing(num.phone_number)
-    try {
-      await apiClient.post(API_ENDPOINTS.PHONE_NUMBERS_PROVISION, {
-        phone_number: num.phone_number,
-        agent_id: selectedAgent,
-        provider: num.provider || activeProvider.slug,
-        connection_id: activeProvider.connection_id,
-        country_code: countryCode,
-        area_code: areaCode || null,
-        monthly_cost: num.monthly_cost,
-      })
-      toast.success(`${num.phone_number} provisioned successfully`)
-      setPurchaseTarget(null)
-      setSelectedAgent('')
-      fetchNumbers()
-      setIsCreateModalOpen(false) // Close modal on success
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    } finally {
-      setIsPurchasing(null)
-    }
-  }
-
-  const releaseNumber = async (id: string) => {
+  const releaseNumber = async (num: PhoneNumber) => {
     const ok = await confirm({
-      title: 'Release Phone Number',
-      description: 'Release this phone number? This cannot be undone.',
-      confirmText: 'Release',
+      title: 'Release phone number',
+      description: `Release ${formatPhoneNumber(num.phone_number)}? Calls to it will stop reaching your assistant, and the number may be given to someone else. This can’t be undone.`,
+      confirmText: 'Release number',
       isDestructive: true,
     })
     if (!ok) return
     try {
-      await apiClient.delete(API_ENDPOINTS.PHONE_NUMBER(id))
+      await apiClient.delete(API_ENDPOINTS.PHONE_NUMBER(num.id))
       toast.success('Phone number released')
       fetchNumbers()
     } catch (e) {
-      toast.error(getErrorMessage(e))
+      toast.error(friendlyPhoneError(e, 'release'))
     }
   }
 
-  const activeCount = numbers.filter(n => n.status === 'active').length
+  const activeCount = numbers.filter((n) => n.status === 'active').length
   const monthlyCost = numbers.reduce((s, n) => s + (n.monthly_cost || 0), 0)
-  const assignedCount = numbers.filter(n => n.agent_id).length
-
+  const assignedCount = numbers.filter((n) => n.agent_id).length
   const statCards = [
-    { label: 'Total Numbers', value: numbers.length, icon: Phone, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Total numbers', value: numbers.length, icon: Phone, color: 'text-[#0F6A59]', bg: 'bg-[#0F6A59]/10' },
     { label: 'Active', value: activeCount, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: 'Assigned', value: assignedCount, icon: Bot, color: 'text-violet-600', bg: 'bg-violet-50' },
-    { label: 'Monthly Cost', value: `$${monthlyCost.toFixed(2)}`, icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'Monthly cost', value: `$${monthlyCost.toFixed(2)}`, icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' },
   ]
 
+  const voiceconDown = options?.voicecon_available === false
+
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6">
       <Suspense fallback={null}>
-        <OpenPurchaseFromUrl onOpen={openPurchaseModal} />
+        <OpenPurchaseFromUrl onOpen={openVoicecon} />
       </Suspense>
-      {/* Search & Purchase Phone Number Modal */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div role="dialog" aria-modal="true" aria-label="Purchase Phone Number" className="w-full max-w-4xl flex flex-col rounded-[16px] bg-[#ECF3F2] border border-[#2E2E2E] shadow-xl overflow-hidden relative max-h-[90vh]">
-            <div className="flex items-center justify-between p-5 pb-3">
-              <h2 className="text-[18px] font-bold text-[#000000] tracking-tight">Purchase Phone Number</h2>
-              <button onClick={() => setIsCreateModalOpen(false)} aria-label="Close" className="text-[#3c7849] hover:bg-[#106959]/10 p-1 rounded-sm transition-colors mt-[-5px]">
-                <X className="h-6 w-6" strokeWidth={2} />
-              </button>
-            </div>
 
-            <div className="px-5 pb-6 overflow-y-auto w-full">
-              {/* A plan without the purchase feature never sees the search UI.
-                  Letting someone pick a number and only then telling them they
-                  cannot have it wastes their time and reads as a bug. */}
-              {!entitlementsLoading && !canPurchase ? (
-                <PhoneNumberPaywall onUpgraded={fetchProviders} />
-              ) : (
-              <>
-              {providersLoading && (
-                <div className="flex flex-col items-center justify-center py-16 bg-white rounded-[6px] border border-gray-300">
-                  <Loader2 className="h-8 w-8 text-blue-500 animate-spin mb-3" />
-                  <p className="text-sm text-slate-500">Checking your connected phone providers…</p>
-                </div>
-              )}
-
-              {!providersLoading && providers.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16 px-8 text-center bg-white rounded-[6px] border border-gray-300 shadow-sm">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 mb-5">
-                    <Plug className="h-8 w-8 text-amber-500" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-800">No phone provider available</h3>
-                  <p className="text-slate-500 text-sm mt-1.5 max-w-sm">
-                    Voicecon&apos;s shared Twilio account isn&apos;t configured on this server, so
-                    numbers have to be bought on your own carrier account. Connect Twilio or
-                    Telnyx under Integrations, then come back here to buy a number.
-                  </p>
-                  <Link
-                    href="/dashboard/integrations"
-                    className="mt-6 flex items-center gap-2 rounded-[6px] !bg-[#106959] hover:!bg-[#0c5044] px-5 py-2.5 text-sm font-semibold text-white transition-all"
-                  >
-                    <Plug className="h-4 w-4" />
-                    Connect a provider
-                  </Link>
-                </div>
-              )}
-
-              {!providersLoading && providers.length > 0 && (
-                <div className="space-y-6 pt-2">
-                  {/* Provider picker */}
-                  <div className="text-[13px]">
-                    <div className="flex items-start justify-between gap-4 flex-wrap">
-                      <div>
-                        <h3 className="text-[14px] font-bold text-[#000000]">Phone Provider</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {providers.length > 1
-                            ? 'Choose which account to buy this number on — it is billed there'
-                            : `Buying on ${providers[0].name} · ${providerAccountLabel(providers[0])}`}
-                        </p>
-                      </div>
-                      {/* <Link
-                        href="/dashboard/integrations"
-                        className="text-xs font-medium text-[#106959] hover:underline"
-                      >
-                        Manage providers
-                      </Link> */}
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {providers.map(p => {
-                          const key = providerKey(p)
-                          const isSelected = key === selectedProvider
-                          return (
-                            <button
-                              key={key}
-                              onClick={() => { setSelectedProvider(key); setSearchResults([]); setPurchaseTarget(null) }}
-                              className={`flex items-center gap-2.5 rounded-[6px] border px-4 py-2 font-medium transition-all text-left ${isSelected
-                                ? 'border-[#106959] bg-[#106959]/10 text-[#106959]'
-                                : 'border-[#2E2E2E] bg-white text-black hover:border-black'
-                                }`}
-                            >
-                              <Plug className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-[#106959]' : 'text-slate-500'}`} />
-                              <span className="flex flex-col leading-tight">
-                                <span className="flex items-center gap-1.5">
-                                  {p.name}
-                                  {p.source === 'platform' && (
-                                    <span className="rounded bg-[#ECF3F2] border border-[#2e2e2e]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                                      Included
-                                    </span>
-                                  )}
-                                </span>
-                                <span className={`text-[11px] font-normal ${isSelected ? 'text-[#106959]/80' : 'text-slate-500'}`}>
-                                  {providerAccountLabel(p)}
-                                </span>
-                              </span>
-                              {isSelected && <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 text-[#106959]" />}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    {/*  */}
-                  </div>
-
-                  {/* Search form */}
-                  <div>
-                    <h3 className="text-[14px] font-bold text-[#000000] mb-3">
-                      Search Available Numbers
-                      {activeProvider && (
-                        <span className="ml-2 font-normal text-slate-500">
-                          on {activeProvider.name} · {providerAccountLabel(activeProvider)}
-                        </span>
-                      )}
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="flex flex-col md:flex-row gap-4">
-                        <div className="flex-1 space-y-1.5">
-                          <label className="text-[14px] font-bold text-[#000000]">Country</label>
-                          <div className="relative">
-                            <select
-                              value={countryCode}
-                              onChange={e => setCountryCode(e.target.value)}
-                              className="w-full appearance-none h-[45px] rounded-[6px] border border-[#2E2E2E] bg-white pl-3 pr-8 py-2 text-[13px] font-medium text-black outline-none focus:border-[#106959] transition-all"
-                            >
-                              <option value="US">United States</option>
-                              <option value="GB">United Kingdom</option>
-                              <option value="CA">Canada</option>
-                              <option value="AU">Australia</option>
-                              <option value="DE">Germany</option>
-                              <option value="FR">France</option>
-                            </select>
-                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
-                          </div>
-                        </div>
-                        <div className="flex-1 space-y-1.5">
-                          <label className="text-[14px] font-bold text-[#000000]">Area Code</label>
-                          <input
-                            type="text"
-                            value={areaCode}
-                            onChange={e => setAreaCode(e.target.value)}
-                            placeholder="e.g. 415"
-                            className="w-full h-[45px] rounded-[6px] border border-[#2E2E2E] bg-white px-3 py-2 text-[13px] font-medium text-black placeholder:text-gray-400 outline-none focus:border-[#106959] transition-all"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[14px] font-bold text-[#000000]">Contains</label>
-                        <input
-                          type="text"
-                          value={contains}
-                          onChange={e => setContains(e.target.value)}
-                          placeholder="e.g. 555"
-                          className="w-full h-[45px] rounded-[6px] border border-[#2E2E2E] bg-white px-3 py-2 text-[13px] font-medium text-black placeholder:text-gray-400 outline-none focus:border-[#106959] transition-all"
-                        />
-                      </div>
-                      <div className="flex items-center gap-4 pt-2">
-                        <button
-                          onClick={() => setIsCreateModalOpen(false)}
-                          className="flex-1 h-[45px] flex items-center justify-center gap-2 rounded-[6px] border border-[#2e2e2e] bg-[#b5b5b5] hover:bg-[#a0a0a0] text-[14px] font-bold text-black transition-all"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={searchNumbers}
-                          disabled={isSearching}
-                          className="flex-1 h-[45px] flex items-center justify-center gap-2 rounded-[6px] !bg-[#106959] hover:!bg-[#0c5044] text-[14px] font-bold text-white transition-all disabled:opacity-60"
-                        >
-                          {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          Search
-                        </button>
-                      </div>
-                    </div>
-                  </div>                  {/* Results & Loading States Wrapper - Fixed Height to prevent jumping */}
-                  <div className="h-[300px] mt-4 w-full">
-                    {/* Results */}
-                    {searchResults.length > 0 && (
-                      <div className="h-full flex flex-col bg-white rounded-[6px] border border-[#2E2E2E] overflow-hidden text-[13px]">
-                        <div className="px-5 py-3 border-b border-gray-200 bg-[#f8faf9] flex-shrink-0">
-                          <p className="font-bold text-[#000000]">
-                            {searchResults.length} numbers available
-                            {activeProvider && (
-                              <span className="ml-1.5 font-normal text-slate-500">from {activeProvider.name}</span>
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex-1 divide-y divide-gray-200 overflow-y-auto custom-scrollbar">
-                          {searchResults.map(num => (
-                            <div key={num.phone_number} className="flex flex-col sm:flex-row sm:items-center gap-4 px-5 py-3 hover:bg-gray-50 transition-colors">
-                              <div className="flex items-center gap-4 flex-1">
-                                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[8px] bg-[#ECF3F2]">
-                                  <Phone className="h-5 w-5 text-[#106959]" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-black font-mono">{num.phone_number}</p>
-                                  <p className="text-[12px] text-slate-500 mt-0.5">
-                                    {[num.locality, num.region].filter(Boolean).join(', ') || 'Unknown region'}
-                                    {num.monthly_cost != null && (
-                                      <span className="ml-1.5 text-slate-500">
-                                        · {num.currency === 'USD' || !num.currency ? '$' : ''}
-                                        {num.monthly_cost.toFixed(2)}/mo
-                                      </span>
-                                    )}
-                                  </p>
-                                </div>
-                                <div className="hidden md:flex items-center gap-1.5">
-                                  {num.capabilities?.voice && <CapBadge label="Voice" active />}
-                                  {(num.capabilities?.SMS || num.capabilities?.sms) && <CapBadge label="SMS" active />}
-                                </div>
-                              </div>
-
-                              {purchaseTarget?.phone_number === num.phone_number ? (
-                                <div className="flex items-center gap-2 w-full sm:w-auto">
-                                  <div className="relative flex-1 sm:flex-none">
-                                    <select
-                                      value={selectedAgent}
-                                      onChange={e => setSelectedAgent(e.target.value)}
-                                      className="w-full appearance-none rounded-[6px] border border-[#2E2E2E] bg-white pl-3 pr-8 py-2 text-[13px] text-black outline-none font-bold h-[36px]"
-                                    >
-                                      <option value="">Select agent…</option>
-                                      {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                    </select>
-                                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-black pointer-events-none" />
-                                  </div>
-                                  <button
-                                    onClick={() => purchaseNumber(num)}
-                                    disabled={isPurchasing === num.phone_number}
-                                    className="h-[36px] flex items-center justify-center gap-1.5 rounded-[6px] !bg-[#106959] hover:!bg-[#0c5044] px-3 font-bold text-white transition-all disabled:opacity-60 text-[13px]"
-                                  >
-                                    {isPurchasing === num.phone_number ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
-                                    Confirm
-                                  </button>
-                                  <button
-                                    onClick={() => { setPurchaseTarget(null); setSelectedAgent('') }}
-                                    className="h-[36px] items-center justify-center rounded-[6px] border border-[#2E2E2E] px-3 font-bold text-black hover:bg-gray-100 transition-colors text-[13px] hidden sm:flex"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setPurchaseTarget(num)}
-                                  className="flex items-center justify-center gap-1.5 rounded-[6px] border border-[#106959] bg-[#106959] px-4 py-2 font-bold text-white hover:bg-[#0c5044] hover:text-white transition-colors h-[36px] w-full sm:w-auto shadow-sm"
-                                >
-                                  <Plus className="h-4 w-4" />
-                                  Purchase
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {searchResults.length === 0 && !isSearching && (
-                      <div className="h-full flex flex-col items-center justify-center text-center bg-white rounded-[6px] border border-[#2E2E2E]">
-                        <Search className="h-10 w-10 text-slate-300 mb-3" />
-                        <p className="text-[14px] font-medium text-slate-500">Search to see available phone numbers</p>
-                        <p className="text-[12px] text-slate-400 mt-1">Filter by country, area code, or pattern</p>
-                      </div>
-                    )}
-
-                    {isSearching && (
-                      <div className="h-full flex flex-col items-center justify-center bg-white rounded-[6px] border border-[#2E2E2E]">
-                        <Loader2 className="h-8 w-8 text-[#106959] animate-spin mb-3" />
-                        <p className="text-[14px] font-medium text-[#106959]">Searching available numbers…</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header operations. "Purchase Number" lives in the layout header
-          (Header.tsx → ?tab=search); on small screens, where that button is
-          hidden, this one stands in for it. */}
-      <div className="flex items-center justify-end -mb-2 gap-3">
+      {/* Actions. "Buy a Number" is also in the layout header (Header.tsx);
+          on small screens that one is hidden, so this row carries it. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex sm:hidden items-center gap-1.5 rounded-[8px] bg-[#106959] hover:bg-[#0c5044] px-4 py-2 text-sm font-semibold text-white transition-all shadow-sm"
+          onClick={openVoicecon}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#0c5a4b] sm:hidden"
         >
-          <Plus className="h-4 w-4" />
-          Purchase Number
+          <Plus className="h-4 w-4" /> Buy a number
         </button>
         <button
-          onClick={fetchNumbers}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-          title="Refresh Numbers"
+          onClick={() => setOwnOpen(true)}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
+          <Plug className="h-4 w-4" /> Use your own provider
+        </button>
+        <button
+          onClick={() => { fetchNumbers(); fetchOptions() }}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          aria-label="Refresh numbers"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
+      {voiceconDown && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <p>
+            Voicecon numbers are temporarily unavailable. You can still{' '}
+            <button type="button" onClick={() => setOwnOpen(true)} className="font-semibold underline">
+              use your own provider
+            </button>
+            .
+          </p>
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {statCards.map(card => {
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-4 card-shadow">
-              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${card.bg}`}>
+            <div key={card.label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 card-shadow">
+              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${card.bg}`}>
                 <Icon className={`h-5 w-5 ${card.color}`} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-xl font-bold text-slate-900">{card.value}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{card.label}</div>
+                <div className="text-xs text-slate-500">{card.label}</div>
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* MY NUMBERS TABLE */}
-      <div className="bg-white rounded-xl border border-slate-200 card-shadow overflow-hidden">
-        {isLoading ? (
-          <div className="space-y-0 divide-y divide-slate-100">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="flex items-center gap-4 px-6 py-4 animate-pulse">
-                <div className="h-10 w-10 bg-slate-100 rounded-lg flex-shrink-0" />
+      {/* Numbers */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white card-shadow">
+        {isLoading && numbers.length === 0 ? (
+          <div className="divide-y divide-slate-100">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex animate-pulse items-center gap-4 px-6 py-4">
+                <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-slate-100" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 w-36 bg-slate-100 rounded" />
-                  <div className="h-3 w-24 bg-slate-100 rounded" />
+                  <div className="h-4 w-40 rounded bg-slate-100" />
+                  <div className="h-3 w-24 rounded bg-slate-100" />
                 </div>
-                <div className="h-5 w-16 bg-slate-100 rounded-full" />
+                <div className="h-5 w-16 rounded-full bg-slate-100" />
               </div>
             ))}
           </div>
-        ) : numbers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#0F6A590A] border border-slate-200 p-3 shadow-sm mb-5">
-              <Phone className="h-8 w-8 text-[#106959]" />
-            </div>
-            <h3 className="text-[20px] font-bold text-[#000000] mb-2">No phone numbers yet</h3>
-            <p className="text-[14px] text-black/60 mt-1.5 max-w-sm">
-              Purchase or link a phone number to start receiving inbound calls with your AI agents.
-            </p>
+        ) : listError ? (
+          <div className="flex flex-col items-center px-6 py-14 text-center">
+            <AlertCircle className="h-8 w-8 text-red-400" />
+            <p className="mt-3 text-[14px] font-semibold text-slate-800">{listError}</p>
             <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="mt-6 flex items-center gap-2 rounded-[8px] bg-[#106959] px-6 py-2.5 text-[14px] font-semibold text-white hover:opacity-90 transition-all shadow-sm"
+              onClick={fetchNumbers}
+              className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              <Plus className="h-4 w-4" />
-              Create your first number
+              <RefreshCw className="h-4 w-4" /> Try again
             </button>
+          </div>
+        ) : numbers.length === 0 ? (
+          <div className="px-5 py-10 sm:px-10 sm:py-14">
+            <div className="mx-auto max-w-lg text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0F6A59]/10 ring-8 ring-[#0F6A59]/[0.04]">
+                <Phone className="h-6 w-6 text-[#0F6A59]" />
+              </div>
+              <h3 className="mt-5 font-poppins text-xl font-semibold tracking-tight text-slate-900 sm:text-[22px]">
+                Get a phone number
+              </h3>
+              <p className="mt-1.5 text-[14px] text-slate-500">
+                Give your AI assistant a number so customers can call it.
+              </p>
+            </div>
+            <div className="mx-auto mt-8 grid max-w-3xl grid-cols-1 gap-4 md:grid-cols-2">
+              <ChoiceCard
+                featured
+                icon={<Phone className="h-5 w-5" />}
+                badge={voiceconDown ? { label: 'Unavailable', tone: 'muted' } : { label: 'Recommended', tone: 'brand' }}
+                title="Buy a Voicecon number"
+                description="Pick a local number and start taking calls right away."
+                points={['Search by country and area code', 'Assigned to your assistant instantly', 'No accounts or credentials needed']}
+                cta="Find a number"
+                disabled={voiceconDown}
+                disabledNote="Temporarily unavailable — use your own provider for now."
+                onClick={openVoicecon}
+              />
+              <ChoiceCard
+                // The only working option while Voicecon numbers are down.
+                featured={voiceconDown}
+                icon={<Plug className="h-5 w-5" />}
+                badge={{ label: 'Advanced', tone: 'muted' }}
+                title="Use your own provider"
+                description="Already have a phone provider account? Connect it here."
+                points={['Keep your existing numbers', 'Billed by your provider', 'Requires your account’s API credentials']}
+                cta="Connect a provider"
+                onClick={() => setOwnOpen(true)}
+              />
+            </div>
           </div>
         ) : (
           <>
-            <div className="hidden md:grid grid-cols-[2.5rem_1fr_8rem_9rem_6rem_7rem_5rem] gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              <div />
+            <div className="hidden grid-cols-[minmax(0,1.6fr)_7rem_minmax(0,1fr)_6rem_7rem_3rem] gap-4 border-b border-slate-200 bg-slate-50 px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
               <div>Number</div>
               <div>Capabilities</div>
-              <div>Agent</div>
+              <div>Answered by</div>
               <div>Status</div>
-              <div>Monthly Cost</div>
-              <div>Actions</div>
+              <div>Monthly</div>
+              <div className="sr-only">Actions</div>
             </div>
-            <div className="divide-y divide-slate-100">
-              {numbers.map(num => (
-                <div key={num.id} className="flex flex-col md:grid md:grid-cols-[2.5rem_1fr_8rem_9rem_6rem_7rem_5rem] gap-2 md:gap-4 px-4 md:px-6 py-4 hover:bg-slate-50 transition-colors">
-                  <div className="hidden md:flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
-                      <Phone className="h-4 w-4 text-blue-600" />
+            <ul className="divide-y divide-slate-100">
+              {numbers.map((num) => {
+                const agentName = num.agent_id ? agentNames.get(num.agent_id) : null
+                return (
+                  <li
+                    key={num.id}
+                    className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 px-4 py-4 transition-colors hover:bg-slate-50/70 md:grid-cols-[minmax(0,1.6fr)_7rem_minmax(0,1fr)_6rem_7rem_3rem] md:px-6"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#0F6A59]/10 sm:flex">
+                        <Phone className="h-4 w-4 text-[#0F6A59]" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold tracking-tight text-slate-900 tabular-nums">
+                          {formatPhoneNumber(num.phone_number)}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {num.source === 'own'
+                            ? `Your ${appDisplayName(num.provider)} account`
+                            : 'Voicecon number'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 font-mono">{num.phone_number}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {num.country_code || 'US'}{num.area_code ? ` · ${num.area_code}` : ''} · {num.provider}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <CapBadge label="Voice" active={num.capabilities?.voice ?? true} />
-                    <CapBadge label="SMS" active={num.capabilities?.SMS ?? num.capabilities?.sms ?? false} />
-                  </div>
-                  <div className="flex items-center">
-                    {num.agent_id ? (
-                      <Link href={`/dashboard/agents/${num.agent_id}`} className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
-                        <Bot className="h-3.5 w-3.5" />
-                        <span className="truncate max-w-[6rem]">View agent</span>
-                      </Link>
-                    ) : (
-                      <span className="text-sm text-slate-400 italic">Unassigned</span>
-                    )}
-                  </div>
-                  <div className="flex items-center">
-                    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusStyle[num.status] || statusStyle.inactive}`}>
-                      {num.status}
-                    </span>
-                  </div>
-                  <div className="hidden md:flex items-center text-sm text-slate-600">
-                    {num.monthly_cost ? `$${num.monthly_cost.toFixed(2)}/mo` : '—'}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => releaseNumber(num.id)}
-                      title="Release number"
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+
+                    <div className="order-last col-span-2 flex flex-wrap gap-1 md:order-none md:col-span-1">
+                      {hasVoice(num.capabilities) && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                          <PhoneCall className="h-3 w-3" /> Voice
+                        </span>
+                      )}
+                      {hasSms(num.capabilities) && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                          <MessageSquare className="h-3 w-3" /> SMS
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="order-last col-span-2 min-w-0 md:order-none md:col-span-1">
+                      {num.agent_id ? (
+                        <Link
+                          href={`/dashboard/agents/${num.agent_id}`}
+                          className="inline-flex max-w-full items-center gap-1.5 text-sm font-medium text-[#0F6A59] hover:underline"
+                        >
+                          <Bot className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span className="truncate">{agentName || 'View assistant'}</span>
+                        </Link>
+                      ) : (
+                        <span className="text-sm text-slate-400">No assistant</span>
+                      )}
+                    </div>
+
+                    <div className="hidden md:block">
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${statusStyle[num.status] || statusStyle.inactive}`}>
+                        {num.status}
+                      </span>
+                    </div>
+
+                    <div className="hidden text-sm text-slate-600 md:block">
+                      {formatMonthly(num.monthly_cost) ?? '—'}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ring-1 ring-inset md:hidden ${statusStyle[num.status] || statusStyle.inactive}`}>
+                        {num.status}
+                      </span>
+                      <button
+                        onClick={() => releaseNumber(num)}
+                        aria-label={`Release ${formatPhoneNumber(num.phone_number)}`}
+                        title="Release number"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
           </>
         )}
       </div>
+
+      <BuyNumberDialog
+        open={buy !== null}
+        onClose={() => setBuy(null)}
+        source={buy?.source ?? 'voicecon'}
+        ownProvider={buy?.provider ?? null}
+        agents={agents}
+        canPurchase={canPurchase}
+        entitlementsLoading={entitlementsLoading}
+        onPurchased={() => fetchNumbers()}
+        onUpgraded={fetchOptions}
+      />
+      <OwnProviderDialog
+        open={ownOpen}
+        onClose={() => setOwnOpen(false)}
+        options={options}
+        onUseAccount={(provider) => {
+          setOwnOpen(false)
+          setBuy({ source: 'own', provider })
+        }}
+      />
       <ConfirmDialog />
     </div>
   )

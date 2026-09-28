@@ -52,18 +52,6 @@ const TIMEZONES: [string, string][] = [
   ['Asia/Tokyo', 'Tokyo (JST)'],
 ]
 
-// Codes, not display names: `users.language` is a 10-character column and the
-// value is meant to be a locale the app can key off later.
-const LANGUAGES: [string, string][] = [
-  ['en', 'English'],
-  ['es', 'Spanish'],
-  ['fr', 'French'],
-  ['de', 'German'],
-  ['ar', 'Arabic'],
-  ['hi', 'Hindi'],
-  ['pt', 'Portuguese'],
-]
-
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',
   admin: 'Admin',
@@ -150,7 +138,7 @@ export default function SettingsGeneralPage() {
 
   const [loading, setLoading] = useState(!user)
   const [saving, setSaving] = useState(false)
-  const [prefs, setPrefs] = useState({ timezone: 'UTC', language: 'en' })
+  const [prefs, setPrefs] = useState({ timezone: 'UTC' })
 
   useEffect(() => {
     let active = true
@@ -161,7 +149,7 @@ export default function SettingsGeneralPage() {
       .then((u) => {
         if (!active) return
         setUser(u)
-        setPrefs({ timezone: u.timezone || 'UTC', language: u.language || 'en' })
+        setPrefs({ timezone: u.timezone || 'UTC' })
       })
       .catch((e) => toast.error(getErrorMessage(e)))
       .finally(() => active && setLoading(false))
@@ -172,18 +160,18 @@ export default function SettingsGeneralPage() {
   }, [])
 
   const dirty =
-    !!user && (prefs.timezone !== (user.timezone || 'UTC') || prefs.language !== (user.language || 'en'))
+    !!user && prefs.timezone !== (user.timezone || 'UTC')
 
   const timezones = useMemo(() => withCurrent(TIMEZONES, prefs.timezone), [prefs.timezone])
-  const languages = useMemo(() => withCurrent(LANGUAGES, prefs.language), [prefs.language])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
       const updated = await authService.updateProfile({
+        // Language is deliberately not offered: the dashboard is English-only,
+        // so a language picker saved a value nothing used.
         timezone: prefs.timezone,
-        language: prefs.language,
       })
       setUser(updated)
       toast.success('Preferences saved')
@@ -231,13 +219,12 @@ export default function SettingsGeneralPage() {
         <div>
           <h2 className="text-xl font-semibold">Preferences</h2>
           <p className="mt-1 text-sm text-slate-600">
-            How dates, times and copy are presented to you across the dashboard.
+            How dates and times are shown to you across the dashboard.
           </p>
         </div>
 
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            <div className="h-[69px] animate-pulse rounded-xl bg-slate-100" />
             <div className="h-[69px] animate-pulse rounded-xl bg-slate-100" />
           </div>
         ) : (
@@ -266,30 +253,6 @@ export default function SettingsGeneralPage() {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="language" className={labelClass}>
-                Language
-              </Label>
-              <Select
-                value={prefs.language}
-                onValueChange={(value) => setPrefs({ ...prefs, language: value })}
-              >
-                <SelectTrigger id="language" className={selectTriggerClass}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Saved to your account. The dashboard is English-only today — this
-                is the preference the rest of the product will read as it lands.
-              </p>
-            </div>
           </div>
         )}
 

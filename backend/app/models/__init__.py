@@ -31,6 +31,7 @@ from app.models.invitation import Invitation
 from app.models.notification import Notification
 from app.models.verification import VerificationCode
 from app.models.platform import PlatformSetting, AdminAuditLog
+from app.models.voice import CustomVoice
 
 __all__ = [
     "Base",
@@ -98,4 +99,6 @@ __all__ = [
     "TemplateVersion",
     # Auth
     "VerificationCode",
+    # Voice library
+    "CustomVoice",
 ]

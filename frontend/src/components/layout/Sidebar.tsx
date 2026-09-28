@@ -34,6 +34,7 @@ import {
   Key,
   Sliders,
   Building2,
+  MessageSquare,
 } from 'lucide-react'
 
 /** Sidebar palette — brand green (#0F6A59). */
@@ -48,6 +49,7 @@ const SIDEBAR = {
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, exact: true },
   { name: 'Agents', href: '/dashboard/agents', icon: Bot },
+  { name: 'Chatbot', href: '/dashboard/chatbot', icon: MessageSquare },
   { name: 'Calls', href: '/dashboard/calls', icon: Phone },
   { name: 'Phone Numbers', href: '/dashboard/phone-numbers', icon: Hash },
   { name: 'Tools', href: '/dashboard/tools', icon: Wrench },

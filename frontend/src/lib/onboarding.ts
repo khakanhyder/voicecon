@@ -151,7 +151,8 @@ export interface ClaimedNumber {
   phone_number_id: string
   phone_number: string
   provider: string
-  source: 'integration' | 'platform'
+  /** 'voicecon' for a Voicecon number, 'own' for the workspace's own provider. */
+  source: 'voicecon' | 'own'
   account_name: string
   agent_id: string
   agent_name: string
@@ -200,6 +201,8 @@ export const onboardingService = {
 
   /** Buys the number and attaches it to the assistant being described. */
   async claimPhoneNumber(payload: {
+    /** 'voicecon' buys a Voicecon number; the carrier behind it is never shown. */
+    source?: 'voicecon' | 'own'
     phone_number: string
     provider?: string
     connection_id?: string | null

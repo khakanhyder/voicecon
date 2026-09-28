@@ -82,8 +82,10 @@ export default function AgentTestingPage() {
 
       <H2 id="chat-widget">The chat widget</H2>
       <P>
-        The same agent can serve text conversations on your website. The{' '}
-        <Strong>Chat Widget</Strong> tab generates a public key and an embed snippet.
+        The same agent can serve text conversations on your website. Create a chatbot under{' '}
+        <Strong>Chatbot</Strong> in the sidebar, choose the agent that answers it, and copy the
+        embed snippet from its <Strong>Install</Strong> tab. One agent can answer several
+        chatbots, and changing the agent never changes the snippet.
       </P>
 
       <ParamTable

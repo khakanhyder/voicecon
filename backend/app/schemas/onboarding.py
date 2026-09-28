@@ -3,7 +3,7 @@ Pydantic schemas for the post-signup onboarding flow.
 """
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -134,6 +134,10 @@ class ClaimPhoneNumberRequest(BaseModel):
     """Claim one of the numbers returned by ``/phone-numbers/search``."""
 
     phone_number: str = Field(..., max_length=50, description="E.164 number to buy")
+    source: Optional[Literal["voicecon", "own"]] = Field(
+        None,
+        description="'voicecon' for a Voicecon number, 'own' for your own connected provider.",
+    )
     provider: Optional[str] = Field(
         None, description="Carrier to buy from. Defaults to Twilio."
     )
@@ -159,8 +163,8 @@ class ClaimPhoneNumberResponse(BaseModel):
 
     phone_number_id: UUID
     phone_number: str
-    provider: str
-    source: str = Field(description="'platform' (Voicecon's account) or 'integration'")
+    provider: str = Field(description="The carrier for your own provider; 'voicecon' for a Voicecon number")
+    source: str = Field(description="'voicecon' (a Voicecon number) or 'own' (your own provider)")
     account_name: str
     agent_id: UUID
     agent_name: str

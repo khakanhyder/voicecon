@@ -161,52 +161,44 @@ export default function WorkflowsPage() {
               <div className="w-12 h-12 rounded-[12px] bg-[#e6f4ea] flex items-center justify-center flex-shrink-0">
                 <GitBranch className="w-6 h-6 text-[#16a34a]" />
               </div>
-              <div className="flex flex-col flex-1 pl-1">
+              <div className="flex flex-col flex-1 min-w-0 pl-1">
                 <span className="text-[12px] font-medium text-gray-500 mb-0.5">Total Workflows</span>
-                <span className="text-[24px] font-bold text-gray-900 leading-none">{total}</span>
-                <span className="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-                  All time workflows <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </span>
+                <span className="text-[11px] text-gray-400 mt-1">All time workflows</span>
               </div>
+              <span className="text-[24px] font-bold text-gray-900 leading-none flex-shrink-0">{total}</span>
             </div>
 
             <div className="bg-white rounded-[16px] border border-gray-100 p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
               <div className="w-12 h-12 rounded-[12px] bg-[#e6f4ea] flex items-center justify-center flex-shrink-0">
                 <CheckCircle2 className="w-6 h-6 text-[#16a34a]" />
               </div>
-              <div className="flex flex-col flex-1 pl-1">
+              <div className="flex flex-col flex-1 min-w-0 pl-1">
                 <span className="text-[12px] font-medium text-gray-500 mb-0.5">Active</span>
-                <span className="text-[24px] font-bold text-gray-900 leading-none">{active}</span>
-                <span className="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-                  Currently running <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </span>
+                <span className="text-[11px] text-gray-400 mt-1">Currently running</span>
               </div>
+              <span className="text-[24px] font-bold text-gray-900 leading-none flex-shrink-0">{active}</span>
             </div>
 
             <div className="bg-white rounded-[16px] border border-gray-100 p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
               <div className="w-12 h-12 rounded-[12px] bg-[#f3e8ff] flex items-center justify-center flex-shrink-0">
                 <Zap className="w-6 h-6 text-[#9333ea]" />
               </div>
-              <div className="flex flex-col flex-1 pl-1">
+              <div className="flex flex-col flex-1 min-w-0 pl-1">
                 <span className="text-[12px] font-medium text-gray-500 mb-0.5">Manual Triggers</span>
-                <span className="text-[24px] font-bold text-gray-900 leading-none">{manual}</span>
-                <span className="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-                  Require manual start <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </span>
+                <span className="text-[11px] text-gray-400 mt-1">Require manual start</span>
               </div>
+              <span className="text-[24px] font-bold text-gray-900 leading-none flex-shrink-0">{manual}</span>
             </div>
 
             <div className="bg-white rounded-[16px] border border-gray-100 p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
               <div className="w-12 h-12 rounded-[12px] bg-[#eff6ff] flex items-center justify-center flex-shrink-0">
                 <Globe className="w-6 h-6 text-[#3b82f6]" />
               </div>
-              <div className="flex flex-col flex-1 pl-1">
+              <div className="flex flex-col flex-1 min-w-0 pl-1">
                 <span className="text-[12px] font-medium text-gray-500 mb-0.5">Webhook Triggers</span>
-                <span className="text-[24px] font-bold text-gray-900 leading-none">{webhooks}</span>
-                <span className="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-                  HTTP webhook based <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </span>
+                <span className="text-[11px] text-gray-400 mt-1">HTTP webhook based</span>
               </div>
+              <span className="text-[24px] font-bold text-gray-900 leading-none flex-shrink-0">{webhooks}</span>
             </div>
           </div>
 

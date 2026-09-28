@@ -39,6 +39,7 @@ from app.schemas.agent import (
 from app.services.agent_service import get_agent_service
 from app.services.voice.llm_service import get_llm_service, ChatMessage
 from app.services.voice.tts_service import get_tts_service
+from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 
@@ -505,6 +506,9 @@ async def test_agent(
                 text=response_text[:200],  # Limit for testing
                 provider=agent.tts_provider,
                 voice_id=agent.tts_voice_id or "rachel",
+                api_key=await resolve_tts_api_key(
+                    db, agent.organization_id, agent.tts_provider, agent.tts_voice_id
+                ),
             )
 
             tts_stats = await tts_service.get_usage_stats(provider=agent.tts_provider)
@@ -570,6 +574,9 @@ async def agent_speak(
             text=request.text,
             provider=agent.tts_provider,
             voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+            api_key=await resolve_tts_api_key(
+                db, org_id, agent.tts_provider, agent.tts_voice_id
+            ),
         )
 
         audio_b64 = base64.b64encode(tts_result.audio_data).decode("utf-8")
@@ -627,6 +634,12 @@ async def agent_respond(
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    # A custom voice from the workspace's own provider account needs that
+    # account's key. Looked up here, on the request's session, before streaming.
+    tts_api_key = await resolve_tts_api_key(
+        db, org_id, agent.tts_provider, agent.tts_voice_id
+    )
 
     # Gather agent conversation config
     end_call_phrases = list(agent.end_call_phrases or [])
@@ -717,6 +730,7 @@ async def agent_respond(
                                 provider=agent.tts_provider,
                                 voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
                                 model="eleven_flash_v2_5",
+                                api_key=tts_api_key,
                             ),
                             timeout=5.0,
                         )

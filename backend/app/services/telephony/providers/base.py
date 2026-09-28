@@ -28,9 +28,18 @@ class NumberProviderError(Exception):
     it is unset.
     """
 
-    def __init__(self, message: str, public_message: Optional[str] = None):
+    def __init__(
+        self,
+        message: str,
+        public_message: Optional[str] = None,
+        status_code: Optional[int] = None,
+    ):
         super().__init__(message)
         self.public_message = public_message
+        #: The carrier's HTTP status when it rejected the request, so callers
+        #: can tell "that number is gone" (4xx) from an outage without parsing
+        #: the carrier's text.
+        self.status_code = status_code
 
     @classmethod
     def public(cls, message: str) -> "NumberProviderError":
@@ -217,6 +226,7 @@ class NumberProvider(ABC):
             raise NumberProviderError(
                 f"{self.name}: {detail}",
                 public_message=_carrier_rejection_message(self.name, response.status_code),
+                status_code=response.status_code,
             )
 
         if not expect_json or not response.content:

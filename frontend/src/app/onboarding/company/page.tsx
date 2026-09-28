@@ -17,8 +17,8 @@ import {
   type AvailableNumber,
   type ClaimedNumber,
   type CompanyProfilePayload,
-  type TelephonyProvider,
 } from '@/lib/onboarding'
+import { formatPhoneNumber, friendlyPhoneError, phoneNumberService, validateSearch } from '@/lib/phoneNumbers'
 
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
@@ -35,15 +35,6 @@ const NUMBER_COUNTRIES = [
   { code: 'GB', label: 'United Kingdom' },
   { code: 'AU', label: 'Australia' },
 ]
-
-/** Providers are keyed by account, so the same carrier can appear twice. */
-const providerKey = (p: TelephonyProvider) => p.connection_id ?? p.slug
-
-/** Which account a number would be billed to. */
-const providerAccountLabel = (p: TelephonyProvider) =>
-  p.source === 'platform'
-    ? 'Voicecon shared account'
-    : p.connection_name || 'Your connected account'
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50'
@@ -97,9 +88,10 @@ export default function CompanyInformationPage() {
   // the form while they look, and it can only ever report one problem.
   const [errors, setErrors] = useState<Partial<Record<keyof typeof form, string>>>({})
 
-  // ── Claiming a number on a carrier account ──────────────────────────────
-  const [providers, setProviders] = useState<TelephonyProvider[]>([])
-  const [selectedProvider, setSelectedProvider] = useState('')
+  // ── Claiming a Voicecon number ───────────────────────────────────────────
+  // Onboarding offers the simple flow only; connecting your own provider is
+  // an advanced option on the Phone Numbers page.
+  const [voiceconAvailable, setVoiceconAvailable] = useState(false)
   const [phoneMode, setPhoneMode] = useState<'claim' | 'manual'>('manual')
   const [numberCountry, setNumberCountry] = useState('US')
   const [areaCode, setAreaCode] = useState('')
@@ -115,52 +107,47 @@ export default function CompanyInformationPage() {
     setErrors((e) => (e[key] ? { ...e, [key]: undefined } : e))
   }
 
-  // Offer number-buying only if there is actually an account to buy on.
+  // Offer number-buying only if Voicecon numbers can actually be bought.
   useEffect(() => {
-    onboardingService
-      .getPhoneProviders()
-      .then((list) => {
-        setProviders(list)
-        if (list.length) {
-          const fallback = list.find((p) => p.is_default) ?? list[0]
-          setSelectedProvider(providerKey(fallback))
-          setPhoneMode('claim')
-        }
+    phoneNumberService
+      .purchaseOptions()
+      .then((options) => {
+        setVoiceconAvailable(options.voicecon_available)
+        if (options.voicecon_available) setPhoneMode('claim')
       })
-      .catch(() => setProviders([]))
+      .catch(() => setVoiceconAvailable(false))
   }, [])
 
-  const activeProvider =
-    providers.find((p) => providerKey(p) === selectedProvider) ?? providers[0] ?? null
-
   const searchNumbers = async () => {
-    if (!activeProvider) return
+    const invalid = validateSearch(numberCountry, areaCode, '')
+    if (invalid) {
+      toast.error(invalid)
+      return
+    }
     setIsSearching(true)
     setResults([])
     try {
-      const found = await onboardingService.searchPhoneNumbers({
+      const found = await phoneNumberService.search({
+        source: 'voicecon',
         country_code: numberCountry,
-        area_code: areaCode || undefined,
-        provider: activeProvider.slug,
-        connection_id: activeProvider.connection_id,
+        area_code: areaCode.trim() || undefined,
+        limit: 6,
       })
       setResults(found)
       if (!found.length) toast.info('No numbers found. Try a different area code.')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Could not search for numbers')
+    } catch (err) {
+      toast.error(friendlyPhoneError(err, 'search'))
     } finally {
       setIsSearching(false)
     }
   }
 
   const claimNumber = async (number: AvailableNumber) => {
-    if (!activeProvider) return
     setClaiming(number.phone_number)
     try {
       const result = await onboardingService.claimPhoneNumber({
+        source: 'voicecon',
         phone_number: number.phone_number,
-        provider: number.provider || activeProvider.slug,
-        connection_id: activeProvider.connection_id,
         country_code: numberCountry,
         area_code: areaCode || undefined,
         monthly_cost: number.monthly_cost,
@@ -170,9 +157,9 @@ export default function CompanyInformationPage() {
       setClaimed(result)
       setResults([])
       set('phone_number')(result.phone_number)
-      toast.success(`${result.phone_number} is yours — ${result.agent_name} will answer it`)
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Could not get that number')
+      toast.success(`${formatPhoneNumber(result.phone_number)} is yours — ${result.agent_name} will answer it`)
+    } catch (err) {
+      toast.error(friendlyPhoneError(err, 'purchase'))
     } finally {
       setClaiming(null)
     }
@@ -390,10 +377,10 @@ export default function CompanyInformationPage() {
                   </span>
                   <div>
                     <p className="font-mono text-sm font-bold text-slate-900">
-                      {claimed.phone_number}
+                      {formatPhoneNumber(claimed.phone_number)}
                     </p>
                     <p className="text-xs text-slate-600">
-                      Answered by {claimed.agent_name} · on {claimed.account_name}
+                      Answered by {claimed.agent_name}
                     </p>
                   </div>
                 </div>
@@ -404,7 +391,7 @@ export default function CompanyInformationPage() {
               </div>
             ) : (
               <>
-                {providers.length > 0 && (
+                {voiceconAvailable && (
                   <div className="mb-3 flex gap-2">
                     <button
                       type="button"
@@ -431,33 +418,8 @@ export default function CompanyInformationPage() {
                   </div>
                 )}
 
-                {phoneMode === 'claim' && activeProvider ? (
+                {phoneMode === 'claim' && voiceconAvailable ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                    <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-slate-500">
-                        Bought on <span className="font-semibold text-slate-700">
-                          {activeProvider.name} · {providerAccountLabel(activeProvider)}
-                        </span>
-                      </p>
-                      {providers.length > 1 && (
-                        <select
-                          value={selectedProvider}
-                          onChange={(e) => {
-                            setSelectedProvider(e.target.value)
-                            setResults([])
-                          }}
-                          aria-label="Account to buy on"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none"
-                        >
-                          {providers.map((p) => (
-                            <option key={providerKey(p)} value={providerKey(p)}>
-                              {p.name} · {providerAccountLabel(p)}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
                     <div className="flex gap-2">
                       <div className="relative">
                         <select
@@ -505,7 +467,7 @@ export default function CompanyInformationPage() {
                             <Phone className="h-4 w-4 flex-shrink-0 text-brand-600" />
                             <div className="min-w-0 flex-1">
                               <p className="font-mono text-sm font-semibold text-slate-900">
-                                {n.phone_number}
+                                {formatPhoneNumber(n.phone_number)}
                               </p>
                               <p className="truncate text-[11px] text-slate-500">
                                 {[n.locality, n.region].filter(Boolean).join(', ') ||

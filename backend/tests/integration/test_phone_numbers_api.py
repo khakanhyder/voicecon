@@ -158,9 +158,49 @@ async def owner(db_session) -> User:
     db_session.add(org)
     await db_session.flush()
     db_session.add(OrganizationMember(organization_id=org.id, user_id=user.id, role="owner"))
+    await _subscribe(db_session, org)
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+async def _subscribe(db_session, org) -> None:
+    """Put the workspace on a live paid plan that may buy numbers.
+
+    Without it every purchase answered 402 before reaching the code under
+    test, so these tests were checking the entitlement guard, not purchasing.
+    """
+    from datetime import datetime, timedelta
+    from decimal import Decimal
+
+    from app.models.subscription import Subscription, SubscriptionPlan
+    from app.services.billing import catalog
+
+    plan = (
+        await db_session.execute(select(SubscriptionPlan).where(SubscriptionPlan.slug == "voice-ai"))
+    ).scalar_one_or_none()
+    if plan is None:
+        plan = SubscriptionPlan(
+            name="Voice AI",
+            slug="voice-ai",
+            stripe_product_id="prod_test_voice_ai",
+            stripe_price_id="price_test_voice_ai",
+            price_monthly=Decimal("120.00"),
+            entitlements=catalog.entitlements_for_plan("voice-ai"),
+        )
+        db_session.add(plan)
+        await db_session.flush()
+    now = datetime.utcnow()
+    db_session.add(
+        Subscription(
+            organization_id=org.id,
+            plan_id=plan.id,
+            status="active",
+            billing_period="monthly",
+            current_period_start=now,
+            current_period_end=now + timedelta(days=30),
+        )
+    )
 
 
 @pytest_asyncio.fixture
@@ -180,6 +220,7 @@ async def other_user(db_session) -> User:
     db_session.add(org)
     await db_session.flush()
     db_session.add(OrganizationMember(organization_id=org.id, user_id=user.id, role="owner"))
+    await _subscribe(db_session, org)
     await db_session.commit()
     await db_session.refresh(user)
     return user
@@ -336,39 +377,45 @@ class TestProviderListing:
         assert res.status_code == 200
         assert res.json() == []
 
-    async def test_platform_twilio_is_offered_without_connecting_anything(
+    async def test_voicecon_numbers_are_offered_without_naming_the_carrier(
         self, client, owner, platform_twilio
     ):
-        """The shared Twilio account is what makes buying work out of the box."""
+        """Voicecon's own account is a purchase option, not a listed carrier."""
         res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
         assert res.status_code == 200
-        body = res.json()
-        assert [p["slug"] for p in body] == ["twilio"]
-        assert body[0]["source"] == "platform"
-        assert body[0]["connection_id"] == "platform:twilio"
-        assert body[0]["is_default"] is True
+        assert res.json() == []
 
-    async def test_own_twilio_is_offered_alongside_the_platform_one(
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/purchase-options")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["voicecon_available"] is True
+        assert body["own_providers"] == []
+        assert "twilio" not in str({k: v for k, v in body.items() if k != "supported_providers"}).lower()
+        assert {p["slug"]: p["connected"] for p in body["supported_providers"]} == {
+            "twilio": False, "telnyx": False,
+        }
+
+    async def test_own_twilio_is_listed_as_the_users_provider(
         self, client, owner, twilio_connected, platform_twilio
     ):
-        """Connecting your own Twilio adds an account; it does not replace ours."""
+        """Connecting your own Twilio adds it to the own-provider flow only."""
         res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
         body = res.json()
-
-        assert [(p["slug"], p["source"]) for p in body] == [
-            ("twilio", "integration"),
-            ("twilio", "platform"),
-        ]
-        # Your own account is the default once you have connected one.
+        assert [(p["slug"], p["source"]) for p in body] == [("twilio", "integration")]
         assert body[0]["connection_id"] == str(twilio_connected.id)
         assert body[0]["is_default"] is True
-        assert body[1]["is_default"] is False
 
-    async def test_twilio_is_listed_before_other_carriers(
-        self, client, owner, telnyx_connected, platform_twilio
+        options = (await as_user(client, owner).get("/api/v1/phone-numbers/purchase-options")).json()
+        assert options["voicecon_available"] is True
+        assert [p["connection_id"] for p in options["own_providers"]] == [str(twilio_connected.id)]
+        assert {p["slug"]: p["connected"] for p in options["supported_providers"]}["twilio"] is True
+
+    async def test_voicecon_unavailable_without_platform_credentials(
+        self, client, owner, telnyx_connected
     ):
-        res = await as_user(client, owner).get("/api/v1/phone-numbers/providers")
-        assert [p["slug"] for p in res.json()] == ["twilio", "telnyx"]
+        options = (await as_user(client, owner).get("/api/v1/phone-numbers/purchase-options")).json()
+        assert options["voicecon_available"] is False
+        assert [p["slug"] for p in options["own_providers"]] == ["telnyx"]
 
     async def test_only_connected_carriers_are_listed(
         self, client, owner, telnyx_connected
@@ -427,6 +474,49 @@ class TestSearch:
         assert res.status_code == 200
         assert res.json()[0]["provider"] == "twilio"
         assert not calls_for("telnyx")
+
+    async def test_voicecon_search_uses_our_account_and_hides_the_carrier(
+        self, client, owner, twilio_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/search?source=voicecon&area_code=415"
+        )
+        assert res.status_code == 200, res.text
+        assert res.json() and all(n["provider"] == "voicecon" for n in res.json())
+        assert "twilio" not in res.text.lower()
+
+    async def test_voicecon_search_without_our_account_is_a_plain_message(
+        self, client, owner, telnyx_connected
+    ):
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/search?source=voicecon")
+        assert res.status_code == 400
+        detail = res.json()["detail"]
+        assert "Voicecon numbers aren't available" in detail
+        assert "twilio" not in detail.lower() and "telnyx" not in detail.lower()
+        assert not calls_for("telnyx")
+
+    async def test_own_search_never_touches_our_account(
+        self, client, owner, telnyx_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).get(
+            f"/api/v1/phone-numbers/search?source=own&connection_id={telnyx_connected.id}&area_code=301"
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()[0]["provider"] == "telnyx"
+        assert not calls_for("twilio")
+
+    async def test_own_search_refuses_our_account_id(
+        self, client, owner, telnyx_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/search?source=own&connection_id=platform:twilio"
+        )
+        assert res.status_code == 400
+
+    async def test_contains_must_be_digits(self, client, owner, platform_twilio):
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/search?source=voicecon&contains=abc")
+        assert res.status_code == 400
+        assert "digits" in res.json()["detail"]
 
     async def test_explicit_provider_selects_that_carrier(
         self, client, owner, telnyx_connected, twilio_connected
@@ -565,6 +655,84 @@ class TestPurchase:
         ).scalar_one()
         assert row.provider_sid == "PN_purchased"
 
+    async def test_voicecon_purchase_never_names_the_carrier(
+        self, client, owner, agent, twilio_connected, platform_twilio
+    ):
+        """source=voicecon buys on our account even when the user has their own."""
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={"phone_number": "+14155550100", "agent_id": str(agent.id), "source": "voicecon"},
+        )
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["source"] == "voicecon"
+        assert body["provider"] == "voicecon"
+        assert body["provider_sid"] is None
+        assert "AC_platform_sid" in calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]["path"]
+
+        listed = (await as_user(client, owner).get("/api/v1/phone-numbers")).json()
+        assert [(n["source"], n["provider"], n["provider_sid"]) for n in listed] == [
+            ("voicecon", "voicecon", None)
+        ]
+        assert "twilio" not in str(listed).lower()
+
+    async def test_own_purchase_shows_the_users_carrier(
+        self, client, owner, agent, telnyx_connected, platform_twilio
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": "+13015550100",
+                "agent_id": str(agent.id),
+                "source": "own",
+                "connection_id": str(telnyx_connected.id),
+            },
+        )
+        assert res.status_code == 201, res.text
+        assert (res.json()["source"], res.json()["provider"]) == ("own", "telnyx")
+        assert not calls_for("twilio")
+
+    async def test_voicecon_carrier_failure_is_a_plain_message(
+        self, client, owner, agent, platform_twilio, monkeypatch
+    ):
+        from app.services.telephony.providers import NumberProviderError
+
+        async def outage(self, method, path, **kwargs):
+            raise NumberProviderError(
+                "Twilio: 503 Service Unavailable at api.twilio.com (AC_platform_sid)",
+                public_message="Twilio is having problems right now. Try again shortly.",
+                status_code=503,
+            )
+
+        monkeypatch.setattr(NumberProvider, "_request", outage)
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={"phone_number": "+14155550100", "agent_id": str(agent.id), "source": "voicecon"},
+        )
+        # 502 leaves the app as 503 (see main.py), with our message intact.
+        assert res.status_code == 503
+        assert res.json()["detail"] == "Unable to complete the purchase. Please try again or contact support."
+
+        res = await as_user(client, owner).get("/api/v1/phone-numbers/search?source=voicecon")
+        assert res.status_code == 503
+        assert res.json()["detail"] == "We couldn't load available numbers right now. Please try again."
+
+    async def test_a_taken_number_says_so(self, client, owner, agent, platform_twilio, monkeypatch):
+        from app.services.telephony.providers import NumberProviderError
+
+        async def gone(self, method, path, **kwargs):
+            if method == "POST" and "IncomingPhoneNumbers" in path:
+                raise NumberProviderError("Twilio: 21422 number not available", public_message="x", status_code=400)
+            return None
+
+        monkeypatch.setattr(NumberProvider, "_request", gone)
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={"phone_number": "+14155550100", "agent_id": str(agent.id), "source": "voicecon"},
+        )
+        assert res.status_code == 409
+        assert res.json()["detail"] == "That number is no longer available. Please choose another one."
+
     async def test_purchase_on_the_platform_account_records_no_connection(
         self, client, owner, agent, platform_twilio, db_session
     ):
@@ -694,7 +862,7 @@ class TestPurchase:
             "/api/v1/phone-numbers/provision", json=payload
         )
         assert second.status_code == 400
-        assert "already provisioned" in second.json()["detail"]
+        assert "already in use" in second.json()["detail"]
         assert CARRIER_CALLS == []
 
     async def test_cannot_buy_a_number_for_someone_elses_agent(
@@ -996,7 +1164,10 @@ class TestOnboardingClaim:
         body = res.json()
 
         assert body["phone_number"] == "+14155550100"
-        assert body["source"] == "platform"
+        # A Voicecon number: the carrier behind it is not named.
+        assert body["source"] == "voicecon"
+        assert body["provider"] == "voicecon"
+        assert body["account_name"] == "Voicecon"
         assert body["agent_name"] == "Aria"
         assert body["agent_created"] is True
 
@@ -1024,7 +1195,8 @@ class TestOnboardingClaim:
             json={"phone_number": "+14155550100", "assistant_name": "Aria"},
         )
         assert res.status_code == 200, res.text
-        assert res.json()["source"] == "integration"
+        assert res.json()["source"] == "own"
+        assert res.json()["provider"] == "twilio"
         assert "ACfakesid" in calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]["path"]
 
     async def test_claim_reuses_an_existing_agent(
@@ -1076,4 +1248,4 @@ class TestOnboardingClaim:
             "/api/v1/onboarding/phone-number", json=payload
         )
         assert second.status_code == 400
-        assert "already provisioned" in second.json()["detail"]
+        assert "already in use" in second.json()["detail"]

@@ -37,6 +37,7 @@ from app.api.v1.endpoints import (
     tools,
     users,
     voice_stream,
+    voices,
     waitlist,
     workflows,
     workspaces,
@@ -89,6 +90,11 @@ api_router.include_router(
 api_router.include_router(
     workflows.router, prefix="/workflows", tags=["workflows"],
     dependencies=_guard(perms.WORKFLOWS_READ, perms.WORKFLOWS_WRITE),
+)
+# The voice library belongs to agent editing, so it shares its permissions.
+api_router.include_router(
+    voices.router, prefix="/voices", tags=["voices"],
+    dependencies=_guard(perms.AGENTS_READ, perms.AGENTS_WRITE),
 )
 api_router.include_router(
     tools.router, prefix="/tools", tags=["tools"],

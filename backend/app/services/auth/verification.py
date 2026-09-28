@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import UserFacingError
 from app.models.verification import (
+    PURPOSE_EMAIL_CHANGE,
     PURPOSE_EMAIL_VERIFICATION,
     PURPOSE_PASSWORD_RESET,
     VerificationCode,
@@ -41,6 +42,7 @@ RESEND_COOLDOWN_SECONDS = 60
 MAX_SENDS_PER_HOUR = 5
 
 __all__ = [
+    "PURPOSE_EMAIL_CHANGE",
     "PURPOSE_EMAIL_VERIFICATION",
     "PURPOSE_PASSWORD_RESET",
     "CODE_TTL_MINUTES",
@@ -69,14 +71,17 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def _hash_code(email: str, purpose: str, code: str) -> str:
+def _hash_code(email: str, purpose: str, code: str, subject: Optional[str] = None) -> str:
     """
     HMAC the code with the app secret.
 
     The address and purpose are part of the message, so a code issued for one
-    address or flow cannot be replayed against another.
+    address or flow cannot be replayed against another. ``subject`` binds the
+    code to one account as well: a code a user requested for a new address only
+    works for that user, whoever else learns it.
     """
-    payload = f"{normalize_email(email)}:{purpose}:{code}".encode()
+    bound = f"{purpose}:{subject}" if subject else purpose
+    payload = f"{normalize_email(email)}:{bound}:{code}".encode()
     return hmac.new(settings.SECRET_KEY.encode(), payload, sha256).hexdigest()
 
 
@@ -89,6 +94,7 @@ async def issue_code(
     db: AsyncSession,
     email: str,
     purpose: str,
+    subject: Optional[str] = None,
 ) -> Tuple[str, datetime]:
     """
     Create a fresh code for `email`, retiring any earlier one.
@@ -152,7 +158,7 @@ async def issue_code(
         VerificationCode(
             email=email,
             purpose=purpose,
-            code_hash=_hash_code(email, purpose, code),
+            code_hash=_hash_code(email, purpose, code, subject),
             expires_at=expires_at,
             created_at=now,
         )
@@ -168,6 +174,7 @@ async def confirm_code(
     email: str,
     purpose: str,
     code: str,
+    subject: Optional[str] = None,
 ) -> None:
     """
     Check a submitted code and consume it.
@@ -210,7 +217,7 @@ async def confirm_code(
         )
 
     expected = record.code_hash
-    submitted = _hash_code(email, purpose, (code or "").strip())
+    submitted = _hash_code(email, purpose, (code or "").strip(), subject)
 
     if not hmac.compare_digest(expected, submitted):
         record.attempts += 1

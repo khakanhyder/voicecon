@@ -65,6 +65,20 @@ class PasswordChange(BaseModel):
         return self
 
 
+class EmailChangeRequest(BaseModel):
+    """Ask for a code to be sent to the address the account should move to."""
+    new_email: EmailStr
+    #: Required when the account has a password. Someone at an unlocked laptop
+    #: must not be able to move the account to an address of their own.
+    current_password: Optional[str] = None
+
+
+class EmailChangeConfirm(BaseModel):
+    """Submit the code that was sent to the new address."""
+    new_email: EmailStr
+    code: str = Field(..., min_length=4, max_length=12)
+
+
 class UserInDB(UserBase):
     """User schema as stored in database."""
     model_config = ConfigDict(from_attributes=True)
@@ -75,6 +89,7 @@ class UserInDB(UserBase):
     is_verified: bool
     #: Only used to show the Admin link; the admin API checks the flag itself.
     is_platform_admin: bool = False
+    has_password: bool = True
     email_verified_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
     created_at: datetime

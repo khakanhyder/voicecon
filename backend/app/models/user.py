@@ -106,6 +106,12 @@ class User(Base):
         "Call", back_populates="user", cascade="all, delete-orphan"
     )
 
+    @property
+    def has_password(self) -> bool:
+        """False for an account that has only ever signed in with Google or
+        Apple. Lets the UI ask for a password only where there is one."""
+        return bool(self.hashed_password)
+
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
 

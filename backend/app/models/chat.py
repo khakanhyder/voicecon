@@ -33,16 +33,24 @@ from app.database import Base
 
 
 class ChatWidget(Base):
-    """A public, embeddable text channel for an agent."""
+    """A chatbot: a public, embeddable text channel answered by an agent.
+
+    A first-class workspace object (Dashboard → Chatbot), not a setting of an
+    agent. It is linked to the agent that answers it, and that link can be
+    changed — or be empty, in which case the embed stays installed but hides
+    itself until an agent is chosen. Deleting the agent leaves the chatbot,
+    its embed key and its history in place.
+    """
 
     __tablename__ = "chat_widgets"
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"),
-        unique=True, index=True, nullable=False,
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"),
+        index=True, nullable=True,
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), index=True)
 

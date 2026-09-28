@@ -46,6 +46,13 @@ from app.services.telephony.provider_registry import (
 )
 from app.services.billing import catalog
 from app.services.telephony.providers import NumberProviderError
+from app.services.telephony.purchase_account import (
+    SOURCE_VOICECON,
+    VOICECON_PROVIDER_LABEL,
+    public_error,
+    public_source,
+    resolve_account,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -238,39 +245,33 @@ async def claim_phone_number(
         select(PhoneNumber).where(PhoneNumber.phone_number == payload.phone_number)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Phone number already provisioned")
+        raise HTTPException(status_code=400, detail="That number is already in use. Please choose another one.")
 
     agent, agent_created = await _assistant_agent(
         db, current_user, org_id, payload.assistant_name, payload.assistant_instructions
     )
 
+    voicecon = payload.source == SOURCE_VOICECON
     try:
+        provider, connection_id = await resolve_account(
+            db, org_id, source=payload.source, provider=payload.provider,
+            connection_id=payload.connection_id,
+        )
         record, resolved = await purchase_number_for_agent(
             db,
             current_user,
             agent,
             phone_number=payload.phone_number,
-            provider=payload.provider,
-            connection_id=payload.connection_id,
+            provider=provider,
+            connection_id=connection_id,
             country_code=payload.country_code,
             area_code=payload.area_code,
             monthly_cost=payload.monthly_cost,
         )
-    except (NoTelephonyProviderError, AmbiguousProviderError) as e:
-        raise HTTPException(status_code=400, detail=e.public_message)
-    except NumberProviderError as e:
-        logger.error(f"Onboarding purchase failed for {payload.phone_number}: {e}")
-        raise HTTPException(
-            status_code=502,
-            detail=e.public_message or "The phone carrier could not complete that purchase. Please try again.",
-        )
-    except (WebhookUrlNotConfigured, NumberNotRecordedError) as e:
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error claiming phone number: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="An internal error occurred. Please try again."
-        )
+        raise public_error(e, action="purchase", voicecon=voicecon)
 
     # Show the claimed number back on the company form when it reloads.
     result = await db.execute(
@@ -281,12 +282,13 @@ async def claim_phone_number(
         profile.phone_number = record.phone_number
         await db.commit()
 
+    is_voicecon = resolved.option.source == "platform"
     return ClaimPhoneNumberResponse(
         phone_number_id=record.id,
         phone_number=record.phone_number,
-        provider=record.provider,
-        source=resolved.option.source,
-        account_name=resolved.option.connection_name or resolved.option.name,
+        provider=VOICECON_PROVIDER_LABEL if is_voicecon else record.provider,
+        source=public_source(resolved.option.source),
+        account_name="Voicecon" if is_voicecon else (resolved.option.connection_name or resolved.option.name),
         agent_id=agent.id,
         agent_name=agent.name,
         agent_created=agent_created,

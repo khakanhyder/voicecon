@@ -6,16 +6,21 @@ Two surfaces:
 * Public (no auth, keyed by the widget's public_key) — what the embedded widget
   on a customer site calls: fetch config, send a message. These must be CORS
   open because they run on arbitrary origins.
-* Dashboard (JWT auth) — enable a widget for an agent, brand it, and read the
-  chat sessions for reporting.
+* Dashboard (JWT auth) — the Chatbot section: create chatbots, link each to
+  the agent that answers it, brand them, and read their conversations.
+
+A chatbot (``ChatWidget``) is its own object. ``/chatbots`` is the API for it;
+the older ``/agents/{agent_id}/widget`` routes still work for API clients and
+address the agent's first chatbot.
 """
 import logging
 import secrets
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,7 +67,9 @@ async def _load_enabled_widget(db: AsyncSession, public_key: str) -> ChatWidget:
         )
     ).scalar_one_or_none()
 
-    if not widget or not widget.enabled:
+    # A chatbot with no agent linked has nobody to answer; the embed treats a
+    # 404 as "don't show the launcher", so the site simply shows no chat.
+    if not widget or not widget.enabled or widget.agent_id is None:
         raise HTTPException(status_code=404, detail="Chat widget not found")
     return widget
 
@@ -101,7 +108,7 @@ async def send_widget_message(
 
     agent = await db.get(Agent, widget.agent_id)
     if not agent or not agent.is_active:
-        raise HTTPException(status_code=404, detail="Agent is unavailable")
+        raise HTTPException(status_code=404, detail="This chat isn't available right now.")
 
     # Resume or open a session.
     session = await _resolve_session(db, widget, agent, payload, request)
@@ -196,6 +203,254 @@ def _embed_snippet(public_key: str, request: Request) -> str:
     )
 
 
+def _chatbot_dict(
+    widget: ChatWidget,
+    request: Request,
+    agent: Optional[Agent] = None,
+    stats: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """A chatbot as the dashboard sees it."""
+    return {
+        "id": str(widget.id),
+        "name": widget.name or (f"{agent.name} chatbot" if agent else "Website chatbot"),
+        "enabled": widget.enabled,
+        "agent_id": str(widget.agent_id) if widget.agent_id else None,
+        "agent": {"id": str(agent.id), "name": agent.name, "is_active": agent.is_active} if agent else None,
+        # Live on customer sites: enabled and answered by an active agent.
+        "live": bool(widget.enabled and agent is not None and agent.is_active),
+        "public_key": widget.public_key,
+        "config": {**DEFAULT_WIDGET_CONFIG, **(widget.config or {})},
+        "embed_snippet": _embed_snippet(widget.public_key, request),
+        "session_count": (stats or {}).get("session_count", 0),
+        "last_activity_at": (stats or {}).get("last_activity_at"),
+        "created_at": widget.created_at.isoformat() if widget.created_at else None,
+        "updated_at": widget.updated_at.isoformat() if widget.updated_at else None,
+    }
+
+
+class ChatbotCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    agent_id: Optional[uuid.UUID] = None
+    enabled: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatbotUpdate(BaseModel):
+    """Partial update. Send ``agent_id: null`` to unlink the agent."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    agent_id: Optional[uuid.UUID] = None
+    enabled: Optional[bool] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+def _clean_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep branding to known keys and plain values, so the public config
+    endpoint never serves arbitrary nested data."""
+    allowed = set(DEFAULT_WIDGET_CONFIG) | {"avatar_url"}
+    cleaned: Dict[str, Any] = {}
+    for key, value in (config or {}).items():
+        if key not in allowed or not isinstance(value, (str, int, float, bool)) or value is None:
+            continue
+        cleaned[key] = value[:500] if isinstance(value, str) else value
+    if "position" in cleaned and cleaned["position"] not in ("bottom-right", "bottom-left"):
+        cleaned.pop("position")
+    return cleaned
+
+
+async def _workspace_agent(db: AsyncSession, agent_id: uuid.UUID, org_id: uuid.UUID) -> Agent:
+    agent = (
+        await db.execute(
+            select(Agent).where(and_(Agent.id == agent_id, Agent.organization_id == org_id))
+        )
+    ).scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=400, detail="Choose an agent from this workspace.")
+    return agent
+
+
+async def _owned_chatbot(db: AsyncSession, chatbot_id: str, org_id: uuid.UUID) -> ChatWidget:
+    try:
+        chatbot_uuid = uuid.UUID(chatbot_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Chatbot not found")
+    widget = (
+        await db.execute(
+            select(ChatWidget).where(
+                and_(ChatWidget.id == chatbot_uuid, ChatWidget.organization_id == org_id)
+            )
+        )
+    ).scalar_one_or_none()
+    if not widget:
+        raise HTTPException(status_code=404, detail="Chatbot not found")
+    return widget
+
+
+async def _session_stats(db: AsyncSession, widget_ids: list) -> Dict[uuid.UUID, Dict[str, Any]]:
+    if not widget_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                ChatSession.widget_id,
+                func.count(ChatSession.id),
+                func.max(ChatSession.last_activity_at),
+            )
+            .where(ChatSession.widget_id.in_(widget_ids))
+            .group_by(ChatSession.widget_id)
+        )
+    ).all()
+    return {
+        widget_id: {
+            "session_count": count,
+            "last_activity_at": last.isoformat() if last else None,
+        }
+        for widget_id, count, last in rows
+    }
+
+
+async def _chatbot_response(db: AsyncSession, widget: ChatWidget, request: Request) -> Dict[str, Any]:
+    agent = await db.get(Agent, widget.agent_id) if widget.agent_id else None
+    stats = (await _session_stats(db, [widget.id])).get(widget.id)
+    return _chatbot_dict(widget, request, agent, stats)
+
+
+@router.get("/chatbots")
+async def list_chatbots(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """Every chatbot in the workspace, newest first."""
+    rows = (
+        await db.execute(
+            select(ChatWidget, Agent)
+            .outerjoin(Agent, Agent.id == ChatWidget.agent_id)
+            .where(ChatWidget.organization_id == org_id)
+            .order_by(desc(ChatWidget.created_at))
+        )
+    ).all()
+    stats = await _session_stats(db, [widget.id for widget, _ in rows])
+    return {
+        "chatbots": [
+            _chatbot_dict(widget, request, agent, stats.get(widget.id)) for widget, agent in rows
+        ]
+    }
+
+
+@router.post("/chatbots", status_code=status.HTTP_201_CREATED)
+async def create_chatbot(
+    payload: ChatbotCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """Create a chatbot, optionally linked to the agent that will answer it."""
+    if payload.agent_id:
+        await _workspace_agent(db, payload.agent_id, org_id)
+    widget = ChatWidget(
+        name=payload.name.strip(),
+        agent_id=payload.agent_id,
+        organization_id=org_id,
+        public_key=secrets.token_urlsafe(24),
+        enabled=payload.enabled,
+        config=_clean_config(payload.config),
+    )
+    db.add(widget)
+    await db.commit()
+    await db.refresh(widget)
+    return await _chatbot_response(db, widget, request)
+
+
+@router.get("/chatbots/{chatbot_id}")
+async def get_chatbot(
+    chatbot_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    widget = await _owned_chatbot(db, chatbot_id, org_id)
+    return await _chatbot_response(db, widget, request)
+
+
+@router.patch("/chatbots/{chatbot_id}")
+async def update_chatbot(
+    chatbot_id: str,
+    payload: ChatbotUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """Rename, relink, enable/disable or rebrand a chatbot.
+
+    The public key never changes here, so the embed already on a customer's
+    site keeps working through every edit.
+    """
+    widget = await _owned_chatbot(db, chatbot_id, org_id)
+    fields = payload.model_fields_set
+
+    if "name" in fields and payload.name is not None:
+        widget.name = payload.name.strip()
+    if "agent_id" in fields:
+        if payload.agent_id is not None:
+            await _workspace_agent(db, payload.agent_id, org_id)
+        widget.agent_id = payload.agent_id
+    if "enabled" in fields and payload.enabled is not None:
+        widget.enabled = payload.enabled
+    if "config" in fields and payload.config is not None:
+        # Merge so a partial update doesn't wipe other branding fields.
+        widget.config = {**(widget.config or {}), **_clean_config(payload.config)}
+
+    await db.commit()
+    await db.refresh(widget)
+    return await _chatbot_response(db, widget, request)
+
+
+@router.delete("/chatbots/{chatbot_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chatbot(
+    chatbot_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """Delete a chatbot and its conversations. Its embed stops showing."""
+    widget = await _owned_chatbot(db, chatbot_id, org_id)
+    await db.delete(widget)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/chatbots/{chatbot_id}/sessions")
+async def list_chatbot_sessions(
+    chatbot_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """A chatbot's conversations, newest first — whichever agent answered them."""
+    widget = await _owned_chatbot(db, chatbot_id, org_id)
+    return await _sessions_page(db, ChatSession.widget_id == widget.id, page, page_size)
+
+
+# ---- Per-agent routes (older API; kept for existing API clients) -----------
+
+
+async def _first_chatbot_for_agent(db: AsyncSession, agent: Agent) -> Optional[ChatWidget]:
+    return (
+        await db.execute(
+            select(ChatWidget)
+            .where(ChatWidget.agent_id == agent.id)
+            .order_by(ChatWidget.created_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 @router.get("/agents/{agent_id}/widget")
 async def get_agent_widget(
     agent_id: str,
@@ -204,18 +459,19 @@ async def get_agent_widget(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    """Return the agent's widget (config + embed), or 404 if not set up."""
+    """The agent's first chatbot (config + embed), or ``exists: false``.
+
+    Kept for API clients from before chatbots were standalone; the dashboard
+    uses ``/chatbots``.
+    """
     agent = await _owned_agent(db, agent_id, current_user, org_id)
-
-    widget = (
-        await db.execute(select(ChatWidget).where(ChatWidget.agent_id == agent.id))
-    ).scalar_one_or_none()
-
+    widget = await _first_chatbot_for_agent(db, agent)
     if not widget:
         return {"exists": False}
 
     return {
         "exists": True,
+        "id": str(widget.id),
         "enabled": widget.enabled,
         "public_key": widget.public_key,
         "config": {**DEFAULT_WIDGET_CONFIG, **(widget.config or {})},
@@ -232,18 +488,16 @@ async def upsert_agent_widget(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
 ):
-    """Create or update the agent's widget (enable + branding)."""
+    """Create or update the agent's first chatbot (older API; see above)."""
     agent = await _owned_agent(db, agent_id, current_user, org_id)
+    widget = await _first_chatbot_for_agent(db, agent)
 
-    widget = (
-        await db.execute(select(ChatWidget).where(ChatWidget.agent_id == agent.id))
-    ).scalar_one_or_none()
-
-    incoming_config = payload.get("config") or {}
+    incoming_config = _clean_config(payload.get("config") or {})
     enabled = payload.get("enabled", True)
 
     if widget is None:
         widget = ChatWidget(
+            name=f"{agent.name} chatbot"[:255],
             agent_id=agent.id,
             organization_id=org_id,
             public_key=secrets.token_urlsafe(24),
@@ -253,13 +507,13 @@ async def upsert_agent_widget(
         db.add(widget)
     else:
         widget.enabled = bool(enabled)
-        # Merge so a partial update doesn't wipe other branding fields.
         widget.config = {**(widget.config or {}), **incoming_config}
 
     await db.commit()
     await db.refresh(widget)
 
     return {
+        "id": str(widget.id),
         "enabled": widget.enabled,
         "public_key": widget.public_key,
         "config": {**DEFAULT_WIDGET_CONFIG, **(widget.config or {})},
@@ -278,8 +532,11 @@ async def list_chat_sessions(
 ):
     """Chat sessions for reporting — the text-channel equivalent of calls."""
     agent = await _owned_agent(db, agent_id, current_user, org_id)
+    return await _sessions_page(db, ChatSession.agent_id == agent.id, page, page_size)
 
-    base = select(ChatSession).where(ChatSession.agent_id == agent.id)
+
+async def _sessions_page(db: AsyncSession, condition, page: int, page_size: int) -> Dict[str, Any]:
+    base = select(ChatSession).where(condition)
     total = (
         await db.execute(select(func.count()).select_from(base.subquery()))
     ).scalar_one()
@@ -296,6 +553,8 @@ async def list_chat_sessions(
         "sessions": [
             {
                 "id": str(s.id),
+                "chatbot_id": str(s.widget_id),
+                "agent_id": str(s.agent_id) if s.agent_id else None,
                 "visitor_id": s.visitor_id,
                 "status": s.status,
                 "message_count": s.message_count,
@@ -330,8 +589,10 @@ async def get_session_messages(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Ownership: the session's agent must belong to the caller.
-    await _owned_agent(db, str(session.agent_id), current_user, org_id)
+    # Ownership by workspace: the agent that answered may since have been
+    # deleted or unlinked, but the conversation still belongs to the chatbot.
+    if session.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Session not found")
 
     rows = (
         await db.execute(

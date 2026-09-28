@@ -9,12 +9,20 @@ Handles:
 - Updating phone number configuration
 - Releasing phone numbers
 
-Numbers are bought on whichever carrier the user has connected under
-Integrations (Twilio, Telnyx). The carrier used for a number is recorded on the
-row so releases and webhook changes go back to the same account.
+Two purchase flows share these endpoints (see
+``services/telephony/purchase_account``):
+
+- ``source=voicecon`` — a Voicecon number, bought on Voicecon's own carrier
+  account. The carrier is never named in responses or errors for these.
+- ``source=own`` — a number on a carrier account the workspace connected
+  under Integrations (Twilio, Telnyx).
+
+The account a number was bought on is recorded on the row so releases and
+webhook changes go back to it. Errors never carry carrier, transport or
+internal detail; that stays in the log.
 """
 import logging
-from typing import Any, Dict, List, NoReturn, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +51,16 @@ from app.services.telephony.provider_registry import (
     resolve_provider_for_number,
 )
 from app.services.telephony.providers import NumberProviderError
+from app.services.telephony.purchase_account import (
+    OWN_PROVIDER_CATALOG,
+    SOURCE_OWN,
+    SOURCE_VOICECON,
+    is_voicecon_number,
+    mask_provider,
+    public_error,
+    public_source,
+    resolve_account,
+)
 from app.core.dependencies import get_current_active_user, get_current_org_id
 
 logger = logging.getLogger(__name__)
@@ -51,10 +69,20 @@ router = APIRouter()
 
 
 # Schemas
+PurchaseSource = Literal["voicecon", "own"]
+
+
 class PhoneNumberProvision(BaseModel):
     """Phone number provisioning request."""
     phone_number: str = Field(..., description="Phone number to purchase (E.164 format)")
     agent_id: UUID = Field(..., description="Agent ID to associate with the number")
+    source: Optional[PurchaseSource] = Field(
+        default=None,
+        description=(
+            "'voicecon' for a Voicecon number, 'own' for your own connected provider "
+            "(then connection_id picks which one). Omit to choose by provider/connection_id."
+        ),
+    )
     provider: Optional[str] = Field(
         default=None,
         description="Carrier to buy from (twilio, telnyx). Required when more than one is connected.",
@@ -95,6 +123,10 @@ class PhoneNumberResponse(BaseModel):
     status: str
     monthly_cost: Optional[float]
     created_at: str
+    source: str = Field(
+        default=SOURCE_VOICECON,
+        description="'voicecon' (a Voicecon number) or 'own' (your own connected provider)",
+    )
 
     class Config:
         from_attributes = True
@@ -113,6 +145,25 @@ class AvailablePhoneNumber(BaseModel):
     currency: Optional[str] = None
 
 
+class OwnProviderOption(BaseModel):
+    """A carrier the workspace may connect for the "your own provider" flow."""
+    slug: str
+    name: str
+    description: str
+    connected: bool
+
+
+class PurchaseOptionsResponse(BaseModel):
+    """What the purchase screen can offer this workspace."""
+    voicecon_available: bool = Field(description="Whether Voicecon numbers can be bought")
+    own_providers: List["TelephonyProviderResponse"] = Field(
+        description="Carrier accounts the workspace connected itself"
+    )
+    supported_providers: List[OwnProviderOption] = Field(
+        description="Carriers that can be connected for the own-provider flow"
+    )
+
+
 class TelephonyProviderResponse(BaseModel):
     """A carrier account the user can buy numbers from."""
     slug: str
@@ -127,8 +178,9 @@ class TelephonyProviderResponse(BaseModel):
 
 
 def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
-    """Serialise a phone number row."""
-    return PhoneNumberResponse(
+    """Serialise a phone number row. A Voicecon number never names its carrier."""
+    voicecon = is_voicecon_number(phone_number)
+    return PhoneNumberResponse(**mask_provider(dict(
         id=phone_number.id,
         phone_number=phone_number.phone_number,
         country_code=phone_number.country_code,
@@ -140,28 +192,8 @@ def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
         status=phone_number.status,
         monthly_cost=float(phone_number.monthly_cost) if phone_number.monthly_cost else None,
         created_at=phone_number.created_at.isoformat(),
-    )
-
-
-#: Shown when a carrier fails in a way that has no safe, specific sentence.
-CARRIER_ERROR = "The phone carrier could not complete that request. Please try again."
-
-
-def _raise_provider_error(e: Exception) -> NoReturn:
-    """Raise the HTTP error for a provider-resolution or carrier failure.
-
-    Raises rather than returning the exception, so a caller cannot forget the
-    ``raise`` and send the exception object back as a 200 body. Only messages
-    written for the user reach the client; carrier and transport detail stays
-    in the log.
-    """
-    if isinstance(e, (NoTelephonyProviderError, AmbiguousProviderError)):
-        raise HTTPException(status_code=400, detail=e.public_message)
-    if isinstance(e, NumberProviderError):
-        logger.error(f"Carrier operation failed: {e}")
-        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
-    logger.error(f"Unexpected provider failure: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+        source=SOURCE_VOICECON if voicecon else SOURCE_OWN,
+    ), voicecon=voicecon))
 
 
 @router.get("/providers", response_model=List[TelephonyProviderResponse])
@@ -171,29 +203,56 @@ async def list_phone_number_providers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List the carrier accounts this user can buy phone numbers from.
+    List the carrier accounts this workspace connected itself.
 
-    Includes the Voicecon platform Twilio account (when the server is configured
-    for it) alongside any carrier the user connected under Integrations, so the
-    purchase UI can offer both. The first entry is the default — the user's own
-    Twilio if they connected one, otherwise the platform Twilio.
-
-    An empty list means the server has no platform Twilio configured and the
-    user has connected nothing.
+    Voicecon's own account is not listed: buying a Voicecon number doesn't
+    involve choosing a carrier (see ``GET /phone-numbers/purchase-options``).
     """
     try:
-        options = await list_available_providers(db, org_id)
+        options = [o for o in await list_available_providers(db, org_id) if o.source != "platform"]
         return [
             TelephonyProviderResponse(**option.as_dict(), is_default=(index == 0))
             for index, option in enumerate(options)
         ]
-
     except Exception as e:
         logger.error(f"Error listing phone number providers: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred. Please try again."
+            detail="We couldn't load your connected providers right now. Please try again.",
         )
+
+
+@router.get("/purchase-options", response_model=PurchaseOptionsResponse)
+async def get_purchase_options(
+    current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    What the purchase screen can offer: Voicecon numbers (without naming the
+    carrier behind them), and the workspace's own connected carriers.
+    """
+    try:
+        options = await list_available_providers(db, org_id)
+    except Exception as e:
+        logger.error(f"Error loading phone number purchase options: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="We couldn't load phone number options right now. Please try again.",
+        )
+    own = [o for o in options if o.source != "platform"]
+    connected_slugs = {o.slug for o in own}
+    return PurchaseOptionsResponse(
+        voicecon_available=any(o.source == "platform" for o in options),
+        own_providers=[
+            TelephonyProviderResponse(**o.as_dict(), is_default=(i == 0))
+            for i, o in enumerate(own)
+        ],
+        supported_providers=[
+            OwnProviderOption(**p, connected=p["slug"] in connected_slugs)
+            for p in OWN_PROVIDER_CATALOG
+        ],
+    )
 
 
 @router.get("/search", response_model=List[AvailablePhoneNumber])
@@ -208,15 +267,17 @@ async def search_phone_numbers(
     connection_id: Optional[str] = Query(
         default=None, description="Specific carrier connection to search on"
     ),
+    source: Optional[PurchaseSource] = Query(
+        default=None,
+        description="'voicecon' for Voicecon numbers, 'own' for your own connected provider",
+    ),
     current_user: User = Depends(get_current_active_user),
     org_id: UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Search a connected carrier for available phone numbers.
-
-    The carrier is chosen explicitly with `provider`; when the user has only one
-    connected it is selected automatically.
+    Search for available phone numbers — Voicecon numbers (`source=voicecon`)
+    or numbers on one of the workspace's own providers (`source=own`).
     """
     # Carriers reject a malformed North American area code with a generic
     # 400, which reads as a carrier outage. Say what is wrong instead.
@@ -231,31 +292,37 @@ async def search_phone_numbers(
             detail="US and Canadian area codes are 3 digits, for example 415.",
         )
 
+    contains = (contains or "").strip() or None
+    if contains and not contains.replace("*", "").isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail="“Contains” should be digits only, for example 555.",
+        )
+
+    voicecon = source == SOURCE_VOICECON
     try:
+        provider, connection_id = await resolve_account(
+            db, org_id, source=source, provider=provider, connection_id=connection_id
+        )
         resolved = await resolve_provider(
             db, org_id, slug=provider, connection_id=connection_id
         )
-    except (NoTelephonyProviderError, AmbiguousProviderError, NumberProviderError) as e:
-        _raise_provider_error(e)
-
-    try:
+        voicecon = resolved.option.source == "platform"
         results = await resolved.provider.search_numbers(
             country_code=country_code,
             area_code=area_code,
             contains=contains,
             limit=limit,
         )
-        return [AvailablePhoneNumber(**number.as_dict()) for number in results]
-
-    except NumberProviderError as e:
-        logger.error(f"Carrier search failed on {resolved.slug}: {e}")
-        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error searching phone numbers: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An internal error occurred. Please try again."
-        )
+        raise public_error(e, action="search", voicecon=voicecon)
+
+    return [
+        AvailablePhoneNumber(**mask_provider(number.as_dict(), voicecon=voicecon))
+        for number in results
+    ]
 
 
 @router.post(
@@ -304,36 +371,39 @@ async def provision_phone_number(
     if existing_result.scalar_one_or_none():
         raise HTTPException(
             status_code=400,
-            detail="Phone number already provisioned"
+            detail="That number is already in use. Please choose another one."
         )
 
+    voicecon = provision_request.source == SOURCE_VOICECON
     try:
-        phone_number_record, _ = await purchase_number_for_agent(
+        provider, connection_id = await resolve_account(
+            db,
+            org_id,
+            source=provision_request.source,
+            provider=provision_request.provider,
+            connection_id=provision_request.connection_id,
+        )
+        # Pin the exact account up front, so an error is worded for the
+        # account actually used (a Voicecon purchase never names the carrier).
+        account = await resolve_provider(db, org_id, slug=provider, connection_id=connection_id)
+        voicecon = account.option.source == "platform"
+        phone_number_record, resolved = await purchase_number_for_agent(
             db,
             current_user,
             agent,
             phone_number=provision_request.phone_number,
-            provider=provision_request.provider,
-            connection_id=provision_request.connection_id,
+            provider=account.option.slug,
+            connection_id=account.option.connection_id,
             country_code=provision_request.country_code,
             area_code=provision_request.area_code,
             monthly_cost=provision_request.monthly_cost,
         )
-    except (NoTelephonyProviderError, AmbiguousProviderError) as e:
-        _raise_provider_error(e)
-    except NumberProviderError as e:
-        logger.error(f"Purchase failed for {provision_request.phone_number}: {e}")
-        raise HTTPException(status_code=502, detail=e.public_message or CARRIER_ERROR)
-    except WebhookUrlNotConfigured as e:
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
-    except NumberNotRecordedError as e:
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error provisioning phone number: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="An internal error occurred. Please try again."
-        )
+        # WebhookUrlNotConfigured / NumberNotRecordedError / anything else land
+        # here too: logged in full, shown as the plain purchase message.
+        raise public_error(e, action="purchase", voicecon=voicecon)
 
     return _to_response(phone_number_record)
 
@@ -380,7 +450,7 @@ async def list_phone_numbers(
         logger.error(f"Error listing phone numbers: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred. Please try again."
+            detail="We couldn't load your phone numbers right now. Please try again."
         )
 
 
@@ -425,7 +495,7 @@ async def get_phone_number(
         logger.error(f"Error getting phone number: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred. Please try again."
+            detail="We couldn't load this phone number right now. Please try again."
         )
 
 
@@ -497,10 +567,8 @@ async def update_phone_number(
                     **(metadata or {}),
                     CREDENTIAL_SOURCE_KEY: resolved.option.source,
                 }
-            except WebhookUrlNotConfigured as e:
-                raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
-            except (NoTelephonyProviderError, NumberProviderError) as e:
-                _raise_provider_error(e)
+            except Exception as e:
+                raise public_error(e, action="update", voicecon=is_voicecon_number(phone_number))
 
             phone_number.agent_id = update_request.agent_id
 
@@ -522,7 +590,7 @@ async def update_phone_number(
         logger.error(f"Error updating phone number: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred. Please try again."
+            detail="We couldn't update this number right now. Please try again."
         )
 
 
@@ -563,14 +631,8 @@ async def release_phone_number(
             phone_number=phone_number.phone_number,
             provider_metadata=phone_number.provider_metadata or {},
         )
-    except (NoTelephonyProviderError, NumberProviderError) as e:
-        _raise_provider_error(e)
     except Exception as e:
-        logger.error(f"Error releasing phone number at carrier: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="An internal error occurred. Please try again."
-        )
+        raise public_error(e, action="release", voicecon=is_voicecon_number(phone_number))
 
     try:
         await db.delete(phone_number)
@@ -580,7 +642,7 @@ async def release_phone_number(
         logger.error(f"Error deleting phone number record: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred. Please try again."
+            detail="We couldn't release this number right now. Please try again or contact support."
         )
 
     logger.info(f"Released phone number: {phone_number_id}")

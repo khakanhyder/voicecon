@@ -13,7 +13,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.api.v1.endpoints.phone_numbers import CARRIER_ERROR, _raise_provider_error
+from app.services.telephony.purchase_account import MESSAGES, NUMBER_TAKEN, VOICECON_UNAVAILABLE, public_error
 from app.core.exceptions import UserFacingError
 from app.services.integrations.integration_manager import IntegrationError
 from app.services.telephony.provider_registry import NoTelephonyProviderError
@@ -39,25 +39,47 @@ def test_no_endpoint_returns_raw_exception_text():
 
 
 class TestProviderErrorHelper:
-    def test_raises_instead_of_returning(self):
-        # The reported bug: `return HTTPException(...)` is a value, not an error.
-        with pytest.raises(HTTPException) as exc:
-            _raise_provider_error(NoTelephonyProviderError("Connect Twilio under Integrations first."))
-        assert exc.value.status_code == 400
-        assert exc.value.detail == "Connect Twilio under Integrations first."
+    def test_user_facing_resolution_errors_pass_through_for_own_providers(self):
+        exc = public_error(
+            NoTelephonyProviderError("Connect Twilio under Integrations first."),
+            action="search", voicecon=False,
+        )
+        assert exc.status_code == 400
+        assert exc.detail == "Connect Twilio under Integrations first."
+
+    def test_voicecon_resolution_errors_never_name_a_carrier(self):
+        exc = public_error(
+            NoTelephonyProviderError("Connect Twilio under Integrations first."),
+            action="search", voicecon=True,
+        )
+        assert exc.detail == VOICECON_UNAVAILABLE
+        assert "twilio" not in exc.detail.lower()
 
     def test_carrier_detail_stays_out_of_the_response(self):
         raw = NumberProviderError("Twilio: Account AC123 has insufficient permissions for /IncomingPhoneNumbers")
-        with pytest.raises(HTTPException) as exc:
-            _raise_provider_error(raw)
-        assert exc.value.status_code == 502
-        assert exc.value.detail == CARRIER_ERROR
+        exc = public_error(raw, action="search", voicecon=False)
+        assert exc.status_code == 502
+        assert exc.detail == MESSAGES["search"]
+
+    def test_voicecon_carrier_failures_are_plain_and_unbranded(self):
+        raw = NumberProviderError(
+            "Twilio: 503", public_message="Twilio is having problems right now.", status_code=503
+        )
+        exc = public_error(raw, action="purchase", voicecon=True)
+        assert exc.status_code == 502
+        assert exc.detail == MESSAGES["purchase"]
+
+    def test_a_rejected_purchase_says_the_number_is_gone(self):
+        raw = NumberProviderError("Twilio: 21422 not available", public_message="x", status_code=400)
+        exc = public_error(raw, action="purchase", voicecon=True)
+        assert exc.status_code == 409
+        assert exc.detail == NUMBER_TAKEN
 
     def test_unknown_failures_are_generic_500s(self):
-        with pytest.raises(HTTPException) as exc:
-            _raise_provider_error(RuntimeError("connection to db failed: password authentication"))
-        assert exc.value.status_code == 500
-        assert "password" not in exc.value.detail
+        exc = public_error(RuntimeError("connection to db failed: password authentication"),
+                           action="purchase", voicecon=False)
+        assert exc.status_code == 500
+        assert "password" not in exc.detail
 
 
 class TestCarrierMessages:

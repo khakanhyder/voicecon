@@ -13,12 +13,12 @@ import {
 } from '@/components/agents/AgentForm'
 import { AssistantsRail } from '@/components/agents/AssistantsRail'
 
-// Tabs that hold create-time form fields. Tools, Knowledge and the Chat Widget
-// attach to an agent that already exists, so they stay on the edit screen.
+// Tabs that hold create-time form fields. Tools and Knowledge attach to an
+// agent that already exists, so they stay on the edit screen. (The website
+// chat lives in its own Chatbot section, not on the agent.)
 const FORM_TABS: AgentTabId[] = ['basic', 'llm', 'stt', 'voice', 'conversation', 'advanced']
-// A new assistant has no widget to embed and no calls yet, so these tabs
-// could only ever show a placeholder.
-const CREATE_HIDDEN_TABS: AgentTabId[] = ['widget', 'calls']
+// A new assistant has no calls yet, so this tab could only show a placeholder.
+const CREATE_HIDDEN_TABS: AgentTabId[] = ['calls']
 
 export default function NewAgentPage() {
   const router    = useRouter()

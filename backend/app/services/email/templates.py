@@ -86,6 +86,21 @@ VERIFICATION_CODE_BODY = """
 </p>
 """
 
+EMAIL_CHANGED_BODY = """
+<h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">Your email address was changed</h1>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 16px;">
+  {{ opening }} email address for your {{ brand }} account was changed to
+  <strong>{{ new_email }}</strong>. This address ({{ old_email }}) can no longer be used to sign in.
+</p>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 16px;">
+  If you made this change, there is nothing more to do.
+</p>
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0;">
+  <strong>If you did not make this change</strong>, someone else may have access to your account.
+  Contact us straight away at <a href="mailto:{{ support_email }}" style="color:#0F6A59;">{{ support_email }}</a>.
+</p>
+"""
+
 BILLING_NOTICE_BODY = """
 <h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ heading }}</h1>
 <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 20px;">
@@ -133,6 +148,7 @@ _env = Environment(
             "invitation": INVITATION_BODY,
             "verification_code": VERIFICATION_CODE_BODY,
             "billing_notice": BILLING_NOTICE_BODY,
+            "email_changed": EMAIL_CHANGED_BODY,
             "member_joined": MEMBER_JOINED_BODY,
         }
     ),
@@ -160,8 +176,8 @@ def render_verification_code_email(
     """
     Return (html, text, subject) for a one-time code email.
 
-    `purpose` is "signup" or "password_reset"; it only changes the wording, so
-    the two emails stay visually identical and unmistakably from the same
+    `purpose` is "signup", "password_reset" or "email_change"; it only changes
+    the wording, so the emails stay visually identical and unmistakably from the same
     product.
     """
     def opening(sentence: str) -> str:
@@ -180,6 +196,18 @@ def render_verification_code_email(
         disclaimer = (
             "If you didn't ask to reset your password, you can ignore this "
             "email — your password stays as it is."
+        )
+    elif purpose == "email_change":
+        subject = f"Confirm your new {brand} email address"
+        heading = "Confirm your new email address"
+        intro = opening(
+            f"Enter the code below to make this the email address for your "
+            f"{brand} account."
+        )
+        code_label = "Confirmation code"
+        disclaimer = (
+            "If you didn't ask to change your email address, you can ignore "
+            "this email — nothing on the account changes without this code."
         )
     else:
         subject = f"Your {brand} verification code"
@@ -214,6 +242,43 @@ def render_verification_code_email(
         f"This code expires in {expires_minutes} minutes and can only be used once.\n\n"
         f"{disclaimer}\n"
         f"Never share this code with anyone — {brand} will never ask you for it."
+    )
+    return html, text, subject
+
+
+def render_email_changed_notice(
+    *,
+    brand: str,
+    old_email: str,
+    new_email: str,
+    support_email: str,
+    recipient_name: str | None = None,
+) -> tuple[str, str, str]:
+    """
+    Return (html, text, subject) for the notice sent to the *previous* address
+    after an email change, so the owner hears about a change they did not make.
+    """
+    subject = f"Your {brand} email address was changed"
+    body = _env.get_template("email_changed").render(
+        opening=f"Hi {recipient_name}, the" if recipient_name else "The",
+        brand=brand,
+        old_email=old_email,
+        new_email=new_email,
+        support_email=support_email,
+    )
+    html = _wrap(
+        body,
+        footer=f"This is an automated security message from {brand}.",
+        brand=brand,
+    )
+    opening = f"Hi {recipient_name}, the" if recipient_name else "The"
+    text = (
+        f"Your email address was changed\n\n"
+        f"{opening} email address for your {brand} account was changed to {new_email}. "
+        f"This address ({old_email}) can no longer be used to sign in.\n\n"
+        f"If you made this change, there is nothing more to do.\n\n"
+        f"If you did not make this change, someone else may have access to your "
+        f"account. Contact us straight away at {support_email}.\n"
     )
     return html, text, subject
 

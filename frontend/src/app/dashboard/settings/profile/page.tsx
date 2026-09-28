@@ -14,6 +14,7 @@ import { useAuthStore } from '@/store/authStore'
 import { authService } from '@/lib/auth'
 import { getErrorMessage } from '@/lib/api'
 import { useConfirm } from '@/hooks/use-confirm'
+import { ChangeEmailDialog } from '@/components/settings/ChangeEmailDialog'
 
 export default function ProfileSettingsPage() {
   const router = useRouter()
@@ -33,6 +34,9 @@ export default function ProfileSettingsPage() {
   // Password change
   const [pw, setPw] = useState({ current_password: '', new_password: '', confirm: '' })
   const [changingPw, setChangingPw] = useState(false)
+
+  // Change email
+  const [changingEmail, setChangingEmail] = useState(false)
 
   // Delete account
   const { confirm, ConfirmDialog } = useConfirm()
@@ -221,9 +225,19 @@ export default function ProfileSettingsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="email" className="text-[14px] font-bold text-[#000000] font-poppins block">Email</Label>
-              <Input id="email" type="email" value={formData.email} disabled className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
-              <p className="text-xs text-muted-foreground">
-                Contact support to change your email address
+              <div className="flex gap-2">
+                <Input id="email" type="email" value={formData.email} readOnly aria-describedby="email-help" className="w-full h-[45px] min-w-0 rounded-xl border border-slate-200 outline-none bg-slate-50 text-slate-600 font-poppins px-3 text-[14px]" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setChangingEmail(true)}
+                  className="h-[45px] flex-shrink-0 rounded-xl"
+                >
+                  Change
+                </Button>
+              </div>
+              <p id="email-help" className="text-xs text-muted-foreground">
+                We&apos;ll confirm the new address with a code before anything changes.
               </p>
             </div>
 
@@ -325,6 +339,19 @@ export default function ProfileSettingsPage() {
         </Button>
       </div>
       <ConfirmDialog />
+      <ChangeEmailDialog
+        open={changingEmail}
+        onClose={() => setChangingEmail(false)}
+        currentEmail={formData.email}
+        hasPassword={user?.has_password ?? true}
+        onChanged={(updated) => {
+          setUser(updated)
+          // Only the address: anything else typed into the form stays unsaved.
+          setFormData((f) => ({ ...f, email: updated.email }))
+          setChangingEmail(false)
+          toast.success(`Your email address is now ${updated.email}`)
+        }}
+      />
     </div>
   )
 }

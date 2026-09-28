@@ -15,7 +15,6 @@ import {
   LLM_MODELS, LLM_PROVIDERS,
   TTS_VOICES, TTS_PROVIDERS,
 } from '@/components/agents/AgentForm'
-import { AgentWidgetTab } from '@/components/agents/AgentWidgetTab'
 import { AssistantsRail } from '@/components/agents/AssistantsRail'
 import { AgentCallsTab } from '@/components/agents/AgentCallsTab'
 import { CallTestPanel, TestCallAgent } from '@/components/agents/CallTestPanel'
@@ -552,12 +551,16 @@ export default function AgentDetailPage() {
           ? (a.llm_model || llmModelFallback) : llmModelFallback
 
         // Normalize TTS provider — fall back to elevenlabs if stored value is unknown
-        const ttsProvider = TTS_PROVIDERS.some(p => p.value === a.tts_provider)
-          ? (a.tts_provider || 'elevenlabs') : 'elevenlabs'
+        const ttsProviderKnown = TTS_PROVIDERS.some(p => p.value === a.tts_provider)
+        const ttsProvider = ttsProviderKnown ? (a.tts_provider || 'elevenlabs') : 'elevenlabs'
         const ttsVoices = TTS_VOICES[ttsProvider] || TTS_VOICES.elevenlabs
         const ttsVoiceFallback = ttsVoices[0]?.value || '21m00Tcm4TlvDq8ikWAM'
-        const ttsVoiceId = ttsVoices.some(v => v.value === a.tts_voice_id)
-          ? (a.tts_voice_id || ttsVoiceFallback) : ttsVoiceFallback
+        // A voice id outside the built-in list is a custom voice and is kept.
+        // Only a voice that belonged to a provider we no longer offer is reset.
+        // Older agents store a built-in voice by name ("rachel").
+        const ttsVoiceByName = ttsVoices.find(v => v.label.toLowerCase() === a.tts_voice_id)?.value
+        const ttsVoiceId = ttsVoiceByName
+          ?? (ttsProviderKnown && a.tts_voice_id ? a.tts_voice_id : ttsVoiceFallback)
 
         setIsActive(a.is_active ?? true)
 
@@ -659,10 +662,9 @@ export default function AgentDetailPage() {
   )
 
   const isToolsTab = tab === 'tools'
-  const isWidgetTab = tab === 'widget'
   const isKnowledgeTab = tab === 'knowledge'
   const isCallsTab = tab === 'calls'
-  const isCustomTab = isToolsTab || isWidgetTab || isKnowledgeTab || isCallsTab
+  const isCustomTab = isToolsTab || isKnowledgeTab || isCallsTab
   const formTabIndex = FORM_TABS.indexOf(tab as any)
   const activeLabel = AGENT_TABS.find(t => t.id === tab)?.label ?? ''
 
@@ -762,10 +764,6 @@ export default function AgentDetailPage() {
             <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentKnowledgeTab agentId={agentId} />
             </div>
-          ) : isWidgetTab ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-              <AgentWidgetTab agentId={agentId} />
-            </div>
           ) : isCallsTab ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <AgentCallsTab agentId={agentId} />
@@ -796,7 +794,7 @@ export default function AgentDetailPage() {
         <aside className="min-w-0 space-y-4">
           {!isCustomTab && <AgentIdentityFields form={form} set={set} />}
 
-          {/* Tools, Knowledge base and Chat Widget save as you change them and
+          {/* Tools and Knowledge base save as you change them and
               Call History is read-only; a Save button there did nothing. */}
           {!isCustomTab && (
             <>

@@ -69,8 +69,8 @@ export default function AgentsPage() {
         </Step>
         <Step n={3} title="Configure across the tabs">
           <P>
-            Prompt, LLM, Transcriber, Voice, Tools, Conversation, Advanced, Knowledge, and
-            Chat Widget. Every field is documented in{' '}
+            Prompt, LLM, Transcriber, Voice, Tools, Conversation, Advanced and Knowledge. (The
+            website chat is set up under Chatbot in the sidebar.) Every field is documented in{' '}
             <A href="/docs/agents/configuration">Agent Configuration</A>.
           </P>
         </Step>

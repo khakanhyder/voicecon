@@ -12,6 +12,13 @@ export const API_ENDPOINTS = {
   AGENT_STATS: `${API_BASE}/api/v1/agents/stats`,
   AGENT: (id: string) => `${API_BASE}/api/v1/agents/${id}`,
 
+  // Voice library
+  VOICES: `${API_BASE}/api/v1/voices`,
+  VOICE_PREVIEW: `${API_BASE}/api/v1/voices/preview`,
+  CUSTOM_VOICES: `${API_BASE}/api/v1/voices/custom`,
+  CUSTOM_VOICE_CHECK: `${API_BASE}/api/v1/voices/custom/check`,
+  CUSTOM_VOICE: (id: string) => `${API_BASE}/api/v1/voices/custom/${id}`,
+
   // Calls
   CALLS: `${API_BASE}/api/v1/calls`,
   CALL: (id: string) => `${API_BASE}/api/v1/calls/${id}`,
@@ -25,6 +32,7 @@ export const API_ENDPOINTS = {
   PHONE_NUMBERS_SEARCH: `${API_BASE}/api/v1/phone-numbers/search`,
   PHONE_NUMBERS_PROVISION: `${API_BASE}/api/v1/phone-numbers/provision`,
   PHONE_NUMBERS_PROVIDERS: `${API_BASE}/api/v1/phone-numbers/providers`,
+  PHONE_NUMBERS_PURCHASE_OPTIONS: `${API_BASE}/api/v1/phone-numbers/purchase-options`,
 
   // Integrations
   INTEGRATIONS: `${API_BASE}/api/v1/integrations`,
@@ -140,8 +148,10 @@ export const API_ENDPOINTS = {
   AGENT_TOOL: (agentId: string, toolId: string) => `${API_BASE}/api/v1/tools/agents/${agentId}/tools/${toolId}`,
 
   // Chat widget
-  AGENT_WIDGET: (agentId: string) => `${API_BASE}/api/v1/chat/agents/${agentId}/widget`,
-  AGENT_CHAT_SESSIONS: (agentId: string) => `${API_BASE}/api/v1/chat/agents/${agentId}/sessions`,
+  // Chatbot section (standalone chatbots, each linked to the agent that answers it)
+  CHATBOTS: `${API_BASE}/api/v1/chat/chatbots`,
+  CHATBOT: (id: string) => `${API_BASE}/api/v1/chat/chatbots/${id}`,
+  CHATBOT_SESSIONS: (id: string) => `${API_BASE}/api/v1/chat/chatbots/${id}/sessions`,
   CHAT_SESSION_MESSAGES: (sessionId: string) => `${API_BASE}/api/v1/chat/sessions/${sessionId}/messages`,
 
   // Health

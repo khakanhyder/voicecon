@@ -3,6 +3,7 @@ import {
   clearScope,
   getAccessToken,
   getStoredUser,
+  replaceSessionTokens,
   setStoredUser,
   storeSession,
   type SessionScope,
@@ -22,6 +23,8 @@ export interface User {
   is_verified: boolean
   /** Voicecon staff with access to /admin. Optional: older cached users lack it. */
   is_platform_admin?: boolean
+  /** False for accounts that only sign in with Google or Apple. */
+  has_password?: boolean
   email_verified_at: string | null
   last_login_at: string | null
   created_at: string
@@ -178,6 +181,32 @@ export const authService = {
     const { data } = await apiClient.delete<User>('/api/v1/users/me/avatar')
     setStoredUser(data)
     return data
+  },
+
+  /**
+   * Step one of changing the account email: send a code to the new address.
+   * Calling it again is "resend". Nothing on the account changes yet.
+   */
+  async requestEmailChange(params: {
+    new_email: string
+    current_password?: string
+  }): Promise<SendCodeResult> {
+    const { data } = await apiClient.post<SendCodeResult>(
+      '/api/v1/users/me/email/change-request',
+      params,
+    )
+    return data
+  },
+
+  /**
+   * Step two: confirm the code. The server signs out every other session and
+   * answers with new tokens for this one, which replace the old pair before
+   * the profile is re-read.
+   */
+  async confirmEmailChange(params: { new_email: string; code: string }): Promise<User> {
+    const { data } = await apiClient.post('/api/v1/users/me/email/change-confirm', params)
+    replaceSessionTokens(data)
+    return authService.fetchMe()
   },
 
   async changePassword(params: { current_password?: string; new_password: string }) {

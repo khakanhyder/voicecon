@@ -94,9 +94,8 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
             </h3>
             <p className="mt-1.5 text-[14px] leading-[1.6] text-black/60">
               Your free trial includes unlimited calls and minutes so you can build and test
-              as much as you like. Buying a number bills monthly at the carrier, so it needs
-              a paid plan — whether you use the Voicecon shared account or your own
-              connected Twilio.
+              as much as you like. A phone number is billed every month, so buying one needs
+              a paid plan — whether it’s a Voicecon number or one on your own provider.
             </p>
           </div>
         </div>
