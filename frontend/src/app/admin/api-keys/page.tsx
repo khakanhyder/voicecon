@@ -251,8 +251,15 @@ function SettingRow({ entry, encryptionReady }: { entry: SettingEntry; encryptio
 
 function TestResult({ result }: { result: CheckResult }) {
   const tone = result.status === 'ok' ? 'success' : result.status === 'not_configured' ? 'warning' : 'danger'
+  const title = {
+    ok: 'Connection works',
+    not_configured: 'Not configured',
+    invalid: 'Credential rejected',
+    incomplete: 'Key works, but setup is incomplete',
+    error: 'Check failed',
+  }[result.status] ?? 'Check failed'
   return (
-    <Callout tone={tone} title={result.status === 'ok' ? 'Connection works' : result.status === 'not_configured' ? 'Not configured' : result.status === 'invalid' ? 'Credential rejected' : 'Check failed'}>
+    <Callout tone={tone} title={title}>
       {result.message}
       {result.latency_ms != null && <span className="ml-1 opacity-70">({result.latency_ms} ms)</span>}
     </Callout>

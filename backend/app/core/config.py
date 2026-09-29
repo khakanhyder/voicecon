@@ -181,9 +181,15 @@ class Settings(BaseSettings):
 
     @property
     def stripe_configured(self) -> bool:
-        """True when a real (non-placeholder) Stripe secret key is set."""
-        key = self.stripe_secret_key
-        return bool(key) and key.startswith("sk_") and "..." not in key
+        """True when a real (non-placeholder) Stripe secret key is set.
+
+        Restricted keys (``rk_``) count too. Accepting only ``sk_`` once left
+        production with a live restricted key that passed "Test connection"
+        but was treated as missing, so every checkout and every Stripe webhook
+        answered "not configured".
+        """
+        key = (self.stripe_secret_key or "").strip()
+        return key.startswith(("sk_", "rk_")) and "..." not in key
 
     # Mailchimp (Waitlist / marketing audience)
     #   MAILCHIMP_API_KEY        e.g. abc123def456...-us21  (the -us21 suffix is the data center)

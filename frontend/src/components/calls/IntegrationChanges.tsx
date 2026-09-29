@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { CalendarClock, AlertCircle, History, Trash2 } from 'lucide-react'
-import { apiClient } from '@/lib/api'
+import { apiClient, publicErrorText } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { appDisplayName } from '@/lib/appNames'
 
@@ -144,7 +144,7 @@ export function IntegrationChanges({ callId }: { callId: string }) {
                 </p>
                 <p className="break-words text-black/60">{summary(change)}</p>
                 {!change.success && change.error_message && (
-                  <p className="mt-0.5 break-words text-amber-700">{change.error_message}</p>
+                  <p className="mt-0.5 break-words text-amber-700">{publicErrorText(change.error_message, 'The app didn’t accept this change.')}</p>
                 )}
                 {change.created_at && <p className="mt-0.5 text-black/40">{when(change.created_at + 'Z')}</p>}
               </div>

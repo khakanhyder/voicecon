@@ -15,8 +15,10 @@
  */
 import { useEffect, useState } from 'react'
 import { ArrowRight, Check, Loader2, Lock } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { apiClient } from '@/lib/api'
+import { apiClient, getErrorMessage } from '@/lib/api'
+import { entitlementService } from '@/lib/entitlements'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { yearlySavingPercent } from '@/lib/pricing'
@@ -42,6 +44,13 @@ type BillingPeriod = 'monthly' | 'yearly'
 
 export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) {
   const refreshEntitlements = useEntitlementStore((s) => s.refresh)
+  // Same rule as the billing page: a workspace a provider already bills moves
+  // plan in place. Checkout would be refused ("already has an active
+  // subscription"), so sending it there made this Upgrade button a dead end.
+  const providerBilled = useEntitlementStore(
+    (s) => s.entitlements?.source === 'stripe' || s.entitlements?.source === 'polar'
+  )
+  const [switchingId, setSwitchingId] = useState<string | null>(null)
 
   const [plans, setPlans] = useState<Plan[]>([])
   const [loading, setLoading] = useState(true)
@@ -79,6 +88,29 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
     // here is not visible to the next request until this refresh lands.
     await refreshEntitlements()
     onUpgraded?.()
+  }
+
+  const choosePlan = async (plan: Plan) => {
+    if (!providerBilled) {
+      setCheckoutPlan({
+        id: plan.id,
+        name: plan.name,
+        price_monthly: plan.price_monthly,
+        price_yearly: plan.price_yearly,
+        trial_days: plan.trial_days,
+      })
+      return
+    }
+    setSwitchingId(plan.id)
+    try {
+      await entitlementService.changePlan(plan.id)
+      toast.success(`Upgraded to ${plan.name}. The new limits are active now.`)
+      await handleSuccess()
+    } catch (err) {
+      toast.error(getErrorMessage(err))
+    } finally {
+      setSwitchingId(null)
+    }
   }
 
   return (
@@ -174,20 +206,19 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
                   </p>
                   <button
                     type="button"
-                    onClick={() =>
-                      setCheckoutPlan({
-                        id: plan.id,
-                        name: plan.name,
-                        price_monthly: plan.price_monthly,
-                        price_yearly: plan.price_yearly,
-                        trial_days: plan.trial_days,
-                      })
-                    }
-                    className="mt-auto pt-4"
+                    onClick={() => choosePlan(plan)}
+                    disabled={switchingId !== null}
+                    className="mt-auto pt-4 disabled:opacity-60"
                   >
                     <span className="flex h-10 w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#106959] text-[14px] font-semibold text-white transition-colors hover:bg-[#0c5044]">
-                      Upgrade
-                      <ArrowRight className="h-3.5 w-3.5" />
+                      {switchingId === plan.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          Upgrade
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </>
+                      )}
                     </span>
                   </button>
                 </div>

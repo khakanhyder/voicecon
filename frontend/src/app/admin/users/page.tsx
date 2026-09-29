@@ -4,8 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { BadgeCheck, Ban, Unlock, LogOut, PlayCircle, ShieldCheck, ShieldOff } from 'lucide-react'
-import { adminApi, type UserDetail } from '@/lib/admin'
+import { BadgeCheck, Ban, Unlock, LogOut, PlayCircle, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import { adminApi, type UserDetail, type UserRow } from '@/lib/admin'
 import {
   AdminButton,
   Badge,
@@ -31,10 +31,61 @@ import {
 
 type Confirm = { title: string; description: string; confirm: string; danger?: boolean; run: () => Promise<unknown> } | null
 
+/** Confirmation step for deleting an account — nothing is deleted until "Delete user" is pressed. */
+function DeleteUserDialog({ user, onClose, onDeleted }: { user: UserRow | null; onClose: () => void; onDeleted?: () => void }) {
+  const qc = useQueryClient()
+  const remove = useMutation({
+    mutationFn: (id: string) => adminApi.deleteUser(id),
+    onSuccess: (res) => {
+      toast.success(
+        res.workspaces_deactivated
+          ? `User deleted. ${res.workspaces_deactivated} workspace${res.workspaces_deactivated === 1 ? '' : 's'} they owned ${res.workspaces_deactivated === 1 ? 'was' : 'were'} deactivated.`
+          : 'User deleted.'
+      )
+      qc.invalidateQueries({ queryKey: ['admin', 'users'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'organizations'] })
+      onClose()
+      onDeleted?.()
+    },
+    onError: (e) => toast.error(errorText(e)),
+  })
+
+  return (
+    <Dialog
+      open={!!user}
+      onClose={() => !remove.isPending && onClose()}
+      title="Delete this user?"
+      description={
+        <>
+          <span className="font-medium text-slate-700">{user?.full_name || user?.email}</span>
+          {user?.full_name && <> ({user.email})</>} will be deleted.
+        </>
+      }
+      footer={
+        <>
+          <AdminButton variant="ghost" onClick={onClose} disabled={remove.isPending}>Cancel</AdminButton>
+          <AdminButton variant="danger" icon={Trash2} loading={remove.isPending} onClick={() => user && remove.mutate(user.id)}>
+            Delete user
+          </AdminButton>
+        </>
+      }
+    >
+      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
+        <li>They are signed out everywhere and can no longer sign in.</li>
+        <li>Every workspace they own is deactivated and its subscription cancelled.</li>
+        <li>They are removed from workspaces they were only a member of.</li>
+        <li>Their email is freed, so they could sign up again as a new account.</li>
+      </ul>
+      <p className="mt-3 text-sm text-slate-500">Calls and invoices are kept for records. This cannot be undone from the console.</p>
+    </Dialog>
+  )
+}
+
 function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }) {
   const qc = useQueryClient()
   const { data: user, isLoading } = useQuery({ queryKey: ['admin', 'user', userId], queryFn: () => adminApi.user(userId) })
   const [confirm, setConfirm] = useState<Confirm>(null)
+  const [deleting, setDeleting] = useState<UserRow | null>(null)
 
   const act = useMutation({
     mutationFn: (fn: () => Promise<unknown>) => fn(),
@@ -114,6 +165,9 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
           Enable
         </AdminButton>
       )}
+      {!u.is_platform_admin && (
+        <AdminButton variant="danger" icon={Trash2} onClick={() => setDeleting(u)}>Delete</AdminButton>
+      )}
     </>
   )
 
@@ -175,6 +229,7 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
           </>
         }
       />
+      <DeleteUserDialog user={deleting} onClose={() => setDeleting(null)} onDeleted={onClose} />
     </Drawer>
   )
 }
@@ -184,6 +239,7 @@ export default function UsersPage() {
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState<string>(() => initialParam('focus'))
+  const [deleting, setDeleting] = useState<UserRow | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'users', { search, filter, page }],
@@ -193,7 +249,7 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Users" description="Every account on the platform. Open a user to verify, disable, sign out or grant admin access." />
+      <PageHeader title="Users" description="Every account on the platform. Open a user to verify, disable, sign out, delete or grant admin access." />
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row">
@@ -213,10 +269,10 @@ export default function UsersPage() {
         </div>
         <Table>
           <thead>
-            <tr><Th>User</Th><Th>Status</Th><Th>Sign-in</Th><Th className="text-right">Workspaces</Th><Th>Joined</Th><Th>Last sign-in</Th></tr>
+            <tr><Th>User</Th><Th>Status</Th><Th>Sign-in</Th><Th className="text-right">Workspaces</Th><Th>Joined</Th><Th>Last sign-in</Th><Th><span className="sr-only">Actions</span></Th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            <TableState colSpan={6} loading={isLoading} error={error} empty={data?.items.length === 0} emptyText="No users match." />
+            <TableState colSpan={7} loading={isLoading} error={error} empty={data?.items.length === 0} emptyText="No users match." />
             {data?.items.map((u) => (
               <Tr key={u.id} onClick={() => setOpen(u.id)}>
                 <Td>
@@ -237,6 +293,19 @@ export default function UsersPage() {
                 <Td className="text-right tabular-nums">{u.organizations}</Td>
                 <Td className="text-slate-500">{formatDate(u.created_at)}</Td>
                 <Td className="text-slate-500">{timeAgo(u.last_login_at)}</Td>
+                <Td className="w-12 text-right">
+                  {!u.is_platform_admin && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setDeleting(u) }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                      aria-label={`Delete ${u.email}`}
+                      title="Delete user"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </Td>
               </Tr>
             ))}
           </tbody>
@@ -245,6 +314,7 @@ export default function UsersPage() {
       </div>
 
       {open && <UserDrawer userId={open} onClose={() => setOpen('')} />}
+      <DeleteUserDialog user={deleting} onClose={() => setDeleting(null)} />
     </>
   )
 }

@@ -11,11 +11,19 @@ import httpx
 from datetime import datetime
 from typing import Dict, Any
 import asyncio
+import logging
 
 from app.core.database import get_db
 from app.core.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _logged_unavailable(exc: Exception) -> str:
+    """Log a failed check; the public health payload never carries its text."""
+    logger.warning(f"Health check dependency failed: {exc!r}")
+    return "unavailable"
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)
@@ -177,7 +185,7 @@ async def check_database(db: AsyncSession) -> tuple[bool, Dict[str, Any]]:
     except Exception as e:
         return False, {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
 
@@ -212,7 +220,7 @@ async def check_database_detailed(db: AsyncSession) -> tuple[bool, Dict[str, Any
     except Exception as e:
         return False, {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
 
@@ -238,7 +246,7 @@ async def check_redis() -> tuple[bool, Dict[str, Any]]:
     except Exception as e:
         return False, {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
 
@@ -271,7 +279,7 @@ async def check_redis_detailed() -> tuple[bool, Dict[str, Any]]:
     except Exception as e:
         return False, {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
 
@@ -306,7 +314,7 @@ async def check_llm_service() -> tuple[bool, Dict[str, Any]]:
     except Exception as e:
         return False, {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
 
@@ -340,7 +348,7 @@ async def check_llm_service_detailed() -> tuple[bool, Dict[str, Any]]:
     except Exception as e:
         providers["openai"] = {
             "status": "unhealthy",
-            "error": str(e)
+            "error": _logged_unavailable(e)
         }
 
     all_healthy = all(p.get("status") == "healthy" for p in providers.values())

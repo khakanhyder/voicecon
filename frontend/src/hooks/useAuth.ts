@@ -47,7 +47,7 @@ export function useAuth() {
       router.push(getRedirect() || (await resolvePostAuthPath(queryClient)))
     },
     onError: (error: any) => {
-      toast.error(getErrorMessage(error) || 'Login failed')
+      toast.error(getErrorMessage(error, 'Login failed'))
     },
   })
 
@@ -73,7 +73,7 @@ export function useAuth() {
       router.push(await resolvePostAuthPath(queryClient, { isNew: true }))
     },
     onError: (error: any) => {
-      toast.error(getErrorMessage(error) || 'Registration failed')
+      toast.error(getErrorMessage(error, 'Registration failed'))
     },
   })
 

@@ -86,6 +86,7 @@ class TestPriceInterval:
         recorder = _RecordingStripe()
         monkeypatch.setattr("stripe.Price.list", recorder.list)
         monkeypatch.setattr("stripe.Price.create", recorder.create)
+        monkeypatch.setattr("stripe.Product.retrieve", lambda pid: {"id": pid, "active": True})
 
         await stripe_service.ensure_stripe_price(
             db=db_session, plan=plan, billing_period=billing_period

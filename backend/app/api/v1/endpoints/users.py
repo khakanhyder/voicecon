@@ -30,7 +30,7 @@ from app.core.security import (
 )
 from app.core.urls import public_base_url
 from app.models.user import User, Organization
-from app.models.subscription import Subscription, LIVE_STATUSES, STATUS_CANCELED
+from app.models.subscription import Subscription
 from app.schemas.auth import LoginResponse, SendEmailCodeResponse
 from app.schemas.user import (
     EmailChangeConfirm,
@@ -50,7 +50,8 @@ from app.services.auth.verification import (
     normalize_email,
 )
 from app.services.email.service import email_service
-from app.services.billing import StripeService, get_stripe_service
+from app.services.account_deletion import deactivate_owned_workspaces
+from app.services.billing import StripeService
 from app.services.storage import (
     MAX_AVATAR_BYTES,
     StorageError,
@@ -381,58 +382,7 @@ async def delete_my_account(
     # Invalidate all existing tokens immediately
     current_user.token_version = (current_user.token_version or 0) + 1
 
-    # Find organizations where this user is the owner
-    result = await db.execute(
-        select(Organization).where(Organization.owner_id == current_user.id)
-    )
-    organizations = result.scalars().all()
-    
-    for org in organizations:
-        org.is_active = False
-        org.updated_at = now
-        
-        # Check for live subscriptions in this organization
-        sub_result = await db.execute(
-            select(Subscription).where(
-                and_(
-                    Subscription.organization_id == org.id,
-                    Subscription.status.in_(LIVE_STATUSES),
-                )
-            )
-        )
-        subscriptions = sub_result.scalars().all()
-        for subscription in subscriptions:
-            trial_without_stripe = not (
-                subscription.stripe_subscription_id or subscription.polar_subscription_id
-            )
-            if trial_without_stripe:
-                subscription.status = STATUS_CANCELED
-                subscription.canceled_at = now
-                subscription.ended_at = now
-                subscription.current_period_end = min(subscription.current_period_end, now)
-            elif subscription.polar_subscription_id:
-                try:
-                    from app.services.billing import polar_service
-
-                    await polar_service.cancel(subscription, immediate=True)
-                    subscription.status = STATUS_CANCELED
-                    subscription.canceled_at = subscription.canceled_at or now
-                    subscription.ended_at = now
-                    subscription.current_period_end = min(subscription.current_period_end, now)
-                    subscription.cancel_at_period_end = False
-                except Exception as e:
-                    logger.error("Failed to revoke Polar subscription %s for org %s: %s", subscription.id, org.id, e)
-            else:
-                try:
-                    stripe_service = await get_stripe_service()
-                    await stripe_service.cancel_subscription(
-                        db=db, subscription_id=subscription.id, immediate=True
-                    )
-                    await db.refresh(subscription)
-                    subscription.canceled_at = subscription.canceled_at or now
-                    subscription.cancel_at_period_end = False
-                except Exception as e:
-                    logger.error("Failed to cancel Stripe subscription %s for org %s: %s", subscription.id, org.id, e)
+    await deactivate_owned_workspaces(db, current_user, now)
 
     await db.commit()
 

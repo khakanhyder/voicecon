@@ -74,8 +74,10 @@ def provider_summary() -> List[Dict[str, Any]]:
         if group.id == "email":
             configured = settings.resolved_email_provider != "console"
         elif group.id == "stripe":
-            # Same test checkout applies: a placeholder key counts as missing.
-            configured = settings.stripe_configured and bool(settings.STRIPE_WEBHOOK_SECRET)
+            # Same test checkout applies (placeholder key, live/test mismatch).
+            from app.services.billing import providers as _providers
+
+            configured = _providers.is_ready(_providers.STRIPE)
         elif group.id == "polar":
             configured = settings.polar_configured and bool(settings.POLAR_WEBHOOK_SECRET)
         else:

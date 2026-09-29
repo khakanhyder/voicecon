@@ -142,9 +142,78 @@ function firstValidationMessage(data: any): string | null {
   return raw.replace(/^Value error,\s*/, '')
 }
 
-export function getErrorMessage(error: unknown): string {
-  if (axios.isAxiosError(error)) {
-    const data = error.response?.data
+/** What a customer sees when there is nothing more specific to say. */
+export const GENERIC_ERROR = 'Something went wrong. Please try again.'
+
+const NETWORK_ERROR = 'We couldn’t reach Voicecon. Check your internet connection and try again.'
+const TIMEOUT_ERROR = 'That took longer than expected. Please try again.'
+const SERVER_ERROR = 'Something went wrong on our side. Please try again in a moment.'
+
+/**
+ * Friendly defaults for a status the server gave no usable sentence for.
+ * 500 and anything else in the 5xx range are always ours, so they never show
+ * the server's text; 503 is the one 5xx the API words for people (payment
+ * provider down, carrier unreachable).
+ */
+const STATUS_MESSAGES: Record<number, string> = {
+  401: 'Your session has expired. Please sign in again.',
+  403: 'You don’t have permission to do that in this workspace.',
+  404: 'We couldn’t find that. It may have been moved or deleted.',
+  408: TIMEOUT_ERROR,
+  413: 'That file is too large.',
+  429: 'Too many attempts. Please wait a moment and try again.',
+}
+
+// Mirrors backend app/core/public_errors.py. Text that matches came out of a
+// library, a database or a provider rather than being written for a person.
+const TECHNICAL =
+  /traceback|exception|errno|stack ?trace|\b[A-Z][A-Za-z]+(Error|Exception)\b|nonetype|object has no attribute|not subscriptable|unexpected keyword|undefined is not|cannot read propert|is not a function|sqlalchemy|psycopg|asyncpg|integrityerror|duplicate key|violates|httpx|aiohttp|urllib|connectionpool|max retries|ssl|certificate|\bstatus code \d{3}\b|\bfor url\b|https?:\/\/|failed to fetch|load failed|object at 0x|<[a-z!/]|^\s*[[{]|\[object Object\]/i
+
+/** True when `text` is not a short, plain sentence written for a person. */
+export function looksTechnical(text: unknown): boolean {
+  if (typeof text !== 'string' || !text.trim()) return true
+  // A sentence for a person has more than one word; "network", "HTTP 500" or
+  // "Unauthorized" on their own are codes, not explanations.
+  if (!/\s/.test(text.trim()) || /^HTTP \d{3}$/i.test(text.trim())) return true
+  return text.length > 240 || TECHNICAL.test(text)
+}
+
+function logForDevelopers(error: unknown) {
+  // The server logs every failure it answers; this is for whoever is working
+  // on the frontend. Production consoles stay quiet — customers can open them.
+  if (process.env.NODE_ENV !== 'production' && typeof console !== 'undefined') {
+    console.error('[voicecon] request failed', error)
+  }
+}
+
+/**
+ * The message to show a customer for a failed request.
+ *
+ * Only a short, human sentence from a 4xx (or a 503, which the API words for
+ * people) is shown as is. A 500, a network failure, a timeout, or any text that
+ * reads like an exception, a stack trace or a provider's raw response becomes
+ * `fallback` or a friendly status message — those details belong in the logs,
+ * not in front of the customer.
+ */
+export function getErrorMessage(error: unknown, fallback: string = GENERIC_ERROR): string {
+  const safe = (text: unknown) => (looksTechnical(text) ? null : (text as string))
+
+  // Anything shaped like an HTTP failure counts, not only a real AxiosError:
+  // services and tests reject with `{response: {status, data}}` too.
+  const http = axios.isAxiosError(error)
+    ? error
+    : error && typeof error === 'object' && 'response' in error
+      ? (error as { response?: { status?: number; data?: unknown }; code?: string })
+      : null
+  if (http) {
+    logForDevelopers(error)
+    if (!http.response) {
+      return http.code === 'ECONNABORTED' || http.code === 'ETIMEDOUT' ? TIMEOUT_ERROR : NETWORK_ERROR
+    }
+    const status = http.response.status ?? 0
+    if (status >= 500 && status !== 503) return fallback === GENERIC_ERROR ? SERVER_ERROR : fallback
+
+    const data = http.response.data as any
     // Some endpoints answer with a structured detail — `{message, errors}` or
     // `{detail, code}` — which rendered as "[object Object]" when returned as is.
     const detail = data?.detail
@@ -157,13 +226,23 @@ export function getErrorMessage(error: unknown): string {
             ? detail.detail
             : null
     return (
-      detailText ||
-      firstValidationMessage(data) ||
-      data?.message ||
-      error.message ||
-      'An unexpected error occurred'
+      safe(detailText) ||
+      safe(firstValidationMessage(data)) ||
+      safe(data?.message) ||
+      (fallback !== GENERIC_ERROR ? fallback : null) ||
+      STATUS_MESSAGES[status] ||
+      (status === 503 ? SERVER_ERROR : fallback)
     )
   }
-  if (error instanceof Error) return error.message
-  return 'An unexpected error occurred'
+  logForDevelopers(error)
+  if (error instanceof Error) return safe(error.message) || fallback
+  return fallback
+}
+
+/**
+ * `text` from a stored failure (a workflow step, a call's integration change)
+ * if it reads as a sentence for a person, otherwise `fallback`.
+ */
+export function publicErrorText(text: unknown, fallback: string): string {
+  return looksTechnical(text) ? fallback : (text as string)
 }

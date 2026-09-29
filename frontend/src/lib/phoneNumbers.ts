@@ -9,7 +9,7 @@
  *    account the workspace connected itself, so its name is shown.
  */
 import axios from 'axios'
-import { apiClient } from '@/lib/api'
+import { apiClient, looksTechnical } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 
 export type NumberSource = 'voicecon' | 'own'
@@ -202,7 +202,9 @@ const FALLBACK: Record<PhoneAction, string> = {
  * debugging, never rendered.
  */
 export function friendlyPhoneError(error: unknown, action: PhoneAction): string {
-  if (typeof console !== 'undefined') console.error(`[phone-numbers] ${action} failed`, error)
+  if (process.env.NODE_ENV !== 'production' && typeof console !== 'undefined') {
+    console.error(`[phone-numbers] ${action} failed`, error)
+  }
   if (!axios.isAxiosError(error)) return FALLBACK[action]
   const status = error.response?.status
   if (!error.response) {
@@ -215,7 +217,7 @@ export function friendlyPhoneError(error: unknown, action: PhoneAction): string 
   if (status === 403) return 'You don’t have permission to do that in this workspace.'
   const detail = (error.response.data as { detail?: unknown } | undefined)?.detail
   const shown = status && [400, 404, 409, 429, 503].includes(status)
-  if (shown && typeof detail === 'string' && detail.length < 240 && !/<[a-z!]/i.test(detail)) {
+  if (shown && typeof detail === 'string' && !looksTechnical(detail)) {
     return detail
   }
   return FALLBACK[action]

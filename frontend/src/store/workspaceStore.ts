@@ -14,6 +14,7 @@ import {
   setActiveWorkspaceId,
   workspaceService,
 } from '@/lib/workspace'
+import { getErrorMessage } from '@/lib/api'
 
 interface WorkspaceState {
   current: WorkspaceDetail | null
@@ -50,7 +51,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // than spinning forever.
       set({
         isLoading: false,
-        error: e?.response?.data?.detail ?? 'Could not load your workspace',
+        error: getErrorMessage(e, 'Could not load your workspace'),
       })
     }
   },
@@ -64,7 +65,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ current, workspaces, isSwitching: false, error: null })
       return current
     } catch (e: any) {
-      set({ isSwitching: false, error: e?.response?.data?.detail ?? 'Could not switch workspace' })
+      set({ isSwitching: false, error: getErrorMessage(e, 'Could not switch workspace') })
       return null
     }
   },

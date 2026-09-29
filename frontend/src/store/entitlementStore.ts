@@ -14,6 +14,7 @@ import {
   entitlementService,
   isUnlimited,
 } from '@/lib/entitlements'
+import { getErrorMessage } from '@/lib/api'
 
 interface EntitlementState {
   entitlements: Entitlements | null
@@ -59,7 +60,7 @@ export const useEntitlementStore = create<EntitlementState>((set, get) => ({
     } catch (e: any) {
       set({
         isLoading: false,
-        error: e?.response?.data?.detail ?? 'Could not load your plan',
+        error: getErrorMessage(e, 'Could not load your plan'),
       })
     }
   },
@@ -69,7 +70,7 @@ export const useEntitlementStore = create<EntitlementState>((set, get) => ({
       const entitlements = await entitlementService.get(true)
       set({ entitlements, error: null })
     } catch (e: any) {
-      set({ error: e?.response?.data?.detail ?? 'Could not load your plan' })
+      set({ error: getErrorMessage(e, 'Could not load your plan') })
     }
   },
 

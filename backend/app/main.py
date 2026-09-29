@@ -16,12 +16,15 @@ from contextlib import asynccontextmanager
 import time
 import logging
 
+import stripe
+
 from app.core.config import settings
 from app.middleware.rate_limit import init_rate_limit_middleware
 from app.middleware.security_headers import init_security_headers_middleware
 from app.database import init_db, close_db
 from app.core.entitlement_guard import EntitlementError
 from app.core.exceptions import VoiceconException
+from app.core.public_errors import public_message
 from app.services.analytics.scheduler import start_scheduler, stop_scheduler
 
 # Configure logging
@@ -279,12 +282,17 @@ async def voicecon_exception_handler(request: Request, exc: VoiceconException):
     Handle custom Voicecon exceptions.
     """
     logger.error(f"Voicecon exception: {exc.message}", extra={"details": exc.details})
+    # Many raise sites build the message from a caught exception, so it is
+    # filtered, and ``details`` (internal context) stays in the log.
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content={
             "error": exc.__class__.__name__,
-            "message": exc.message,
-            "details": exc.details,
+            "message": public_message(
+                exc.message,
+                "We couldn't complete that request. Please try again.",
+                context=exc.__class__.__name__,
+            ),
         },
     )
 
@@ -307,6 +315,35 @@ async def upstream_failure_exception_handler(request: Request, exc: StarletteHTT
             headers=exc.headers,
         )
     return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(stripe.error.StripeError)
+async def stripe_exception_handler(request: Request, exc: stripe.error.StripeError):
+    """Turn a Stripe failure into a message the customer can act on.
+
+    Checkout, change-plan and the portal call Stripe directly. Uncaught, a
+    declined card or a key without the right permissions came back as a bare
+    500 "unexpected error", which looks like our bug and tells the customer
+    nothing. A card problem is theirs to fix (402, Stripe's own wording); the
+    rest are ours, so they get a generic 503 and the details go to the log.
+    """
+    logger.error(
+        f"Stripe error on {request.method} {request.url.path}: "
+        f"{type(exc).__name__} code={getattr(exc, 'code', None)} "
+        f"status={getattr(exc, 'http_status', None)} message={getattr(exc, 'user_message', None) or str(exc)}"
+    )
+    if isinstance(exc, stripe.error.CardError):
+        return JSONResponse(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            content={"detail": exc.user_message or "Your card was declined. Try a different card."},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "Our payment provider could not complete this request. Nothing was charged. "
+            "Please try again in a few minutes or contact support."
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)
@@ -350,7 +387,10 @@ async def general_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "InternalServerError",
-            "message": "An unexpected error occurred" if settings.is_production else str(exc),
+            # Never the exception text: staging and preview deploys are not
+            # "production" but real customers still use them. The traceback is
+            # in the log above.
+            "message": "An unexpected error occurred",
         },
     )
 
@@ -425,7 +465,7 @@ try:
             return JSONResponse(status_code=403, content={"error": "Access denied"})
         if os.path.exists(full_path) and os.path.isfile(full_path):
             return FileResponse(full_path)
-        return JSONResponse(status_code=404, content={"error": "File not found", "path": full_path, "exists": os.path.exists(full_path)})
+        return JSONResponse(status_code=404, content={"error": "File not found"})
 
     # We keep the StaticFiles mount as a fallback, but the route above will intercept requests first.
     app.mount("/uploads_fallback", StaticFiles(directory=_uploads_dir), name="uploads_fallback")

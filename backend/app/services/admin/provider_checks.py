@@ -7,6 +7,8 @@ and reports one of:
 
 * ``ok``           — the credential authenticated.
 * ``invalid``      — the provider rejected it (401/403).
+* ``incomplete``   — it authenticated, but the provider still cannot be used
+  (Stripe: a missing companion key, or live and test keys mixed).
 * ``not_configured`` — a required value is missing.
 * ``error``        — anything else (network, 5xx, unexpected response). The
   credential may be fine; the check could not tell.
@@ -138,10 +140,17 @@ async def check_stripe() -> CheckResult:
         "GET", "https://api.stripe.com/v1/balance", auth=(key, ""), ok_message="Secret key accepted."
     )
     if result.status == "ok":
-        mode = "live" if key.startswith(("sk_live_", "rk_live_")) else "test"
+        from app.services.billing import providers
+
+        mode = providers.stripe_key_mode(key) or "test"
         result.message = f"Secret key accepted ({mode} mode)."
-        if not settings.STRIPE_WEBHOOK_SECRET:
-            result.message += " Webhook signing secret is not set, so billing webhooks will be rejected."
+        # The key authenticating is not enough: checkout also needs the other
+        # two keys, in the same mode. Say so here, or this reads "works" while
+        # every Upgrade button answers "Payments are not available".
+        problem = providers.problem(providers.STRIPE)
+        if problem:
+            result.status = "incomplete"
+            result.message += f" Checkout is still off. {problem}"
     return result
 
 

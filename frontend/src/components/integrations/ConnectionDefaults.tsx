@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Check, Loader2, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { apiClient } from '@/lib/api'
+import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { ResourceLocator } from '@/components/workflow/fields/ResourceLocator'
 
@@ -79,7 +79,7 @@ export function ConnectionDefaults({
       toast.success('Saved. Workflows will use this unless they say otherwise.')
       onSaved?.()
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'Could not save')
+      toast.error(getErrorMessage(e, 'Could not save these defaults. Please try again.'))
     } finally {
       setIsSaving(false)
     }

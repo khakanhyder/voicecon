@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { publicErrorText } from '@/lib/api'
 
 export interface StepResult {
   step_id: string
@@ -129,7 +130,7 @@ export function ExecutionPanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {execution.error_message && (
           <p className="mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {execution.error_message}
+            {publicErrorText(execution.error_message, 'This run stopped because of an unexpected error. Check the workflow’s settings and try again.')}
           </p>
         )}
 
@@ -229,7 +230,7 @@ function StepRow({ step, onSelect }: { step: StepResult; onSelect: () => void })
         <div className="px-8 pb-2">
           {step.error && (
             <p className="mb-1.5 rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
-              {step.error}
+              {publicErrorText(step.error, 'This step failed. Check its settings and connection, then try again.')}
             </p>
           )}
           <pre className="overflow-x-auto rounded bg-muted/50 p-2 font-mono text-[11px]">

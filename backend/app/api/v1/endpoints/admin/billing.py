@@ -145,8 +145,10 @@ async def _sync_stripe_price(plan: SubscriptionPlan, interval: str, amount: Deci
     from app.services.billing.stripe_service import get_stripe_service
 
     service = await get_stripe_service()
+    # Repoints the plan when its product is from the other Stripe mode.
+    product_id = await service.ensure_stripe_product(plan)
     return await service.get_or_create_price(
-        product_id=plan.stripe_product_id,
+        product_id=product_id,
         unit_amount_cents=int(Decimal(amount) * 100),
         interval=interval,
         currency=plan.currency or "usd",

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
-import { apiClient, getErrorMessage } from '@/lib/api'
+import { apiClient, getErrorMessage, publicErrorText } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import {
   describeTrigger,
@@ -313,7 +313,7 @@ export default function WorkflowDetailPage() {
                 {expandedId === ex.id && (
                   <div className="border-t p-3 space-y-4 text-sm">
                     {ex.error_message && (
-                      <p className="text-red-600">{ex.error_message}</p>
+                      <p className="text-red-600">{publicErrorText(ex.error_message, 'This run stopped because of an unexpected error. Check the workflow’s settings and try again.')}</p>
                     )}
 
                     {/* Path taken — proves which branch ran */}
@@ -328,7 +328,7 @@ export default function WorkflowDetailPage() {
                             <div className="min-w-0">
                               <span className="font-medium">{s.step_name || s.step_id}</span>
                               <span className="text-muted-foreground"> ({s.duration_ms}ms)</span>
-                              {s.error && <p className="text-red-600 break-words">{s.error}</p>}
+                              {s.error && <p className="text-red-600 break-words">{publicErrorText(s.error, 'This step failed. Check its settings and connection, then try again.')}</p>}
                             </div>
                           </div>
                         ))}

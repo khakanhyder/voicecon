@@ -13,6 +13,7 @@ from sqlalchemy import select, and_, or_, func, desc
 
 from pydantic import BaseModel as _BaseModelResource, Field as _FieldResource
 
+from app.core.public_errors import public_message, public_test_result
 from app.core.entitlement_guard import assert_feature
 from app.services.billing import catalog
 from app.services.billing.entitlements import resolve_entitlements
@@ -1364,7 +1365,14 @@ async def list_connection_resources(
         }
         raise HTTPException(
             status_code=status_map.get(exc.code, status.HTTP_400_BAD_REQUEST),
-            detail={"detail": str(exc), "code": exc.code},
+            detail={
+                "detail": public_message(
+                    str(exc),
+                    "We couldn't load this list from the app right now. Please try again.",
+                    context=f"resource listing {exc.code}",
+                ),
+                "code": exc.code,
+            },
         )
 
     return {"connection_id": connection_id, "kind": kind, **payload}
@@ -1633,7 +1641,8 @@ async def _store_validated_connection(
 
     class_name = CONNECTOR_CLASS_MAP.get(connector.slug)
     if not class_name:
-        raise HTTPException(status_code=400, detail=f"No connector class for '{connector.slug}'")
+        logger.error(f"No connector class for '{connector.slug}'")
+        raise HTTPException(status_code=400, detail="This integration can't be connected yet.")
     connector_cls = getattr(connector_module, class_name)
     instance = connector_cls(connection=connection, connector=connector, db=db)
     try:
@@ -1644,7 +1653,8 @@ async def _store_validated_connection(
         except Exception:
             pass
     if not test.get("success"):
-        raise HTTPException(status_code=400, detail=f"Connection test failed: {test.get('message')}")
+        test = public_test_result(test, connector.name)
+        raise HTTPException(status_code=400, detail=test["message"])
 
     connection.status = "active"
     connection.last_sync_at = datetime.utcnow()

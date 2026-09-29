@@ -6,7 +6,7 @@ import { ArrowLeft, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConnectionStatus } from '@/components/integrations/ConnectionStatus';
-import { apiClient, getErrorMessage } from '@/lib/api';
+import { apiClient, getErrorMessage, looksTechnical } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 import { toast } from 'sonner';
 
@@ -140,12 +140,16 @@ export default function ConnectedIntegrationsPage() {
         API_ENDPOINTS.INTEGRATION_CONNECTION_TEST(integration.connectionId)
       );
       if (data?.success === false) {
-        toast.error(`${integration.name} connection test failed${data.message ? `: ${data.message}` : ''}`);
+        toast.error(
+          data.message && !looksTechnical(data.message)
+            ? data.message
+            : `We couldn’t connect to ${integration.name}. Check your details and try again.`
+        );
       } else {
         toast.success(`${integration.name} connection verified`);
       }
     } catch (err) {
-      toast.error(`${integration.name} connection test failed: ${getErrorMessage(err)}`);
+      toast.error(getErrorMessage(err, `We couldn’t test ${integration.name} right now. Please try again.`));
     } finally {
       await loadConnectedIntegrations();
     }

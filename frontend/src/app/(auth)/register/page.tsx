@@ -10,6 +10,7 @@ import { OtpInput } from '@/components/auth/OtpInput'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
 import { BadgeCheck, Loader2, Mail, Lock, Phone, User } from 'lucide-react'
+import { getErrorMessage } from '@/lib/api'
 
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
@@ -100,7 +101,7 @@ export default function RegisterPage() {
         toast.info(`Dev mode — your code is ${res.debug_code}`)
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not send the verification code')
+      setError(getErrorMessage(err, 'Could not send the verification code'))
     } finally {
       setIsSendingCode(false)
     }
@@ -116,7 +117,7 @@ export default function RegisterPage() {
       setCodeSent(false)
       toast.success('Email verified')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not verify that code')
+      setError(getErrorMessage(err, 'Could not verify that code'))
       setCode('')
     } finally {
       setIsVerifying(false)

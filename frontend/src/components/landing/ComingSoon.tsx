@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { ArrowRight, CheckCircle2, Mail } from 'lucide-react'
 import { joinWaitlist } from '@/lib/waitlist'
 import { Logo, ROUTES, buttonClass } from './primitives'
+import { getErrorMessage } from '@/lib/api'
 
 /**
  * The voicecon.ai coming-soon page, rebuilt as a React component so the primary
@@ -61,7 +62,7 @@ export function ComingSoon() {
       const result = await joinWaitlist(value)
       setJoined(result.message)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error — please try again.')
+      setError(getErrorMessage(err, 'Network error — please try again.'))
     } finally {
       setLoading(false)
     }

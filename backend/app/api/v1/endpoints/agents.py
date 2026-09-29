@@ -325,7 +325,11 @@ async def update_agent(
     except HTTPException:
         raise
     except AgentVersionConflict as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        logger.info(f"Agent update conflict: {e}")
+        raise HTTPException(
+            status_code=409,
+            detail="Someone else saved this agent while you were editing. Reload to see the latest version, then make your change again.",
+        )
     except Exception as e:
         logger.error(f"Error updating agent: {e}", exc_info=True)
         raise HTTPException(
@@ -952,24 +956,31 @@ async def agent_respond(
             logger.error(f"Error in respond stream: {e}", exc_info=True)
             err_text = str(e).lower()
             err_msg = "I'm having a technical issue right now. Please try again."
-            reason = f"{type(e).__name__}: {str(e)[:300]}"
+            # `reason` is the toast the person testing the agent sees. It is
+            # written for a customer: provider names, keys, quotas and raw
+            # exception text describe the platform's own configuration, which
+            # they can't change, so those go to the log (for admins) instead.
+            reason = "The agent couldn't respond just now. Please try again — if it keeps happening, contact support."
+            cause = f"{type(e).__name__}: {str(e)[:300]}"
             if "invalid_api_key" in err_text or "authentication" in err_text or "401" in err_text:
                 err_msg = "The AI service is temporarily unavailable. Please try again shortly."
-                reason = f"Provider API key rejected — check the {agent.llm_provider} credentials. ({reason})"
+                reason = "The AI service is temporarily unavailable. Please try again shortly."
+                cause = f"Provider API key rejected — check the {agent.llm_provider} credentials. ({cause})"
             elif "quota" in err_text or "429" in err_text:
                 err_msg = "The AI service is temporarily unavailable. Please try again shortly."
-                reason = f"Provider quota/billing limit reached for {agent.llm_provider}. ({reason})"
+                reason = "The AI service is temporarily unavailable. Please try again shortly."
+                cause = f"Provider quota/billing limit reached for {agent.llm_provider}. ({cause})"
             elif "rate" in err_text:
                 err_msg = "I'm receiving too many requests. Please wait a moment and try again."
-                reason = f"Provider rate limit hit for {agent.llm_provider}. ({reason})"
+                reason = "The AI model is busy right now. Wait a moment and try again."
+                cause = f"Provider rate limit hit for {agent.llm_provider}. ({cause})"
             elif not (agent.llm_model or "").strip():
-                reason = f"No model selected for this agent (llm_provider={agent.llm_provider}, llm_model is empty)."
-            # `reason` names the real cause (provider, key, quota) for the
-            # workspace owner testing the agent — this endpoint is only ever
-            # called by an authenticated teammate, never a live caller, so
-            # it's safe to be specific here instead of guessing with API
-            # probes after the fact (M3). `message`/full_text stay the
-            # caller-safe generic line.
+                reason = "This agent has no AI model selected. Choose one in the agent's settings and try again."
+                cause = f"No model selected (llm_provider={agent.llm_provider}, llm_model is empty)."
+            logger.error(
+                f"Agent {agent.id} test response failed "
+                f"(provider={agent.llm_provider}, model={agent.llm_model}): {cause}"
+            )
             yield f"data: {json.dumps({'type': 'sentence', 'text': err_msg, 'audio_base64': None})}\n\n"
             yield f"data: {json.dumps({'type': 'error', 'message': err_msg, 'reason': reason})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'full_text': err_msg, 'end_call': False})}\n\n"
@@ -1177,7 +1188,8 @@ async def agent_stt_websocket(
     from app.services.voice.stt_service import deepgram_keyword_params, deepgram_turn_params
 
     if not getattr(settings, "DEEPGRAM_API_KEY", None):
-        await websocket.send_json({"type": "error", "message": "Deepgram API key not configured"})
+        logger.error("Test console STT unavailable: DEEPGRAM_API_KEY is not configured")
+        await websocket.send_json({"type": "error", "message": "Voice input isn't available right now."})
         await websocket.close()
         return
 
@@ -1306,11 +1318,13 @@ async def agent_transcribe(
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, params=params, data=audio_bytes) as resp:
-                if resp.status == 401:
-                    raise HTTPException(status_code=500, detail="Invalid Deepgram API key")
                 if resp.status != 200:
                     body = await resp.text()
-                    raise HTTPException(status_code=500, detail=f"Deepgram error: {body}")
+                    logger.error(f"Deepgram transcription failed ({resp.status}): {body[:500]}")
+                    raise HTTPException(
+                        status_code=503,
+                        detail="We couldn't transcribe that audio right now. Please try again.",
+                    )
                 data = await resp.json()
 
         # Extract transcript

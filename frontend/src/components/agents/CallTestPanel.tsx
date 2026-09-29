@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { apiClient } from '@/lib/api'
+import { apiClient, getErrorMessage, publicErrorText } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import {
@@ -304,7 +304,7 @@ export function CallTestPanel({
               // `done` — this `reason` is for the workspace owner testing the
               // agent, naming the actual cause (bad key, no model, quota)
               // instead of leaving them to probe the API to find it (M3).
-              if (ev.reason) toast.error(ev.reason, { duration: 8000 })
+              if (ev.reason) toast.error(publicErrorText(ev.reason, 'The agent couldn’t respond just now. Please try again.'), { duration: 8000 })
             } else if (ev.type === 'done') {
               fullText  = ev.full_text || fullText
               shouldEnd = !!ev.end_call
@@ -330,7 +330,7 @@ export function CallTestPanel({
       }
     } catch (e: any) {
       if (e?.name === 'AbortError') return
-      toast.error(e?.message || 'Response failed')
+      toast.error(getErrorMessage(e, 'The agent couldn’t respond just now. Please try again.'))
       if (isActiveRef.current) { setCallState('listening'); callStateRef.current = 'listening'; setTimeout(() => startSpeechRef.current(), 150) }
     }
   }, [drainQueue, stopAudioNow, agentId])
@@ -395,7 +395,7 @@ export function CallTestPanel({
           // Deepgram unusable (bad/missing key). Don't retry it — onclose would loop forever.
           dgAvailRef.current = false
           setSttMode('webspeech')
-          toast.error(`Speech-to-text unavailable: ${ev.message || 'unknown error'}`)
+          toast.error('Voice input isn’t available right now — you can still type to test the agent.')
           ws.close()
         }
       } catch {}

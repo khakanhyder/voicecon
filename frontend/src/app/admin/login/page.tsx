@@ -85,7 +85,7 @@ export default function AdminLoginPage() {
       setError(
         status === 401
           ? 'Incorrect email or password, or this account does not have admin access.'
-          : getErrorMessage(err) || 'Sign-in failed.',
+          : getErrorMessage(err, 'Sign-in failed.'),
       )
     } finally {
       setSubmitting(false)

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 import httpx
 
+from app.core.public_errors import public_test_result
 from app.models.integration import (
     IntegrationConnector,
     IntegrationConnection,
@@ -606,8 +607,21 @@ class IntegrationManager:
             connector_test.setdefault(
                 "response_time_ms", int((time.time() - start_time) * 1000)
             )
-            return connector_test
+            return public_test_result(connector_test, connector.name)
 
+        return public_test_result(
+            await self._probe_test_endpoint(connection, connector), connector.name
+        )
+
+    async def _probe_test_endpoint(
+        self,
+        connection: IntegrationConnection,
+        connector: IntegrationConnector,
+    ) -> Dict[str, Any]:
+        """Generic HTTP GET against ``test_endpoint``; see ``test_connection``."""
+        import time
+
+        start_time = time.time()
         try:
 
             # Get test endpoint from auth_config

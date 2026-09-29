@@ -19,6 +19,7 @@ import {
   type CompanyProfilePayload,
 } from '@/lib/onboarding'
 import { formatPhoneNumber, friendlyPhoneError, phoneNumberService, validateSearch } from '@/lib/phoneNumbers'
+import { getErrorMessage } from '@/lib/api'
 
 const COUNTRY_CODES = [
   { code: '+1', flag: '🇺🇸' },
@@ -172,7 +173,7 @@ export default function CompanyInformationPage() {
       router.push('/onboarding/pricing')
     },
     onError: (err: any) => {
-      toast.error(err.response?.data?.detail || 'Could not save company details')
+      toast.error(getErrorMessage(err, 'Could not save company details'))
     },
   })
 

@@ -12,6 +12,7 @@ import { useAuthStore } from '@/store/authStore'
 import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
+import { getErrorMessage } from '@/lib/api'
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#243275] focus:ring-3 focus:ring-[#243275]/15 disabled:opacity-50'
@@ -67,7 +68,7 @@ export default function ForgotPasswordPage() {
         toast.info(`Dev mode — your code is ${res.debug_code}`)
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not send the reset code')
+      setError(getErrorMessage(err, 'Could not send the reset code'))
     } finally {
       setIsSending(false)
     }
@@ -100,7 +101,7 @@ export default function ForgotPasswordPage() {
       // Same rule as every other sign-in: unfinished onboarding continues.
       router.push(await resolvePostAuthPath(queryClient))
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not reset your password')
+      setError(getErrorMessage(err, 'Could not reset your password'))
       setCode('')
     } finally {
       setIsResetting(false)

@@ -141,7 +141,8 @@ export interface SettingsResponse {
 }
 
 export interface CheckResult {
-  status: 'ok' | 'invalid' | 'not_configured' | 'error'
+  /** `incomplete`: the credential works but the provider still can't be used (e.g. keys from different modes). */
+  status: 'ok' | 'invalid' | 'incomplete' | 'not_configured' | 'error'
   message: string
   latency_ms: number | null
 }
@@ -445,6 +446,7 @@ export const adminApi = {
     send<UserRow>('patch', `/users/${id}`, body),
   signOutUser: (id: string) => send('post', `/users/${id}/sign-out`),
   unlockUser: (id: string) => send('post', `/users/${id}/unlock`),
+  deleteUser: (id: string) => send<{ ok: boolean; workspaces_deactivated: number }>('delete', `/users/${id}`),
 
   plans: () =>
     get<{ plans: Plan[]; stripe_configured: boolean; polar_configured: boolean; payment_provider: 'stripe' | 'polar' }>('/plans'),

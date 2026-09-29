@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, ChevronDown, Link2, Loader2, RefreshCw, Search } from 'lucide-react'
 
-import { apiClient } from '@/lib/api'
+import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 
 /**
@@ -129,7 +129,7 @@ export function ResourceLocator({
         const body = e?.response?.data?.detail
         setItems([])
         setError({
-          message: typeof body === 'string' ? body : body?.detail ?? 'Could not load options',
+          message: getErrorMessage(e, 'Could not load options'),
           code: typeof body === 'object' ? body?.code : undefined,
         })
       } finally {
@@ -189,8 +189,7 @@ export function ResourceLocator({
         setMode('id')
       }
     } catch (e: any) {
-      const body = e?.response?.data?.detail
-      setUrlError(typeof body === 'string' ? body : body?.detail ?? 'That link was not recognised')
+      setUrlError(getErrorMessage(e, 'That link was not recognised'))
     } finally {
       setIsResolvingUrl(false)
     }

@@ -5,12 +5,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.admin import audit, require_platform_admin
 from app.database import get_db
 from app.models.user import Organization, OrganizationMember, User
+from app.services.account_deletion import deactivate_owned_workspaces
 from app.services.auth import login_throttle
 
 from ._common import PageParams, iso, like, paginated, parse_uuid, utcnow
@@ -37,7 +38,7 @@ def _user_view(user: User, orgs: int = 0) -> dict:
 
 async def _user_or_404(db: AsyncSession, user_id: str) -> User:
     user = await db.get(User, parse_uuid(user_id, "user"))
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
@@ -50,7 +51,8 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     _admin=Depends(require_platform_admin),
 ):
-    query = select(User)
+    # Deleted accounts are tombstoned (see delete_user) and stay out of the list.
+    query = select(User).where(User.deleted_at.is_(None))
     if search:
         term = like(search.strip())
         query = query.where(or_(User.email.ilike(term), User.full_name.ilike(term), User.company_name.ilike(term)))
@@ -207,3 +209,64 @@ async def unlock_login(
           summary=f"Cleared login lockout for {user.email}", request=request)
     await db.commit()
     return {"ok": True}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    request: Request,
+    reason: Optional[str] = Query(None, max_length=500),
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Delete an account.
+
+    A soft delete, like self-service deletion: the row stays so calls, agents
+    and invoices remain attributable. The account is signed out and disabled,
+    every workspace it owns is deactivated with its billing cancelled, and it
+    leaves the workspaces it only belonged to. The email and social-login ids
+    are released so the person can sign up again from scratch.
+    """
+    user = await _user_or_404(db, user_id)
+    if user.id == admin.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You cannot delete your own account.")
+    if user.is_platform_admin:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revoke platform admin access before deleting this account.",
+        )
+
+    now = utcnow()
+    original_email = user.email
+    owned = await deactivate_owned_workspaces(db, user, now)
+    owned_ids = [org.id for org in owned]
+
+    # Leave other people's workspaces so the account stops showing in their team.
+    leave = delete(OrganizationMember).where(OrganizationMember.user_id == user.id)
+    if owned_ids:
+        leave = leave.where(OrganizationMember.organization_id.not_in(owned_ids))
+    left = await db.execute(leave)
+
+    user.is_active = False
+    user.deleted_at = now
+    user.token_version = (user.token_version or 0) + 1
+    user.active_organization_id = None
+    # Free the unique email and the social ids; the original stays in the audit log.
+    user.email = f"deleted-{user.id.hex}@deleted.invalid"
+    user.google_id = None
+    user.apple_id = None
+    user.hashed_password = None
+    login_throttle.clear(original_email)
+
+    audit(db, admin, "user.delete", target_type="user", target_id=user.id,
+          summary=f"Deleted {original_email}",
+          details={
+              "email": original_email,
+              "full_name": user.full_name,
+              "workspaces_deactivated": [str(i) for i in owned_ids],
+              "memberships_removed": left.rowcount or 0,
+              "reason": reason,
+          },
+          request=request)
+    await db.commit()
+    return {"ok": True, "workspaces_deactivated": len(owned_ids)}

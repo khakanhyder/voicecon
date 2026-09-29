@@ -318,6 +318,46 @@ class TestUsers:
         await db_session.refresh(customer)
         assert customer.is_platform_admin is True
 
+    async def test_cannot_delete_self_or_another_admin(self, client, admin, db_session):
+        other = await _make_user(db_session, "other-admin@example.com", admin=True)
+        as_user(client, admin)
+        assert (await client.delete(f"/api/v1/admin/users/{admin.id}")).status_code == 409
+        assert (await client.delete(f"/api/v1/admin/users/{other.id}")).status_code == 409
+
+    async def test_delete_user(self, client, admin, customer, plan, db_session):
+        owned = await _org_of(db_session, customer)
+        db_session.add(Subscription(organization_id=owned.id, plan_id=plan.id, status="trialing",
+                                    current_period_start=datetime.utcnow(),
+                                    current_period_end=datetime.utcnow() + timedelta(days=30)))
+        # Also a plain member of someone else's workspace.
+        db_session.add(OrganizationMember(organization_id=(await _org_of(db_session, admin)).id,
+                                          user_id=customer.id, role="member"))
+        await db_session.commit()
+        before, customer_id, owned_id = customer.token_version, customer.id, owned.id
+
+        res = await as_user(client, admin).delete(f"/api/v1/admin/users/{customer_id}", params={"reason": "spam"})
+        assert res.status_code == 200, res.text
+
+        db_session.expire_all()
+        user = await db_session.get(User, customer_id)
+        assert user.is_active is False and user.deleted_at is not None
+        assert user.token_version == before + 1
+        assert user.email != "customer@example.com"  # released for a fresh sign-up
+        assert (await db_session.get(Organization, owned_id)).is_active is False
+        sub = (await db_session.execute(select(Subscription).where(Subscription.organization_id == owned_id))).scalar_one()
+        assert sub.status == "canceled"
+        memberships = (await db_session.execute(
+            select(OrganizationMember).where(OrganizationMember.user_id == customer_id))).scalars().all()
+        assert [m.organization_id for m in memberships] == [owned_id]
+
+        log = (await db_session.execute(select(AdminAuditLog).where(AdminAuditLog.action == "user.delete"))).scalar_one()
+        assert log.details["email"] == "customer@example.com" and log.details["reason"] == "spam"
+
+        listed = (await client.get("/api/v1/admin/users")).json()["items"]
+        assert customer_id.hex not in {uuid.UUID(u["id"]).hex for u in listed}
+        assert (await client.get(f"/api/v1/admin/users/{customer_id}")).status_code == 404
+        assert (await client.delete(f"/api/v1/admin/users/{customer_id}")).status_code == 404
+
 
 # ---------- Plans ----------
 @pytest.mark.integration

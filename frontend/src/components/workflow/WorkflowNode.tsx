@@ -30,6 +30,7 @@ import {
 import { getDescriptor, outputsFor } from '@/lib/workflow/nodeTypes'
 import type { FlowNodeData } from '@/lib/workflow/graph'
 import { cn } from '@/lib/utils'
+import { publicErrorText } from '@/lib/api'
 
 const ICONS: Record<string, LucideIcon> = {
   Play,
@@ -121,7 +122,7 @@ function WorkflowNodeComponent({ data, selected }: WorkflowNodeProps) {
       {data.status === 'failed' && data.error && (
         <div className="border-t border-rose-500/30 bg-rose-500/10 px-3 py-1.5">
           <p className="truncate text-[11px] text-rose-600 dark:text-rose-400">
-            {data.error}
+            {publicErrorText(data.error, 'This step failed. Check its settings and connection, then try again.')}
           </p>
         </div>
       )}

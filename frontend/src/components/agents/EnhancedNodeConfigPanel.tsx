@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { validateNodeData } from '@/lib/flowValidation';
 
 import { useConfirm } from '@/hooks/use-confirm';
+import { getErrorMessage } from '@/lib/api'
 
 interface ValidationError {
   field: string;
@@ -95,7 +96,7 @@ export const EnhancedNodeConfigPanel: React.FC<EnhancedNodeConfigPanelProps> = (
     } catch (error) {
       setTestResult({
         success: false,
-        message: 'Test failed: ' + (error as Error).message,
+        message: getErrorMessage(error, 'Test failed. Please try again.'),
       });
     } finally {
       setIsTesting(false);

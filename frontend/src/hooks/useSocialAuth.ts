@@ -51,7 +51,7 @@ export function useSocialAuth() {
   const googleMutation = useMutation({
     mutationFn: (code: string) => authService.googleAuth(code),
     onSuccess: onAuthed,
-    onError: (e: any) => toast.error(getErrorMessage(e) || 'Google sign-in failed'),
+    onError: (e: any) => toast.error(getErrorMessage(e, 'Google sign-in failed')),
   })
 
   const appleMutation = useMutation({

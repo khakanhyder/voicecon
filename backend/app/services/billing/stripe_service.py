@@ -1096,6 +1096,39 @@ class StripeService:
         )
         return price.id
 
+    async def ensure_stripe_product(self, plan: SubscriptionPlan) -> str:
+        """Return a Stripe product id for ``plan`` that exists under the current key.
+
+        The stored id can be a placeholder (seeded before Stripe was set up), or
+        a real product from the *other* mode or account: plans seeded with a
+        test key keep their test ``prod_`` ids after the key is switched to
+        live, and the live API answers "No such product" for them. Either way a
+        fresh product is created and the plan row repointed; the caller commits.
+        """
+        product_id = plan.stripe_product_id
+        if product_id and product_id.startswith("prod_"):
+            try:
+                product = await asyncio.to_thread(stripe.Product.retrieve, product_id)
+                if product.get("active", True):
+                    return product_id
+                logger.warning(f"Stripe product {product_id} for plan {plan.slug} is archived; creating a new one")
+            except stripe.error.InvalidRequestError as exc:
+                if getattr(exc, "code", None) != "resource_missing":
+                    raise
+                logger.warning(
+                    f"Stripe product {product_id} for plan {plan.slug} does not exist under the "
+                    "current key (test/live switch?); creating a new one"
+                )
+
+        product = await asyncio.to_thread(
+            stripe.Product.create,
+            name=plan.name,
+            description=plan.description or plan.name,
+            metadata={"plan_id": str(plan.id), "plan_slug": plan.slug or ""},
+        )
+        plan.stripe_product_id = product.id
+        return product.id
+
     async def ensure_stripe_price(
         self,
         db: AsyncSession,
@@ -1108,18 +1141,6 @@ class StripeService:
         placeholder ids (when Stripe was not configured at seed time) by creating
         the real Stripe product and backfilling the DB row.
         """
-        # Ensure a real Stripe product exists
-        product_id = plan.stripe_product_id
-        if not product_id or not product_id.startswith("prod_"):
-            product = await asyncio.to_thread(
-                stripe.Product.create,
-                name=plan.name,
-                description=plan.description or plan.name,
-                metadata={"plan_id": str(plan.id)},
-            )
-            product_id = product.id
-            plan.stripe_product_id = product_id
-
         interval = "year" if billing_period == "yearly" else "month"
         if interval == "year":
             # Never fall back to the monthly amount here. That silently charged
@@ -1141,6 +1162,7 @@ class StripeService:
         else:
             amount = int(Decimal(plan.price_monthly) * 100)
 
+        product_id = await self.ensure_stripe_product(plan)
         price_id = await self.get_or_create_price(
             product_id=product_id,
             unit_amount_cents=amount,
@@ -1148,11 +1170,12 @@ class StripeService:
             currency=plan.currency or "usd",
         )
 
-        # Cache the monthly price id on the plan for reuse
-        if interval == "month" and (
-            not plan.stripe_price_id or not plan.stripe_price_id.startswith("price_")
-        ):
+        # Cache the price id on the plan. Always overwrite: the stored one may
+        # belong to a product from the other Stripe mode.
+        if interval == "month":
             plan.stripe_price_id = price_id
+        else:
+            plan.stripe_price_id_yearly = price_id
 
         await db.flush()
         return price_id
