@@ -49,11 +49,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Note: Adjust based on your frontend needs
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Adjust for React
+            # js.stripe.com: kept in step with frontend/next.config.js's CSP,
+            # which the browser actually enforces on dashboard/checkout pages —
+            # this header governs API JSON responses, not those pages, but a
+            # mismatch here is still worth avoiding (B2 in the 25 Sep QA pass).
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
             "style-src 'self' 'unsafe-inline'",  # Adjust for Tailwind
             "img-src 'self' data: https:",
             "font-src 'self' data:",
             "connect-src 'self' https:",  # API calls
+            "frame-src https://js.stripe.com https://hooks.stripe.com",
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",

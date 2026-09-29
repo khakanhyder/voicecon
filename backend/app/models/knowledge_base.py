@@ -163,7 +163,12 @@ class AgentKnowledgeBase(Base):
     # Configuration
     priority: Mapped[int] = mapped_column(Integer, default=0)  # Higher priority searched first
     max_results: Mapped[int] = mapped_column(Integer, default=5)  # Max chunks to retrieve
-    min_similarity: Mapped[float] = mapped_column(Float, default=0.7)  # Minimum similarity threshold
+    # 0.2, not 0.7 — matches the default every API path that creates these rows
+    # already passes explicitly. A future insert that omits min_similarity
+    # would otherwise silently filter out correct-but-moderate-similarity
+    # chunks (e.g. a short "Consultation fee: 3000 rupees" line) on the
+    # agent-context retrieval path only (latent gap flagged during the M11 fix).
+    min_similarity: Mapped[float] = mapped_column(Float, default=0.2)  # Minimum similarity threshold
 
     # Feature flags
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

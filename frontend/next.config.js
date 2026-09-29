@@ -39,10 +39,10 @@ const nextConfig = {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000',
   },
   transpilePackages: ['react-flow-renderer'],
-  // Browsers ask for /favicon.ico on their own; the icon is app/icon.svg.
-  async rewrites() {
-    return [{ source: '/favicon.ico', destination: '/icon.svg' }]
-  },
+  // public/favicon.ico now exists as a real multi-size .ico, so Next.js
+  // serves it directly with the right Content-Type — the old rewrite to
+  // icon.svg answered the request but as image/svg+xml, which a strict
+  // crawler or older browser expecting real ICO magic bytes 404'd on (m17).
   // M-05: Security headers for the frontend origin
   async headers() {
     return [

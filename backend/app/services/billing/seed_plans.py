@@ -41,12 +41,19 @@ DEFAULT_PLANS = [
         "max_knowledge_bases": 1,
         "sort_order": 1,
         "features": {
+            # Customer-facing pricing pages compute their bullets live from
+            # `entitlements.limits`/`features` (frontend/src/lib/pricing.ts),
+            # not from this list — it only feeds the platform-admin plan
+            # editor. Kept free of real-estate-specific copy (MLS, Zillow)
+            # and of numbers (calls/texts/emails) that can drift from the
+            # live entitlements document, since nothing here keeps them in
+            # sync (QA M6, 25 Sep 2026).
             "highlights": [
                 "Custom Phone Number",
-                "Seamless CRM Integrations (Salesforce, MLS, Zillow, and more)",
+                "CRM Integrations",
                 "Scheduling & Follow-Up Automation",
                 "Outbound & Inbound Calls with Real-Time Conversational AI",
-                "Unlimited Calls & Minutes, 600 Texts, 2,500 Emails/Month",
+                "Unlimited Calls & Minutes",
             ]
         },
     },
@@ -64,12 +71,15 @@ DEFAULT_PLANS = [
         "max_knowledge_bases": 5,
         "sort_order": 2,
         "features": {
+            # Same caveat as sales-chatbot above. "Virtual Meetings & Note
+            # Taking" and "Lead Scoring" are dropped — QA M7 found no
+            # dashboard feature behind either, so advertising them here (even
+            # in an admin-only editor) was a leak risk if this copy were ever
+            # rendered to a customer.
             "highlights": [
                 "Everything in Sales Chatbot, plus:",
-                "Multiple Phone Numbers for Campaigns",
-                "Virtual Meetings & Note Taking",
-                "Lead Scoring & Real-Time Data Updates (Schools, Neighborhoods, etc.)",
-                "Unlimited Calls & Minutes, 1,000 Texts, 5,000 Emails/Month",
+                "Multiple Phone Numbers",
+                "Unlimited Calls & Minutes",
             ]
         },
     },
@@ -95,27 +105,54 @@ def _slug_for(plan: SubscriptionPlan) -> str:
 #: Marketing bullets we shipped that quoted a monthly call allowance, mapped to
 #: their replacements. Matched exactly so a bullet an operator has since edited
 #: is left alone — this corrects our own stale copy, it does not own the column.
+#: A value of ``None`` drops the bullet outright rather than rewording it.
 _LEGACY_CALL_BULLETS = {
     "350 Calls, 600 Texts, 2,500 Emails/Month":
         "Unlimited Calls & Minutes, 600 Texts, 2,500 Emails/Month",
     "600 Calls, 1,000 Texts, 5,000 Emails/Month":
         "Unlimited Calls & Minutes, 1,000 Texts, 5,000 Emails/Month",
+    # Retired 29 Sep 2026 (QA M6/M7, 25 Sep report): real-estate-specific
+    # copy (MLS, Zillow, Schools, Neighborhoods) and numeric call/text/email
+    # counts that can drift from the live entitlements document nothing here
+    # keeps in sync — plus two features ("Virtual Meetings & Note Taking",
+    # "Lead Scoring...") that were advertised but never actually built.
+    "Seamless CRM Integrations (Salesforce, MLS, Zillow, and more)":
+        "CRM Integrations",
+    "Unlimited Calls & Minutes, 600 Texts, 2,500 Emails/Month":
+        "Unlimited Calls & Minutes",
+    "Unlimited Calls & Minutes, 1,000 Texts, 5,000 Emails/Month":
+        "Unlimited Calls & Minutes",
+    "Multiple Phone Numbers for Campaigns":
+        "Multiple Phone Numbers",
+    "Virtual Meetings & Note Taking": None,
+    "Lead Scoring & Real-Time Data Updates (Schools, Neighborhoods, etc.)": None,
 }
 
 
 def _refresh_stale_copy(plan: SubscriptionPlan) -> bool:
-    """Rewrite pricing bullets that still advertise a monthly call allowance.
+    """Rewrite (or drop) pricing bullets per `_LEGACY_CALL_BULLETS`.
 
     Without this an existing install shows "Unlimited calls & minutes" and
     "350 Calls/Month" on the same card — and it does so on the screen where
-    someone decides whether to pay.
+    someone decides whether to pay. It's also how a feature that turned out
+    to be unshipped, or copy nobody meant to keep public (MLS/Zillow), gets
+    retired from installs that were already seeded before the source spec
+    in `DEFAULT_PLANS` changed — that spec only applies to a brand-new table.
     """
     features = dict(plan.features or {})
     highlights = features.get("highlights")
     if not isinstance(highlights, list):
         return False
 
-    replaced = [_LEGACY_CALL_BULLETS.get(line, line) for line in highlights]
+    replaced = []
+    for line in highlights:
+        if line in _LEGACY_CALL_BULLETS:
+            new_line = _LEGACY_CALL_BULLETS[line]
+            if new_line is not None:
+                replaced.append(new_line)
+        else:
+            replaced.append(line)
+
     if replaced == highlights:
         return False
 
