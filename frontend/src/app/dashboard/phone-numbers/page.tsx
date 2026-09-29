@@ -15,8 +15,8 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertCircle, ArrowRight, Bot, Check, DollarSign, MessageSquare, Phone, PhoneCall,
-  Plug, Plus, RefreshCw, Trash2, TrendingUp,
+  AlertCircle, ArrowRight, Bot, Check, ChevronDown, DollarSign, ExternalLink, Loader2, MessageSquare,
+  Phone, PhoneCall, Plug, Plus, RefreshCw, Trash2, TrendingUp,
 } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
@@ -56,6 +56,85 @@ function OpenPurchaseFromUrl({ onOpen }: { onOpen: () => void }) {
   }, [wantsSearch, onOpen, router, pathname])
 
   return null
+}
+
+type AgentOption = { id: string; name: string; is_active?: boolean }
+
+/**
+ * Which assistant answers a number, changeable in place. Saving re-points the
+ * carrier; until the request settles the picker is disabled so a second pick
+ * can't race the first.
+ */
+function AgentPicker({
+  number,
+  agents,
+  saving,
+  onChange,
+}: {
+  number: PhoneNumber
+  agents: AgentOption[]
+  saving: boolean
+  onChange: (agentId: string) => void
+}) {
+  const current = number.agent_id
+  const known = !current || agents.some((a) => a.id === current)
+  const label = `Assistant that answers ${formatPhoneNumber(number.phone_number)}`
+
+  if (agents.length === 0) {
+    return current ? (
+      <Link
+        href={`/dashboard/agents/${current}`}
+        className="inline-flex max-w-full items-center gap-1.5 text-sm font-medium text-[#0F6A59] hover:underline"
+      >
+        <Bot className="h-3.5 w-3.5 flex-shrink-0" />
+        <span className="truncate">View assistant</span>
+      </Link>
+    ) : (
+      <Link href="/dashboard/agents/new" className="text-sm font-medium text-[#0F6A59] hover:underline">
+        Create an assistant
+      </Link>
+    )
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <div className="relative min-w-0 flex-1">
+        <Bot className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#0F6A59]" />
+        <select
+          aria-label={label}
+          title={label}
+          value={current ?? ''}
+          disabled={saving}
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+          className="h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-sm font-medium text-slate-800 transition-colors hover:border-[#0F6A59]/40 focus:border-[#0F6A59] focus:outline-none focus:ring-2 focus:ring-[#0F6A59]/20 disabled:cursor-wait disabled:opacity-60"
+        >
+          {!current && <option value="">Choose an assistant…</option>}
+          {!known && current && <option value={current}>Unknown assistant</option>}
+          {agents.map((a) => (
+            <option key={a.id} value={a.id} disabled={a.is_active === false && a.id !== current}>
+              {a.name}
+              {a.is_active === false ? ' (turned off)' : ''}
+            </option>
+          ))}
+        </select>
+        {saving ? (
+          <Loader2 className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-slate-400" />
+        ) : (
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        )}
+      </div>
+      {current && known && (
+        <Link
+          href={`/dashboard/agents/${current}`}
+          aria-label="Open this assistant"
+          title="Open this assistant"
+          className="flex h-9 w-8 flex-shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-[#0F6A59]"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
+      )}
+    </div>
+  )
 }
 
 /** One of the two ways to get a number, on the empty state. */
@@ -146,7 +225,9 @@ export default function PhoneNumbersPage() {
   const [numbers, setNumbers] = useState<PhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
+  const [agents, setAgents] = useState<AgentOption[]>([])
+  // Number ids with a reassignment in flight.
+  const [assigning, setAssigning] = useState<Set<string>>(new Set())
   const [options, setOptions] = useState<PurchaseOptions | null>(null)
 
   // Which dialog is open. `buy` carries the flow and, for own-provider
@@ -185,12 +266,32 @@ export default function PhoneNumbersPage() {
     fetchNumbers()
     fetchOptions()
     apiClient
-      .get<{ agents: { id: string; name: string }[] }>(API_ENDPOINTS.AGENTS)
+      .get<{ agents: AgentOption[] }>(API_ENDPOINTS.AGENTS, { params: { limit: 1000 } })
       .then((res) => setAgents(res.data.agents || []))
       .catch(() => setAgents([]))
   }, [fetchNumbers, fetchOptions])
 
   const agentNames = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents])
+
+  const assignAgent = async (num: PhoneNumber, agentId: string) => {
+    if (agentId === num.agent_id) return
+    const nextName = agentNames.get(agentId) || 'the selected assistant'
+    setAssigning((s) => new Set(s).add(num.id))
+    try {
+      const updated = await phoneNumberService.assignAgent(num.id, agentId)
+      // Only this row changes; every other number keeps its own assistant.
+      setNumbers((list) => list.map((n) => (n.id === num.id ? { ...n, ...updated } : n)))
+      toast.success(`Calls to ${formatPhoneNumber(num.phone_number)} now go to ${nextName}`)
+    } catch (e) {
+      toast.error(friendlyPhoneError(e, 'assign'))
+    } finally {
+      setAssigning((s) => {
+        const next = new Set(s)
+        next.delete(num.id)
+        return next
+      })
+    }
+  }
 
   const releaseNumber = async (num: PhoneNumber) => {
     const ok = await confirm({
@@ -363,7 +464,6 @@ export default function PhoneNumbersPage() {
             </div>
             <ul className="divide-y divide-slate-100">
               {numbers.map((num) => {
-                const agentName = num.agent_id ? agentNames.get(num.agent_id) : null
                 return (
                   <li
                     key={num.id}
@@ -399,17 +499,12 @@ export default function PhoneNumbersPage() {
                     </div>
 
                     <div className="order-last col-span-2 min-w-0 md:order-none md:col-span-1">
-                      {num.agent_id ? (
-                        <Link
-                          href={`/dashboard/agents/${num.agent_id}`}
-                          className="inline-flex max-w-full items-center gap-1.5 text-sm font-medium text-[#0F6A59] hover:underline"
-                        >
-                          <Bot className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="truncate">{agentName || 'View assistant'}</span>
-                        </Link>
-                      ) : (
-                        <span className="text-sm text-slate-400">No assistant</span>
-                      )}
+                      <AgentPicker
+                        number={num}
+                        agents={agents}
+                        saving={assigning.has(num.id)}
+                        onChange={(agentId) => assignAgent(num, agentId)}
+                      />
                     </div>
 
                     <div className="hidden md:block">

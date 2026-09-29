@@ -120,6 +120,17 @@ export const phoneNumberService = {
     })
     return data
   },
+
+  /**
+   * Point a number at a different agent. The backend re-points the carrier
+   * too, and inbound calls follow the saved assignment from the next call on.
+   */
+  async assignAgent(phoneNumberId: string, agentId: string): Promise<PhoneNumber> {
+    const { data } = await apiClient.patch<PhoneNumber>(API_ENDPOINTS.PHONE_NUMBER(phoneNumberId), {
+      agent_id: agentId,
+    })
+    return data
+  },
 }
 
 // ---- Display ----------------------------------------------------------------
@@ -170,7 +181,7 @@ export function validateSearch(country: string, areaCode: string, contains: stri
 
 // ---- Errors --------------------------------------------------------------------
 
-export type PhoneAction = 'search' | 'purchase' | 'options' | 'list' | 'release'
+export type PhoneAction = 'search' | 'purchase' | 'options' | 'list' | 'release' | 'assign'
 
 const FALLBACK: Record<PhoneAction, string> = {
   search: 'We couldn’t load available numbers right now. Please try again.',
@@ -178,6 +189,7 @@ const FALLBACK: Record<PhoneAction, string> = {
   options: 'We couldn’t load phone number options right now. Please try again.',
   list: 'We couldn’t load your phone numbers right now. Please try again.',
   release: 'We couldn’t release this number right now. Please try again or contact support.',
+  assign: 'We couldn’t change the assistant for this number right now. Please try again.',
 }
 
 /**

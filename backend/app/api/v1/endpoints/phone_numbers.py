@@ -528,8 +528,9 @@ async def update_phone_number(
         )
 
     try:
-        # Update agent association
-        if update_request.agent_id is not None:
+        # Update agent association. Picking the agent it already has is a
+        # no-op: nothing to tell the carrier.
+        if update_request.agent_id is not None and update_request.agent_id != phone_number.agent_id:
             # Verify agent belongs to user
             agent_result = await db.execute(
                 select(Agent).where(
@@ -543,6 +544,11 @@ async def update_phone_number(
                 raise HTTPException(
                     status_code=404,
                     detail="Agent not found or access denied"
+                )
+            if not agent.is_active:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{agent.name} is turned off. Turn it on before it can answer this number.",
                 )
 
             try:
@@ -570,7 +576,12 @@ async def update_phone_number(
             except Exception as e:
                 raise public_error(e, action="update", voicecon=is_voicecon_number(phone_number))
 
+            previous_agent_id = phone_number.agent_id
             phone_number.agent_id = update_request.agent_id
+            logger.info(
+                f"Reassigned {phone_number.phone_number} from agent "
+                f"{previous_agent_id} to {update_request.agent_id}"
+            )
 
         # Update status
         if update_request.status is not None:

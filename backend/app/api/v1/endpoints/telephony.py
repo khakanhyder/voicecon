@@ -429,6 +429,61 @@ async def _find_call_for_status(
     return None
 
 
+async def _answering_agent(
+    db: AsyncSession,
+    *,
+    url_agent_id: str,
+    to_number: Optional[str],
+    call_id: Optional[str],
+) -> Optional[Agent]:
+    """
+    The agent that should take this call.
+
+    For an inbound call the number's own record decides: ``PhoneNumber.agent_id``
+    is what the user picked on the Phone Numbers page, and reading it here means
+    a reassignment takes effect on the very next call even if the carrier still
+    has the old agent in the webhook URL (an update that never reached it, or a
+    number set up before reassignment existed). The agent in the URL is only
+    the fallback — for a number we have no record of.
+
+    An outbound call's answer webhook carries our ``call_id`` and its ``To`` is
+    the person being called, so it keeps the agent that placed the call.
+    """
+    if not call_id and to_number:
+        number = (
+            await db.execute(
+                select(PhoneNumber).where(
+                    PhoneNumber.phone_number == to_number,
+                    PhoneNumber.status == "active",
+                )
+            )
+        ).scalars().first()
+        if number is not None and number.agent_id is not None:
+            agent = (
+                await db.execute(
+                    select(Agent).where(
+                        Agent.id == number.agent_id,
+                        # Never cross workspaces, whatever the row says.
+                        Agent.organization_id == number.organization_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if agent is not None:
+                if str(agent.id) != str(url_agent_id):
+                    logger.info(
+                        f"{to_number} is assigned to agent {agent.id}; "
+                        f"the carrier webhook still names {url_agent_id}"
+                    )
+                return agent
+
+    try:
+        return (
+            await db.execute(select(Agent).where(Agent.id == UUID(str(url_agent_id))))
+        ).scalar_one_or_none()
+    except ValueError:
+        return None
+
+
 async def _resolve_call_record(
     db: AsyncSession,
     *,
@@ -576,11 +631,12 @@ async def handle_inbound_call(
         if not await validate_twilio_request(request, form_data, db):
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
-        # Get agent from database
-        agent_result = await db.execute(
-            select(Agent).where(Agent.id == agent_id)
+        agent = await _answering_agent(
+            db,
+            url_agent_id=agent_id,
+            to_number=to_number,
+            call_id=request.query_params.get("call_id"),
         )
-        agent = agent_result.scalar_one_or_none()
 
         if not agent:
             logger.error(f"Agent not found: {agent_id}")
@@ -968,8 +1024,12 @@ async def handle_telnyx_inbound_call(
             f"To={to_number}, Status={call_status}, Agent={agent_id}"
         )
 
-        agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-        agent = agent_result.scalar_one_or_none()
+        agent = await _answering_agent(
+            db,
+            url_agent_id=agent_id,
+            to_number=to_number,
+            call_id=request.query_params.get("call_id"),
+        )
 
         if not agent:
             logger.error(f"Agent not found: {agent_id}")

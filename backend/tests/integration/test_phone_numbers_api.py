@@ -923,6 +923,132 @@ class TestReassignAndRelease:
             f"/api/v1/telephony/telnyx/voice/{second_agent.id}"
         )
 
+    async def test_an_incoming_call_reaches_the_newly_assigned_agent(
+        self, client, owner, agent, telnyx_number, second_agent, db_session
+    ):
+        """Calls follow the saved assignment, even through a webhook URL that
+        still names the old agent (a carrier update that never landed)."""
+        from app.models.call import Call
+
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(second_agent.id)},
+        )
+        assert res.status_code == 200, res.text
+
+        answer = await client.post(
+            f"/api/v1/telephony/telnyx/voice/{agent.id}",  # the OLD agent's URL
+            data={
+                "CallSid": "CA-reassigned-1",
+                "From": "+15550009999",
+                "To": telnyx_number.phone_number,
+                "CallStatus": "ringing",
+            },
+        )
+        assert answer.status_code == 200, answer.text
+        assert "Stream" in answer.text or "stream" in answer.text, answer.text
+
+        call = (
+            await db_session.execute(select(Call).where(Call.provider_call_sid == "CA-reassigned-1"))
+        ).scalar_one()
+        assert call.agent_id == second_agent.id
+        assert call.direction == "inbound"
+
+    async def test_reassigning_one_number_leaves_the_others_alone(
+        self, client, owner, agent, telnyx_number, second_agent, db_session
+    ):
+        other = PhoneNumber(
+            user_id=owner.id,
+            organization_id=telnyx_number.organization_id,
+            agent_id=agent.id,
+            phone_number="+13015550199",
+            provider="telnyx",
+            status="active",
+        )
+        db_session.add(other)
+        await db_session.commit()
+
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(second_agent.id)},
+        )
+        assert res.status_code == 200, res.text
+
+        await db_session.refresh(other)
+        assert other.agent_id == agent.id
+        listed = {
+            n["phone_number"]: n["agent_id"]
+            for n in (await as_user(client, owner).get("/api/v1/phone-numbers")).json()
+        }
+        assert listed == {
+            "+13015550100": str(second_agent.id),
+            "+13015550199": str(agent.id),
+        }
+
+    async def test_picking_the_current_agent_does_not_touch_the_carrier(
+        self, client, owner, agent, telnyx_number
+    ):
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(agent.id)},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agent_id"] == str(agent.id)
+        assert CARRIER_CALLS == []
+
+    async def test_a_turned_off_agent_cannot_take_the_number(
+        self, client, owner, agent, telnyx_number, second_agent, db_session
+    ):
+        second_agent.is_active = False
+        await db_session.commit()
+
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(second_agent.id)},
+        )
+        assert res.status_code == 400
+        assert "turned off" in res.json()["detail"]
+        await db_session.refresh(telnyx_number)
+        assert telnyx_number.agent_id == agent.id
+        assert CARRIER_CALLS == []
+
+    async def test_a_carrier_failure_keeps_the_old_agent(
+        self, client, owner, agent, telnyx_number, second_agent, db_session, monkeypatch
+    ):
+        from app.services.telephony.providers.base import NumberProviderError
+
+        async def refuse(self, method, path, **kwargs):
+            raise NumberProviderError("carrier is down")
+
+        monkeypatch.setattr(NumberProvider, "_request", refuse)
+
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(second_agent.id)},
+        )
+        assert res.status_code >= 400
+        await db_session.refresh(telnyx_number)
+        assert telnyx_number.agent_id == agent.id
+
+    async def test_another_workspaces_agent_is_refused(
+        self, client, owner, other_user, telnyx_number, db_session
+    ):
+        foreign = Agent(
+            user_id=other_user.id,
+            organization_id=await _org_id_of(db_session, other_user),
+            name="Not yours",
+            system_prompt="x",
+        )
+        db_session.add(foreign)
+        await db_session.commit()
+
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}",
+            json={"agent_id": str(foreign.id)},
+        )
+        assert res.status_code == 404
+        assert CARRIER_CALLS == []
+
     async def test_release_goes_back_to_the_buying_carrier(
         self, client, owner, telnyx_number, db_session
     ):
