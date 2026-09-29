@@ -49,7 +49,7 @@ export function AssistantsRail({
     <aside className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">All Assistants</h2>
+          <h2 className="text-sm font-semibold text-slate-900">All Agents</h2>
         </div>
 
         <div className="max-h-[420px] overflow-y-auto p-2">

@@ -248,6 +248,21 @@ class STTService:
         self._active_providers.clear()
 
 
+def deepgram_turn_params(silence_timeout_ms: Optional[int]) -> str:
+    """
+    Deepgram params for when the caller's turn ends — the agent's
+    `silence_timeout` ("how long to wait after the caller stops speaking").
+
+    `endpointing` is the silence that marks speech_final. `utterance_end_ms`
+    is Deepgram's word-timing fallback for noisy audio where speech_final
+    never arrives; Deepgram requires it to be at least 1000ms, and it sits a
+    little behind endpointing so the two don't race. Shared by the browser
+    test relay and real calls so a test behaves like the phone.
+    """
+    ms = max(300, min(int(silence_timeout_ms or 1000), 10000))
+    return f"&endpointing={ms}&utterance_end_ms={max(1000, ms + 500)}"
+
+
 def deepgram_keyword_params(model: str, keywords: Optional[list]) -> str:
     """
     Build the Deepgram query-string params that bias transcription toward a

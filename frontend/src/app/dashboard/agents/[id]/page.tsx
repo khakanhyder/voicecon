@@ -610,7 +610,7 @@ export default function AgentDetailPage() {
           stt_keywords:      Array.isArray(a.stt_keywords) ? a.stt_keywords : [],
           interrupt_enabled: a.interrupt_enabled ?? true,
           interrupt_sensitivity: Number(a.interrupt_sensitivity) || 0.5,
-          silence_timeout:   a.silence_timeout || 3000,
+          silence_timeout:   a.silence_timeout || 1000,
           max_call_duration: a.max_call_duration || 1800,
           background_noise_reduction: a.background_noise_reduction ?? true,
           sentiment_analysis_enabled: a.sentiment_analysis_enabled ?? false,
@@ -711,8 +711,9 @@ export default function AgentDetailPage() {
     name:              form.name,
     first_message:     form.first_message,
     interrupt_enabled: form.interrupt_enabled,
-    silence_timeout:   form.silence_timeout,
+    interrupt_sensitivity: form.interrupt_sensitivity,
     max_call_duration: form.max_call_duration,
+    background_noise_reduction: form.background_noise_reduction,
   }
 
   return (
@@ -725,7 +726,7 @@ export default function AgentDetailPage() {
           </Link>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-semibold text-slate-900 leading-tight">Assistant</h2>
+              <h2 className="text-xl font-semibold text-slate-900 leading-tight">Agent</h2>
               <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
                 isActive
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -780,8 +781,8 @@ export default function AgentDetailPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search assistants"
-            aria-label="Search assistants"
+            placeholder="Search agents"
+            aria-label="Search agents"
             className="w-full rounded-full border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15"
           />
         </div>

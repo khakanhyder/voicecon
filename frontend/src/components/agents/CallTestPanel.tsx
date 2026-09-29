@@ -20,9 +20,18 @@ export interface TestCallAgent {
   name: string
   first_message: string
   interrupt_enabled?: boolean
-  silence_timeout?: number
+  /** 0-1: how many words it takes to cut the agent off (see interruptMinWords). */
+  interrupt_sensitivity?: number
   max_call_duration?: number
+  /** Browser noise suppression on the test microphone. */
+  background_noise_reduction?: boolean
 }
+
+/** Words the caller must say before they barge in: 1 at full sensitivity,
+ *  3 at zero, so a cough or an "mm-hm" doesn't stop the agent mid-sentence.
+ *  Mirrors voice_session.py's rule for phone calls. */
+const interruptMinWords = (sensitivity: number) => Math.max(1, Math.round(3 - 2 * sensitivity))
+const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
 
 interface Message {
   id: string
@@ -88,6 +97,8 @@ export function CallTestPanel({
   // it, which is how "0300 1234567" arrived as "one two three".
   const finalBufRef       = useRef('')
   const interruptRef      = useRef(true)
+  const interruptWordsRef = useRef(2)
+  const noiseReductionRef = useRef(true)
   const maxDurRef         = useRef(1800)
   const idleTimeoutRef    = useRef(8000)
   const streamRef         = useRef<MediaStream | null>(null)
@@ -123,11 +134,12 @@ export function CallTestPanel({
   useEffect(() => {
     if (open && agent) {
       interruptRef.current  = agent.interrupt_enabled ?? true
+      interruptWordsRef.current = interruptMinWords(Number(agent.interrupt_sensitivity ?? 0.5))
+      noiseReductionRef.current = agent.background_noise_reduction ?? true
       maxDurRef.current     = agent.max_call_duration || 1800
-      // silence_timeout is a few seconds, meant for end-of-speech. Used as the
-      // check-in delay it interrupted anyone who paused to think, so a check-in
-      // waits at least 15 seconds.
-      idleTimeoutRef.current = Math.max(agent.silence_timeout || 0, MIN_CHECK_IN_MS)
+      // The check-in after the caller goes quiet. silence_timeout is the
+      // end-of-turn pause (applied server-side by the STT relay), not this.
+      idleTimeoutRef.current = MIN_CHECK_IN_MS
     }
     if (!open) stopAll()
   }, [open, agent])
@@ -371,7 +383,8 @@ export function CallTestPanel({
             if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
             setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
             const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
-            if (agentBusy && interruptRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
+            const heardSoFar = `${finalBufRef.current} ${text}`
+            if (agentBusy && interruptRef.current && wordCount(heardSoFar) >= interruptWordsRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
           }
           if (speech_final) sendHeardTurn()
         } else if (ev.type === 'utterance_end') {
@@ -420,7 +433,7 @@ export function CallTestPanel({
       setLiveText(interim || final)
       if ((interim || final).trim()) resetIdleRef.current()
       const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
-      if (agentBusy && interruptRef.current && (interim || final).trim()) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
+      if (agentBusy && interruptRef.current && wordCount(interim || final) >= interruptWordsRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
       if (final.trim()) { intentStopRef.current = true; callStateRef.current = 'processing'; r.stop(); setLiveText(''); addMessage('user', final.trim()); streamRespRef.current(final.trim()) }
     }
     r.onerror = (e: any) => { if (e.error === 'no-speech' && isActiveRef.current && !intentStopRef.current) startWebSpeechRef.current() }
@@ -467,7 +480,10 @@ export function CallTestPanel({
     dgAvailRef.current  = true
     textOnlyRef.current = false
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const nr = noiseReductionRef.current
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: nr, echoCancellation: true, autoGainControl: nr },
+      })
       streamRef.current = stream
       startVolumeMonitor(stream)
     } catch {
@@ -688,7 +704,7 @@ export function CallTestPanel({
                   value={textInput}
                   onChange={e => { setTextInput(e.target.value); resetIdleRef.current(); }}
                   placeholder={callState === 'listening' ? 'Speaking or type a message…' : 'Type a message…'}
-                  aria-label="Message to the assistant"
+                  aria-label="Message to the agent"
                   disabled={callState === 'processing'}
                   className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 transition-all"
                 />

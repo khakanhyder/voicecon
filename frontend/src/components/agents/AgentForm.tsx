@@ -202,33 +202,121 @@ export const DEFAULT_FORM: AgentFormState = {
   tts_provider: 'elevenlabs', tts_voice_id: '21m00Tcm4TlvDq8ikWAM', tts_speed: 1.0, tts_pitch: 1.0,
   stt_provider: 'deepgram', stt_model: 'nova-2', stt_language: 'en', stt_keywords: [],
   interrupt_enabled: true, interrupt_sensitivity: 0.5,
-  silence_timeout: 3000, max_call_duration: 1800,
+  silence_timeout: 1000, max_call_duration: 1800,
   background_noise_reduction: true, sentiment_analysis_enabled: false, emotion_detection_enabled: false,
   knowledge_base_ids: [],
   end_call_phrases: [],
   version: 1,
 }
 
+// ── Field help (the info icons) ───────────────────────────────────────────────
+// Each line describes what the setting actually does at runtime — keep them in
+// step with backend/app/api/v1/endpoints/agents.py (browser test) and
+// backend/app/services/websocket/voice_session.py (phone calls).
+
+const HELP = {
+  temperature:
+    'How varied the replies are. Lower is more predictable and consistent, higher is more creative. ' +
+    '0.3–0.7 suits most voice agents. Claude models cap this at 1.0.',
+  maxTokens:
+    'The longest a single reply may be. It is a ceiling, not a target: replies stay short because the ' +
+    'agent is told to keep them brief. Raise it if replies are cut off mid-sentence.',
+  speechSpeed:
+    'How fast the voice speaks. 1.0x is the voice\'s natural pace; slow it down so callers can follow ' +
+    'names, numbers and read-backs.',
+  interruptSensitivity:
+    'How easily the caller can cut the agent off. High: a single word stops it. Low: the caller has to ' +
+    'say a few words, so a cough or an "mm-hm" does not interrupt.',
+  silenceTimeout:
+    'How long the caller must be quiet before their turn is treated as finished and the agent replies. ' +
+    'Shorter feels snappier; longer lets people pause mid-sentence or between the digits of a phone number.',
+  maxCallDuration:
+    'The agent says goodbye and ends the call when it reaches this length, so a stuck or forgotten call ' +
+    'cannot run on.',
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * The "i" next to a field label. Opens on hover, keyboard focus or tap, and
+ * closes on leaving, blur, Escape or a tap elsewhere. The bubble is placed
+ * against the nearest `relative` ancestor (the label row), above it, so it
+ * stays inside the card's `overflow-hidden` whichever column the field is in.
+ */
+export function InfoHint({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('touchstart', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('touchstart', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <span ref={ref} className="inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={`About ${label}`}
+        aria-describedby={open ? id : undefined}
+        aria-expanded={open}
+        // Opens rather than toggles: a mouse click focuses first, so a toggle
+        // would open on focus and immediately close again on the click.
+        onClick={() => setOpen(true)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="relative flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-[9px] font-bold leading-none text-slate-500 transition-colors after:absolute after:-inset-3 after:content-[''] hover:border-[#0F6A59] hover:text-[#0F6A59] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F6A59]/40"
+      >
+        i
+      </button>
+      {open && (
+        <span
+          id={id}
+          role="tooltip"
+          className="absolute bottom-full left-0 z-40 mb-2 w-64 max-w-full rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white shadow-lg"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
 
 /**
  * Slider with the value shown in a bordered box to the right of the label,
  * matching the Temperature control in the design.
  */
-function SliderField({ label, value, min, max, step, format, onChange, hints }: {
+function SliderField({ label, value, min, max, step, format, onChange, hints, help }: {
   label: string; value: number; min: number; max: number; step: number
   format?: (v: number) => string; onChange: (v: number) => void
   hints?: [string, string, string?]
+  /** What the setting does, shown from the info icon. */
+  help?: string
 }) {
   const id = useId()
   const display = format ? format(value) : String(value)
-  const pct = ((value - min) / (max - min)) * 100
+  // Clamped: a value saved before a range was narrowed would draw past the track.
+  const pct = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100))
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <Label htmlFor={id} className="text-[15px] font-semibold text-[#000000] font-poppins flex items-center gap-2">
-          {label} <span aria-hidden="true" className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
-        </Label>
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Label htmlFor={id} className="text-[15px] font-semibold text-[#000000] font-poppins">
+            {label}
+          </Label>
+          {help && <InfoHint label={label} text={help} />}
+        </div>
         <span className="min-w-[50px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-[13px] font-medium text-[#000000] font-poppins">
           {display}
         </span>
@@ -383,8 +471,8 @@ function KnowledgeBaseSelect({ id, value, onChange }: { id?: string; value: stri
 }
 
 /**
- * Assistant name and description. These live in the side rail next to the
- * "Create Assistant" action, matching the design.
+ * Agent name and description. These live in the side rail next to the
+ * "Create Agent" action, matching the design.
  */
 export function AgentIdentityFields({ form, set }: {
   form: AgentFormState; set: (key: keyof AgentFormState, value: any) => void
@@ -392,7 +480,7 @@ export function AgentIdentityFields({ form, set }: {
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="space-y-2">
-        <Label htmlFor="agent-name" className="text-[14px] font-bold text-[#000000] font-poppins block">Assistant Name <span aria-hidden="true" className="text-red-500">*</span></Label>
+        <Label htmlFor="agent-name" className="text-[14px] font-bold text-[#000000] font-poppins block">Agent Name <span aria-hidden="true" className="text-red-500">*</span></Label>
         <Input
           id="agent-name"
           placeholder="e.g. Riley"
@@ -406,7 +494,7 @@ export function AgentIdentityFields({ form, set }: {
         <Label htmlFor="agent-description" className="text-[14px] font-bold text-[#000000] font-poppins block mt-1">Description</Label>
         <Textarea
           id="agent-description"
-          placeholder="What does this assistant do?"
+          placeholder="What does this agent do?"
           value={form.description}
           onChange={e => set('description', e.target.value)}
           rows={3}
@@ -431,7 +519,7 @@ export function AgentTabContent({ tab, form, set }: {
   if (tab === 'basic') {
     return (
       <div className="flex w-full flex-col">
-        <SectionCard title="Model" subtitle="Configure the behaviour of the assistant">
+        <SectionCard title="Model" subtitle="Configure the behaviour of the agent">
           <div className="grid gap-x-6 gap-y-6 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             {/* Left column */}
             <div className="space-y-6">
@@ -495,13 +583,16 @@ export function AgentTabContent({ tab, form, set }: {
 
               <div className="pt-2">
                  <SliderField label="Temperature" value={form.llm_temperature} min={0} max={2} step={0.1}
-                 format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)}/>
+                 format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)} help={HELP.temperature}/>
               </div>
 
               <div className="space-y-2 pt-2">
-                <Label htmlFor="agent-max-tokens" className="text-[15px] font-bold text-[#000000] font-poppins flex items-center gap-2">
-                  Max Token <span aria-hidden="true" className="flex h-[14px] w-[14px] items-center justify-center rounded-full border border-slate-400 text-slate-500 text-[9px] font-bold leading-none">i</span>
-                </Label>
+                <div className="relative flex items-center gap-2">
+                  <Label htmlFor="agent-max-tokens" className="text-[15px] font-bold text-[#000000] font-poppins">
+                    Max Token
+                  </Label>
+                  <InfoHint label="Max Token" text={HELP.maxTokens} />
+                </div>
                 <Input
                   id="agent-max-tokens"
                   type="number" min={100} max={4000} step={50}
@@ -561,10 +652,10 @@ export function AgentTabContent({ tab, form, set }: {
       <div className="grid gap-5 sm:grid-cols-2">
         <SliderField label="Temperature" value={form.llm_temperature} min={0} max={2} step={0.1}
           format={v => v.toFixed(1)} onChange={v => set('llm_temperature', v)}
-          hints={['0 · Deterministic', '2 · Creative', '1 · Balanced']}/>
+          hints={['0 · Deterministic', '2 · Creative', '1 · Balanced']} help={HELP.temperature}/>
         <SliderField label="Max Token" value={form.llm_max_tokens} min={100} max={4000} step={100}
           format={v => String(v)} onChange={v => set('llm_max_tokens', v)}
-          hints={['100 · Short', '4000 · Long']}/>
+          hints={['100 · Short', '4000 · Long']} help={HELP.maxTokens}/>
       </div>
     </SectionCard>
     </div>
@@ -576,7 +667,7 @@ export function AgentTabContent({ tab, form, set }: {
 
     return (
     <div className="flex w-full flex-col">
-      <SectionCard title="Voice Selection" subtitle="Choose how the assistant sounds" icon={Volume2}>
+      <SectionCard title="Voice Selection" subtitle="Choose how the agent sounds" icon={Volume2}>
         <div className="space-y-2">
           <p className="text-[14px] font-bold leading-none text-[#000000] font-poppins">Provider</p>
           <div className="flex h-[45px] w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-3 font-poppins text-sm text-[#000000] sm:max-w-sm">
@@ -591,13 +682,14 @@ export function AgentTabContent({ tab, form, set }: {
           onSelect={v => set('tts_voice_id', v)}
         />
 
+        {/* ElevenLabs — the only voice provider offered — accepts 0.7x-1.2x.
+            The old 0.5-2.0 range let people pick speeds that were silently
+            clamped. There is no Pitch control: ElevenLabs has no pitch
+            setting, so that slider saved a value nothing could use. */}
         <div className="grid gap-5 sm:grid-cols-2">
-          <SliderField label="Speech Speed" value={form.tts_speed} min={0.5} max={2.0} step={0.1}
-            format={v => `${v.toFixed(1)}x`} onChange={v => set('tts_speed', v)}
-            hints={['0.5x · Slow', '2.0x · Fast', '1.0x · Normal']}/>
-          <SliderField label="Pitch" value={form.tts_pitch} min={0.5} max={2.0} step={0.1}
-            format={v => v.toFixed(1)} onChange={v => set('tts_pitch', v)}
-            hints={['0.5 · Low', '2.0 · High', '1.0 · Normal']}/>
+          <SliderField label="Speech Speed" value={form.tts_speed} min={0.7} max={1.2} step={0.05}
+            format={v => `${v.toFixed(2).replace(/0$/, '')}x`} onChange={v => set('tts_speed', v)}
+            hints={['0.7x · Slower', '1.2x · Faster']} help={HELP.speechSpeed}/>
         </div>
       </SectionCard>
       </div>
@@ -674,14 +766,17 @@ export function AgentTabContent({ tab, form, set }: {
       {form.interrupt_enabled && (
         <SliderField label="Interrupt Sensitivity" value={form.interrupt_sensitivity} min={0} max={1} step={0.1}
           format={v => v.toFixed(1)} onChange={v => set('interrupt_sensitivity', v)}
-          hints={['0 · Low', '1 · High']}/>
+          hints={['0 · Low', '1 · High']} help={HELP.interruptSensitivity}/>
       )}
-      <SliderField label="Silence Timeout" value={form.silence_timeout} min={500} max={10000} step={500}
+      {/* 500ms-5s: the pause that ends the caller's turn. Past a few seconds
+          the agent just feels unresponsive, so the old 10s ceiling is gone. */}
+      <SliderField label="Silence Timeout" value={form.silence_timeout} min={500} max={5000} step={100}
         format={v => v < 1000 ? `${v}ms` : `${(v/1000).toFixed(1)}s`}
-        onChange={v => set('silence_timeout', v)} hints={['500ms', '10s']}/>
-      <p className="text-xs text-slate-400 -mt-2">How long to wait after user stops speaking before responding.</p>
+        onChange={v => set('silence_timeout', v)} hints={['500ms · Snappy', '5s · Patient']} help={HELP.silenceTimeout}/>
+      <p className="text-xs text-slate-400 -mt-2">How long to wait after the caller stops speaking before responding.</p>
       <SliderField label="Max Call Duration" value={form.max_call_duration} min={60} max={7200} step={60}
-        format={v => `${Math.floor(v/60)}m`} onChange={v => set('max_call_duration', v)} hints={['1m', '120m']}/>
+        format={v => `${Math.floor(v/60)}m`} onChange={v => set('max_call_duration', v)} hints={['1m', '120m']}
+        help={HELP.maxCallDuration}/>
 
       <div className="space-y-2">
         <Label htmlFor="agent-end-call-phrases" className="text-[15px] font-bold text-[#000000] font-poppins block">
@@ -704,7 +799,7 @@ export function AgentTabContent({ tab, form, set }: {
     <div className="flex w-full flex-col">
       <SectionCard title="Advanced" subtitle="Extra signal processing and analysis" icon={Settings}>
       {[
-        { key: 'background_noise_reduction', label: 'Background Noise Reduction', desc: 'Filter background noise from audio input' },
+        { key: 'background_noise_reduction', label: 'Background Noise Reduction', desc: 'Filter background noise from the microphone in browser test calls' },
         { key: 'sentiment_analysis_enabled', label: 'Sentiment Analysis',          desc: 'Detect user sentiment in real-time during calls' },
         { key: 'emotion_detection_enabled',  label: 'Emotion Detection',           desc: 'Analyze emotional tone from voice patterns' },
       ].map(({ key, label, desc }) => (

@@ -646,8 +646,12 @@ async def agent_respond(
 
     # Gather agent conversation config
     end_call_phrases = list(agent.end_call_phrases or [])
-    interrupt_enabled = bool(agent.interrupt_enabled)
-    max_tokens_cap = min(agent.llm_max_tokens or 150, 150)
+    # The agent's own Max Token setting. It was hard-capped at 150 here, so the
+    # slider did nothing in a test call, and 150 is too tight for reasoning
+    # models (gpt-5.x counts its thinking against the same budget) — replies
+    # came back cut off mid-sentence. Brevity comes from the voice rules in
+    # the prompt; this is only the ceiling.
+    max_tokens_cap = int(agent.llm_max_tokens or 400)
 
     async def respond_stream(db: AsyncSession):
         # Yield a keepalive SSE comment immediately so the HTTP response opens
@@ -1160,9 +1164,10 @@ async def agent_stt_websocket(
         stt_model = getattr(agent, "stt_model", None) or "nova-3"
         stt_language = getattr(agent, "stt_language", None) or "en"
         stt_keywords = getattr(agent, "stt_keywords", None) or []
+        silence_ms = int(getattr(agent, "silence_timeout", None) or 1000)
 
     from app.core.config import settings
-    from app.services.voice.stt_service import deepgram_keyword_params
+    from app.services.voice.stt_service import deepgram_keyword_params, deepgram_turn_params
 
     if not getattr(settings, "DEEPGRAM_API_KEY", None):
         await websocket.send_json({"type": "error", "message": "Deepgram API key not configured"})
@@ -1178,10 +1183,7 @@ async def agent_stt_websocket(
         f"&no_delay=true"
         # Digits come back as digits ("0300 1234567"), which the agent can count.
         f"&numerals=true"
-        # 300 ms ended the turn at the short pause people leave between digit
-        # groups, so a phone number arrived as three separate messages.
-        f"&endpointing=700"
-        f"&utterance_end_ms=1500"
+        f"{deepgram_turn_params(silence_ms)}"
         f"{deepgram_keyword_params(stt_model, stt_keywords)}"
     )
 

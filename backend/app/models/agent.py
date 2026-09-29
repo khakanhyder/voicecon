@@ -60,7 +60,8 @@ class Agent(Base):
     # Conversation Settings
     interrupt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     interrupt_sensitivity: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.5"))
-    silence_timeout: Mapped[int] = mapped_column(Integer, default=3000)  # milliseconds
+    # Pause (ms) that ends the caller's turn — Deepgram endpointing.
+    silence_timeout: Mapped[int] = mapped_column(Integer, default=1000)  # milliseconds
     max_call_duration: Mapped[int] = mapped_column(Integer, default=1800)  # seconds
     end_call_phrases: Mapped[List[str]] = mapped_column(JSON, default=list)
 

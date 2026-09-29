@@ -33,6 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+#: Seconds of total silence before the agent asks "Are you still there?";
+#: a second unanswered stretch ends the call.
+SILENCE_CHECK_IN_SECONDS = 15.0
+
 
 class SessionState(str, Enum):
     """Voice session states."""
@@ -144,6 +148,21 @@ class VoiceSession:
         self._last_activity = datetime.utcnow()
         self._silence_task: Optional[asyncio.Task] = None
         self._silence_checkins = 0
+
+        # Ends the call at the agent's max_call_duration (nothing did before;
+        # only the browser test enforced it).
+        self._max_duration_task: Optional[asyncio.Task] = None
+
+        # Barge-in. Audio is streamed to Twilio faster than real time, so it
+        # keeps playing from Twilio's buffer after _speak_response returns:
+        # `_playing` stays true until Twilio echoes the "speech_end" mark back.
+        # `_interrupted` stops the frame loop when the caller talks over it.
+        self._playing = False
+        self._interrupted = False
+
+        # Utterances that finished while a turn was in flight, answered as one
+        # turn as soon as it ends.
+        self._pending_utterances: list[str] = []
 
         # Set while a workflow `ask` step is waiting on the caller's next
         # utterance; the transcript handler resolves it instead of running a
@@ -278,6 +297,8 @@ class VoiceSession:
         self._last_activity = datetime.utcnow()
         if self._silence_task is None:
             self._silence_task = asyncio.create_task(self._silence_watchdog())
+        if self._max_duration_task is None:
+            self._max_duration_task = asyncio.create_task(self._max_duration_guard())
 
     async def _handle_media(self, message: dict) -> None:
         """
@@ -321,7 +342,7 @@ class VoiceSession:
             logger.error("DEEPGRAM_API_KEY not configured — cannot transcribe call audio")
             return
 
-        from app.services.voice.stt_service import deepgram_keyword_params
+        from app.services.voice.stt_service import deepgram_keyword_params, deepgram_turn_params
 
         model = self.agent.stt_model or "nova-2"
         language = self.agent.stt_language or "en"
@@ -334,8 +355,9 @@ class VoiceSession:
             "&channels=1"
             "&interim_results=true"
             "&punctuate=true"
-            "&endpointing=300"
-            "&utterance_end_ms=1000"
+            # The agent's Silence Timeout: how long the caller must pause
+            # before their turn ends. Was a fixed 300ms that ignored it.
+            f"{deepgram_turn_params(self.agent.silence_timeout)}"
             f"{deepgram_keyword_params(model, self.agent.stt_keywords)}"
         )
 
@@ -373,6 +395,9 @@ class VoiceSession:
                         transcript = alts[0].get("transcript", "") if alts else ""
                         is_final = data.get("is_final", False)
                         speech_final = data.get("speech_final", False)
+
+                        if transcript and self._should_barge_in(transcript):
+                            await self._barge_in()
 
                         if transcript and is_final:
                             self._utterance_parts.append(transcript)
@@ -414,12 +439,50 @@ class VoiceSession:
             return
 
         if self._turn_lock.locked():
-            # A turn is already in flight; fold this utterance into the next one
-            # rather than interleaving two responses.
-            self._utterance_parts.insert(0, utterance)
+            # A turn is already in flight (typically: the caller barged in).
+            # Queue it for the turn holder to answer next, rather than
+            # interleaving two responses. It used to go back into the
+            # Deepgram buffer, where it sat until the caller spoke again.
+            self._pending_utterances.append(utterance)
             return
         async with self._turn_lock:
             await self._process_utterance(utterance)
+            while self._pending_utterances and self.state != SessionState.ENDED:
+                queued = " ".join(self._pending_utterances).strip()
+                self._pending_utterances = []
+                if queued:
+                    await self._process_utterance(queued)
+
+    def _should_barge_in(self, transcript: str) -> bool:
+        """The caller is talking over audible agent speech, with interruptions
+        on and enough words said to clear the agent's Interrupt Sensitivity."""
+        if not self.agent.interrupt_enabled or self._interrupted:
+            return False
+        if not (self._playing or self.state == SessionState.SPEAKING):
+            return False
+        heard = " ".join(self._utterance_parts + [transcript])
+        return len(heard.split()) >= self._interrupt_min_words()
+
+    def _interrupt_min_words(self) -> int:
+        """1 word at full sensitivity, 3 at zero — so a cough or an "mm-hm"
+        doesn't cut the agent off. Same rule as the browser test panel."""
+        raw = self.agent.interrupt_sensitivity
+        sensitivity = float(raw) if raw is not None else 0.5
+        return max(1, round(3 - 2 * sensitivity))
+
+    async def _barge_in(self) -> None:
+        """Stop the agent mid-sentence: end the frame loop and have Twilio
+        drop the audio it has already buffered."""
+        self._interrupted = True
+        self._playing = False
+        if self.stream_sid:
+            try:
+                await self.connection_manager.send_json(
+                    self.call_id, {"event": "clear", "streamSid": self.stream_sid}
+                )
+            except Exception as e:
+                logger.error(f"Failed to clear Twilio audio on barge-in: {e}")
+        logger.info(f"Caller barged in: call_id={self.call_id}")
 
     async def _handle_stop(self, message: dict) -> None:
         """
@@ -431,36 +494,65 @@ class VoiceSession:
         logger.info(f"Stream stopped: call_id={self.call_id}")
         self.state = SessionState.ENDED
         await self._close_deepgram()
-        await self._stop_silence_watchdog()
+        await self._stop_call_timers()
 
-    async def _stop_silence_watchdog(self) -> None:
-        if self._silence_task is not None:
-            self._silence_task.cancel()
+    async def _stop_call_timers(self) -> None:
+        for attr in ("_silence_task", "_max_duration_task"):
+            task = getattr(self, attr)
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            setattr(self, attr, None)
+
+    async def _max_duration_guard(self) -> None:
+        """End the call politely once it reaches the agent's Max Call Duration."""
+        try:
+            limit = max(int(self.agent.max_call_duration or 1800), 60)
+            await asyncio.sleep(limit)
+            if self.state == SessionState.ENDED:
+                return
+            logger.info(f"Max call duration ({limit}s) reached: call_id={self.call_id}")
+            # Let an in-flight turn finish its sentence rather than talking
+            # over it; if it is stuck, cut it off.
             try:
-                await self._silence_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._silence_task = None
+                await asyncio.wait_for(self._turn_lock.acquire(), timeout=10)
+                acquired = True
+            except asyncio.TimeoutError:
+                acquired = False
+                await self._barge_in()
+            try:
+                await self._speak_response(
+                    "We've reached the time limit for this call. Thank you for calling, goodbye."
+                )
+                await self.end_call()
+            finally:
+                if acquired:
+                    self._turn_lock.release()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Max call duration guard error: {e}", exc_info=True)
 
     async def _silence_watchdog(self) -> None:
         """
         Check in on a caller who has gone quiet, and hang up if a second
-        check-in also gets no reply. `silence_timeout` (schema-capped at
-        500-10000ms) is tuned for turn-taking pauses, not for how long a real
-        caller may go silent before the agent should notice — the same gap
-        CallTestPanel.tsx covers with its own MIN_CHECK_IN_MS floor. The same
-        floor/multiplier is applied here for a real call.
+        check-in also gets no reply. Not the agent's `silence_timeout` — that
+        is the sub-second-to-few-second pause that ends a turn (see
+        deepgram_turn_params); this is how long a caller may say nothing at
+        all, matching MIN_CHECK_IN_MS in CallTestPanel.tsx.
         """
         try:
-            configured_ms = self.agent.silence_timeout or 3000
-            interval = max(configured_ms / 1000.0 * 3, 15.0)
+            interval = SILENCE_CHECK_IN_SECONDS
 
             while self.state != SessionState.ENDED:
                 await asyncio.sleep(interval)
                 if self.state == SessionState.ENDED:
                     break
                 # A turn is in flight (caller or agent talking) — not silence.
-                if self.state in (SessionState.PROCESSING, SessionState.SPEAKING):
+                if self._playing or self.state in (SessionState.PROCESSING, SessionState.SPEAKING):
                     continue
 
                 idle_seconds = (datetime.utcnow() - self._last_activity).total_seconds()
@@ -521,7 +613,10 @@ class VoiceSession:
 
         # Can be used to detect when agent finished speaking
         if mark_name == "speech_end":
-            self.state = SessionState.LISTENING
+            self._playing = False
+            self._last_activity = datetime.utcnow()
+            if self.state == SessionState.SPEAKING:
+                self.state = SessionState.LISTENING
 
     async def _process_audio_chunk(self) -> None:
         """Process buffered audio for transcription."""
@@ -760,6 +855,8 @@ class VoiceSession:
             # JSON-encode into the request body — every turn failed with
             # "Object of type Decimal is not JSON serializable".
             temperature = float(self.agent.llm_temperature or 0.7)
+            # The agent's Max Token setting; was a hardcoded 500.
+            max_tokens = int(self.agent.llm_max_tokens or 400)
 
             messages = self.conversation.get_messages()
 
@@ -782,7 +879,7 @@ class VoiceSession:
             if functions and provider == "openai":
                 # Use function calling for OpenAI
                 response_text = await self._generate_with_functions(
-                    messages, provider, model, temperature, functions
+                    messages, provider, model, temperature, functions, max_tokens
                 )
             else:
                 # Standard streaming response
@@ -792,7 +889,7 @@ class VoiceSession:
                     provider=provider,
                     model=model,
                     temperature=temperature,
-                    max_tokens=500,
+                    max_tokens=max_tokens,
                 ):
                     response_chunks.append(chunk)
                 response_text = "".join(response_chunks)
@@ -810,6 +907,7 @@ class VoiceSession:
         model: str,
         temperature: float,
         functions: list,
+        max_tokens: int = 400,
     ) -> str:
         """
         Generate LLM response with function calling support.
@@ -837,7 +935,7 @@ class VoiceSession:
                 provider=provider,
                 model=model,
                 temperature=temperature,
-                max_tokens=500,
+                max_tokens=max_tokens,
                 functions=functions,
             ):
                 # Check if this is a function call
@@ -1093,6 +1191,7 @@ class VoiceSession:
             text: Text to speak
         """
         self.state = SessionState.SPEAKING
+        self._interrupted = False
         text = strip_for_speech(text)
 
         try:
@@ -1107,6 +1206,8 @@ class VoiceSession:
                 "provider": provider,
                 "voice_id": voice_id,
                 "api_key": await self._tts_api_key(),
+                # The agent's Speech Speed — only browser tests honoured it.
+                "speed": float(self.agent.tts_speed or 1.0),
             }
             if provider == "elevenlabs":
                 tts_kwargs["output_format"] = "ulaw_8000"
@@ -1115,23 +1216,31 @@ class VoiceSession:
             # which is what Twilio expects for smooth playback.
             frame = bytearray()
             chunk_count = 0
+            self._playing = True
             async for audio_chunk in self.tts_service.synthesize_stream(**tts_kwargs):
+                if self._interrupted:
+                    break
                 mulaw = self._to_twilio_mulaw(audio_chunk, provider)
                 if not mulaw:
                     continue
                 frame.extend(mulaw)
-                while len(frame) >= 160:
+                while len(frame) >= 160 and not self._interrupted:
                     await self._send_audio_to_twilio(bytes(frame[:160]))
                     del frame[:160]
                     chunk_count += 1
+
+            self.metrics["tts_generations"] += 1
+
+            if self._interrupted:
+                logger.info(f"Speech cut off by the caller after {chunk_count} frames")
+                return
 
             if frame:
                 await self._send_audio_to_twilio(bytes(frame))
                 chunk_count += 1
 
-            self.metrics["tts_generations"] += 1
-
-            # Mark end of speech
+            # Mark end of speech; Twilio echoes it back when playback reaches
+            # it, which is when the agent actually stops being audible.
             await self._send_mark("speech_end")
 
             logger.info(f"Sent audio response: {chunk_count} frames")
@@ -1293,7 +1402,7 @@ class VoiceSession:
             # Close the Deepgram STT stream first so no more turns are triggered.
             self.state = SessionState.ENDED
             await self._close_deepgram()
-            await self._stop_silence_watchdog()
+            await self._stop_call_timers()
 
             # Save transcript
             if self.transcript_entries:

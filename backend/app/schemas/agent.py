@@ -48,7 +48,10 @@ class ConversationSettings(BaseModel):
     """Conversation settings schema."""
     interrupt_enabled: bool = Field(default=True, description="Allow user interruptions")
     interrupt_sensitivity: Decimal = Field(default=Decimal("0.5"), ge=0, le=1, description="Interrupt sensitivity")
-    silence_timeout: int = Field(default=3000, ge=500, le=10000, description="Silence timeout (ms)")
+    silence_timeout: int = Field(
+        default=1000, ge=500, le=10000,
+        description="Pause (ms) after the caller stops speaking before the agent replies",
+    )
     max_call_duration: int = Field(default=1800, ge=60, le=7200, description="Max call duration (seconds)")
     end_call_phrases: List[str] = Field(default_factory=list, description="Phrases that end the call")
 

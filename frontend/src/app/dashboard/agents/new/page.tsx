@@ -80,7 +80,7 @@ export default function NewAgentPage() {
         <Link href="/dashboard/agents" aria-label="Back to agents" className="flex h-9 w-9 max-sm:h-11 max-sm:w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h2 className="text-xl font-semibold text-slate-900">Assistant</h2>
+        <h2 className="text-xl font-semibold text-slate-900">Agent</h2>
       </div>
 
       {/* Step row + search */}
@@ -92,8 +92,8 @@ export default function NewAgentPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search assistants"
-            aria-label="Search assistants"
+            placeholder="Search agents"
+            aria-label="Search agents"
             className="w-full rounded-full border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-[#0F6A59] focus:ring-3 focus:ring-[#0F6A59]/15"
           />
         </div>
@@ -104,8 +104,8 @@ export default function NewAgentPage() {
         <div className="min-w-0 space-y-5">
           {tabIndex === -1 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
-              <p className="text-sm font-medium text-slate-700">{activeLabel} is configured after the assistant exists</p>
-              <p className="mt-1 text-sm text-slate-400">Create the assistant first, then open it to set this up.</p>
+              <p className="text-sm font-medium text-slate-700">{activeLabel} is configured after the agent exists</p>
+              <p className="mt-1 text-sm text-slate-400">Create the agent first, then open it to set this up.</p>
             </div>
           ) : (
             <AgentTabContent tab={tab} form={form} set={set} />
@@ -136,7 +136,7 @@ export default function NewAgentPage() {
             disabled={loading}
             className="w-full rounded-xl bg-[#0F6A59] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#0d5a4c] disabled:opacity-60"
           >
-            {loading ? 'Creating…' : 'Create Assistant'}
+            {loading ? 'Creating…' : 'Create Agent'}
           </button>
           <Link href="/dashboard/agents" className="block">
             <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50">
