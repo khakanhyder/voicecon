@@ -67,8 +67,8 @@ export function UpgradeDialog() {
   const { title, message } = copyFor(blocked)
   const suggested = blocked.required_plans?.[0]
   // A trial of the suggested plan doesn't include every feature of the paid
-  // plan (API access, buying numbers). "Available on Voice AI" to someone
-  // trialling Voice AI reads as a contradiction; say what actually unlocks it.
+  // plan (API access, buying numbers). "Available on Growth" to someone
+  // trialling Growth reads as a contradiction; say what actually unlocks it.
   const trialOfSuggested =
     !!suggested && !!entitlements?.is_trial && entitlements.plan_slug === suggested
 

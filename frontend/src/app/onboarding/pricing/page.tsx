@@ -10,7 +10,7 @@ import { Check, ArrowUpRight } from 'lucide-react'
 import { VoiceconLogo, SalesChatbotIcon, VoiceAiIcon } from '@/lib/icons'
 import { FREE_TRIAL_DAYS, QUERY_KEYS } from '@/lib/constants'
 import { onboardingService, type SubscriptionPlan } from '@/lib/onboarding'
-import { periodPrice, planCardBullets, yearlySavingPercent } from '@/lib/pricing'
+import { ENTERPRISE, periodPrice, planCardBullets, yearlySavingPercent } from '@/lib/pricing'
 import { useOnboardingStore } from '@/store/onboardingStore'
 
 /** Yearly falls back to monthly when the admin set no yearly price (monthly-only plan). */
@@ -50,11 +50,15 @@ export default function PricingPage() {
     queryFn: onboardingService.getPlans,
   })
 
-  // Default-select the highlighted (last) plan once loaded.
+  // Default-select the "Most popular" plan (the last plan if none is marked).
+  const popularId = useMemo(
+    () => (plans.find((p) => p.features?.popular === true) ?? plans[plans.length - 1])?.id,
+    [plans]
+  )
   const activePlan = useMemo(() => {
     if (selectedPlan) return plans.find((p) => p.id === selectedPlan.id) ?? selectedPlan
-    return plans.length ? plans[plans.length - 1] : null
-  }, [plans, selectedPlan])
+    return plans.find((p) => p.id === popularId) ?? null
+  }, [plans, selectedPlan, popularId])
 
   const trialDays = activePlan?.trial_days ?? FREE_TRIAL_DAYS
   // Card copy, prices and the yearly saving all come from the admin's plans.
@@ -140,21 +144,26 @@ export default function PricingPage() {
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-600" />
         </div>
       ) : (
-        <div className="mt-8 grid grid-cols-1 gap-8 md:grid-cols-2">
+        <div className={`mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 ${plans.length >= 4 ? 'xl:grid-cols-4' : plans.length === 3 ? 'xl:grid-cols-3' : ''}`}>
           {plans.map((plan, idx) => {
             const isSelected = activePlan?.id === plan.id
-            const highlight = idx === plans.length - 1 // styled (green) card like Figma
+            const highlight = plan.id === popularId // styled (green) card like Figma
             const bullets = bulletsByPlan[idx] ?? []
             const yearly = billedYearly(plan, billingPeriod)
             return (
               <div
                 key={plan.id}
-                className={`flex flex-col rounded-2xl border p-10 transition-all ${
+                className={`relative flex flex-col rounded-2xl border p-7 transition-all ${
                   highlight
                     ? 'border-transparent bg-brand-700 text-white'
                     : 'border-slate-200 bg-[#F7F7F7] text-slate-900'
                 } ${isSelected ? 'ring-2 ring-brand-500 ring-offset-2' : ''}`}
               >
+                {highlight && (
+                  <span className="absolute -top-3 left-7 rounded-full bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-brand-700 shadow-sm ring-1 ring-brand-700/10">
+                    Most popular
+                  </span>
+                )}
                 <div className="flex items-center gap-2.5">
                   {highlight ? (
                     <VoiceAiIcon className="h-8 w-8" />
@@ -214,6 +223,15 @@ export default function PricingPage() {
             )
           })}
         </div>
+      )}
+
+      {!isLoading && plans.length > 0 && (
+        <p className="mt-6 text-center text-sm text-slate-500">
+          Need custom minute rates, higher concurrency or volume pricing?{' '}
+          <a href={ENTERPRISE.href} className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800">
+            Talk to us about {ENTERPRISE.name}
+          </a>
+        </p>
       )}
 
       {/* Skip for now — starts the free trial, so only while one is available. */}

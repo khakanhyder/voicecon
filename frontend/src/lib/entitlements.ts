@@ -48,10 +48,16 @@ export const LIMITS = {
   WORKFLOWS: 'workflows',
   API_KEYS: 'api_keys',
   MINUTES: 'minutes_per_month',
+  /** Retired 29 Sep 2026 — plans meter minutes only. Kept for old documents. */
   CALLS: 'calls_per_month',
   SMS: 'sms_per_month',
   EMAILS: 'emails_per_month',
+  CONCURRENT_CALLS: 'concurrent_calls',
+  CUSTOM_VOICES: 'custom_voices',
 } as const
+
+/** Per-period allowances. A paid plan bills past them; a trial stops. */
+export const USAGE_LIMITS: ReadonlySet<string> = new Set([LIMITS.MINUTES, LIMITS.EMAILS])
 
 export type FeatureKey = (typeof FEATURES)[keyof typeof FEATURES]
 export type LimitKey = (typeof LIMITS)[keyof typeof LIMITS]
@@ -64,16 +70,16 @@ export const FEATURE_LABELS: Record<string, string> = {
   [FEATURES.EMAIL]: 'Email sending',
   [FEATURES.WORKFLOWS]: 'Workflows',
   [FEATURES.WORKFLOW_SCHEDULING]: 'Scheduled & triggered workflows',
-  [FEATURES.CRM_INTEGRATIONS]: 'CRM integrations',
+  [FEATURES.CRM_INTEGRATIONS]: 'CRM, messaging & automation integrations',
   [FEATURES.KNOWLEDGE_BASE]: 'Knowledge base',
   [FEATURES.VIRTUAL_MEETINGS]: 'Virtual meetings & note taking',
   [FEATURES.LEAD_SCORING]: 'Lead scoring & data enrichment',
   [FEATURES.API_ACCESS]: 'Public API access',
-  [FEATURES.CUSTOM_VOICE]: 'Custom voice cloning',
+  [FEATURES.CUSTOM_VOICE]: 'Custom voices',
   [FEATURES.WHITE_LABEL]: 'White labelling',
   [FEATURES.ANALYTICS]: 'Analytics',
   [FEATURES.CALL_RECORDINGS]: 'Call recordings & transcripts',
-  [FEATURES.WEBHOOKS]: 'Webhooks',
+  [FEATURES.WEBHOOKS]: 'Webhooks & custom tools',
   [FEATURES.PHONE_NUMBER_PURCHASE]: 'Buying phone numbers',
 }
 
@@ -84,10 +90,11 @@ export const FEATURE_LABELS: Record<string, string> = {
  * reads as "available on a higher plan".
  */
 export const UNSHIPPED_FEATURES: ReadonlySet<string> = new Set([
+  // Not unbuilt, but not part of any plan either (29 Sep 2026): never listed.
+  FEATURES.SMS,
   FEATURES.OUTBOUND_CAMPAIGNS,
   FEATURES.VIRTUAL_MEETINGS,
   FEATURES.LEAD_SCORING,
-  FEATURES.CUSTOM_VOICE,
   FEATURES.WHITE_LABEL,
 ])
 
@@ -102,9 +109,17 @@ export const LIMIT_LABELS: Record<string, string> = {
   [LIMITS.CALLS]: 'calls',
   [LIMITS.SMS]: 'SMS',
   [LIMITS.EMAILS]: 'emails',
+  [LIMITS.CONCURRENT_CALLS]: 'concurrent calls',
+  [LIMITS.CUSTOM_VOICES]: 'custom voices',
 }
 
+/** Plan names by slug, for copy that names a plan the API only gave a slug for. */
 export const PLAN_LABELS: Record<string, string> = {
+  starter: 'Starter',
+  growth: 'Growth',
+  scale: 'Scale',
+  agency: 'Agency',
+  // Retired launch plans, still held by earlier subscribers.
   'sales-chatbot': 'Sales Chatbot',
   'voice-ai': 'Voice AI',
 }

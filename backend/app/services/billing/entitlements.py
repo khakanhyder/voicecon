@@ -162,7 +162,7 @@ class Entitlements:
     def has(self, feature: str) -> bool:
         """Does the plan include ``feature`` *and* is the account live?
 
-        Both halves matter: an expired Voice AI trial still "has" lead scoring
+        Both halves matter: an expired Scale subscription still "has" lead scoring
         in the abstract, but must not be able to run it.
         """
         return self.is_live and feature in self.features
@@ -347,7 +347,7 @@ class EntitlementService:
         if subscription is None:
             # Fall back to the most recent subscription of any status, so an
             # expired account still reports which plan it used to be on — the
-            # upgrade screen needs that to say "reactivate Voice AI".
+            # upgrade screen needs that to say "reactivate Growth".
             subscription = await self._latest_subscription(db, organization_id)
 
         status = effective_status(subscription, now)
@@ -474,7 +474,7 @@ class EntitlementService:
     ) -> Dict[str, int]:
         """Count the resources that resource limits apply to.
 
-        Kept out of :meth:`resolve` because it is six COUNT queries and most
+        Kept out of :meth:`resolve` because it is seven COUNT queries and most
         requests never look at a resource limit.
         """
         counts: Dict[str, int] = {}
@@ -502,6 +502,7 @@ class EntitlementService:
         from app.models.integration import Workflow
         from app.models.knowledge_base import KnowledgeBase
         from app.models.user import ApiKey, OrganizationMember
+        from app.models.voice import CustomVoice
 
         return (
             (catalog.LIMIT_AGENTS, Agent, Agent.organization_id, Agent.is_active.is_(True)),
@@ -530,6 +531,7 @@ class EntitlementService:
                 None,
             ),
             (catalog.LIMIT_API_KEYS, ApiKey, ApiKey.organization_id, ApiKey.is_active.is_(True)),
+            (catalog.LIMIT_CUSTOM_VOICES, CustomVoice, CustomVoice.organization_id, None),
         )
 
     async def count_for_limit(
@@ -576,13 +578,7 @@ class EntitlementService:
         if not ent.has(feature):
             return False, "feature_not_in_plan"
 
-        usage_limit = {
-            catalog.INBOUND_CALLS: catalog.LIMIT_CALLS,
-            catalog.OUTBOUND_CALLS: catalog.LIMIT_CALLS,
-            catalog.OUTBOUND_CAMPAIGNS: catalog.LIMIT_CALLS,
-            catalog.SMS: catalog.LIMIT_SMS,
-            catalog.EMAIL: catalog.LIMIT_EMAILS,
-        }.get(feature)
+        usage_limit = RUNTIME_USAGE_LIMITS.get(feature)
 
         if usage_limit and not ent.within(usage_limit):
             # A paid plan with overage enabled bills past the allowance; a trial
@@ -590,6 +586,82 @@ class EntitlementService:
             if not ent.overage_allowed:
                 return False, "limit_exceeded"
         return True, None
+
+    # ---- Concurrent calls ----
+
+    async def active_call_count(
+        self,
+        db: AsyncSession,
+        organization_id: uuid.UUID,
+        *,
+        exclude_call_id: Optional[uuid.UUID] = None,
+    ) -> int:
+        """Calls this organization has in flight right now.
+
+        A row counts while its carrier status is still live and it has not
+        ended. Rows older than :data:`ACTIVE_CALL_WINDOW` are ignored: a
+        missed final status callback would otherwise hold a line busy for
+        ever and eventually refuse every call.
+        """
+        from app.models.call import Call
+
+        filters = [
+            Call.organization_id == organization_id,
+            Call.status.in_(IN_FLIGHT_CALL_STATUSES),
+            Call.ended_at.is_(None),
+            Call.created_at >= _utcnow() - ACTIVE_CALL_WINDOW,
+        ]
+        if exclude_call_id is not None:
+            filters.append(Call.id != exclude_call_id)
+        result = await db.execute(select(func.count()).select_from(Call).where(*filters))
+        return int(result.scalar() or 0)
+
+    async def check_concurrency(
+        self,
+        db: AsyncSession,
+        organization_id: uuid.UUID,
+        *,
+        exclude_call_id: Optional[uuid.UUID] = None,
+    ) -> tuple[bool, Optional[str]]:
+        """``(allowed, reason)`` — is there a free line for one more call?
+
+        A document with no ``concurrent_calls`` key (stored before the limit
+        existed) is treated as unlimited rather than as zero lines.
+        """
+        ent = await self.resolve(db, organization_id)
+        if catalog.LIMIT_CONCURRENT_CALLS not in ent.limits:
+            return True, None
+        cap = ent.limit(catalog.LIMIT_CONCURRENT_CALLS)
+        if cap == catalog.UNLIMITED:
+            return True, None
+        try:
+            active = await self.active_call_count(
+                db, organization_id, exclude_call_id=exclude_call_id
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            # A counting bug must not take a paying customer's line down.
+            logger.warning(f"Could not count live calls for org {organization_id}: {exc}")
+            return True, None
+        if active >= cap:
+            return False, "concurrency_limit"
+        return True, None
+
+
+#: Which usage allowance a money-spending feature draws down. Calls are metered
+#: in minutes; the per-call allowance was retired with the 29 Sep 2026 plans.
+RUNTIME_USAGE_LIMITS = {
+    catalog.INBOUND_CALLS: catalog.LIMIT_MINUTES,
+    catalog.OUTBOUND_CALLS: catalog.LIMIT_MINUTES,
+    catalog.OUTBOUND_CAMPAIGNS: catalog.LIMIT_MINUTES,
+    catalog.EMAIL: catalog.LIMIT_EMAILS,
+}
+
+#: Canonical ``Call.status`` values of a call still holding a line (see
+#: ``normalize_call_status`` in the telephony endpoints).
+IN_FLIGHT_CALL_STATUSES = ("initiated", "ringing", "in_progress")
+
+#: A call row older than this is not counted as live, whatever its status.
+ACTIVE_CALL_WINDOW = timedelta(hours=4)
 
 
 #: Process-wide instance. Stateless apart from its cache, so sharing is safe.
@@ -620,6 +692,18 @@ async def runtime_allows(
     get a boolean and a reason string for the log instead.
     """
     return await get_entitlement_service().check_runtime(db, organization_id, feature)
+
+
+async def concurrency_allows(
+    db: AsyncSession,
+    organization_id: uuid.UUID,
+    *,
+    exclude_call_id: Optional[uuid.UUID] = None,
+) -> tuple[bool, Optional[str]]:
+    """``(allowed, reason)`` for starting one more simultaneous call."""
+    return await get_entitlement_service().check_concurrency(
+        db, organization_id, exclude_call_id=exclude_call_id
+    )
 
 
 def invalidate_entitlements(organization_id: uuid.UUID) -> None:

@@ -110,7 +110,19 @@ async def call_websocket(
             await call_manager.remove_call(call_session.call_id)
 
 
-@router.post("", response_model=CallResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CallResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.OUTBOUND_CALLS, limit=catalog.LIMIT_MINUTES
+            )
+        ),
+        Depends(require_entitlement(limit=catalog.LIMIT_CONCURRENT_CALLS)),
+    ],
+)
 async def create_call(
     call_data: CallCreate,
     db: AsyncSession = Depends(get_db),

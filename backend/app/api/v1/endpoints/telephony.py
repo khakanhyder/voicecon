@@ -31,7 +31,8 @@ from app.core.dependencies import get_current_user, get_current_active_user, get
 from app.core.entitlement_guard import require_entitlement
 from app.models.user import User
 from app.services.billing import catalog
-from app.services.billing.entitlements import runtime_allows
+from app.services.billing.entitlements import concurrency_allows, runtime_allows
+from app.services.billing.usage_tracker import UsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -342,6 +343,51 @@ def _record_status_metadata(call: Call, call_status: Optional[str]) -> None:
     }
 
 
+async def _record_minutes(db: AsyncSession, call: Call, canonical_status: Optional[str]) -> None:
+    """Count a finished call's minutes against the plan's allowance.
+
+    The final status callback is the one place every carrier call passes with a
+    duration, so this is where minutes are metered. Once per call — the tracker
+    ignores a repeat — and never allowed to fail the callback.
+    """
+    if canonical_status != "completed" or not call.organization_id:
+        return
+    try:
+        await UsageTracker.record_call_usage(
+            db=db, call_id=call.id, organization_id=call.organization_id
+        )
+    except Exception as e:  # pragma: no cover - defensive
+        logger.error(f"Could not record usage for call {call.id}: {e}")
+
+
+BUSY_MESSAGE = (
+    "We're sorry, all of our lines are busy right now. Please try again in a few minutes."
+)
+
+
+async def _line_available(db: AsyncSession, call: Call) -> bool:
+    """Is there a free line under the plan's concurrent-call limit?
+
+    Only an inbound call is checked here. An outbound call took its line when
+    it was dialled (``require_entitlement`` on the dial endpoints), and turning
+    it away now would hang up on someone who has just answered. A refused call
+    is closed out on its row so it never counts as live itself.
+    """
+    if call.direction != "inbound":
+        return True
+    allowed, reason = await concurrency_allows(
+        db, call.organization_id, exclude_call_id=call.id
+    )
+    if allowed:
+        return True
+    logger.info(f"Declining inbound call {call.id} for org {call.organization_id}: {reason}")
+    call.status = "missed"
+    call.ended_at = datetime.utcnow()
+    call.call_metadata = {**(call.call_metadata or {}), "declined_reason": reason}
+    await db.commit()
+    return False
+
+
 async def _find_call_for_status(
     db: AsyncSession,
     *,
@@ -571,6 +617,10 @@ async def handle_inbound_call(
             call_id=request.query_params.get("call_id"),
         )
 
+        if not await _line_available(db, call):
+            twiml = build_twiml_error(BUSY_MESSAGE)
+            return Response(content=twiml, media_type="application/xml")
+
         # Generate WebSocket URL for media streaming
         # The WebSocket endpoint will be at /api/v1/voice/stream/{call_id}
         websocket_url = urljoin(
@@ -665,6 +715,7 @@ async def handle_call_status(
         _record_status_metadata(call, call_status)
 
         await db.commit()
+        await _record_minutes(db, call, canonical_status)
 
         logger.info(f"Updated call status: {call.id} -> {call_status}")
 
@@ -682,9 +733,10 @@ async def handle_call_status(
     dependencies=[
         Depends(
             require_entitlement(
-                feature=catalog.OUTBOUND_CALLS, limit=catalog.LIMIT_CALLS
+                feature=catalog.OUTBOUND_CALLS, limit=catalog.LIMIT_MINUTES
             )
-        )
+        ),
+        Depends(require_entitlement(limit=catalog.LIMIT_CONCURRENT_CALLS)),
     ],
 )
 async def initiate_outbound_call(
@@ -954,6 +1006,12 @@ async def handle_telnyx_inbound_call(
             call_id=request.query_params.get("call_id"),
         )
 
+        if not await _line_available(db, call):
+            return Response(
+                content=build_error_response(BUSY_MESSAGE),
+                media_type="application/xml",
+            )
+
         websocket_url = urljoin(
             settings.WEBSOCKET_URL or f"wss://{request.headers.get('host')}",
             f"/api/v1/voice/stream/{call.id}",
@@ -1023,6 +1081,7 @@ async def handle_telnyx_call_status(
         _record_status_metadata(call, call_status)
 
         await db.commit()
+        await _record_minutes(db, call, canonical_status)
 
         logger.info(f"Updated call status: {call.id} -> {call_status}")
 

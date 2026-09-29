@@ -162,7 +162,7 @@ export const API_ENDPOINTS = {
  * authority (`catalog.DEFAULT_TRIAL_DAYS`, surfaced as `plan.trial_days`) —
  * prefer that when a plan is in hand, and keep this in step with it.
  */
-export const FREE_TRIAL_DAYS = 30
+export const FREE_TRIAL_DAYS = 14
 
 export const QUERY_KEYS = {
   AGENTS: ['agents'] as const,

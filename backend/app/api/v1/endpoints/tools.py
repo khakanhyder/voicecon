@@ -20,6 +20,9 @@ from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
 from app.models.agent import Agent
 from app.models.tool import Tool, AgentToolAssignment
+from app.core.entitlement_guard import assert_feature
+from app.services.billing import catalog
+from app.services.billing.entitlements import resolve_entitlements
 from app.services.tools.http_tools import HTTP_TOOL_TYPES, run_http_tool
 from app.services.tools.validation import check_tool_references, validate_tool_config
 from app.schemas.tool import (
@@ -53,6 +56,22 @@ TOOL_CATEGORIES = {
 }
 
 
+#: Plan feature a tool type needs (pricing sheet, 29 Sep 2026). Webhooks and
+#: custom tools, CRM/messaging integrations and transfer to a human start on
+#: Growth; calendar booking, knowledge base and call control are on every
+#: plan. Checked when a tool is created — existing tools keep running.
+TOOL_FEATURES = {
+    "api_request": catalog.WEBHOOKS,
+    "mcp": catalog.WEBHOOKS,
+    "custom_tool": catalog.WEBHOOKS,
+    "sip_request": catalog.WEBHOOKS,
+    "slack": catalog.CRM_INTEGRATIONS,
+    "google_sheets": catalog.CRM_INTEGRATIONS,
+    "gohighlevel": catalog.CRM_INTEGRATIONS,
+    "transfer_call": catalog.OUTBOUND_CALLS,
+}
+
+
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ToolResponse, status_code=status.HTTP_201_CREATED)
@@ -62,6 +81,10 @@ async def create_tool(
     current_user: User = Depends(get_current_active_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
 ):
+    feature = TOOL_FEATURES.get(data.tool_type)
+    if feature:
+        assert_feature(await resolve_entitlements(db, org_id), feature)
+
     # Reject a tool that could never run, rather than let the agent call it
     # mid-conversation and discover the missing destination then.
     await _validate_tool(data.tool_type, data.config, data.description, org_id, db)

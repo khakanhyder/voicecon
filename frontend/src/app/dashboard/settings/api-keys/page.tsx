@@ -258,7 +258,7 @@ export default function APIKeysPage() {
                 ? 'Your subscription isn’t active, so new API keys can’t be created. Renew it to continue.'
                 : entitlements?.is_trial
                 ? 'API keys aren’t included in the free trial. They unlock when you subscribe to a plan with API access.'
-                : `API access isn’t included in ${entitlements?.plan_name ?? 'your current plan'}. It’s available on ${PLAN_LABELS['voice-ai']}.`
+                : `API access isn’t included in ${entitlements?.plan_name ?? 'your current plan'}. It’s available on ${PLAN_LABELS.growth} and above.`
               : `You’ve created all ${entitlements?.limits?.[LIMITS.API_KEYS] ?? ''} API keys your plan allows. Revoke one below or upgrade for more.`}
           </p>
           <Link

@@ -4,7 +4,7 @@
  * Components for showing what a plan does *not* include.
  *
  * The rule everywhere: **never hide a gated feature — show it locked.** A
- * hidden feature cannot be sold; a greyed-out row with "Available on Voice AI"
+ * hidden feature cannot be sold; a greyed-out row with "Available on Scale"
  * is an advertisement, and an absent one is a lost sale.
  */
 import { ReactNode } from 'react'

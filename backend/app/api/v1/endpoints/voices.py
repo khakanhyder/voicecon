@@ -14,6 +14,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.entitlement_guard import require_entitlement
+from app.services.billing import catalog
 from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.database import get_db
 from app.models.agent import Agent
@@ -154,7 +156,18 @@ async def check_custom_voice(
     return VoiceCheckResponse(**asdict(info))
 
 
-@router.post("/custom", response_model=CustomVoiceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/custom",
+    response_model=CustomVoiceResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_entitlement(
+                feature=catalog.CUSTOM_VOICE, limit=catalog.LIMIT_CUSTOM_VOICES
+            )
+        )
+    ],
+)
 async def add_custom_voice(
     body: CustomVoiceCreate,
     current_user: User = Depends(get_current_active_user),

@@ -10,7 +10,7 @@ import { create } from 'zustand'
 
 import {
   Entitlements,
-  LIMITS,
+  USAGE_LIMITS,
   entitlementService,
   isUnlimited,
 } from '@/lib/entitlements'
@@ -99,9 +99,7 @@ export const useEntitlementStore = create<EntitlementState>((set, get) => ({
     if (isUnlimited(capValue)) return true
     // A usage allowance on a plan that bills overage never blocks — going past
     // it costs money rather than stopping. A trial has no card, so it does.
-    const isUsageLimit = (
-      [LIMITS.MINUTES, LIMITS.CALLS, LIMITS.SMS, LIMITS.EMAILS] as string[]
-    ).includes(limit)
+    const isUsageLimit = USAGE_LIMITS.has(limit)
     if (isUsageLimit && ent.overage_allowed) return true
     return (ent.usage?.[limit] ?? 0) + count <= capValue
   },

@@ -78,7 +78,7 @@ async def org(db: AsyncSession, owner: User) -> Organization:
 
 
 def _plan(slug: str, tier: int, price: int) -> SubscriptionPlan:
-    document = catalog.PLAN_ENTITLEMENTS["voice-ai"]
+    document = catalog.entitlements_for_plan("voice-ai")
     return SubscriptionPlan(
         slug=slug,
         name=slug.title(),

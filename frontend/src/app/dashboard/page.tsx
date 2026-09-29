@@ -79,7 +79,8 @@ const features = [
   { icon: Zap, title: 'Real-time AI', desc: 'Sub-500ms voice response with GPT-4.1 & Claude' },
   { icon: TrendingUp, title: 'Smart Analytics', desc: 'Track call quality, duration, and performance' },
   { icon: Clock, title: '24/7 Available', desc: 'Agents that never sleep, never miss a call' },
-  { icon: CheckCircle2, title: 'Compliant & Secure', desc: 'SOC 2 Type II, GDPR, HIPAA ready' },
+  // No compliance claim here: nothing is certified yet (SOC 2, HIPAA), and the
+  // pricing sheet (29 Sep 2026) says not to show one until it is.
 ]
 
 export default function DashboardPage() {

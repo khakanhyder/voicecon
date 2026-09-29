@@ -88,9 +88,9 @@ const SECTIONS: LegalSection[] = [
     body: (
       <>
         <P>
-          New customers may be eligible for one free trial, currently 30 days, with no payment method required.
-          During the trial, plan limits apply (for example, a limited number of agents, knowledge bases, workflows
-          and team members), and some features, including purchasing phone numbers, are available only on paid
+          New customers may be eligible for one free trial, currently 14 days, with no payment method required.
+          During the trial, plan limits apply (for example, a limited number of call minutes, agents, knowledge
+          bases, workflows and team members), and some features, including purchasing phone numbers, are available only on paid
           plans.
         </P>
         <P>
@@ -109,7 +109,7 @@ const SECTIONS: LegalSection[] = [
         <UL>
           <li>
             <B>Subscriptions.</B> Paid plans are billed in advance, monthly or yearly, at the price shown when you
-            subscribe. Plan limits and included allowances, such as agents, phone numbers, texts and emails, are
+            subscribe. Plan limits and included allowances, such as call minutes, agents, phone numbers and emails, are
             described at checkout and in your billing settings.
           </li>
           <li>
@@ -495,7 +495,7 @@ export default function TermsOfServicePage() {
       summary={
         <ul>
           <li>Voicecon is a business service for companies and the people who work in them.</li>
-          <li>Trials last 30 days with no card. Paid plans renew automatically until you cancel, and cancellation takes effect at the end of the billing period.</li>
+          <li>Trials last 14 days with no card. Paid plans renew automatically until you cancel, and cancellation takes effect at the end of the billing period.</li>
           <li>You own your data. We use it only to run the Service for you, and never to train AI models without your consent.</li>
           <li>You are responsible for complying with calling, texting, recording, AI disclosure and privacy laws. No robocalls, spam or impersonation.</li>
           <li>AI output can be wrong, so test and monitor your agents. Voicecon can&apos;t be used to call emergency services.</li>

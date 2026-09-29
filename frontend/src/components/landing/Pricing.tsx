@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Accent, ROUTES, Section, SectionHeading, buttonClass } from './primitives'
 import { Reveal } from './Reveal'
 import {
+  ENTERPRISE,
   type PricingData,
   paymentProviderName,
   planBullets,
@@ -23,7 +24,6 @@ interface Card {
   blurb: string
   cta: string
   featured?: boolean
-  isTrial?: boolean
   features: string[]
 }
 
@@ -35,27 +35,16 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
   const offersYearly = plans.some((p) => p.price_yearly)
   const provider = paymentProviderName(trial.payment_provider)
 
-  const cards: Card[] = [
-    {
-      name: 'Free trial',
-      monthly: 0,
-      yearly: 0,
-      blurb: 'Build and test a working agent before you pay.',
-      cta: 'Start free trial',
-      isTrial: true,
-      features: trialBullets(trial),
-    },
-    ...plans.map((plan, i) => ({
-      name: plan.name,
-      monthly: plan.price_monthly,
-      yearly: plan.price_yearly,
-      blurb: plan.description || '',
-      cta: 'Get started',
-      // The top plan is the one with everything in it.
-      featured: plans.length > 1 && i === plans.length - 1,
-      features: planBullets(plan, plans[i - 1]),
-    })),
-  ]
+  const cards: Card[] = plans.map((plan, i) => ({
+    name: plan.name,
+    monthly: plan.price_monthly,
+    yearly: plan.price_yearly,
+    blurb: plan.description || '',
+    cta: 'Get started',
+    featured: !!plan.popular,
+    features: planBullets(plan, plans[i - 1]),
+  }))
+  const trialFeatures = trialBullets(trial)
 
   return (
     <Section id="pricing" labelledBy="pricing-title">
@@ -105,7 +94,7 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
         </Reveal>
       )}
 
-      <div className={cn('mt-10 grid items-stretch gap-5', cards.length === 2 ? 'lg:grid-cols-2' : cards.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-3')}>
+      <div className={cn('mt-10 grid items-stretch gap-5', cards.length <= 2 ? 'lg:grid-cols-2' : cards.length === 3 ? 'lg:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-4')}>
         {cards.map((plan, i) => {
           // A plan with no yearly price keeps its monthly price on the yearly tab.
           const billedYearly = yearly && !!plan.yearly
@@ -122,7 +111,7 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
               >
                 {plan.featured && (
                   <span className="absolute -top-3 left-7 rounded-full bg-gradient-to-r from-brand-400 to-brand-600 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-white">
-                    Most complete
+                    Most popular
                   </span>
                 )}
                 <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
@@ -131,10 +120,10 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
                   <span className="text-[2.75rem] font-bold leading-none tracking-[-0.02em] text-white">
                     ${usd(perMonth)}
                   </span>
-                  <span className="pb-1 text-sm text-white/55">{plan.isTrial ? `for ${trial.days} days` : '/ month'}</span>
+                  <span className="pb-1 text-sm text-white/55">/ month</span>
                 </p>
                 <p className="mt-2 h-5 text-xs text-white/50" aria-live="polite">
-                  {plan.isTrial ? '' : billedYearly ? `$${usd(plan.yearly!)} billed yearly` : 'Billed monthly'}
+                  {billedYearly ? `$${usd(plan.yearly!)} billed yearly` : 'Billed monthly'}
                 </p>
                 <a
                   href={ROUTES.register}
@@ -155,8 +144,52 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
           )
         })}
       </div>
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <Reveal>
+          <div className="flex h-full flex-col rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-7 sm:p-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h3 className="text-lg font-semibold text-white">Free trial</h3>
+              <p className="text-sm text-white/60">
+                <span className="text-2xl font-bold text-white">$0</span> for {trial.days} days
+              </p>
+            </div>
+            <p className="mt-1.5 text-sm leading-relaxed text-white/60">Build and test a working agent before you pay.</p>
+            <ul className="mt-5 grid flex-1 gap-2.5 sm:grid-cols-2">
+              {trialFeatures.map((f) => (
+                <li key={f} className="flex items-start gap-2.5 text-[15px] leading-snug text-white/75">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-300" aria-hidden="true" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href={ROUTES.register} className={buttonClass('ghost', 'md', 'mt-6 w-full sm:w-auto sm:self-start')}>
+              Start free trial
+            </a>
+          </div>
+        </Reveal>
+        <Reveal delay={90}>
+          <div className="flex h-full flex-col rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-7 sm:p-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h3 className="text-lg font-semibold text-white">{ENTERPRISE.name}</h3>
+              <p className="text-2xl font-bold text-white">{ENTERPRISE.price}</p>
+            </div>
+            <p className="mt-1.5 text-sm leading-relaxed text-white/60">{ENTERPRISE.description}</p>
+            <ul className="mt-5 flex-1 space-y-2.5">
+              {ENTERPRISE.bullets.map((f) => (
+                <li key={f} className="flex items-start gap-2.5 text-[15px] leading-snug text-white/75">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-300" aria-hidden="true" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href={ENTERPRISE.href} className={buttonClass('ghost', 'md', 'mt-6 w-full sm:w-auto sm:self-start')}>
+              {ENTERPRISE.cta}
+            </a>
+          </div>
+        </Reveal>
+      </div>
       <p className="mt-8 text-center text-sm text-white/50">
-        Prices in USD. Secure checkout{provider ? ` by ${provider}` : ''}, and promo codes are applied at checkout.
+        Prices in USD. Minutes past a plan&apos;s allowance are billed at its per-minute rate. Secure checkout{provider ? ` by ${provider}` : ''}, and promo codes are applied at checkout.
       </p>
     </Section>
   )

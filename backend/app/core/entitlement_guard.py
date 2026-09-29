@@ -10,13 +10,13 @@ Authorization in this app has two independent axes, and both must pass:
 
 Keeping the two statuses distinct is what lets the frontend say "ask your admin"
 rather than "upgrade your plan" without pattern-matching on error text. It also
-keeps the models orthogonal: a *viewer* on Voice AI and an *owner* on Sales
-Chatbot are both legitimate, so plans must never be encoded as roles.
+keeps the models orthogonal: a *viewer* on Agency and an *owner* on
+Starter are both legitimate, so plans must never be encoded as roles.
 
 Three checks live here, and they fail differently on purpose:
 
 1. **state** — is the subscription live at all?  → "your trial ended"
-2. **feature** — does the plan include this capability?  → "upgrade to Voice AI"
+2. **feature** — does the plan include this capability?  → "upgrade to Growth"
 3. **limit** — is there headroom left?  → "you've used all 5 agents"
 """
 from __future__ import annotations
@@ -76,8 +76,8 @@ class EntitlementError(HTTPException):
           "code": "entitlement_required",
           "reason": "feature_not_in_plan",
           "feature": "outbound_campaigns",
-          "current_plan": "sales-chatbot",
-          "required_plans": ["voice-ai"],
+          "current_plan": "starter",
+          "required_plans": ["scale", "agency"],
           "upgrade_url": "/dashboard/settings/billing"
         }
 
@@ -239,7 +239,16 @@ def require_entitlement(
         if feature:
             assert_feature(ent, feature)
 
-        if limit:
+        if limit == catalog.LIMIT_CONCURRENT_CALLS:
+            # Lines in use are counted live, not per period. A document stored
+            # before this limit existed has no key: unlimited, not zero lines.
+            if limit in ent.limits and not ent.is_unlimited(limit):
+                from app.services.billing.entitlements import get_entitlement_service
+
+                active = await get_entitlement_service().active_call_count(db, org_id)
+                ent = ent.with_usage({limit: active})
+                assert_within_limit(ent, limit, quantity)
+        elif limit:
             if limit in catalog.RESOURCE_LIMITS:
                 from app.services.billing.entitlements import get_entitlement_service
 
@@ -302,13 +311,9 @@ async def assert_runtime_allowed(
         if reason == REASON_FEATURE:
             assert_feature(ent, feature)
         elif reason == REASON_LIMIT:
-            usage_limit = {
-                catalog.INBOUND_CALLS: catalog.LIMIT_CALLS,
-                catalog.OUTBOUND_CALLS: catalog.LIMIT_CALLS,
-                catalog.OUTBOUND_CAMPAIGNS: catalog.LIMIT_CALLS,
-                catalog.SMS: catalog.LIMIT_SMS,
-                catalog.EMAIL: catalog.LIMIT_EMAILS,
-            }.get(feature, catalog.LIMIT_CALLS)
+            from app.services.billing.entitlements import RUNTIME_USAGE_LIMITS
+
+            usage_limit = RUNTIME_USAGE_LIMITS.get(feature, catalog.LIMIT_MINUTES)
             assert_within_limit(ent, usage_limit)
         else:
             assert_live(ent)

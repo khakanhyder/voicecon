@@ -99,7 +99,7 @@ export function FinalCta({ trialDays }: { trialDays: number }) {
             Put your first AI voice agent <Accent>on the phone this week</Accent>
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/70 sm:text-lg">
-            Start from a template, test it in your browser and connect a number when you&apos;re ready.
+            Start from a template, test it in your browser and connect a number when you&apos;re ready.{' '}
             {trialDays} days free, no credit card.
           </p>
           <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">

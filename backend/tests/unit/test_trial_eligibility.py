@@ -87,7 +87,7 @@ async def make_org(db: AsyncSession, owner: User, name: str = "Acme") -> Organiz
 
 @pytest_asyncio.fixture
 async def plan(db: AsyncSession) -> SubscriptionPlan:
-    document = catalog.PLAN_ENTITLEMENTS["voice-ai"]
+    document = catalog.entitlements_for_plan("voice-ai")
     subscription_plan = SubscriptionPlan(
         slug="voice-ai",
         name="Voice AI",

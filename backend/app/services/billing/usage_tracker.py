@@ -64,6 +64,20 @@ class UsageTracker:
                 logger.warning(f"Call {call_id} not found")
                 return None
 
+            # Once per call. Carriers can deliver the final status callback
+            # more than once, and the in-process call session records too;
+            # counting the same call twice would bill its minutes twice.
+            already = await db.execute(
+                select(UsageRecord.id)
+                .where(
+                    UsageRecord.resource_id == call_id,
+                    UsageRecord.usage_type == "minutes",
+                )
+                .limit(1)
+            )
+            if already.scalar_one_or_none() is not None:
+                return None
+
             # `Call` has no `duration` column — it stores `duration_seconds`, and
             # `billable_duration_seconds` when the carrier reports a billable
             # figure that differs. Reading a `call.duration` that never existed
@@ -97,15 +111,22 @@ class UsageTracker:
                 logger.error(f"Plan not found for subscription {subscription.id}")
                 return None
 
-            # Conversation usage is recorded but never priced.
-            #
-            # Overage only ever meant "past the included allowance", and no plan
-            # has a minute or call allowance any more. Deriving a charge from a
-            # ceiling that no longer exists would bill every minute as overage
-            # the moment `included_minutes` fell behind reality — the exact
-            # failure the removal of those caps was meant to prevent. The rows
-            # are still written so analytics and invoicing keep their history.
+            # Minutes past the plan's monthly allowance are overage, priced at
+            # the plan's per-minute rate. Only the part of *this* call that
+            # crosses the allowance counts: a call that starts inside it and
+            # ends past it is split. Unlimited plans and trials (no card, no
+            # overage) never price anything.
+            from app.services.billing import catalog
+            from app.services.billing.entitlements import resolve_entitlements
+
+            ent = await resolve_entitlements(db, organization_id, fresh=True)
+            allowance = ent.limit(catalog.LIMIT_MINUTES)
+            before = subscription.current_period_minutes or 0
             minutes_overage = 0
+            if ent.overage_allowed and allowance >= 0:
+                minutes_overage = max(0, before + minutes - allowance) - max(
+                    0, before - allowance
+                )
             calls_overage = 0
 
             # Record minutes usage

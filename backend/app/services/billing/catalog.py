@@ -56,9 +56,18 @@ LIMIT_TEAM_MEMBERS = "team_members"
 LIMIT_WORKFLOWS = "workflows"
 LIMIT_API_KEYS = "api_keys"
 LIMIT_MINUTES = "minutes_per_month"
+#: Retired 29 Sep 2026: plans are metered in minutes only, because a minute is
+#: what a call costs us. Still counted on the subscription for reporting, and
+#: still present (as unlimited) in documents seeded before the change, but no
+#: plan sets it and no gate reads it.
 LIMIT_CALLS = "calls_per_month"
 LIMIT_SMS = "sms_per_month"
 LIMIT_EMAILS = "emails_per_month"
+#: Calls live at the same time. Counted from in-flight ``Call`` rows at the
+#: moment a call starts — see ``EntitlementService.active_call_count``.
+LIMIT_CONCURRENT_CALLS = "concurrent_calls"
+#: Voices in the workspace's custom voice library (cloned voices).
+LIMIT_CUSTOM_VOICES = "custom_voices"
 
 #: ``-1`` means "no ceiling". Read by ``Entitlements.within``, which short-
 #: circuits before comparing against usage.
@@ -73,11 +82,13 @@ RESOURCE_LIMITS = frozenset(
         LIMIT_TEAM_MEMBERS,
         LIMIT_WORKFLOWS,
         LIMIT_API_KEYS,
+        LIMIT_CUSTOM_VOICES,
     }
 )
 
 #: Limits read from the subscription's per-period counters, reset each cycle.
-USAGE_LIMITS = frozenset({LIMIT_MINUTES, LIMIT_CALLS, LIMIT_SMS, LIMIT_EMAILS})
+#: SMS is not part of any plan (29 Sep 2026), so it has no allowance.
+USAGE_LIMITS = frozenset({LIMIT_MINUTES, LIMIT_EMAILS})
 
 ALL_FEATURES = (
     INBOUND_CALLS,
@@ -109,7 +120,7 @@ FEATURE_LABELS: Dict[str, str] = {
     EMAIL: "Email sending",
     WORKFLOWS: "Workflows",
     WORKFLOW_SCHEDULING: "Scheduled & triggered workflows",
-    CRM_INTEGRATIONS: "CRM integrations",
+    CRM_INTEGRATIONS: "CRM, messaging & automation integrations",
     KNOWLEDGE_BASE: "Knowledge base",
     VIRTUAL_MEETINGS: "Virtual meetings & note taking",
     LEAD_SCORING: "Lead scoring & data enrichment",
@@ -118,7 +129,7 @@ FEATURE_LABELS: Dict[str, str] = {
     WHITE_LABEL: "White labelling",
     ANALYTICS: "Analytics",
     CALL_RECORDINGS: "Call recordings & transcripts",
-    WEBHOOKS: "Webhooks",
+    WEBHOOKS: "Webhooks & custom tools",
     PHONE_NUMBER_PURCHASE: "Buying phone numbers",
 }
 
@@ -130,9 +141,9 @@ LIMIT_LABELS: Dict[str, str] = {
     LIMIT_WORKFLOWS: "workflows",
     LIMIT_API_KEYS: "API keys",
     LIMIT_MINUTES: "minutes this month",
-    LIMIT_CALLS: "calls this month",
-    LIMIT_SMS: "SMS this month",
     LIMIT_EMAILS: "emails this month",
+    LIMIT_CONCURRENT_CALLS: "concurrent calls",
+    LIMIT_CUSTOM_VOICES: "custom voices",
 }
 
 
@@ -149,24 +160,22 @@ def _features(**overrides: bool) -> Dict[str, bool]:
 #: ``seed_plans.backfill_plan_entitlements``), and ``POST /billing/trial`` falls
 #: back to it when a plan carries no length of its own. Change it here and the
 #: whole product follows — there is no per-plan trial length in the UI today.
-DEFAULT_TRIAL_DAYS = 30
+DEFAULT_TRIAL_DAYS = 14
 
 # Deliberately generous on *capability*. Trials convert on feature discovery: a
 # user who never sees lead scoring has no reason to pick the expensive plan.
 #
-# Minutes and calls are uncapped. The one thing a trial cannot do is buy a phone
-# number, and that single gate replaces the old consumption caps: a number is a
-# recurring charge at the carrier that outlives the trial, whereas conversation
-# usage is bounded by the trial window itself. Restricting the durable
-# commitment rather than the exploration is both cheaper to run and far less
-# frustrating to evaluate on.
+# Consumption is capped hard: 30 call minutes, with no
+# overage, because a trial has no card to bill (pricing sheet, 29 Sep 2026). A
+# trial also cannot buy a phone number: a number is a recurring charge at the
+# carrier that outlives the trial. Restricting what costs us money rather than
+# what can be explored keeps the trial cheap to run and still worth evaluating.
 TRIAL_ENTITLEMENTS: Dict[str, Any] = {
     "features": _features(
         **{
             INBOUND_CALLS: True,
             OUTBOUND_CALLS: True,
             OUTBOUND_CAMPAIGNS: True,
-            SMS: True,
             EMAIL: True,
             WORKFLOWS: True,
             CRM_INTEGRATIONS: True,
@@ -175,6 +184,11 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
             LEAD_SCORING: True,
             ANALYTICS: True,
             CALL_RECORDINGS: True,
+            # Custom tools and custom voices were never gated before plans were
+            # tiered; keeping them on means a trial can still build the agent
+            # it would run on Growth or Scale.
+            WEBHOOKS: True,
+            CUSTOM_VOICE: True,
             # PHONE_NUMBER_PURCHASE stays off — see the note above the key.
         }
     ),
@@ -185,10 +199,10 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
         LIMIT_TEAM_MEMBERS: 2,
         LIMIT_WORKFLOWS: 2,
         LIMIT_API_KEYS: 0,
-        LIMIT_MINUTES: UNLIMITED,
-        LIMIT_CALLS: UNLIMITED,
-        LIMIT_SMS: UNLIMITED,
-        LIMIT_EMAILS: UNLIMITED,
+        LIMIT_MINUTES: 30,
+        LIMIT_EMAILS: 100,
+        LIMIT_CONCURRENT_CALLS: 2,
+        LIMIT_CUSTOM_VOICES: 1,
     },
     "overage": {"allowed": False},
 }
@@ -199,12 +213,122 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
 # ``Entitlements.is_read_only``, which the API's write guards consult.
 EXPIRED_ENTITLEMENTS: Dict[str, Any] = {
     "features": _features(),
-    "limits": {key: 0 for key in (*RESOURCE_LIMITS, *USAGE_LIMITS)},
+    "limits": {
+        key: 0 for key in (*RESOURCE_LIMITS, *USAGE_LIMITS, LIMIT_CONCURRENT_CALLS)
+    },
     "overage": {"allowed": False},
 }
 
 # ---- Paid plans ----
+# From "VoiceCon Pricing Packages — Final" (29 Sep 2026). Each plan includes
+# everything in the one before it. Enterprise is sold by contract, not through
+# checkout, so it has no row here: staff put those customers on a plan with an
+# ``OrganizationEntitlementOverride``.
+#
+# Minutes are a real allowance now. Paid plans keep working past it and the
+# excess is priced at ``overage.per_minute`` (see ``UsageTracker``); a trial
+# stops at its allowance because there is no card to bill.
+_STARTER_FEATURES = {
+    INBOUND_CALLS: True,
+    EMAIL: True,
+    WORKFLOWS: True,
+    KNOWLEDGE_BASE: True,
+    ANALYTICS: True,
+    CALL_RECORDINGS: True,
+    PHONE_NUMBER_PURCHASE: True,
+}
+_GROWTH_FEATURES = {
+    **_STARTER_FEATURES,
+    OUTBOUND_CALLS: True,
+    CRM_INTEGRATIONS: True,
+    WEBHOOKS: True,
+    API_ACCESS: True,
+}
+_SCALE_FEATURES = {
+    **_GROWTH_FEATURES,
+    OUTBOUND_CAMPAIGNS: True,
+    LEAD_SCORING: True,
+    WORKFLOW_SCHEDULING: True,
+    CUSTOM_VOICE: True,
+}
+_AGENCY_FEATURES = {
+    **_SCALE_FEATURES,
+    WHITE_LABEL: True,
+}
+
 PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
+    "starter": {
+        "features": _features(**_STARTER_FEATURES),
+        "limits": {
+            LIMIT_AGENTS: 1,
+            LIMIT_PHONE_NUMBERS: 1,
+            LIMIT_KNOWLEDGE_BASES: 1,
+            LIMIT_TEAM_MEMBERS: 2,
+            LIMIT_WORKFLOWS: 3,
+            LIMIT_API_KEYS: 0,
+            LIMIT_CUSTOM_VOICES: 0,
+            LIMIT_CONCURRENT_CALLS: 3,
+            LIMIT_MINUTES: 200,
+            LIMIT_EMAILS: 500,
+        },
+        "overage": {"allowed": True, "per_minute": 0.30},
+    },
+    "growth": {
+        "features": _features(**_GROWTH_FEATURES),
+        "limits": {
+            LIMIT_AGENTS: 3,
+            LIMIT_PHONE_NUMBERS: 2,
+            LIMIT_KNOWLEDGE_BASES: 5,
+            LIMIT_TEAM_MEMBERS: 5,
+            LIMIT_WORKFLOWS: 15,
+            LIMIT_API_KEYS: 3,
+            LIMIT_CUSTOM_VOICES: 0,
+            LIMIT_CONCURRENT_CALLS: 5,
+            LIMIT_MINUTES: 750,
+            LIMIT_EMAILS: 2000,
+        },
+        "overage": {"allowed": True, "per_minute": 0.25},
+    },
+    "scale": {
+        "features": _features(**_SCALE_FEATURES),
+        "limits": {
+            LIMIT_AGENTS: 10,
+            LIMIT_PHONE_NUMBERS: 5,
+            LIMIT_KNOWLEDGE_BASES: UNLIMITED,
+            LIMIT_TEAM_MEMBERS: 10,
+            LIMIT_WORKFLOWS: UNLIMITED,
+            LIMIT_API_KEYS: 10,
+            LIMIT_CUSTOM_VOICES: 2,
+            LIMIT_CONCURRENT_CALLS: 15,
+            LIMIT_MINUTES: 2000,
+            LIMIT_EMAILS: 5000,
+        },
+        "overage": {"allowed": True, "per_minute": 0.20},
+    },
+    "agency": {
+        "features": _features(**_AGENCY_FEATURES),
+        "limits": {
+            LIMIT_AGENTS: UNLIMITED,
+            LIMIT_PHONE_NUMBERS: 20,
+            LIMIT_KNOWLEDGE_BASES: UNLIMITED,
+            LIMIT_TEAM_MEMBERS: 25,
+            LIMIT_WORKFLOWS: UNLIMITED,
+            LIMIT_API_KEYS: 25,
+            LIMIT_CUSTOM_VOICES: 10,
+            LIMIT_CONCURRENT_CALLS: 30,
+            LIMIT_MINUTES: 3000,
+            LIMIT_EMAILS: 20000,
+        },
+        "overage": {"allowed": True, "per_minute": 0.15},
+    },
+}
+
+#: The two launch plans the pricing sheet replaced. No longer sold (the seeder
+#: hides them), but customers already subscribed keep them — their entitlements
+#: resolve from the stored row, and these documents are the fallback for a row
+#: that has none. Deliberately absent from :data:`PLAN_ENTITLEMENTS`, so a 402
+#: never suggests upgrading to a plan nobody can buy.
+LEGACY_PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
     "sales-chatbot": {
         "features": _features(
             **{
@@ -219,6 +343,7 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
                 CALL_RECORDINGS: True,
                 WEBHOOKS: True,
                 PHONE_NUMBER_PURCHASE: True,
+                CUSTOM_VOICE: True,
             }
         ),
         "limits": {
@@ -228,12 +353,12 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_TEAM_MEMBERS: 10,
             LIMIT_WORKFLOWS: 10,
             LIMIT_API_KEYS: 100,
+            LIMIT_CUSTOM_VOICES: UNLIMITED,
+            LIMIT_CONCURRENT_CALLS: UNLIMITED,
             LIMIT_MINUTES: UNLIMITED,
-            LIMIT_CALLS: UNLIMITED,
-            LIMIT_SMS: UNLIMITED,
             LIMIT_EMAILS: UNLIMITED,
         },
-        "overage": {"allowed": True, "per_minute": 0.015, "per_call": 0.05},
+        "overage": {"allowed": True, "per_minute": 0.015},
     },
     "voice-ai": {
         "features": _features(**{key: True for key in ALL_FEATURES}),
@@ -244,14 +369,20 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_TEAM_MEMBERS: 30,
             LIMIT_WORKFLOWS: 30,
             LIMIT_API_KEYS: 200,
+            LIMIT_CUSTOM_VOICES: UNLIMITED,
+            LIMIT_CONCURRENT_CALLS: UNLIMITED,
             LIMIT_MINUTES: UNLIMITED,
-            LIMIT_CALLS: UNLIMITED,
-            LIMIT_SMS: UNLIMITED,
             LIMIT_EMAILS: UNLIMITED,
         },
-        "overage": {"allowed": True, "per_minute": 0.015, "per_call": 0.05},
+        "overage": {"allowed": True, "per_minute": 0.015},
     },
 }
+
+#: Slug a card-free trial is attached to when the client names none.
+TRIAL_PLAN_SLUG = "growth"
+
+#: The most restrictive plan, used for an unknown slug.
+FALLBACK_PLAN_SLUG = "starter"
 
 
 def entitlements_for_plan(slug: str | None) -> Dict[str, Any]:
@@ -262,7 +393,9 @@ def entitlements_for_plan(slug: str | None) -> Dict[str, Any]:
     """
     if slug and slug in PLAN_ENTITLEMENTS:
         return PLAN_ENTITLEMENTS[slug]
-    return PLAN_ENTITLEMENTS["sales-chatbot"]
+    if slug and slug in LEGACY_PLAN_ENTITLEMENTS:
+        return LEGACY_PLAN_ENTITLEMENTS[slug]
+    return PLAN_ENTITLEMENTS[FALLBACK_PLAN_SLUG]
 
 
 def plans_offering(feature: str) -> list[str]:

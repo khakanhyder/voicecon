@@ -166,6 +166,9 @@ class UsageResponse(BaseModel):
     calls_included: int
     calls_overage: int
     estimated_overage_cost: float
+    #: False on a trial: usage stops at the allowance instead of overflowing.
+    overage_allowed: bool = False
+    overage_rate_per_minute: float = 0.0
 
 
 class InvoiceResponse(BaseModel):
@@ -531,10 +534,9 @@ async def get_current_usage(
     plan = result.scalar_one_or_none()
 
     estimated_cost = 0.0
-    if plan:
-        estimated_cost = (
-            float(plan.overage_rate_per_minute) * usage["minutes_overage"]
-            + float(plan.overage_rate_per_call) * usage["calls_overage"]
+    if plan and usage["overage_allowed"]:
+        estimated_cost = round(
+            float(plan.overage_rate_per_minute) * usage["minutes_overage"], 2
         )
 
     return UsageResponse(
@@ -545,6 +547,8 @@ async def get_current_usage(
         calls_included=usage["calls_included"],
         calls_overage=usage["calls_overage"],
         estimated_overage_cost=estimated_cost,
+        overage_allowed=usage["overage_allowed"],
+        overage_rate_per_minute=usage["overage_rate_per_minute"],
     )
 
 

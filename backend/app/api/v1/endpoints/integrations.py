@@ -13,6 +13,9 @@ from sqlalchemy import select, and_, or_, func, desc
 
 from pydantic import BaseModel as _BaseModelResource, Field as _FieldResource
 
+from app.core.entitlement_guard import assert_feature
+from app.services.billing import catalog
+from app.services.billing.entitlements import resolve_entitlements
 from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
@@ -275,6 +278,8 @@ async def initiate_oauth_flow(
                 detail="Connector is not active",
             )
 
+        await _assert_connector_in_plan(db, org_id, connector)
+
         # Initiate OAuth flow
         manager = get_integration_manager()
         oauth_data = await manager.initiate_oauth_flow(
@@ -535,6 +540,8 @@ async def create_connection(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Connector is not active",
             )
+
+        await _assert_connector_in_plan(db, org_id, connector)
 
         manager = get_integration_manager()
 
@@ -1651,6 +1658,26 @@ def _get_connector_by_slug_sync():  # placeholder to keep import ordering clear
     pass
 
 
+#: Connectors every plan may connect. Starter books appointments through a
+#: calendar and may bring its own carrier — Twilio is filed under
+#: "communication", so it is named by slug. CRMs, messaging, automation and the
+#: rest need a plan with ``crm_integrations`` (Growth up).
+BASE_PLAN_CONNECTOR_CATEGORIES = frozenset({"calendar", "phone"})
+BASE_PLAN_CONNECTOR_SLUGS = frozenset({"twilio"})
+
+
+async def _assert_connector_in_plan(
+    db: AsyncSession, org_id: uuid.UUID, connector: IntegrationConnector
+) -> None:
+    """402 unless the workspace's plan may connect this kind of integration."""
+    if (connector.category or "").lower() in BASE_PLAN_CONNECTOR_CATEGORIES:
+        return
+    if (connector.slug or "").lower() in BASE_PLAN_CONNECTOR_SLUGS:
+        return
+    ent = await resolve_entitlements(db, org_id)
+    assert_feature(ent, catalog.CRM_INTEGRATIONS)
+
+
 async def _load_connector(db: AsyncSession, connector_id: str) -> IntegrationConnector:
     try:
         cid = uuid.UUID(connector_id)
@@ -1710,6 +1737,7 @@ async def trello_connect(
 ):
     """Store a Trello per-user token (obtained via the authorize flow) as a connection."""
     connector = await _load_connector(db, body.connector_id)
+    await _assert_connector_in_plan(db, org_id, connector)
     return await _store_validated_connection(
         db=db, user=current_user, org_id=org_id, connector=connector,
         api_key=body.token, additional_fields=None, name=body.name,
@@ -1735,6 +1763,7 @@ async def whatsapp_connect(
     token + phone_number_id) as a connection.
     """
     connector = await _load_connector(db, body.connector_id)
+    await _assert_connector_in_plan(db, org_id, connector)
     return await _store_validated_connection(
         db=db, user=current_user, org_id=org_id, connector=connector,
         api_key=body.access_token,

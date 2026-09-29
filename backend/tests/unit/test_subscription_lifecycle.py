@@ -93,7 +93,7 @@ async def org(db: AsyncSession) -> Organization:
 
 @pytest_asyncio.fixture
 async def plan(db: AsyncSession) -> SubscriptionPlan:
-    document = catalog.PLAN_ENTITLEMENTS["voice-ai"]
+    document = catalog.entitlements_for_plan("voice-ai")
     subscription_plan = SubscriptionPlan(
         slug="voice-ai",
         name="Voice AI",
@@ -409,37 +409,40 @@ class TestResolution:
 
         ent = await EntitlementService().resolve(db, org.id, fresh=True)
 
-        assert ent.is_unlimited(catalog.LIMIT_MINUTES)
-        assert ent.limit(catalog.LIMIT_AGENTS) == 5
+        # The plan's own stored document, not the trial's — read from the row
+        # so retuning a plan's capacity does not turn this red.
+        limits = plan.entitlements["limits"]
+        assert ent.limit(catalog.LIMIT_MINUTES) == limits[catalog.LIMIT_MINUTES]
+        assert ent.limit(catalog.LIMIT_AGENTS) == limits[catalog.LIMIT_AGENTS]
         assert ent.overage_allowed is True
 
     async def test_usage_counters_feed_the_quota_check(self, db, org, plan):
-        """Counters still reach the resolver — they just no longer cap calls.
+        """The per-period counters are the input to every quota question.
 
-        The per-period counters remain the input to every quota question, so
-        this guards the plumbing that SMS and email limits still depend on.
+        Calls are still counted for reporting but no longer capped; minutes
+        and emails are the allowances that read the same counters.
         """
         subscription = await make_trial(db, org, plan, started_days_ago=1)
         subscription.current_period_calls = 500
-        subscription.current_period_sms = catalog.TRIAL_ENTITLEMENTS["limits"][
-            catalog.LIMIT_SMS
+        subscription.current_period_emails = catalog.TRIAL_ENTITLEMENTS["limits"][
+            catalog.LIMIT_EMAILS
         ]
         await db.commit()
 
         ent = await EntitlementService().resolve(db, org.id, fresh=True)
 
         assert ent.used(catalog.LIMIT_CALLS) == 500
-        # Uncapped: five hundred calls on a trial is fine.
-        assert ent.within(catalog.LIMIT_CALLS)
-        assert ent.remaining(catalog.LIMIT_CALLS) is None
-        # A limit that still exists is still enforced through the same path.
-        assert not ent.within(catalog.LIMIT_SMS)
+        # Five hundred calls never stops a trial: calls are not an allowance.
+        assert catalog.LIMIT_CALLS not in ent.limits
+        assert ent.within(catalog.LIMIT_MINUTES)
+        # A limit that exists is enforced through the same path.
+        assert not ent.within(catalog.LIMIT_EMAILS)
 
     async def test_runtime_check_lets_a_trial_keep_taking_calls(self, db, org, plan):
-        """Call volume never stops a trial — only the trial ending does."""
+        """Call count never stops a trial — only minutes or the trial ending."""
         subscription = await make_trial(db, org, plan, started_days_ago=1)
         subscription.current_period_calls = 10_000
-        subscription.current_period_minutes = 100_000
+        subscription.current_period_minutes = 5
         await db.commit()
 
         service = EntitlementService()
@@ -450,6 +453,23 @@ class TestResolution:
 
         assert allowed is True
         assert reason is None
+
+    async def test_runtime_check_stops_a_trial_at_its_minutes(self, db, org, plan):
+        """The trial's 30 minutes are a hard stop: there is no card to bill."""
+        subscription = await make_trial(db, org, plan, started_days_ago=1)
+        subscription.current_period_minutes = catalog.TRIAL_ENTITLEMENTS["limits"][
+            catalog.LIMIT_MINUTES
+        ]
+        await db.commit()
+
+        service = EntitlementService()
+        service.invalidate(org.id)
+        allowed, reason = await service.check_runtime(
+            db, org.id, catalog.INBOUND_CALLS
+        )
+
+        assert allowed is False
+        assert reason == "limit_exceeded"
 
     async def test_runtime_check_blocks_an_expired_account(self, db, org, plan):
         await make_trial(
@@ -700,9 +720,10 @@ class TestEarlyTrialConversion:
 
         # And the purchased plan is fully in force.
         assert after.is_live
-        assert after.limit(catalog.LIMIT_AGENTS) == 5
-        assert after.is_unlimited(catalog.LIMIT_WORKFLOWS)
-        assert after.is_unlimited(catalog.LIMIT_MINUTES)
+        limits = plan.entitlements["limits"]
+        assert after.limit(catalog.LIMIT_AGENTS) == limits[catalog.LIMIT_AGENTS]
+        assert after.limit(catalog.LIMIT_WORKFLOWS) == limits[catalog.LIMIT_WORKFLOWS]
+        assert after.limit(catalog.LIMIT_MINUTES) == limits[catalog.LIMIT_MINUTES]
         assert after.has(catalog.LEAD_SCORING)
         assert after.has(catalog.API_ACCESS)
         assert after.overage_allowed

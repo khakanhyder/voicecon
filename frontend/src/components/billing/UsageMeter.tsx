@@ -8,10 +8,9 @@
  * they cross the warning threshold, so it stays out of the way when there is
  * nothing to act on.
  *
- * Minutes and calls are deliberately absent: no plan limits them any more, so a
- * meter for them would either read "0 / unlimited" or, worse, imply a ceiling
- * that is not enforced. Rows whose cap is unlimited are filtered out below, so
- * adding them back would render nothing regardless.
+ * Minutes are the metered allowance on every plan (29 Sep 2026); calls are
+ * not limited, so they have no row. Rows whose cap is unlimited are filtered
+ * out below, so a retired plan with unlimited minutes shows nothing.
  */
 import { useRouter } from 'next/navigation'
 
@@ -23,7 +22,7 @@ const WARN_AT = 0.8
 // Only limits whose usage the entitlements payload actually carries. Resource
 // caps (agents, phone numbers) are counted per-request on the backend and are
 // not in `usage`, so listing one here would render a permanent "0 / n".
-const TRACKED: string[] = [LIMITS.SMS, LIMITS.EMAILS]
+const TRACKED: string[] = [LIMITS.MINUTES, LIMITS.EMAILS]
 
 export function UsageMeter({ collapsed = false }: { collapsed?: boolean }) {
   const router = useRouter()

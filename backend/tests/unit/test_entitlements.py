@@ -74,8 +74,8 @@ def make_entitlements(**overrides) -> Entitlements:
         organization_id=uuid.uuid4(),
         status=STATUS_TRIALING,
         source=SOURCE_TRIAL,
-        plan_slug="voice-ai",
-        plan_name="Voice AI",
+        plan_slug="growth",
+        plan_name="Growth",
         features=frozenset(
             key for key, on in document["features"].items() if on
         ),
@@ -283,7 +283,7 @@ class TestEntitlements:
     def test_unlimited_is_always_within(self):
         ent = make_entitlements(
             status=STATUS_ACTIVE,
-            document=catalog.PLAN_ENTITLEMENTS["voice-ai"],
+            document=catalog.PLAN_ENTITLEMENTS["scale"],
             usage={catalog.LIMIT_WORKFLOWS: 9999},
         )
         assert ent.is_unlimited(catalog.LIMIT_WORKFLOWS)
@@ -311,10 +311,13 @@ class TestCatalog:
         assert features[catalog.OUTBOUND_CAMPAIGNS]
 
     def test_trial_caps_consumption_hard(self):
+        """14 days and 30 minutes (pricing sheet, 29 Sep 2026)."""
         limits = catalog.TRIAL_ENTITLEMENTS["limits"]
-        assert limits[catalog.LIMIT_MINUTES] <= 120
-        assert limits[catalog.LIMIT_CALLS] <= 50
+        assert limits[catalog.LIMIT_MINUTES] == 30
         assert limits[catalog.LIMIT_AGENTS] == 1
+        assert catalog.DEFAULT_TRIAL_DAYS == 14
+        # Minutes are the unit; no document carries a per-call allowance.
+        assert catalog.LIMIT_CALLS not in limits
 
     def test_trial_never_allows_overage(self):
         """No card on file means metered overage is an unbounded liability."""
@@ -328,39 +331,89 @@ class TestCatalog:
         assert not any(catalog.EXPIRED_ENTITLEMENTS["features"].values())
         assert all(v == 0 for v in catalog.EXPIRED_ENTITLEMENTS["limits"].values())
 
-    def test_voice_ai_is_a_superset_of_sales_chatbot(self):
-        cheap = catalog.PLAN_ENTITLEMENTS["sales-chatbot"]["features"]
-        rich = catalog.PLAN_ENTITLEMENTS["voice-ai"]["features"]
-        for key, enabled in cheap.items():
-            if enabled:
-                assert rich[key], f"voice-ai is missing {key}"
+    def test_the_plans_on_sale_are_the_pricing_sheet(self):
+        assert list(catalog.PLAN_ENTITLEMENTS) == ["starter", "growth", "scale", "agency"]
+        minutes = {
+            slug: doc["limits"][catalog.LIMIT_MINUTES]
+            for slug, doc in catalog.PLAN_ENTITLEMENTS.items()
+        }
+        assert minutes == {"starter": 200, "growth": 750, "scale": 2000, "agency": 3000}
+        rates = {
+            slug: doc["overage"]["per_minute"]
+            for slug, doc in catalog.PLAN_ENTITLEMENTS.items()
+        }
+        assert rates == {"starter": 0.30, "growth": 0.25, "scale": 0.20, "agency": 0.15}
+
+    def test_each_plan_includes_everything_in_the_one_before(self):
+        slugs = list(catalog.PLAN_ENTITLEMENTS)
+        for smaller, bigger in zip(slugs, slugs[1:]):
+            low = catalog.PLAN_ENTITLEMENTS[smaller]
+            high = catalog.PLAN_ENTITLEMENTS[bigger]
+            for key, enabled in low["features"].items():
+                if enabled:
+                    assert high["features"][key], f"{bigger} is missing {key}"
+            for key, cap in low["limits"].items():
+                top = high["limits"][key]
+                assert top == catalog.UNLIMITED or (cap != catalog.UNLIMITED and top >= cap), (
+                    f"{bigger} allows less {key} than {smaller}"
+                )
+
+    def test_no_plan_includes_text_messages(self):
+        """SMS is not part of the plans (29 Sep 2026)."""
+        for doc in (catalog.TRIAL_ENTITLEMENTS, *catalog.PLAN_ENTITLEMENTS.values()):
+            assert catalog.LIMIT_SMS not in doc["limits"]
+            assert not doc["features"][catalog.SMS]
+        assert catalog.LIMIT_SMS not in catalog.USAGE_LIMITS
+        assert catalog.LIMIT_SMS not in catalog.LIMIT_LABELS
+
+    def test_starter_is_inbound_only_without_api_or_integrations(self):
+        starter = catalog.PLAN_ENTITLEMENTS["starter"]
+        assert starter["features"][catalog.INBOUND_CALLS]
+        for feature in (
+            catalog.OUTBOUND_CALLS,
+            catalog.CRM_INTEGRATIONS,
+            catalog.WEBHOOKS,
+            catalog.API_ACCESS,
+            catalog.WORKFLOW_SCHEDULING,
+            catalog.CUSTOM_VOICE,
+        ):
+            assert not starter["features"][feature], feature
+        assert starter["limits"][catalog.LIMIT_API_KEYS] == 0
+
+    def test_retired_plans_are_not_for_sale_but_still_resolve(self):
+        for slug in ("sales-chatbot", "voice-ai"):
+            assert slug not in catalog.PLAN_ENTITLEMENTS
+            assert catalog.entitlements_for_plan(slug) is catalog.LEGACY_PLAN_ENTITLEMENTS[slug]
+            # Their subscribers keep uncapped minutes and lines.
+            limits = catalog.LEGACY_PLAN_ENTITLEMENTS[slug]["limits"]
+            assert limits[catalog.LIMIT_MINUTES] == catalog.UNLIMITED
+            assert limits[catalog.LIMIT_CONCURRENT_CALLS] == catalog.UNLIMITED
 
     def test_plans_offering_points_at_the_upgrade(self):
-        assert catalog.plans_offering(catalog.OUTBOUND_CAMPAIGNS) == ["voice-ai"]
-        assert set(catalog.plans_offering(catalog.INBOUND_CALLS)) == {
-            "sales-chatbot",
-            "voice-ai",
-        }
+        assert catalog.plans_offering(catalog.OUTBOUND_CAMPAIGNS) == ["scale", "agency"]
+        assert catalog.plans_offering(catalog.OUTBOUND_CALLS) == ["growth", "scale", "agency"]
+        assert catalog.plans_offering(catalog.WHITE_LABEL) == ["agency"]
+        assert set(catalog.plans_offering(catalog.INBOUND_CALLS)) == set(
+            catalog.PLAN_ENTITLEMENTS
+        )
 
     def test_plans_allowing_accounts_for_unlimited(self):
-        assert "voice-ai" in catalog.plans_allowing(catalog.LIMIT_WORKFLOWS, 500)
-        # One past what the cheaper plan allows, read from the catalogue rather
+        assert "scale" in catalog.plans_allowing(catalog.LIMIT_WORKFLOWS, 500)
+        # One past what the cheapest plan allows, read from the catalogue rather
         # than written out — plan capacities are marketing decisions and get
         # retuned, and that must not turn into a red test.
-        cap = catalog.PLAN_ENTITLEMENTS["sales-chatbot"]["limits"][catalog.LIMIT_AGENTS]
-        assert "sales-chatbot" not in catalog.plans_allowing(
-            catalog.LIMIT_AGENTS, cap + 1
-        )
+        cap = catalog.PLAN_ENTITLEMENTS["starter"]["limits"][catalog.LIMIT_AGENTS]
+        assert "starter" not in catalog.plans_allowing(catalog.LIMIT_AGENTS, cap + 1)
 
     def test_unknown_slug_under_grants(self):
         """A typo in a slug must never hand out the expensive plan."""
         assert catalog.entitlements_for_plan("nonsense") is catalog.PLAN_ENTITLEMENTS[
-            "sales-chatbot"
+            "starter"
         ]
 
     def test_override_merge_is_shallow_per_section(self):
         merged = catalog.merge_entitlements(
-            catalog.PLAN_ENTITLEMENTS["sales-chatbot"],
+            catalog.PLAN_ENTITLEMENTS["starter"],
             {"features": {catalog.LEAD_SCORING: True}},
         )
         assert merged["features"][catalog.LEAD_SCORING] is True
@@ -368,7 +421,7 @@ class TestCatalog:
         assert merged["features"][catalog.INBOUND_CALLS] is True
         assert (
             merged["limits"][catalog.LIMIT_AGENTS]
-            == catalog.PLAN_ENTITLEMENTS["sales-chatbot"]["limits"][catalog.LIMIT_AGENTS]
+            == catalog.PLAN_ENTITLEMENTS["starter"]["limits"][catalog.LIMIT_AGENTS]
         )
 
 
@@ -403,15 +456,15 @@ class TestGuard:
     def test_missing_feature_names_the_plan_that_has_it(self):
         ent = make_entitlements(
             status=STATUS_ACTIVE,
-            plan_slug="sales-chatbot",
-            document=catalog.PLAN_ENTITLEMENTS["sales-chatbot"],
+            plan_slug="starter",
+            document=catalog.PLAN_ENTITLEMENTS["starter"],
         )
         with pytest.raises(EntitlementError) as exc:
             assert_feature(ent, catalog.OUTBOUND_CAMPAIGNS)
         payload = exc.value.payload
         assert payload["reason"] == REASON_FEATURE
         assert payload["feature"] == catalog.OUTBOUND_CAMPAIGNS
-        assert payload["required_plans"] == ["voice-ai"]
+        assert payload["required_plans"] == ["scale", "agency"]
         assert payload["upgrade_url"]
 
     def test_resource_limit_blocks_and_reports_the_numbers(self):
@@ -423,11 +476,15 @@ class TestGuard:
         assert payload["used"] == 1
         assert payload["cap"] == 1
 
-    def test_trial_calls_and_minutes_are_uncapped(self):
-        """The trial's restriction is buying a number, not talking."""
-        for limit in (catalog.LIMIT_CALLS, catalog.LIMIT_MINUTES):
-            ent = make_entitlements(usage={limit: 10_000})
-            assert_within_limit(ent, limit)  # does not raise
+    def test_trial_stops_at_its_minute_allowance(self):
+        """No card on file, so the 30 trial minutes are a hard stop."""
+        cap = catalog.TRIAL_ENTITLEMENTS["limits"][catalog.LIMIT_MINUTES]
+        assert_within_limit(make_entitlements(usage={catalog.LIMIT_MINUTES: cap - 1}), catalog.LIMIT_MINUTES)
+        with pytest.raises(EntitlementError) as exc:
+            assert_within_limit(
+                make_entitlements(usage={catalog.LIMIT_MINUTES: cap}), catalog.LIMIT_MINUTES
+            )
+        assert exc.value.payload["reason"] == REASON_LIMIT
 
     def test_trial_may_not_buy_a_phone_number(self):
         """The one thing a card-free trial cannot do."""
@@ -444,20 +501,21 @@ class TestGuard:
             )
             assert_feature(ent, catalog.PHONE_NUMBER_PURCHASE)  # does not raise
 
-    def test_paid_plan_calls_and_minutes_are_uncapped(self):
-        doc = catalog.PLAN_ENTITLEMENTS["voice-ai"]
+    def test_paid_plan_keeps_calling_past_its_minutes(self):
+        """Past the allowance a paid plan bills overage instead of stopping."""
+        doc = catalog.PLAN_ENTITLEMENTS["growth"]
         ent = make_entitlements(
             status=STATUS_ACTIVE,
             source=SOURCE_STRIPE,
             document=doc,
-            usage={catalog.LIMIT_CALLS: 10_000, catalog.LIMIT_MINUTES: 100_000},
+            usage={catalog.LIMIT_MINUTES: 100_000},
         )
-        assert_within_limit(ent, catalog.LIMIT_CALLS)  # does not raise
+        assert not ent.within(catalog.LIMIT_MINUTES)
         assert_within_limit(ent, catalog.LIMIT_MINUTES)  # does not raise
 
     def test_resource_caps_never_overflow_even_on_a_paid_plan(self):
         """"One more agent, billed as overage" is not a thing."""
-        doc = catalog.PLAN_ENTITLEMENTS["voice-ai"]
+        doc = catalog.PLAN_ENTITLEMENTS["scale"]
         ent = make_entitlements(
             status=STATUS_ACTIVE,
             source=SOURCE_STRIPE,
@@ -466,6 +524,51 @@ class TestGuard:
         )
         with pytest.raises(EntitlementError):
             assert_within_limit(ent, catalog.LIMIT_AGENTS)
+
+    def test_concurrent_calls_never_overflow(self):
+        """A line is a line: overage does not buy a fourth simultaneous call."""
+        doc = catalog.PLAN_ENTITLEMENTS["starter"]
+        cap = doc["limits"][catalog.LIMIT_CONCURRENT_CALLS]
+        ent = make_entitlements(
+            status=STATUS_ACTIVE,
+            source=SOURCE_STRIPE,
+            document=doc,
+            usage={catalog.LIMIT_CONCURRENT_CALLS: cap},
+        )
+        with pytest.raises(EntitlementError) as exc:
+            assert_within_limit(ent, catalog.LIMIT_CONCURRENT_CALLS)
+        assert exc.value.payload["required_plans"] == ["growth", "scale", "agency"]
+
+
+@pytest.mark.unit
+class TestOutboundDialGates:
+    """Both routes that dial out need outbound calls, minutes and a free line."""
+
+    DIAL_ROUTES = {"/api/v1/calls", "/api/v1/telephony/twilio/voice-outbound"}
+
+    def test_every_dial_route_is_gated(self):
+        from app.main import app
+
+        seen = set()
+        for route in app.routes:
+            path = getattr(route, "path", None)
+            if path not in self.DIAL_ROUTES or "POST" not in (getattr(route, "methods", None) or set()):
+                continue
+            seen.add(path)
+            closures = [
+                cell.cell_contents
+                for dependency in route.dependant.dependencies
+                if dependency.call is not None and getattr(dependency.call, "__closure__", None)
+                for cell in dependency.call.__closure__
+            ]
+            for required in (
+                catalog.OUTBOUND_CALLS,
+                catalog.LIMIT_MINUTES,
+                catalog.LIMIT_CONCURRENT_CALLS,
+            ):
+                assert required in closures, f"{path} dials without the {required} gate"
+        assert seen == self.DIAL_ROUTES, f"routes missing: {self.DIAL_ROUTES - seen}"
+
 
 @pytest.mark.unit
 class TestPhoneNumberPurchaseGate:
@@ -517,9 +620,9 @@ class TestPhoneNumberPurchaseGate:
 
         assert seen == self.PURCHASE_ROUTES, f"routes missing: {self.PURCHASE_ROUTES - seen}"
 
-    def test_no_plan_caps_minutes_or_calls(self):
-        """The restriction is buying a number — never talking on one."""
+    def test_no_plan_caps_calls(self):
+        """Plans meter minutes; the per-call allowance is retired."""
         documents = [catalog.TRIAL_ENTITLEMENTS, *catalog.PLAN_ENTITLEMENTS.values()]
         for doc in documents:
-            for key in (catalog.LIMIT_MINUTES, catalog.LIMIT_CALLS):
-                assert doc["limits"][key] == catalog.UNLIMITED
+            assert catalog.LIMIT_CALLS not in doc["limits"]
+        assert catalog.LIMIT_CALLS not in catalog.USAGE_LIMITS

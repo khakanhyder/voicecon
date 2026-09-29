@@ -20,7 +20,7 @@ import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutM
 import { entitlementService, FEATURE_LABELS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
-import { planCardBullets, yearlySavingPercent } from '@/lib/pricing';
+import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/lib/pricing';
 
 import { useConfirm } from '@/hooks/use-confirm';
 
@@ -74,6 +74,9 @@ interface Usage {
   calls_included: number;
   calls_overage: number;
   estimated_overage_cost: number;
+  /** False on a trial: usage stops at the allowance instead of overflowing. */
+  overage_allowed?: boolean;
+  overage_rate_per_minute?: number;
 }
 
 interface Invoice {
@@ -89,6 +92,56 @@ interface Invoice {
   paid_at: string | null;
   invoice_pdf: string | null;
   hosted_invoice_url: string | null;
+}
+
+/** One usage counter; a bar only when there is an allowance to fill. */
+function UsageTile({
+  icon,
+  label,
+  used,
+  included,
+  unit,
+  note,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  used: number;
+  included: number;
+  unit: string;
+  note?: string;
+}) {
+  const capped = included > 0;
+  const ratio = capped ? used / included : 0;
+  const bar = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-[#106959]';
+  return (
+    <div className="rounded-xl border border-slate-200 bg-[#0F6A590A] p-4">
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="font-medium font-poppins text-[#000000]">{label}</span>
+      </div>
+      <p className="mt-2 text-[26px] font-bold font-poppins leading-none text-[#000000]">
+        {used.toLocaleString('en-US')}
+        {capped && (
+          <span className="ml-1 text-[14px] font-medium text-black/50">
+            / {included.toLocaleString('en-US')}
+          </span>
+        )}
+      </p>
+      {capped && (
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+          <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+        </div>
+      )}
+      <p className="mt-1.5 text-[12px] font-poppins text-black/50">
+        {note ??
+          (capped
+            ? `${unit} used this period`
+            : included === 0
+              ? `not included in your plan`
+              : `${unit} used this period · unlimited on your plan`)}
+      </p>
+    </div>
+  );
 }
 
 function Skeleton({ className }: { className?: string }) {
@@ -458,7 +511,13 @@ export default function BillingPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="mb-6">
             <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Usage This Period</h2>
-            <p className="text-[14px] font-poppins text-black/60 mt-1">Calls and minutes are unlimited — this is what you have used</p>
+            <p className="text-[14px] font-poppins text-black/60 mt-1">
+              {usage && usage.minutes_included >= 0
+                ? usage.overage_allowed
+                  ? `Minutes past your allowance are billed at ${perMinute(usage.overage_rate_per_minute ?? 0)} each`
+                  : 'Calls stop when the allowance is used up — choose a plan for more'
+                : 'What your workspace has used since the period started'}
+            </p>
           </div>
 
           {loading ? (
@@ -474,51 +533,39 @@ export default function BillingPage() {
               ))}
             </div>
           ) : usage ? (
-            /* Counts only — no bars. Minutes and calls are unlimited on every
-               plan, so a progress bar would have no denominator to fill and an
-               "x / unlimited" ratio is not a thing anyone can read. */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="rounded-xl border border-slate-200 bg-[#0F6A590A] p-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-[#106959]" />
-                  <span className="font-medium font-poppins text-[#000000]">Call Minutes</span>
-                </div>
-                <p className="mt-2 text-[26px] font-bold font-poppins leading-none text-[#000000]">
-                  {usage.minutes_used}
-                </p>
-                <p className="mt-1.5 text-[12px] font-poppins text-black/50">
-                  used this period &middot; unlimited on your plan
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-[#0F6A590A] p-4">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-5 h-5 text-[#106959]" />
-                  <span className="font-medium font-poppins text-[#000000]">Total Calls</span>
-                </div>
-                <p className="mt-2 text-[26px] font-bold font-poppins leading-none text-[#000000]">
-                  {usage.calls_used}
-                </p>
-                <p className="mt-1.5 text-[12px] font-poppins text-black/50">
-                  used this period &middot; unlimited on your plan
-                </p>
-              </div>
+              <UsageTile
+                icon={<Clock className="w-5 h-5 text-[#106959]" />}
+                label="Call Minutes"
+                used={usage.minutes_used}
+                included={usage.minutes_included}
+                unit="minutes"
+              />
+              <UsageTile
+                icon={<Phone className="w-5 h-5 text-[#106959]" />}
+                label="Total Calls"
+                used={usage.calls_used}
+                included={-1}
+                unit="calls"
+                note="Calls aren't limited — plans are metered in minutes"
+              />
             </div>
           ) : (
             <p className="text-gray-500 text-sm">No usage data available.</p>
           )}
 
-          {usage && usage.estimated_overage_cost > 0 && (
+          {usage && usage.minutes_overage > 0 && (
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <h4 className="text-sm font-semibold text-yellow-900 mb-1">
-                    Estimated Overage Charges
+                    {usage.overage_allowed ? 'Estimated Overage Charges' : 'Minute allowance used up'}
                   </h4>
                   <p className="text-sm text-yellow-800">
-                    Your usage has exceeded the included limits. Estimated additional charges: $
-                    {usage.estimated_overage_cost.toFixed(2)}
+                    {usage.overage_allowed
+                      ? `You've used ${usage.minutes_overage} minutes past your allowance this period. Estimated additional charges: $${usage.estimated_overage_cost.toFixed(2)}.`
+                      : 'New calls are declined until you choose a plan.'}
                   </p>
                 </div>
               </div>
@@ -561,9 +608,9 @@ export default function BillingPage() {
           </div>
 
           {loading ? (
-            <div className="flex flex-col md:flex-row flex-wrap justify-center gap-6">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="w-full md:w-[350px] border border-slate-200 rounded-[10px] p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="w-full border border-slate-200 rounded-[10px] p-6 space-y-4">
                   <Skeleton className="h-6 w-28" />
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-12 w-24" />
@@ -576,19 +623,26 @@ export default function BillingPage() {
                 </div>
               ))}
             </div>
-          ) : plans.length > 0 ? (
-            <div className="flex flex-col md:flex-row flex-wrap justify-center gap-6">
-              {plans
-                .filter((p) => p.is_active && p.is_public)
+          ) : visiblePlans.length > 0 ? (
+            <>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+              {visiblePlans
                 .map((plan) => (
                   <div
                     key={plan.id}
-                    className={`w-full md:w-[350px] flex flex-col rounded-[10px] border p-6 transition-all bg-white relative top-0 hover:-top-1 ${
+                    className={`w-full flex flex-col rounded-[10px] border p-6 transition-all bg-white relative top-0 hover:-top-1 ${
                       plan.id === subscription?.plan_id
                         ? 'border-[#106959] bg-[#0F6A590A] shadow-sm'
-                        : 'border-slate-200 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]'
+                        : plan.features?.popular === true
+                          ? 'border-[#106959]/60 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.18)] hover:border-[#106959]'
+                          : 'border-slate-200 hover:border-[#106959] hover:shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]'
                     }`}
                   >
+                    {plan.features?.popular === true && (
+                      <span className="absolute -top-3 left-6 rounded-full bg-[#106959] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-white">
+                        Most popular
+                      </span>
+                    )}
                     <div className="mb-4">
                       <h3 className="text-[20px] font-bold font-poppins text-[#000000]">{plan.name}</h3>
                       <p className="text-[13px] font-poppins text-black/60 mt-2">{plan.description}</p>
@@ -695,6 +749,25 @@ export default function BillingPage() {
                   </div>
                 ))}
             </div>
+
+            {/* Enterprise is sold by contract, so it has no checkout. */}
+            <div className="mt-5 flex flex-col gap-4 rounded-[10px] border border-slate-200 bg-[#0F6A590A] p-6 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-[18px] font-bold font-poppins text-[#000000]">
+                  {ENTERPRISE.name} <span className="ml-1 text-[14px] font-semibold text-black/50">{ENTERPRISE.price} pricing</span>
+                </h3>
+                <p className="text-[13px] font-poppins text-black/60 mt-1">
+                  {ENTERPRISE.description} {ENTERPRISE.bullets.join(' · ')}.
+                </p>
+              </div>
+              <a
+                href={ENTERPRISE.href}
+                className="inline-flex h-[45px] shrink-0 items-center justify-center rounded-[8px] border border-[#106959] px-6 font-poppins text-sm font-semibold text-[#106959] transition-colors hover:bg-[#106959] hover:text-white"
+              >
+                {ENTERPRISE.cta}
+              </a>
+            </div>
+            </>
           ) : (
             <p className="text-gray-500 text-sm text-center">No plans available.</p>
           )}

@@ -576,17 +576,26 @@ class StripeService:
         )
         plan = result.scalar_one_or_none()
 
-        # Minutes and calls are uncapped on every plan, so there is no allowance
-        # to be "included" in and nothing to spill over into overage. The keys
-        # stay in the response because clients read them; `included` reports the
-        # unlimited sentinel and overage is always zero.
+        # Minutes are the metered allowance (pricing sheet, 29 Sep 2026).
+        # Calls are reported for information only: there is no call allowance,
+        # so `calls_included` is the unlimited sentinel and never overflows.
+        from app.services.billing.entitlements import resolve_entitlements
+
+        ent = await resolve_entitlements(db, subscription.organization_id)
+        minutes_used = subscription.current_period_minutes or 0
+        minutes_included = ent.limit(catalog.LIMIT_MINUTES)
+        minutes_overage = (
+            max(0, minutes_used - minutes_included) if minutes_included >= 0 else 0
+        )
         return {
-            "minutes_used": subscription.current_period_minutes,
-            "minutes_included": catalog.UNLIMITED,
-            "minutes_overage": 0,
-            "calls_used": subscription.current_period_calls,
+            "minutes_used": minutes_used,
+            "minutes_included": minutes_included,
+            "minutes_overage": minutes_overage,
+            "calls_used": subscription.current_period_calls or 0,
             "calls_included": catalog.UNLIMITED,
             "calls_overage": 0,
+            "overage_allowed": ent.overage_allowed,
+            "overage_rate_per_minute": float(plan.overage_rate_per_minute) if plan else 0.0,
         }
 
     async def check_usage_limits(
@@ -622,13 +631,17 @@ class StripeService:
                 "within_limits": False,
             }
 
-        # There are no conversation limits on any plan, so neither flag can be
-        # reached. They remain in the response as a stable contract for clients
-        # that already branch on them.
+        # A minute allowance is only a hard stop without overage (the trial);
+        # a paid plan keeps going and bills the excess. There is no call
+        # allowance, so `calls_limit_reached` stays false.
+        from app.services.billing.entitlements import resolve_entitlements
+
+        ent = await resolve_entitlements(db, organization_id)
+        minutes_reached = not ent.within(catalog.LIMIT_MINUTES)
         return {
             "has_active_subscription": True,
-            "within_limits": True,
-            "minutes_limit_reached": False,
+            "within_limits": not minutes_reached or ent.overage_allowed,
+            "minutes_limit_reached": minutes_reached,
             "calls_limit_reached": False,
         }
 
