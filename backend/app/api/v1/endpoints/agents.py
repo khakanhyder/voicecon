@@ -719,8 +719,14 @@ async def agent_respond(
             pending_tts: list[asyncio.Task] = []
 
             # Use the fastest model for voice; upgrade slow legacy defaults silently.
-            llm_model = agent.llm_model
-            if not llm_model or llm_model in ("gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o-mini", "gpt-4.1-nano"):
+            llm_model = agent.llm_model or None
+            # Only OpenAI's slow legacy names are swapped for the fast voice
+            # model. A blank model on any other provider is left to
+            # llm_service's per-provider default — "gpt-5.4-nano" sent to
+            # Anthropic failed outright.
+            if (agent.llm_provider or "openai") == "openai" and (
+                not llm_model or llm_model in ("gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o-mini", "gpt-4.1-nano")
+            ):
                 llm_model = "gpt-5.4-nano"
 
             def _start_tts(text: str) -> "asyncio.Task | None":
@@ -797,7 +803,8 @@ async def agent_respond(
                         return fe.format_for_llm(agent_function, res)
                     if matched_tool:
                         res = await fe.execute_global_tool(
-                            tool=matched_tool, parameters=args, call_id=None, db=db
+                            tool=matched_tool, parameters=args, call_id=None, db=db,
+                            llm={"provider": agent.llm_provider, "model": agent.llm_model},
                         )
                         inner = res.get("result", {}) if res.get("success") else {}
                         if isinstance(inner, dict) and inner.get("requires_telephony"):

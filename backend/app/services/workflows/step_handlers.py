@@ -180,6 +180,7 @@ class WorkflowContext:
         trigger_data: Optional[Dict[str, Any]] = None,
         channel: Optional[Any] = None,
         organization_id: Optional[uuid.UUID] = None,
+        llm: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize workflow context.
@@ -202,6 +203,11 @@ class WorkflowContext:
                 is what this field is for.
         """
         self.organization_id = organization_id
+
+        # {"provider", "model"} of the agent that ran this workflow as a tool,
+        # so an AI step answers with the same model as the agent itself.
+        # Empty for a standalone run (webhook, schedule, "Run" button).
+        self.llm: Dict[str, Any] = dict(llm or {})
 
         self.variables = {
             "trigger": trigger_data or {},
@@ -1386,7 +1392,8 @@ class ToolStepHandler(BaseStepHandler):
 
             executor = get_function_executor()
             res = await executor.execute_global_tool(
-                tool=tool, parameters=parameters, call_id=None, db=self.db
+                tool=tool, parameters=parameters, call_id=None, db=self.db,
+                llm=context.llm,
             )
 
             if not res.get("success"):
@@ -1542,13 +1549,25 @@ class AIStepHandler(BaseStepHandler):
 
             from app.services.voice.llm_service import get_llm_service, ChatMessage
 
+            # Run by an agent: use that agent's provider and model, so an
+            # agent on Claude doesn't depend on OpenAI (or its credits) for
+            # the AI steps in its own workflows. Standalone runs keep the
+            # platform default.
+            if context.llm.get("provider"):
+                provider = context.llm["provider"]
+                model = context.llm.get("model") or None
+            else:
+                provider = "openai"
+                model = config.get("model") or "gpt-4o-mini"
+
             llm = get_llm_service()
             completion = await llm.chat(
                 messages=[
                     ChatMessage(role="system", content=system),
                     ChatMessage(role="user", content=user),
                 ],
-                model=config.get("model") or "gpt-4o-mini",
+                provider=provider,
+                model=model,
                 temperature=float(config.get("temperature", 0.7)),
                 max_tokens=int(config.get("max_tokens", 150)),
             )

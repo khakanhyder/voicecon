@@ -105,6 +105,7 @@ class WorkflowEngine:
         wait_for_completion: bool = False,
         channel: Optional[Any] = None,
         on_event: Optional[Any] = None,
+        llm: Optional[Dict[str, Any]] = None,
     ) -> WorkflowExecution:
         """
         Execute a workflow.
@@ -115,6 +116,9 @@ class WorkflowEngine:
             wait_for_completion: Wait for workflow to complete
             channel: Execution channel for conversation steps. Defaults to a
                 simulated (dry-run) channel — see services/workflows/channels.py.
+            llm: {"provider", "model"} of the agent running this workflow as a
+                tool, used by AI steps. Only honoured for a waited-on run,
+                which is how agent tools always run.
 
         Returns:
             Workflow execution record
@@ -156,7 +160,7 @@ class WorkflowEngine:
             if wait_for_completion:
                 await self._execute_workflow_steps(
                     workflow, execution, trigger_data or {}, channel,
-                    sync=True, on_event=on_event,
+                    sync=True, on_event=on_event, llm=llm,
                 )
             else:
                 # Fire-and-forget. This MUST NOT reuse self.db: that session is
@@ -543,6 +547,7 @@ class WorkflowEngine:
         channel: Optional[Any] = None,
         sync: bool = False,
         on_event: Optional[Any] = None,
+        llm: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Execute workflow steps.
@@ -572,6 +577,7 @@ class WorkflowEngine:
                 trigger_data,
                 channel=channel,
                 organization_id=workflow.organization_id,
+                llm=llm,
             )
 
             # Load the flow as a graph. v1 workflows (a flat ordered list) are

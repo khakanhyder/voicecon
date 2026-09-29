@@ -62,9 +62,12 @@ export const LLM_MODELS: Record<string, { label: string; value: string; latency:
   ],
   anthropic: [
     { value: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',    latency: '~400ms · Best for voice' },
+    { value: 'claude-sonnet-5',            label: 'Claude Sonnet 5',     latency: 'Latest · Balanced' },
+    { value: 'claude-opus-5-5',            label: 'Claude Opus 5.5',     latency: 'Latest · Most powerful' },
     { value: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',   latency: '~800ms · Balanced' },
-    { value: 'claude-opus-4-6',            label: 'Claude Opus 4.6',     latency: '~2s    · Most powerful' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet',   latency: '~900ms · Proven' },
+    { value: 'claude-opus-4-6',            label: 'Claude Opus 4.6',     latency: '~2s    · Powerful' },
+    // Claude 3.5 Sonnet (claude-3-5-sonnet-20241022) was retired by Anthropic
+    // in October 2025; every request to it fails.
     { value: 'claude-3-5-haiku-20241022',  label: 'Claude 3.5 Haiku',    latency: '~350ms · Fast' },
     { value: 'claude-3-haiku-20240307',    label: 'Claude 3 Haiku',      latency: '~350ms · Economic' },
   ],

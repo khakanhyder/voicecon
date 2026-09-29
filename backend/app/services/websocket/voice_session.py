@@ -849,7 +849,9 @@ class VoiceSession:
         """
         try:
             provider = self.agent.llm_provider or "openai"
-            model = self.agent.llm_model or "gpt-4-turbo-preview"
+            # None lets llm_service pick the provider's own default — an
+            # OpenAI name here failed outright for an agent on Claude.
+            model = self.agent.llm_model or None
             # float(), not the raw column value: llm_temperature is Numeric, so
             # SQLAlchemy hands back a Decimal, which the provider SDKs cannot
             # JSON-encode into the request body — every turn failed with
@@ -876,8 +878,11 @@ class VoiceSession:
                 functions = all_defs
 
             # Generate response (with function calling if available)
-            if functions and provider == "openai":
-                # Use function calling for OpenAI
+            if functions:
+                # Tool calling works on every provider (OpenAI and Anthropic
+                # both stream a function_call dict). This used to be
+                # OpenAI-only, so an agent on Claude could not use any of
+                # its tools during a real phone call.
                 response_text = await self._generate_with_functions(
                     messages, provider, model, temperature, functions, max_tokens
                 )
@@ -990,6 +995,8 @@ class VoiceSession:
                     # Live channel, so speak/ask steps inside the workflow
                     # reach the caller instead of being simulated.
                     channel=VoiceChannel(self),
+                    # AI steps in the workflow answer with this agent's model.
+                    llm={"provider": provider, "model": model},
                 )
                 inner = result.get("result", {}) if result.get("success") else {}
                 if isinstance(inner, dict) and inner.get("requires_telephony"):

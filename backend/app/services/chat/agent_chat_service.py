@@ -79,7 +79,8 @@ class AgentChatService:
             self.functions.get_function_definition(f) for f in agent_functions
         ] + await self.functions.build_tool_definitions(agent_tools, db=self.db)
 
-        model = agent.llm_model or "gpt-4o-mini"
+        # None: llm_service falls back to the provider's own default model.
+        model = agent.llm_model or None
         used_tool: Optional[str] = None
 
         for _ in range(MAX_TOOL_CALLS):
@@ -112,7 +113,10 @@ class AgentChatService:
                     function_call={"name": fcall.name, "arguments": fcall.arguments},
                 )
             )
-            result = await self._run_tool(agent_functions, agent_tools, fcall.name, args)
+            result = await self._run_tool(
+                agent_functions, agent_tools, fcall.name, args,
+                llm={"provider": agent.llm_provider, "model": agent.llm_model},
+            )
             messages.append(
                 ChatMessage(role="function", name=fcall.name, content=result)
             )
@@ -162,6 +166,7 @@ class AgentChatService:
         agent_tools: List[Any],
         name: str,
         args: Dict[str, Any],
+        llm: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Execute the tool the model asked for and return a string for the LLM.
@@ -185,7 +190,7 @@ class AgentChatService:
             return f"The capability '{name}' is not configured."
 
         result = await self.functions.execute_global_tool(
-            tool=tool, parameters=args, call_id=None, db=self.db
+            tool=tool, parameters=args, call_id=None, db=self.db, llm=llm
         )
         inner = result.get("result", {}) if result.get("success") else {}
 

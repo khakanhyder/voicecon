@@ -95,7 +95,7 @@ class AnthropicLLM(BaseLLMProvider):
             Tuple of (system_prompt, formatted_messages)
         """
         system_prompt = ""
-        formatted: List[Dict[str, Any]] = []
+        turns: List[Dict[str, Any]] = []
         # A stable id generated for each tool_use block and reused by the
         # tool_result message that follows — our internal FunctionCall/
         # ChatMessage shapes carry no id of their own. Mirrors the
@@ -104,8 +104,10 @@ class AnthropicLLM(BaseLLMProvider):
         tool_seq = 0
 
         for msg in messages:
+            text = msg.content or ""
             if msg.role == "system":
-                system_prompt += msg.content + "\n"
+                if text:
+                    system_prompt += text + "\n"
             elif msg.role == "assistant" and msg.function_call:
                 fc = msg.function_call
                 tool_seq += 1
@@ -114,43 +116,114 @@ class AnthropicLLM(BaseLLMProvider):
                     tool_input = json.loads(fc.get("arguments") or "{}")
                 except (TypeError, ValueError):
                     tool_input = {}
-                content_blocks: List[Dict[str, Any]] = []
-                if msg.content:
-                    content_blocks.append({"type": "text", "text": msg.content})
-                content_blocks.append({
+                # Claude requires the input to be an object.
+                if not isinstance(tool_input, dict):
+                    tool_input = {}
+                blocks: List[Dict[str, Any]] = []
+                if text:
+                    blocks.append({"type": "text", "text": text})
+                blocks.append({
                     "type": "tool_use",
                     "id": last_tool_use_id,
-                    "name": fc.get("name", ""),
+                    "name": fc.get("name") or "tool",
                     "input": tool_input,
                 })
-                formatted.append({"role": "assistant", "content": content_blocks})
+                turns.append({"role": "assistant", "content": blocks})
             elif msg.role == "function":
-                formatted.append({
+                turns.append({
                     "role": "user",
                     "content": [{
                         "type": "tool_result",
                         "tool_use_id": last_tool_use_id or f"toolu_{tool_seq or 1}",
-                        "content": msg.content or "",
+                        "content": text or "(no output)",
                     }],
                 })
-            elif msg.role in ("user", "assistant"):
-                formatted.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                })
+            elif msg.role in ("user", "assistant") and text.strip():
+                # Empty text is skipped: OpenAI accepts it, Claude rejects the
+                # whole request ("text content blocks must be non-empty").
+                turns.append({"role": msg.role, "content": [{"type": "text", "text": text}]})
 
-        return system_prompt.strip(), formatted
+        # Claude requires the conversation to open with the user. A call or a
+        # test starts with the agent's own greeting, which OpenAI takes as-is
+        # but Claude rejects — keep it as context in the system prompt.
+        while turns and turns[0]["role"] == "assistant":
+            opening = " ".join(
+                b["text"] for b in turns.pop(0)["content"] if b.get("type") == "text"
+            ).strip()
+            if opening:
+                system_prompt += f"\nYou opened this conversation by saying: \"{opening}\"\n"
+
+        # Consecutive turns from the same side (a tool result followed by the
+        # caller's next words, two agent lines in a row) are merged into one.
+        formatted: List[Dict[str, Any]] = []
+        for turn in turns:
+            if formatted and formatted[-1]["role"] == turn["role"]:
+                formatted[-1]["content"].extend(turn["content"])
+            else:
+                formatted.append({"role": turn["role"], "content": list(turn["content"])})
+
+        return system_prompt.strip(), self._pair_tool_blocks(formatted)
+
+    @staticmethod
+    def _pair_tool_blocks(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Claude rejects a tool_result whose tool_use is not in the turn right
+        before it, and a tool_use with no tool_result right after. History is
+        trimmed to a window (a call keeps its last 20 messages), which can cut
+        such a pair in half. An unpaired block becomes plain text instead, so
+        the model still sees what happened and the request stays valid.
+        """
+        def as_text(block: Dict[str, Any]) -> Dict[str, Any]:
+            if block.get("type") == "tool_use":
+                return {"type": "text", "text": f"(Called {block.get('name')} with {json.dumps(block.get('input', {}))}.)"}
+            content = block.get("content")
+            return {"type": "text", "text": f"(Tool result: {content})"}
+
+        for i, turn in enumerate(turns):
+            if turn["role"] == "user":
+                prev = turns[i - 1] if i > 0 else None
+                called = {
+                    b["id"] for b in (prev or {}).get("content", [])
+                    if prev and prev["role"] == "assistant" and b.get("type") == "tool_use"
+                }
+                blocks = [
+                    b if b.get("type") != "tool_result" or b.get("tool_use_id") in called else as_text(b)
+                    for b in turn["content"]
+                ]
+                # tool_result blocks must lead the turn.
+                blocks.sort(key=lambda b: 0 if b.get("type") == "tool_result" else 1)
+                turn["content"] = blocks
+            else:
+                nxt = turns[i + 1] if i + 1 < len(turns) else None
+                answered = {
+                    b.get("tool_use_id") for b in (nxt or {}).get("content", [])
+                    if b.get("type") == "tool_result"
+                }
+                turn["content"] = [
+                    b if b.get("type") != "tool_use" or b.get("id") in answered else as_text(b)
+                    for b in turn["content"]
+                ]
+        return turns
 
     def _convert_tools(self, functions: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
         """OpenAI-style {name, description, parameters} defs -> Claude's
         {name, description, input_schema} tool defs."""
         if not functions:
             return None
+
+        def schema(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+            # Claude requires `type: object`. function_executor.object_schema
+            # already guarantees it; kept here so the provider is safe on its own.
+            s = dict(params or {})
+            s["type"] = "object"
+            s.setdefault("properties", {})
+            return s
+
         return [
             {
                 "name": f["name"],
                 "description": f.get("description", ""),
-                "input_schema": f.get("parameters") or {"type": "object", "properties": {}},
+                "input_schema": schema(f.get("parameters")),
             }
             for f in functions
         ]
@@ -279,14 +352,15 @@ class AnthropicLLM(BaseLLMProvider):
 
         Args:
             messages: List of ChatMessage objects
-            functions: Not implemented on this streaming path — a tool-calling
-                turn is routed through chat_completion() instead (see
-                agents.py's function-calling loop), which resolves the call
-                before any audio/text is streamed back.
+            functions: Optional function definitions, sent as Claude tools.
             **kwargs: Additional parameters
 
         Yields:
-            Text chunks as they're generated
+            Text chunks as they're generated, then — if the model called a
+            tool — one ``{"function_call": {"name", "arguments"}}`` dict,
+            the same contract as the OpenAI provider. Phone calls
+            (voice_session.py) run their tool loop on this; without it an
+            agent on Claude could not use any tool during a real call.
 
         Raises:
             AuthenticationError: Invalid API key
@@ -319,6 +393,10 @@ class AnthropicLLM(BaseLLMProvider):
             if self.top_k is not None:
                 request_params["top_k"] = self.top_k
 
+            tools = self._convert_tools(functions)
+            if tools:
+                request_params["tools"] = tools
+
             # Stream response
             async with self.client.messages.stream(**request_params) as stream:
                 async for event in stream:
@@ -328,8 +406,21 @@ class AnthropicLLM(BaseLLMProvider):
                         if event.delta.type == "text_delta":
                             yield event.delta.text
 
-                # Get final message for usage stats
+                # Get final message for usage stats (and any tool call — the
+                # SDK assembles the streamed tool input JSON for us).
                 final_message = await stream.get_final_message()
+
+                tool_use = next(
+                    (b for b in final_message.content or [] if b.type == "tool_use"), None
+                )
+                if tool_use is not None:
+                    logger.info(f"Anthropic streaming produced tool call: {tool_use.name}")
+                    yield {
+                        "function_call": {
+                            "name": tool_use.name,
+                            "arguments": json.dumps(tool_use.input or {}),
+                        }
+                    }
 
                 # Track usage
                 cost = self._calculate_cost(

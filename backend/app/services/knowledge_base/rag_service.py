@@ -418,7 +418,17 @@ class RAGService:
 
             # Generate embeddings for all chunks
             chunk_texts = [chunk[0] for chunk in chunks_data]
-            embeddings = await self.embedding_service.generate_embeddings(chunk_texts)
+            # Embeddings come from OpenAI whatever provider the agent uses.
+            # Without them (no key, no credits) the document used to be
+            # marked failed with nothing saved; now its chunks are kept for
+            # keyword search, and search_knowledge_base_db covers them.
+            keyword_only_reason = None
+            try:
+                embeddings = await self.embedding_service.generate_embeddings(chunk_texts)
+            except Exception as e:
+                logger.warning(f"Embeddings unavailable for document {doc.id}; indexing for keyword search: {e}")
+                embeddings = [None] * len(chunk_texts)
+                keyword_only_reason = str(e)
 
             # Prepare vector store data
             index_name = f"kb_{str(kb.id).replace('-', '_')}"
@@ -441,9 +451,9 @@ class RAGService:
                     start_char=start_char,
                     end_char=end_char,
                     vector_id=chunk_id,
-                    embedding_model=self.embedding_service.model,
-                    embedding_dimension=len(embedding),
-                    embedding=list(embedding),
+                    embedding_model=self.embedding_service.model if embedding else "none",
+                    embedding_dimension=len(embedding) if embedding else 0,
+                    embedding=list(embedding) if embedding else None,
                     chunk_metadata={
                         'document_id': str(document_id),
                         'document_title': doc.title,
@@ -454,6 +464,9 @@ class RAGService:
                 )
 
                 self.db.add(chunk)
+
+                if not embedding:
+                    continue
 
                 # Prepare for vector store
                 vectors.append((
@@ -468,10 +481,11 @@ class RAGService:
                 ))
 
             # Upsert to vector store
-            await self.vector_store.upsert_vectors(
-                index_name=index_name,
-                vectors=vectors
-            )
+            if vectors:
+                await self.vector_store.upsert_vectors(
+                    index_name=index_name,
+                    vectors=vectors
+                )
 
             # Update document (sum from the chunks we just built — doc.chunks is a
             # lazy relationship that can't be loaded here in async context).
@@ -479,6 +493,10 @@ class RAGService:
             doc.total_tokens = total_tokens
             doc.processing_status = "completed"
             doc.processed_at = datetime.utcnow()
+            doc.processing_error = (
+                f"Indexed for keyword search only (semantic search unavailable: {keyword_only_reason[:300]})"
+                if keyword_only_reason else None
+            )
 
             await self.db.commit()
 
@@ -723,6 +741,51 @@ class RAGService:
 # Self-contained search over chunk embeddings stored in the DB. Independent of
 # any external/in-memory vector store, so it works across requests and restarts.
 
+# Keyword fallback. Embeddings come from OpenAI whichever provider the agent
+# uses (Anthropic has no embeddings API), so without a working OpenAI key or
+# credits every lookup used to fail and the agent answered without its
+# documents. Keyword ranking needs no provider at all.
+
+_STOPWORDS = frozenset(
+    "a an and are as at be but by can could did do does for from had has have "
+    "how i if in into is it its just me much my of on or our please so tell than "
+    "that the their them then there these they this to too us was we what when "
+    "where which who why will with would you your many any some about get got".split()
+)
+
+
+def _terms(text: str) -> List[str]:
+    """Lowercased words minus stopwords, with a light plural fold so "fees"
+    finds "fee" and "hours" finds "hour"."""
+    terms = []
+    for word in re.findall(r"[a-z0-9]+", (text or "").lower()):
+        if word in _STOPWORDS:
+            continue
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        terms.append(word)
+    return terms
+
+
+def _keyword_scores(query: str, texts: List[str]) -> List[float]:
+    """
+    Score each text 0-1 by the share of the query's (IDF-weighted) words it
+    contains — rarer words count for more, so "consultation" outweighs
+    "clinic" in a clinic's own documents. Query words found in no text at all
+    are ignored: they cannot tell one passage from another.
+    """
+    import math
+
+    docs = [set(_terms(t)) for t in texts]
+    wanted = {t for t in _terms(query) if any(t in d for d in docs)}
+    if not wanted:
+        return [0.0] * len(texts)
+    n = len(docs)
+    idf = {t: math.log(1 + n / sum(t in d for d in docs)) for t in wanted}
+    total = sum(idf.values())
+    return [sum(idf[t] for t in wanted if t in d) / total for d in docs]
+
+
 async def search_knowledge_base_db(
     db: AsyncSession,
     knowledge_base_id: str,
@@ -752,36 +815,49 @@ async def search_knowledge_base_db(
     except (ValueError, TypeError):
         return []
 
-    # Load all chunks (with embeddings) belonging to this KB.
+    # Load every chunk of this KB — including ones stored without an
+    # embedding because OpenAI was unavailable when they were indexed.
     result = await db.execute(
         select(DocumentChunk, Document.title)
         .join(Document, DocumentChunk.document_id == Document.id)
         .where(Document.knowledge_base_id == kb_uuid)
     )
-    rows = result.all()
-    rows = [(c, title) for (c, title) in rows if c.embedding]
+    rows = [(c, title) for (c, title) in result.all() if c.content]
     if not rows:
         return []
 
-    embedder = EmbeddingService(api_key=api_key)
-    query_vec = await embedder.generate_embedding(query)
-    if not query_vec:
-        return []
+    # Semantic search when OpenAI embeddings are available; keyword search for
+    # anything they cannot cover (no key, no credits, provider down, or a
+    # chunk stored without an embedding).
+    query_vec = None
+    if api_key and any(c.embedding for c, _ in rows):
+        try:
+            query_vec = await EmbeddingService(api_key=api_key).generate_embedding(query)
+        except Exception as e:
+            logger.warning(f"Semantic KB search unavailable, using keyword search: {e}")
 
-    q = np.array(query_vec, dtype=float)
-    q_norm = np.linalg.norm(q) or 1.0
+    keyword = None
+    q = np.array(query_vec, dtype=float) if query_vec else None
+    q_norm = (np.linalg.norm(q) or 1.0) if q is not None else 1.0
 
     scored = []
-    for chunk, title in rows:
-        v = np.array(chunk.embedding, dtype=float)
-        denom = (np.linalg.norm(v) or 1.0) * q_norm
-        score = float(np.dot(v, q) / denom)
-        scored.append((score, chunk, title))
+    for i, (chunk, title) in enumerate(rows):
+        if q is not None and chunk.embedding and len(chunk.embedding) == len(q):
+            v = np.array(chunk.embedding, dtype=float)
+            score = float(np.dot(v, q) / ((np.linalg.norm(v) or 1.0) * q_norm))
+            match = "semantic"
+        else:
+            if keyword is None:
+                keyword = _keyword_scores(query, [c.content for c, _ in rows])
+            score, match = keyword[i], "keyword"
+            if score <= 0:
+                continue
+        scored.append((score, chunk, title, match))
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
     results = []
-    for score, chunk, title in scored[:top_k]:
+    for score, chunk, title, match in scored[:top_k]:
         if score < min_similarity:
             continue
         results.append({
@@ -791,5 +867,6 @@ async def search_knowledge_base_db(
             "document_title": title,
             "chunk_index": chunk.chunk_index,
             "score": round(score, 4),
+            "match": match,
         })
     return results

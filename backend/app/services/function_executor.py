@@ -60,6 +60,21 @@ def _as_uuid_arg(value):
         return value
 
 
+def object_schema(parameters: Any) -> Dict[str, Any]:
+    """
+    A tool's parameter schema as both providers require it: a JSON Schema
+    object with `type: "object"` and a `properties` map. User-entered schemas
+    (per-agent functions, a tool's custom `parameters`) can be `{}` or omit
+    the type — OpenAI rejects that ("schema must be a JSON Schema of 'type:
+    \"object\"'") and so does Anthropic, which failed the whole turn.
+    """
+    schema = dict(parameters) if isinstance(parameters, dict) else {}
+    schema["type"] = "object"
+    if not isinstance(schema.get("properties"), dict):
+        schema["properties"] = {}
+    return schema
+
+
 def sanitize_function_name(name: str) -> str:
     """
     Turn a human tool name into a valid OpenAI function name.
@@ -501,7 +516,7 @@ class FunctionExecutor:
         return {
             "name": function.name,
             "description": function.description,
-            "parameters": function.parameters,
+            "parameters": object_schema(function.parameters),
         }
 
     async def get_agent_functions(
@@ -556,6 +571,7 @@ class FunctionExecutor:
         parameters: Dict[str, Any],
         db: Optional[AsyncSession],
         channel: Optional[Any] = None,
+        llm: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Run a workflow as a tool and return its outcome to the conversation.
@@ -622,6 +638,7 @@ class FunctionExecutor:
                 trigger_data=parameters or {},
                 wait_for_completion=True,
                 channel=channel,
+                llm=llm,
             )
         except Exception as e:
             # An inactive or deleted workflow raises. Report it as a tool
@@ -807,7 +824,7 @@ class FunctionExecutor:
         return {
             "name": sanitize_function_name(tool.name),
             "description": description,
-            "parameters": parameters,
+            "parameters": object_schema(parameters),
         }
 
     async def execute_global_tool(
@@ -817,6 +834,7 @@ class FunctionExecutor:
         call_id: Optional[str] = None,
         db: Optional[AsyncSession] = None,
         channel: Optional[Any] = None,
+        llm: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Execute a global Tool by its type and config.
@@ -886,7 +904,7 @@ class FunctionExecutor:
 
             elif t == "workflow":
                 result = await self._execute_workflow_tool(
-                    cfg, parameters, db, channel=channel
+                    cfg, parameters, db, channel=channel, llm=llm
                 )
 
             elif t in _CONNECTOR_BACKED_TOOL_TYPES:

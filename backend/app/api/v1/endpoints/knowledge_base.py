@@ -742,13 +742,27 @@ async def get_search_context(
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    # Get context
-    context = await rag_service.get_context_for_prompt(
-        knowledge_base_id=search_req.knowledge_base_id,
+    # The same DB-backed search every other path uses. The old RAGService
+    # path read a process-local index that is empty after every restart, and
+    # had no fallback when OpenAI embeddings were unavailable.
+    from app.services.knowledge_base.rag_service import search_knowledge_base_db
+
+    hits = await search_knowledge_base_db(
+        db=db,
+        knowledge_base_id=str(search_req.knowledge_base_id),
         query=search_req.query,
-        max_chunks=search_req.top_k,
-        max_tokens=max_tokens
+        api_key=settings.OPENAI_API_KEY,
+        top_k=search_req.top_k,
+        min_similarity=getattr(search_req, "min_similarity", None) or 0.2,
     )
+    parts, used = [], 0
+    for hit in hits:
+        words = len(hit["content"].split())
+        if parts and used + words > max_tokens:
+            break
+        parts.append(f"[Source: {hit.get('document_title') or 'document'}]\n{hit['content']}")
+        used += words
+    context = "\n\n".join(parts)
 
     return {
         "context": context,
@@ -971,40 +985,47 @@ async def ask_knowledge_base(
         f"[{h.get('document_title') or 'document'}]\n{h.get('content', '')}" for h in hits
     )
 
-    try:
-        from app.services.voice.llm_service import get_llm_service, ChatMessage
+    from app.services.voice.llm_service import get_llm_service, ChatMessage
 
-        llm = get_llm_service()
-        completion = await llm.chat(
-            messages=[
-                ChatMessage(
-                    role="system",
-                    content=(
-                        "You answer questions using ONLY the provided context from the "
-                        "company knowledge base. Give a direct, natural answer in a few "
-                        "sentences — the way you would say it out loud on a phone call. "
-                        "Do not use markdown, bullet points, or headings. If the context "
-                        "does not contain the answer, say you don't have that information."
-                    ),
-                ),
-                ChatMessage(
-                    role="user",
-                    content=f"Context:\n{context}\n\nQuestion: {req.query}",
-                ),
-            ],
-            model="gpt-4o-mini",
-            temperature=0.2,
-            max_tokens=300,
-        )
-        answer = (getattr(completion, "content", None) or "").strip()
-    except Exception as e:
-        # Retrieval still succeeded — surface the passages rather than 500ing.
-        import logging
+    llm = get_llm_service()
+    messages = [
+        ChatMessage(
+            role="system",
+            content=(
+                "You answer questions using ONLY the provided context from the "
+                "company knowledge base. Give a direct, natural answer in a few "
+                "sentences — the way you would say it out loud on a phone call. "
+                "Do not use markdown, bullet points, or headings. If the context "
+                "does not contain the answer, say you don't have that information."
+            ),
+        ),
+        ChatMessage(role="user", content=f"Context:\n{context}\n\nQuestion: {req.query}"),
+    ]
 
-        logging.getLogger(__name__).error(f"Answer synthesis failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Found relevant passages but could not generate an answer. Please try again.",
+    # Whichever provider this deployment can actually use. This was OpenAI
+    # only, so a platform running on Anthropic (or with OpenAI out of credits)
+    # could not test its knowledge base at all.
+    answer = ""
+    for provider in ("openai", "anthropic"):
+        if not llm._get_api_key(provider):
+            continue
+        try:
+            completion = await llm.chat(
+                messages=messages, provider=provider, model=None, temperature=0.2, max_tokens=300,
+            )
+            answer = (getattr(completion, "content", None) or "").strip()
+            if answer:
+                break
+        except Exception as e:
+            logger.warning(f"KB answer via {provider} failed: {e}")
+
+    if not answer:
+        # Retrieval worked, so still show what was found — that is the part
+        # this tester exists to check.
+        return AskResponse(
+            query=req.query,
+            answer="These passages match your question, but no AI provider could write an answer right now.",
+            sources=sources,
         )
 
     if not answer:
