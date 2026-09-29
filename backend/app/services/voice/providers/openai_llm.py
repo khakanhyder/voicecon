@@ -25,6 +25,19 @@ from app.services.voice.providers.base import (
 logger = logging.getLogger(__name__)
 
 
+def gateway_model_id(model: str, base_url: Optional[str]) -> str:
+    """The model id to send to ``base_url``.
+
+    OpenRouter namespaces models by vendor ("openai/gpt-4o-mini") and rejects
+    the bare ids agents and knowledge bases store, so swapping in an
+    OpenRouter key and base URL broke every call. Ids that already carry a
+    vendor prefix are left alone, so any OpenRouter model can still be used.
+    """
+    if base_url and "openrouter.ai" in base_url and "/" not in model:
+        return f"openai/{model}"
+    return model
+
+
 class OpenAILLM(BaseLLMProvider):
     """
     OpenAI LLM provider.
@@ -100,8 +113,8 @@ class OpenAILLM(BaseLLMProvider):
 
         # OpenAI client. base_url lets us target an OpenAI-compatible gateway
         # such as OpenRouter; when unset the SDK defaults to api.openai.com.
-        base_url = kwargs.get("base_url") or settings.OPENAI_BASE_URL
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+        self.base_url = kwargs.get("base_url") or settings.OPENAI_BASE_URL
+        self.client = AsyncOpenAI(api_key=api_key, base_url=self.base_url or None)
 
         # Additional parameters
         self.top_p = kwargs.get("top_p", 1.0)
@@ -115,7 +128,14 @@ class OpenAILLM(BaseLLMProvider):
     #: for one, returns a 400 for any temperature but 1 — and the agent form
     #: lets a user pick both that model and any temperature, so every turn of
     #: such an agent failed with "technical issue".
-    _SAMPLING_PARAMS = ("temperature", "top_p", "frequency_penalty", "presence_penalty")
+    _SAMPLING_PARAMS = ("temperature", "top_p", "frequency_penalty", "presence_penalty", "reasoning_effort")
+
+    _REASONING_HEADROOM = 4000
+
+    #: Models that reason at medium effort unless told otherwise. Later GPT-5.x
+    #: models (gpt-5.1 on) default to no reasoning and are left alone, which
+    #: is why the original family is matched as "gpt-5" exactly or "gpt-5-".
+    _REASONS_BY_DEFAULT = ("gpt-5-", "o1", "o3", "o4")
 
     #: model id -> sampling params that model has rejected. Learned from the
     #: API's own error rather than a hand-kept list that goes stale with every
@@ -124,7 +144,15 @@ class OpenAILLM(BaseLLMProvider):
 
     async def _create_completion(self, request_params: Dict[str, Any]):
         """``chat.completions.create``, dropping sampling params the model rejects."""
-        model_id = request_params["model"]
+        model_id = request_params["model"] = gateway_model_id(request_params["model"], self.base_url)
+        if "max_completion_tokens" in request_params:
+            # Reasoning counts against max_completion_tokens, and the agent's
+            # value is a reply length: at 150-400 tokens o3, o4-mini and
+            # gpt-5-nano spent all of it thinking and replied with nothing.
+            request_params["max_completion_tokens"] += self._REASONING_HEADROOM
+            name = model_id.split("/")[-1]
+            if name == "gpt-5" or name.startswith(self._REASONS_BY_DEFAULT):
+                request_params.setdefault("reasoning_effort", "low")
         for param in self._rejected_params.get(model_id, ()):
             request_params.pop(param, None)
 

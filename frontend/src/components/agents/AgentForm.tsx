@@ -21,24 +21,23 @@ export const LLM_PROVIDERS = [
 
 export const LLM_MODELS: Record<string, { label: string; value: string; latency: string }[]> = {
   openai: [
+    // The -pro models (and o1-pro) are Responses-API only and 404 on chat
+    // completions, which is what agents use. o1-mini and
+    // gpt-4-turbo-preview no longer exist. Don't re-add them.
     // ── GPT-5.5 series (latest flagship, Apr 2026) ──
     { value: 'gpt-5.5',             label: 'GPT-5.5',            latency: '~600ms · Latest flagship' },
-    { value: 'gpt-5.5-pro',         label: 'GPT-5.5 Pro',        latency: '~900ms · Most powerful' },
     // ── GPT-5.4 series (Mar 2026) ──
     { value: 'gpt-5.4-nano',        label: 'GPT-5.4 Nano',       latency: '~180ms · Fastest GPT-5 · Best for voice' },
     { value: 'gpt-5.4-mini',        label: 'GPT-5.4 Mini',       latency: '~320ms · Fast GPT-5' },
     { value: 'gpt-5.4',             label: 'GPT-5.4',            latency: '~700ms · High quality' },
-    { value: 'gpt-5.4-pro',         label: 'GPT-5.4 Pro',        latency: '~900ms · Premium' },
     // ── GPT-5.2 series (Dec 2025) ──
     { value: 'gpt-5.2',             label: 'GPT-5.2',            latency: '~650ms · Balanced' },
-    { value: 'gpt-5.2-pro',         label: 'GPT-5.2 Pro',        latency: '~900ms · Premium' },
     // ── GPT-5.1 series (Nov 2025) ──
     { value: 'gpt-5.1',             label: 'GPT-5.1',            latency: '~600ms · Reliable' },
     // ── GPT-5 base (Aug 2025) ──
     { value: 'gpt-5',               label: 'GPT-5',              latency: '~700ms · Original GPT-5' },
     { value: 'gpt-5-mini',          label: 'GPT-5 Mini',         latency: '~350ms · Fast GPT-5' },
     { value: 'gpt-5-nano',          label: 'GPT-5 Nano',         latency: '~200ms · Lightweight GPT-5' },
-    { value: 'gpt-5-pro',           label: 'GPT-5 Pro',          latency: '~950ms · Premium GPT-5' },
     // ── GPT-4.1 series (Apr 2025) ──
     { value: 'gpt-4.1-nano',        label: 'GPT-4.1 Nano',       latency: '~150ms · Ultra-fast' },
     { value: 'gpt-4.1-mini',        label: 'GPT-4.1 Mini',       latency: '~300ms · Fast' },
@@ -50,13 +49,10 @@ export const LLM_MODELS: Record<string, { label: string; value: string; latency:
     { value: 'o4-mini',             label: 'o4-mini',            latency: '~3s    · Fast reasoning' },
     { value: 'o3',                  label: 'o3',                 latency: '~8s    · Advanced reasoning' },
     { value: 'o3-mini',             label: 'o3-mini',            latency: '~4s    · Efficient reasoning' },
-    { value: 'o1-pro',              label: 'o1-pro',             latency: '~15s   · Deep reasoning' },
     { value: 'o1',                  label: 'o1',                 latency: '~10s   · Reasoning' },
-    { value: 'o1-mini',             label: 'o1-mini',            latency: '~4s    · Reasoning' },
     // ── Legacy ──
     { value: 'gpt-4',               label: 'GPT-4',              latency: '~1.5s  · Legacy' },
     { value: 'gpt-4-turbo',         label: 'GPT-4 Turbo',        latency: '~1.2s  · Legacy' },
-    { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo Preview',latency: '~1.2s  · Legacy' },
     { value: 'gpt-3.5-turbo',       label: 'GPT-3.5 Turbo',      latency: '~200ms · Legacy' },
     { value: 'gpt-3.5-turbo-16k',   label: 'GPT-3.5 Turbo 16k', latency: '~250ms · Legacy' },
   ],
@@ -66,10 +62,8 @@ export const LLM_MODELS: Record<string, { label: string; value: string; latency:
     { value: 'claude-opus-5-5',            label: 'Claude Opus 5.5',     latency: 'Latest · Most powerful' },
     { value: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',   latency: '~800ms · Balanced' },
     { value: 'claude-opus-4-6',            label: 'Claude Opus 4.6',     latency: '~2s    · Powerful' },
-    // Claude 3.5 Sonnet (claude-3-5-sonnet-20241022) was retired by Anthropic
-    // in October 2025; every request to it fails.
-    { value: 'claude-3-5-haiku-20241022',  label: 'Claude 3.5 Haiku',    latency: '~350ms · Fast' },
-    { value: 'claude-3-haiku-20240307',    label: 'Claude 3 Haiku',      latency: '~350ms · Economic' },
+    // Retired by Anthropic, so every request fails: Claude 3.5 Sonnet (Oct
+    // 2025), Claude 3.5 Haiku (Feb 2026), Claude 3 Haiku (Apr 2026).
   ],
 }
 

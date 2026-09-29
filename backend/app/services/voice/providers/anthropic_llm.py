@@ -45,6 +45,30 @@ class AnthropicLLM(BaseLLMProvider):
         "claude-instant-1.2": {"prompt": 0.80, "completion": 2.40},
     }
 
+    #: Models that reject temperature/top_p/top_k outright (400 for any
+    #: value) and think before answering. Every turn of an agent on Claude
+    #: Sonnet 5 or Opus 5.5 failed with "technical issue" because the agent's
+    #: temperature was always sent.
+    _NO_SAMPLING_PREFIXES = (
+        "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
+        "claude-sonnet-5", "claude-fable", "claude-mythos",
+    )
+
+    #: Thinking counts against max_tokens. The agent's value is a reply
+    #: length, so thinking gets room on top of it rather than using up a
+    #: 150-token voice reply before any text is written.
+    _THINKING_HEADROOM = 4000
+
+    def _apply_model_rules(self, request_params: Dict[str, Any]) -> None:
+        if not request_params["model"].startswith(self._NO_SAMPLING_PREFIXES):
+            return
+        for param in ("temperature", "top_p", "top_k"):
+            request_params.pop(param, None)
+        request_params["max_tokens"] += self._THINKING_HEADROOM
+        # Low effort keeps thinking short: these answer a caller in real time.
+        # extra_body because the pinned SDK predates output_config.
+        request_params["extra_body"] = {"output_config": {"effort": "low"}}
+
     def __init__(
         self,
         api_key: str,
@@ -279,6 +303,8 @@ class AnthropicLLM(BaseLLMProvider):
             if tools:
                 request_params["tools"] = tools
 
+            self._apply_model_rules(request_params)
+
             # Call Anthropic API
             response: Message = await self.client.messages.create(**request_params)
 
@@ -398,6 +424,7 @@ class AnthropicLLM(BaseLLMProvider):
                 request_params["tools"] = tools
 
             # Stream response
+            self._apply_model_rules(request_params)
             async with self.client.messages.stream(**request_params) as stream:
                 async for event in stream:
                     event: MessageStreamEvent

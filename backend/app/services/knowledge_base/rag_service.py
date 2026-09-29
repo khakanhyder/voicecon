@@ -177,7 +177,11 @@ class EmbeddingService:
                 api_key=self.api_key,
                 base_url=settings.OPENAI_BASE_URL or None,
             )
-            response = await client.embeddings.create(input=texts, model=self.model)
+            from app.services.voice.providers.openai_llm import gateway_model_id
+
+            response = await client.embeddings.create(
+                input=texts, model=gateway_model_id(self.model, settings.OPENAI_BASE_URL)
+            )
             embeddings = [item.embedding for item in response.data]
             logger.info(f"Generated {len(embeddings)} embeddings ({self.model})")
             return embeddings
