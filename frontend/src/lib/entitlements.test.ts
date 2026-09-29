@@ -130,6 +130,30 @@ describe('billingBanner', () => {
 
       expect(banner?.body).toMatch(/kept/i)
     })
+
+    it('says "choose a plan" rather than "has ended" for a workspace that never had one', () => {
+      // A brand new workspace (e.g. the one auto-created alongside a team
+      // invite) can read `status: 'expired'` with zero subscription history —
+      // nothing lapsed, there's just nothing yet. `has_subscription` is the
+      // signal that tells the two states apart.
+      const banner = billingBanner(
+        entitlements({ status: 'expired', source: null, has_subscription: false })
+      )
+
+      expect(banner?.key).toBe('no_plan')
+      expect(banner?.tone).toBe('warning')
+      expect(banner?.title).not.toMatch(/ended/i)
+      expect(banner?.title).toMatch(/choose a plan/i)
+    })
+
+    it('still says "has ended" once a subscription genuinely lapsed', () => {
+      const banner = billingBanner(
+        entitlements({ status: 'expired', source: 'stripe', has_subscription: true })
+      )
+
+      expect(banner?.key).toBe('expired')
+      expect(banner?.title).toMatch(/subscription has ended/i)
+    })
   })
 
   describe('canceled', () => {

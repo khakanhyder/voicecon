@@ -70,3 +70,7 @@ class ToolTestResponse(BaseModel):
     message: str
     response: Optional[Dict[str, Any]] = None
     response_time_ms: int = 0
+    # True when nothing actually ran (e.g. connected-integration tools, which
+    # the Test button can't safely execute for real) — the frontend renders
+    # this distinctly from a real pass instead of the same green checkmark (m3).
+    simulated: bool = False

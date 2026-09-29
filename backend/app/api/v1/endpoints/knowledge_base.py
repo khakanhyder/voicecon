@@ -342,7 +342,9 @@ async def delete_knowledge_base(
     """
     Delete a knowledge base and all its documents.
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, delete as sa_delete
+    from sqlalchemy.exc import IntegrityError
+    from app.models.knowledge_base import AgentKnowledgeBase, SearchQuery
 
     result = await db.execute(
         select(KnowledgeBaseModel).where(
@@ -358,8 +360,23 @@ async def delete_knowledge_base(
     # Delete index from vector store
     # TODO: Implement vector store cleanup
 
-    await db.delete(kb)
-    await db.commit()
+    try:
+        # Documents cascade via the ORM relationship, but a KB still attached
+        # to an agent (agent_knowledge_bases) or with logged searches
+        # (search_queries) has no cascade on either of those FKs — deleting
+        # the KB straight away hit an IntegrityError that surfaced as an
+        # unhandled 500 (M13). Detach/clear them first.
+        await db.execute(sa_delete(AgentKnowledgeBase).where(AgentKnowledgeBase.knowledge_base_id == kb.id))
+        await db.execute(sa_delete(SearchQuery).where(SearchQuery.knowledge_base_id == kb.id))
+        await db.delete(kb)
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"Failed to delete knowledge base {kb_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail="This knowledge base is still referenced elsewhere and could not be deleted.",
+        )
 
     return None
 

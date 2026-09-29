@@ -27,6 +27,7 @@ from app.api.v1.endpoints.billing import (
     _trial_already_used,
     create_subscription,
 )
+from app.services.billing import trial as trial_service
 from app.database import Base
 from app.models.subscription import (
     SOURCE_STRIPE,
@@ -261,7 +262,7 @@ class TestEmailDomain:
         self, db, monkeypatch
     ):
         monkeypatch.setattr(
-            billing_endpoints, "BLOCK_REPEAT_TRIALS_BY_DOMAIN", True, raising=True
+            trial_service, "BLOCK_REPEAT_TRIALS_BY_DOMAIN", True, raising=True
         )
         first = await make_user(db, "ada@bigco.test")
         first_org = await make_org(db, first, name="Eng")

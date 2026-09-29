@@ -74,11 +74,19 @@ class AnthropicLLM(BaseLLMProvider):
 
         logger.info(f"Initialized Anthropic LLM: model={model}, temperature={temperature}")
 
-    def _format_messages(self, messages: List[ChatMessage]) -> tuple[str, List[Dict[str, str]]]:
+    def _format_messages(self, messages: List[ChatMessage]) -> tuple[str, List[Dict[str, Any]]]:
         """
         Convert ChatMessage objects to Anthropic format.
 
-        Anthropic uses a system parameter and messages array.
+        Anthropic uses a system parameter and messages array. A prior tool
+        call/result — the shapes agents.py's function-calling loop pushes back
+        as `ChatMessage(role="assistant", function_call={...})` and
+        `ChatMessage(role="function", ...)` — used to fall through untouched
+        (function_call was never read) or be dropped outright (role="function"
+        matched neither branch), which silently erased the model's own tool
+        calls from history. They're converted to Claude's tool_use /
+        tool_result content blocks instead, so a multi-step tool turn keeps
+        its history intact (B3).
 
         Args:
             messages: List of ChatMessage objects
@@ -87,18 +95,65 @@ class AnthropicLLM(BaseLLMProvider):
             Tuple of (system_prompt, formatted_messages)
         """
         system_prompt = ""
-        formatted = []
+        formatted: List[Dict[str, Any]] = []
+        # A stable id generated for each tool_use block and reused by the
+        # tool_result message that follows — our internal FunctionCall/
+        # ChatMessage shapes carry no id of their own. Mirrors the
+        # `last_tool_call_id` bookkeeping in the OpenAI provider.
+        last_tool_use_id: Optional[str] = None
+        tool_seq = 0
 
         for msg in messages:
             if msg.role == "system":
                 system_prompt += msg.content + "\n"
-            elif msg.role in ["user", "assistant"]:
+            elif msg.role == "assistant" and msg.function_call:
+                fc = msg.function_call
+                tool_seq += 1
+                last_tool_use_id = f"toolu_{tool_seq}_{fc.get('name', 'fn')}"[:40]
+                try:
+                    tool_input = json.loads(fc.get("arguments") or "{}")
+                except (TypeError, ValueError):
+                    tool_input = {}
+                content_blocks: List[Dict[str, Any]] = []
+                if msg.content:
+                    content_blocks.append({"type": "text", "text": msg.content})
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": last_tool_use_id,
+                    "name": fc.get("name", ""),
+                    "input": tool_input,
+                })
+                formatted.append({"role": "assistant", "content": content_blocks})
+            elif msg.role == "function":
+                formatted.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": last_tool_use_id or f"toolu_{tool_seq or 1}",
+                        "content": msg.content or "",
+                    }],
+                })
+            elif msg.role in ("user", "assistant"):
                 formatted.append({
                     "role": msg.role,
                     "content": msg.content,
                 })
 
         return system_prompt.strip(), formatted
+
+    def _convert_tools(self, functions: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+        """OpenAI-style {name, description, parameters} defs -> Claude's
+        {name, description, input_schema} tool defs."""
+        if not functions:
+            return None
+        return [
+            {
+                "name": f["name"],
+                "description": f.get("description", ""),
+                "input_schema": f.get("parameters") or {"type": "object", "properties": {}},
+            }
+            for f in functions
+        ]
 
     async def chat_completion(
         self,
@@ -111,7 +166,8 @@ class AnthropicLLM(BaseLLMProvider):
 
         Args:
             messages: List of ChatMessage objects
-            functions: Optional function definitions (not supported by Claude)
+            functions: Optional function definitions, converted to Claude's
+                tools API (name/description/parameters -> input_schema)
             **kwargs: Additional parameters
 
         Returns:
@@ -126,12 +182,15 @@ class AnthropicLLM(BaseLLMProvider):
             # Format messages
             system_prompt, formatted_messages = self._format_messages(messages)
 
-            # Prepare request
+            # Prepare request. Claude's temperature range is 0-1 (agents allow
+            # 0-2, matching OpenAI's range) — clamped here rather than
+            # rejected, since the UI slider doesn't know which provider is
+            # active when the value is set.
             request_params = {
                 "model": kwargs.get("model", self.model),
                 "max_tokens": kwargs.get("max_tokens", self.max_tokens),
                 "messages": formatted_messages,
-                "temperature": kwargs.get("temperature", self.temperature),
+                "temperature": min(float(kwargs.get("temperature", self.temperature)), 1.0),
             }
 
             if system_prompt:
@@ -143,15 +202,28 @@ class AnthropicLLM(BaseLLMProvider):
             if self.top_k is not None:
                 request_params["top_k"] = self.top_k
 
+            tools = self._convert_tools(functions)
+            if tools:
+                request_params["tools"] = tools
+
             # Call Anthropic API
             response: Message = await self.client.messages.create(**request_params)
 
-            # Extract response
+            # Extract response. One tool call per turn (matching the OpenAI
+            # provider) — a model that both talks and calls a tool in the same
+            # turn returns both block types; the text is kept for context but
+            # the tool call still drives the loop in agents.py.
             content = ""
+            function_call = None
             if response.content:
                 for block in response.content:
                     if block.type == "text":
                         content += block.text
+                    elif block.type == "tool_use":
+                        function_call = FunctionCall(
+                            name=block.name,
+                            arguments=json.dumps(block.input),
+                        )
 
             # Calculate cost
             cost = self._calculate_cost(
@@ -177,6 +249,7 @@ class AnthropicLLM(BaseLLMProvider):
             return ChatCompletionResult(
                 content=content,
                 role="assistant",
+                function_call=function_call,
                 finish_reason=response.stop_reason,
                 prompt_tokens=response.usage.input_tokens,
                 completion_tokens=response.usage.output_tokens,
@@ -206,7 +279,10 @@ class AnthropicLLM(BaseLLMProvider):
 
         Args:
             messages: List of ChatMessage objects
-            functions: Optional function definitions (not supported)
+            functions: Not implemented on this streaming path — a tool-calling
+                turn is routed through chat_completion() instead (see
+                agents.py's function-calling loop), which resolves the call
+                before any audio/text is streamed back.
             **kwargs: Additional parameters
 
         Yields:
@@ -221,13 +297,17 @@ class AnthropicLLM(BaseLLMProvider):
             # Format messages
             system_prompt, formatted_messages = self._format_messages(messages)
 
-            # Prepare request
+            # Prepare request. `messages.stream()` is a dedicated streaming
+            # helper with its own signature — streaming is implicit in the
+            # method itself, and it has no `stream` parameter at all (unlike
+            # `messages.create()`). Passing one raised a TypeError on every
+            # single call, which is why every no-tool Anthropic reply came
+            # back as "I'm having a technical issue" (M1).
             request_params = {
                 "model": kwargs.get("model", self.model),
                 "max_tokens": kwargs.get("max_tokens", self.max_tokens),
                 "messages": formatted_messages,
-                "temperature": kwargs.get("temperature", self.temperature),
-                "stream": True,
+                "temperature": min(float(kwargs.get("temperature", self.temperature)), 1.0),
             }
 
             if system_prompt:

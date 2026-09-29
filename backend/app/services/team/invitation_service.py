@@ -26,6 +26,8 @@ from app.models.notification import (
     Notification,
 )
 from app.models.user import User, Organization, OrganizationMember
+from app.services.billing.entitlements import invalidate_entitlements
+from app.services.billing.trial import TrialUnavailable, grant_trial
 from app.services.email import email_service
 
 logger = logging.getLogger(__name__)
@@ -248,6 +250,35 @@ async def _mark_notification_actioned(db: AsyncSession, invitation: Invitation) 
             notif.is_read = True
 
 
+async def _grant_trials_to_own_other_workspaces(
+    db: AsyncSession, user: User, *, skip_organization_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """Best-effort free trial for every other workspace this user owns.
+
+    Registering specifically to accept an invite creates the user's personal
+    workspace (every registration does) but never routes them through the
+    onboarding step that would otherwise start its trial. Returns the ids of
+    the workspaces that actually got one, so the caller can invalidate their
+    cached entitlements once the transaction commits.
+    """
+    result = await db.execute(select(Organization.id).where(Organization.owner_id == user.id))
+    granted: list[uuid.UUID] = []
+    for (org_id,) in result.all():
+        if org_id == skip_organization_id:
+            continue
+        try:
+            await grant_trial(db, organization_id=org_id, user=user)
+            granted.append(org_id)
+        except TrialUnavailable as exc:
+            logger.info(
+                "No trial granted to %s's other workspace %s while accepting an invite: %s",
+                user.id,
+                org_id,
+                exc.reason,
+            )
+    return granted
+
+
 async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User) -> OrganizationMember:
     """Accept: create the membership, mark the invite accepted, resolve notification."""
     if not is_actionable(invitation):
@@ -278,7 +309,22 @@ async def accept_invitation(db: AsyncSession, invitation: Invitation, user: User
     invitation.responded_at = datetime.utcnow()
     invitation.invited_user_id = user.id
     await _mark_notification_actioned(db, invitation)
+
+    # They can still switch back to their own workspace (registration always
+    # creates one) — but that workspace never passes through onboarding, since
+    # registering-to-accept-an-invite skips straight here. Left alone it would
+    # sit with zero subscription rows and read as "your subscription has
+    # ended" the moment they switch into it, rather than "you never chose a
+    # plan". Give it the same free trial the onboarding pricing page would
+    # have started, best-effort — an ineligible or already-covered workspace
+    # is left exactly as it was.
+    granted_org_ids = await _grant_trials_to_own_other_workspaces(
+        db, user, skip_organization_id=invitation.organization_id
+    )
+
     await db.commit()
+    for org_id in granted_org_ids:
+        invalidate_entitlements(org_id)
 
     result = await db.execute(
         select(OrganizationMember).where(

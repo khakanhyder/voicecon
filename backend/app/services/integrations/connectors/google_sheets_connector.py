@@ -71,7 +71,9 @@ class GoogleSheetsConnector(BaseConnector):
             body = {"values": values}
             res = await self.post(
                 f"/v4/spreadsheets/{spreadsheet_id}/values/{range_name}:append",
-                params={"valueInputOption": "USER_ENTERED"},
+                # RAW, not USER_ENTERED — Sheets parsed a value starting with
+                # "+" (a phone number) as a formula and stored #ERROR! (m1).
+                params={"valueInputOption": "RAW"},
                 json=body
             )
             return {"updates": res.get("updates", {}), "success": True}
@@ -159,7 +161,7 @@ class GoogleSheetsConnector(BaseConnector):
         new_row = self._merge(table["headers"], [], wanted)
         res = await self.post(
             f"/v4/spreadsheets/{spreadsheet_id}/values/{_range(table['sheet'], 'A1')}:append",
-            params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
+            params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"},
             json={"values": [new_row]},
         )
         updated_range = ((res.get("updates") or {}).get("updatedRange")) or ""
@@ -286,7 +288,7 @@ class GoogleSheetsConnector(BaseConnector):
         try:
             await self.put(
                 f"/v4/spreadsheets/{spreadsheet_id}/values/{target}",
-                params={"valueInputOption": "USER_ENTERED"},
+                params={"valueInputOption": "RAW"},
                 json={"values": [cells]},
             )
         except Exception as e:

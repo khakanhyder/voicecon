@@ -607,6 +607,7 @@ export default function AgentDetailPage() {
           stt_provider:      sttProvider,
           stt_model:         sttModel,
           stt_language:      a.stt_language    || 'en',
+          stt_keywords:      Array.isArray(a.stt_keywords) ? a.stt_keywords : [],
           interrupt_enabled: a.interrupt_enabled ?? true,
           interrupt_sensitivity: Number(a.interrupt_sensitivity) || 0.5,
           silence_timeout:   a.silence_timeout || 3000,
@@ -614,6 +615,8 @@ export default function AgentDetailPage() {
           background_noise_reduction: a.background_noise_reduction ?? true,
           sentiment_analysis_enabled: a.sentiment_analysis_enabled ?? false,
           emotion_detection_enabled:  a.emotion_detection_enabled  ?? false,
+          end_call_phrases:  Array.isArray(a.end_call_phrases) ? a.end_call_phrases : [],
+          version:           a.version ?? 1,
         }))
       })
       .catch(() => { toast.error('Failed to load agent'); router.push('/dashboard/agents') })
@@ -626,23 +629,35 @@ export default function AgentDetailPage() {
     if (!form.system_prompt.trim()) { toast.error('System prompt is required'); setTab('basic'); return }
     setLoading(true)
     try {
-      await apiClient.patch(API_ENDPOINTS.AGENT(agentId), {
+      const r = await apiClient.patch(API_ENDPOINTS.AGENT(agentId), {
         name: form.name, description: form.description,
         system_prompt: form.system_prompt, first_message: form.first_message,
         llm:      { provider: form.llm_provider, model: form.llm_model, temperature: form.llm_temperature, max_tokens: form.llm_max_tokens },
         voice:    { provider: form.tts_provider, voice_id: form.tts_voice_id, speed: form.tts_speed, pitch: form.tts_pitch },
-        stt:      { provider: form.stt_provider, model: form.stt_model, language: form.stt_language },
-        settings: { interrupt_enabled: form.interrupt_enabled, interrupt_sensitivity: form.interrupt_sensitivity, silence_timeout: form.silence_timeout, max_call_duration: form.max_call_duration },
+        stt:      { provider: form.stt_provider, model: form.stt_model, language: form.stt_language, keywords: form.stt_keywords },
+        settings: { interrupt_enabled: form.interrupt_enabled, interrupt_sensitivity: form.interrupt_sensitivity, silence_timeout: form.silence_timeout, max_call_duration: form.max_call_duration, end_call_phrases: form.end_call_phrases },
         advanced: { background_noise_reduction: form.background_noise_reduction, sentiment_analysis_enabled: form.sentiment_analysis_enabled, emotion_detection_enabled: form.emotion_detection_enabled },
+        // Optimistic lock — rejected with 409 if someone else saved since this
+        // tab loaded, instead of silently overwriting their change (B2).
+        version: form.version,
       })
+      set('version', r.data.version)
       // "Files" writes to the same attachment endpoint the Knowledge tab uses.
       await apiClient.put(API_ENDPOINTS.AGENT_KNOWLEDGE_BASES(agentId), {
         knowledge_base_ids: form.knowledge_base_ids,
         max_results: 3, min_similarity: 0.2, auto_inject: true,
       })
       toast.success('Agent updated')
-    } catch (e) {
-      toast.error(getErrorMessage(e))
+    } catch (e: any) {
+      if (e?.response?.status === 409) {
+        toast.error('This agent changed elsewhere. Reloading the latest version — please re-apply your edit.')
+        apiClient.get<any>(API_ENDPOINTS.AGENT(agentId)).then(r => {
+          const a = r.data
+          setForm(f => ({ ...f, end_call_phrases: Array.isArray(a.end_call_phrases) ? a.end_call_phrases : [], version: a.version ?? f.version }))
+        })
+      } else {
+        toast.error(getErrorMessage(e))
+      }
     } finally {
       setLoading(false)
     }

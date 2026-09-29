@@ -136,6 +136,15 @@ class VoiceSession:
         # or replaces the live media stream.
         self._pending_telephony: Optional[Dict[str, Any]] = None
 
+        # Silence watchdog: nothing on a real call used to notice a caller
+        # who stopped talking — the line stayed open until Twilio's own
+        # max_call_duration limit. Tracks the last time the caller (or the
+        # agent) said anything, so a background task can check in and, if
+        # that goes unanswered too, hang up (M10).
+        self._last_activity = datetime.utcnow()
+        self._silence_task: Optional[asyncio.Task] = None
+        self._silence_checkins = 0
+
         # Set while a workflow `ask` step is waiting on the caller's next
         # utterance; the transcript handler resolves it instead of running a
         # normal LLM turn. None means normal conversation.
@@ -173,6 +182,13 @@ class VoiceSession:
 
             # Create conversation context
             system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
+            end_call_phrases = list(self.agent.end_call_phrases or [])
+            if end_call_phrases:
+                phrases_str = ", ".join(f'"{p}"' for p in end_call_phrases)
+                system_prompt += (
+                    f"\n\nWhen the caller wants to end the conversation or says goodbye, "
+                    f"respond warmly and use one of these exact phrases to end: {phrases_str}."
+                )
             self.conversation = self.llm_service.create_conversation(
                 conversation_id=f"call-{self.call_id}",
                 system_prompt=system_prompt,
@@ -259,6 +275,10 @@ class VoiceSession:
             )
             await self._send_welcome_message(welcome_message)
 
+        self._last_activity = datetime.utcnow()
+        if self._silence_task is None:
+            self._silence_task = asyncio.create_task(self._silence_watchdog())
+
     async def _handle_media(self, message: dict) -> None:
         """
         Handle media event (audio data from caller).
@@ -301,6 +321,8 @@ class VoiceSession:
             logger.error("DEEPGRAM_API_KEY not configured — cannot transcribe call audio")
             return
 
+        from app.services.voice.stt_service import deepgram_keyword_params
+
         model = self.agent.stt_model or "nova-2"
         language = self.agent.stt_language or "en"
         dg_url = (
@@ -314,6 +336,7 @@ class VoiceSession:
             "&punctuate=true"
             "&endpointing=300"
             "&utterance_end_ms=1000"
+            f"{deepgram_keyword_params(model, self.agent.stt_keywords)}"
         )
 
         try:
@@ -408,6 +431,58 @@ class VoiceSession:
         logger.info(f"Stream stopped: call_id={self.call_id}")
         self.state = SessionState.ENDED
         await self._close_deepgram()
+        await self._stop_silence_watchdog()
+
+    async def _stop_silence_watchdog(self) -> None:
+        if self._silence_task is not None:
+            self._silence_task.cancel()
+            try:
+                await self._silence_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._silence_task = None
+
+    async def _silence_watchdog(self) -> None:
+        """
+        Check in on a caller who has gone quiet, and hang up if a second
+        check-in also gets no reply. `silence_timeout` (schema-capped at
+        500-10000ms) is tuned for turn-taking pauses, not for how long a real
+        caller may go silent before the agent should notice — the same gap
+        CallTestPanel.tsx covers with its own MIN_CHECK_IN_MS floor. The same
+        floor/multiplier is applied here for a real call.
+        """
+        try:
+            configured_ms = self.agent.silence_timeout or 3000
+            interval = max(configured_ms / 1000.0 * 3, 15.0)
+
+            while self.state != SessionState.ENDED:
+                await asyncio.sleep(interval)
+                if self.state == SessionState.ENDED:
+                    break
+                # A turn is in flight (caller or agent talking) — not silence.
+                if self.state in (SessionState.PROCESSING, SessionState.SPEAKING):
+                    continue
+
+                idle_seconds = (datetime.utcnow() - self._last_activity).total_seconds()
+                if idle_seconds < interval:
+                    self._silence_checkins = 0
+                    continue
+
+                if self._silence_checkins == 0:
+                    self._silence_checkins = 1
+                    await self._speak_response("Are you still there?")
+                    self._last_activity = datetime.utcnow()
+                    continue
+
+                # Second consecutive silent check-in: nobody's on the line.
+                await self._speak_response("I haven't heard from you, so I'll end the call here. Take care!")
+                await self.end_call()
+                break
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Silence watchdog error: {e}", exc_info=True)
 
     async def _close_deepgram(self) -> None:
         """Tear down the Deepgram stream and its receiver task."""
@@ -547,6 +622,8 @@ class VoiceSession:
             utterance: Complete user utterance
         """
         self.state = SessionState.PROCESSING
+        self._last_activity = datetime.utcnow()
+        self._silence_checkins = 0
 
         try:
             logger.info(f"Processing utterance: {utterance}")
@@ -588,10 +665,18 @@ class VoiceSession:
 
                 # Synthesize and send audio
                 await self._speak_response(response)
+                self._last_activity = datetime.utcnow()
 
                 # Now that the confirmation has been spoken, run any deferred
                 # call-control action (transfer/hang_up/dtmf/voicemail).
                 await self._run_pending_telephony()
+
+                # The agent used one of the configured end-call phrases —
+                # mirrors the browser test console's phrase match (see
+                # agents.py's /respond endpoint), which real calls never had.
+                end_call_phrases = self.agent.end_call_phrases or []
+                if end_call_phrases and any(p.lower() in response.lower() for p in end_call_phrases):
+                    await self.end_call()
 
         except Exception as e:
             logger.error(f"Error processing utterance: {e}", exc_info=True)
@@ -1206,7 +1291,9 @@ class VoiceSession:
             logger.info(f"Cleaning up voice session: call_id={self.call_id}")
 
             # Close the Deepgram STT stream first so no more turns are triggered.
+            self.state = SessionState.ENDED
             await self._close_deepgram()
+            await self._stop_silence_watchdog()
 
             # Save transcript
             if self.transcript_entries:

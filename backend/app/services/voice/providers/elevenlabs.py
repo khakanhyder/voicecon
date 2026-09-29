@@ -117,25 +117,41 @@ class ElevenLabsTTS(BaseTTSProvider):
 
         logger.info(f"Initialized ElevenLabs TTS: voice={voice_id}, model={model_id}")
 
+    def _build_voice_settings(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build the `voice_settings` payload for a synthesis call.
+
+        `speed` used to be accepted nowhere in this provider — the agent's
+        Speech Speed slider was saved but never reached ElevenLabs, so every
+        call came back at the same ~1.0x pace regardless of setting (M8).
+        ElevenLabs' own valid range is 0.7-1.2 (agent form allows 0.5-2.0,
+        matching the other providers' UI), so it's clamped rather than
+        rejected by the API.
+        """
+        settings: Dict[str, Any] = {
+            "stability": kwargs.get("stability", self.stability),
+            "similarity_boost": kwargs.get("similarity_boost", self.similarity_boost),
+            "style": kwargs.get("style", self.style),
+            "use_speaker_boost": kwargs.get("use_speaker_boost", self.use_speaker_boost),
+        }
+        speed = kwargs.get("speed")
+        if speed is not None:
+            settings["speed"] = max(0.7, min(1.2, float(speed)))
+        return settings
+
     def _get_cache_key(self, text: str, voice_id: str, settings: Dict) -> str:
         """Generate cache key for text."""
         key_data = f"{text}:{voice_id}:{json.dumps(settings, sort_keys=True)}"
         return hashlib.md5(key_data.encode()).hexdigest()
 
-    def _get_from_cache(self, text: str) -> Optional[bytes]:
+    def _get_from_cache(self, text: str, voice_id: str, settings: Dict) -> Optional[bytes]:
         """Get cached audio if available."""
         if not self._cache_enabled:
             return None
-
-        settings = {
-            "stability": self.stability,
-            "similarity_boost": self.similarity_boost,
-            "style": self.style,
-        }
-        cache_key = self._get_cache_key(text, self.voice_id, settings)
+        cache_key = self._get_cache_key(text, voice_id, settings)
         return self._cache.get(cache_key)
 
-    def _add_to_cache(self, text: str, audio_data: bytes):
+    def _add_to_cache(self, text: str, voice_id: str, settings: Dict, audio_data: bytes):
         """Add audio to cache."""
         if not self._cache_enabled:
             return
@@ -144,12 +160,7 @@ class ElevenLabsTTS(BaseTTSProvider):
         if len(self._cache) >= self._max_cache_size:
             self._cache.pop(next(iter(self._cache)))
 
-        settings = {
-            "stability": self.stability,
-            "similarity_boost": self.similarity_boost,
-            "style": self.style,
-        }
-        cache_key = self._get_cache_key(text, self.voice_id, settings)
+        cache_key = self._get_cache_key(text, voice_id, settings)
         self._cache[cache_key] = audio_data
 
     async def synthesize(self, text: str, **kwargs) -> SynthesisResult:
@@ -168,8 +179,14 @@ class ElevenLabsTTS(BaseTTSProvider):
             RateLimitError: Rate limit exceeded
             ProviderError: Other API errors
         """
-        # Check cache
-        cached_audio = self._get_from_cache(text)
+        voice_id = kwargs.get("voice_id", self.voice_id)
+        voice_settings = self._build_voice_settings(kwargs)
+
+        # Check cache — keyed on the settings actually in effect for this
+        # call. Keying on the instance defaults alone (the old behaviour)
+        # meant a non-default speed/stability override on a cache hit
+        # silently got back audio synthesized for a DIFFERENT setting (M8).
+        cached_audio = self._get_from_cache(text, voice_id, voice_settings)
         if cached_audio:
             logger.info(f"Cache hit for text: {text[:50]}...")
             return SynthesisResult(
@@ -177,22 +194,15 @@ class ElevenLabsTTS(BaseTTSProvider):
                 sample_rate=44100,  # ElevenLabs default
                 format="mp3",
                 character_count=len(text),
-                voice_id=self.voice_id,
+                voice_id=voice_id,
             )
-
-        voice_id = kwargs.get("voice_id", self.voice_id)
 
         # Prepare request
         url = f"/text-to-speech/{voice_id}"
         data = {
             "text": text,
             "model_id": kwargs.get("model_id", self.model_id),
-            "voice_settings": {
-                "stability": kwargs.get("stability", self.stability),
-                "similarity_boost": kwargs.get("similarity_boost", self.similarity_boost),
-                "style": kwargs.get("style", self.style),
-                "use_speaker_boost": kwargs.get("use_speaker_boost", self.use_speaker_boost),
-            },
+            "voice_settings": voice_settings,
         }
 
         try:
@@ -213,7 +223,7 @@ class ElevenLabsTTS(BaseTTSProvider):
             audio_data = response.content
 
             # Cache the result
-            self._add_to_cache(text, audio_data)
+            self._add_to_cache(text, voice_id, voice_settings, audio_data)
 
             # Track usage
             cost = self._calculate_cost(len(text))
@@ -261,12 +271,7 @@ class ElevenLabsTTS(BaseTTSProvider):
         data = {
             "text": text,
             "model_id": kwargs.get("model_id", self.model_id),
-            "voice_settings": {
-                "stability": kwargs.get("stability", self.stability),
-                "similarity_boost": kwargs.get("similarity_boost", self.similarity_boost),
-                "style": kwargs.get("style", self.style),
-                "use_speaker_boost": kwargs.get("use_speaker_boost", self.use_speaker_boost),
-            },
+            "voice_settings": self._build_voice_settings(kwargs),
         }
 
         try:

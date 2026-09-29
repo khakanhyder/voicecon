@@ -244,6 +244,21 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
   if (!ent) return null
 
   if (ent.status === 'expired') {
+    // `has_subscription` is false only when this workspace has never had a
+    // Subscription row at all — never trialed, never paid, never lapsed.
+    // That's a different state from one that ran out, and "has ended" reads
+    // as alarming and wrong for a workspace someone just switched into for
+    // the first time.
+    if (!ent.has_subscription) {
+      return {
+        key: 'no_plan',
+        tone: 'warning',
+        dismissible: false,
+        title: 'Choose a plan to get started',
+        body: 'This workspace doesn’t have a plan yet. Everything else works — start a free trial or choose a plan to activate your agents.',
+        cta: 'Choose a plan',
+      }
+    }
     const wasTrial = ent.source === 'trial'
     return {
       key: 'expired',

@@ -176,6 +176,8 @@ export interface AgentFormState {
   stt_provider: string
   stt_model: string
   stt_language: string
+  /** Names/products to bias speech recognition toward (Deepgram keyterm/keywords). */
+  stt_keywords: string[]
   interrupt_enabled: boolean
   interrupt_sensitivity: number
   silence_timeout: number
@@ -185,6 +187,12 @@ export interface AgentFormState {
   emotion_detection_enabled: boolean
   /** Knowledge bases the agent answers from — the "Files" picker. */
   knowledge_base_ids: string[]
+  /** Phrases that end the call — round-tripped even though most tabs never
+   *  touch it, so Save Changes can't silently wipe it (B2). */
+  end_call_phrases: string[]
+  /** Optimistic-lock token from the last GET, sent back on save so a stale
+   *  tab is rejected instead of overwriting a newer version (B2). */
+  version: number
 }
 
 export const DEFAULT_FORM: AgentFormState = {
@@ -192,11 +200,13 @@ export const DEFAULT_FORM: AgentFormState = {
   first_message: 'Hello! How can I help you today?',
   llm_provider: 'openai', llm_model: 'gpt-5.4-nano', llm_temperature: 0.7, llm_max_tokens: 1000, llm_custom_url: '',
   tts_provider: 'elevenlabs', tts_voice_id: '21m00Tcm4TlvDq8ikWAM', tts_speed: 1.0, tts_pitch: 1.0,
-  stt_provider: 'deepgram', stt_model: 'nova-2', stt_language: 'en',
+  stt_provider: 'deepgram', stt_model: 'nova-2', stt_language: 'en', stt_keywords: [],
   interrupt_enabled: true, interrupt_sensitivity: 0.5,
   silence_timeout: 3000, max_call_duration: 1800,
   background_noise_reduction: true, sentiment_analysis_enabled: false, emotion_detection_enabled: false,
   knowledge_base_ids: [],
+  end_call_phrases: [],
+  version: 1,
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
@@ -630,6 +640,22 @@ export function AgentTabContent({ tab, form, set }: {
             </Select>
           </div>
         </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="agent-stt-keywords" className="text-[14px] font-bold text-[#000000] font-poppins block">
+            Vocabulary
+          </Label>
+          <Input
+            id="agent-stt-keywords"
+            value={form.stt_keywords.join(', ')}
+            onChange={e => set('stt_keywords', e.target.value.split(',').map(k => k.trim()).filter(Boolean))}
+            placeholder="Asad Ali, Khakan Haider, Sans Poids"
+            className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"
+          />
+          <p className="text-xs text-slate-400">
+            Comma-separated names or product names the transcriber should recognise reliably — helps with names and terms it wouldn&apos;t otherwise know.
+          </p>
+        </div>
       </SectionCard>
       </div>
     )
@@ -656,6 +682,20 @@ export function AgentTabContent({ tab, form, set }: {
       <p className="text-xs text-slate-400 -mt-2">How long to wait after user stops speaking before responding.</p>
       <SliderField label="Max Call Duration" value={form.max_call_duration} min={60} max={7200} step={60}
         format={v => `${Math.floor(v/60)}m`} onChange={v => set('max_call_duration', v)} hints={['1m', '120m']}/>
+
+      <div className="space-y-2">
+        <Label htmlFor="agent-end-call-phrases" className="text-[15px] font-bold text-[#000000] font-poppins block">
+          End-call phrases
+        </Label>
+        <Input
+          id="agent-end-call-phrases"
+          value={form.end_call_phrases.join(', ')}
+          onChange={e => set('end_call_phrases', e.target.value.split(',').map(p => p.trim()).filter(Boolean))}
+          placeholder="goodbye, that's all, talk soon"
+          className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4"
+        />
+        <p className="text-xs text-slate-400">Comma-separated. The agent ends the call when it says one of these.</p>
+      </div>
     </SectionCard>
     </div>
   )

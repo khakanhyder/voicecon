@@ -54,6 +54,11 @@ from app.services.billing.conversion import (  # noqa: F401 — re-exported for 
     apply_paid_conversion,
     mark_onboarding_done as _mark_onboarding_done,
 )
+# Shared with invite-acceptance and workspace creation, which grant a trial the
+# same way on a user's behalf when their workspace would otherwise never pass
+# through this endpoint. See app.services.billing.trial for why.
+from app.services.billing import trial as trial_service
+from app.services.billing.trial import TrialUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -867,59 +872,17 @@ async def list_subscription_events(
     ]
 
 
+# The plan-selection and trial-eligibility logic below is shared with
+# invite-acceptance and workspace creation (app.services.billing.trial), which
+# grant a trial the same way on a user's behalf. These wrappers keep every
+# existing call site in this file unchanged.
+
+
 async def _get_trial_plan(
     db: AsyncSession, plan_id: Optional[uuid.UUID]
 ) -> SubscriptionPlan:
-    """The plan a free trial is attached to.
-
-    Defaults to the *highest* trialable tier, not the cheapest plan. Trials
-    convert on feature discovery: someone who never sees lead scoring or
-    campaigns has no reason to choose the expensive plan, so trialling the cheap
-    one caps our own conversion. Consumption is what actually costs us money,
-    and ``catalog.TRIAL_ENTITLEMENTS`` caps that hard regardless of plan.
-    """
-    if plan_id is not None:
-        result = await db.execute(
-            select(SubscriptionPlan).where(SubscriptionPlan.id == plan_id)
-        )
-        plan = result.scalar_one_or_none()
-        # A plan the operator marked non-trialable (or retired) is not something
-        # a client gets to trial by naming its id. Fall through to the default
-        # rather than erroring — the customer asked for a trial, and there is a
-        # perfectly good plan to give them.
-        if plan and plan.is_active and plan.is_trialable:
-            return plan
-        if plan is not None:
-            logger.info(
-                "Ignoring requested trial plan %s (active=%s, trialable=%s)",
-                plan_id,
-                plan.is_active,
-                plan.is_trialable,
-            )
-
-    result = await db.execute(
-        select(SubscriptionPlan)
-        .where(
-            SubscriptionPlan.is_active == True,  # noqa: E712 — SQL expression
-            SubscriptionPlan.is_trialable == True,  # noqa: E712
-        )
-        .order_by(SubscriptionPlan.tier.desc(), SubscriptionPlan.price_monthly.desc())
-        .limit(1)
-    )
-    plan = result.scalar_one_or_none()
-    if plan:
-        return plan
-
-    # No plan is flagged trialable (a database seeded before that column
-    # existed). Fall back to the highest tier rather than refusing the trial.
-    result = await db.execute(
-        select(SubscriptionPlan)
-        .where(SubscriptionPlan.is_active == True)  # noqa: E712
-        .order_by(SubscriptionPlan.tier.desc(), SubscriptionPlan.price_monthly.desc())
-        .limit(1)
-    )
-    plan = result.scalar_one_or_none()
-    if not plan:
+    plan = await trial_service.get_trial_plan(db, plan_id)
+    if plan is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No subscription plans are available",
@@ -930,115 +893,13 @@ async def _get_trial_plan(
 async def _existing_live_subscription(
     db: AsyncSession, org_id: uuid.UUID
 ) -> Optional[Subscription]:
-    return await get_entitlement_service().live_subscription(db, org_id)
-
-
-def _email_domain(email: str) -> str:
-    return (email or "").split("@")[-1].strip().lower()
-
-
-#: Refuse a trial when another account at the same email domain has already had
-#: one. Off by default, and deliberately so: a second team signing up at a large
-#: company is a real and common case, and refusing them turns an anti-abuse
-#: measure into lost revenue. Domain collisions are logged instead, so the
-#: decision to tighten this can be made from evidence rather than a guess.
-BLOCK_REPEAT_TRIALS_BY_DOMAIN = False
+    return await trial_service.existing_live_subscription(db, org_id)
 
 
 async def _trial_already_used(
     db: AsyncSession, user: User, organization_id: uuid.UUID
 ) -> Optional[str]:
-    """Why this caller may not start a free trial, or ``None`` if they may.
-
-    A free trial is once, and "once" has to be pinned to more than one thing —
-    each arm below closes a different way of asking for a second one:
-
-    * **This workspace has had one.** The trial belongs to the organization, not
-      to whoever clicked the button. Without this arm a second owner or admin
-      simply starts the trial again the day the first one's expires, forever.
-    * **This person has had one**, in any workspace. Otherwise deleting the
-      workspace and creating a new one resets the clock.
-    * **This email domain has had one** — advisory only, because it cannot tell
-      "the same person came back with a new address" apart from "a different
-      team at the same company signed up". See
-      :data:`BLOCK_REPEAT_TRIALS_BY_DOMAIN`.
-
-    Returns a short machine-ish reason for the log; the caller turns it into a
-    409. Cheap: every arm is a single indexed lookup with ``LIMIT 1``.
-    """
-    result = await db.execute(
-        select(TrialGrant.id)
-        .where(TrialGrant.organization_id == organization_id)
-        .limit(1)
-    )
-    if result.scalar_one_or_none() is not None:
-        return "organization_already_trialed"
-
-    # Belt and braces for rows the grant ledger never saw: a trial created
-    # before ``trial_grants`` existed and missed by the backfill, or one whose
-    # grant insert was rolled back. The subscription row itself is then the only
-    # evidence the workspace has already had its trial, and it is enough.
-    result = await db.execute(
-        select(Subscription.id)
-        .where(
-            Subscription.organization_id == organization_id,
-            Subscription.source == SOURCE_TRIAL,
-        )
-        .limit(1)
-    )
-    if result.scalar_one_or_none() is not None:
-        return "organization_has_prior_trial_subscription"
-
-    result = await db.execute(
-        select(TrialGrant.id).where(TrialGrant.user_id == user.id).limit(1)
-    )
-    if result.scalar_one_or_none() is not None:
-        return "user_already_trialed"
-
-    domain = _email_domain(user.email)
-    if not domain or domain in _CONSUMER_EMAIL_DOMAINS:
-        # A shared consumer domain says nothing about who the company is, so
-        # matching on it would refuse every second gmail.com signup.
-        return None
-
-    result = await db.execute(
-        select(TrialGrant).where(TrialGrant.email_domain == domain).limit(1)
-    )
-    domain_grant = result.scalar_one_or_none()
-    if domain_grant is None:
-        return None
-
-    logger.info(
-        "Trial domain collision: %s shares a domain with an earlier trial "
-        "(grant %s, org %s). %s",
-        user.email,
-        domain_grant.id,
-        domain_grant.organization_id,
-        "Refusing." if BLOCK_REPEAT_TRIALS_BY_DOMAIN else "Allowing — see BLOCK_REPEAT_TRIALS_BY_DOMAIN.",
-    )
-    return "domain_already_trialed" if BLOCK_REPEAT_TRIALS_BY_DOMAIN else None
-
-
-#: Domains where a shared suffix implies nothing about a shared company.
-_CONSUMER_EMAIL_DOMAINS = frozenset(
-    {
-        "gmail.com",
-        "googlemail.com",
-        "yahoo.com",
-        "outlook.com",
-        "hotmail.com",
-        "live.com",
-        "icloud.com",
-        "me.com",
-        "proton.me",
-        "protonmail.com",
-        "aol.com",
-        "gmx.com",
-        "mail.com",
-        "yandex.com",
-        "zoho.com",
-    }
-)
+    return await trial_service.trial_already_used(db, user, organization_id)
 
 
 def _subscription_response(
@@ -1092,79 +953,29 @@ async def start_free_trial(
     the clock on every request, and the reconciler moves the row through grace
     to expired and sends the notices.
     """
-    from datetime import timedelta
-
-    if await _existing_live_subscription(db, org_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This workspace already has an active subscription or trial",
-        )
-
-    reason = await _trial_already_used(db, current_user, org_id)
-    if reason is not None:
-        # Logged and refused. If this turns out to catch legitimate second teams
-        # at the same company, the domain arm of the check is what to relax —
-        # the per-user and per-organization arms should stay.
-        logger.info(
-            "Refused a second trial for user %s in org %s (%s)",
-            current_user.id,
-            org_id,
-            reason,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "A free trial has already been used for this account. "
-                "Choose a plan to continue."
-            ),
-        )
-
-    plan = await _get_trial_plan(db, request.plan_id)
-    trial_days = plan.trial_days or catalog.DEFAULT_TRIAL_DAYS
-
-    now = datetime.utcnow()
-    trial_end = now + timedelta(days=trial_days)
-
-    subscription = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        stripe_subscription_id=None,
-        stripe_customer_id=None,
-        status=STATUS_TRIALING,
-        source=SOURCE_TRIAL,
-        billing_period=request.billing_period,
-        current_period_start=now,
-        current_period_end=trial_end,
-        trial_start=now,
-        trial_end=trial_end,
-        stripe_metadata={"source": "free_trial"},
-    )
-    db.add(subscription)
-    await db.flush()
-
-    db.add(
-        TrialGrant(
+    try:
+        subscription = await trial_service.grant_trial(
+            db,
             organization_id=org_id,
-            user_id=current_user.id,
-            email_domain=_email_domain(current_user.email),
+            user=current_user,
+            plan_id=request.plan_id,
+            billing_period=request.billing_period,
             signup_ip=http_request.client.host if http_request.client else None,
-            granted_at=now,
-            expires_at=trial_end,
         )
-    )
-    await events.record_event(
-        db,
-        organization_id=org_id,
-        event_type=events.TRIAL_STARTED,
-        subscription=subscription,
-        to_status=STATUS_TRIALING,
-        to_plan_id=plan.id,
-        actor_type=events.ACTOR_USER,
-        actor_id=current_user.id,
-        payload={"trial_days": trial_days, "trial_end": trial_end.isoformat()},
-    )
-
-    await _mark_onboarding_done(db, org_id)
+    except TrialUnavailable as exc:
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.reason == "no_plan_available"
+            else status.HTTP_409_CONFLICT
+        )
+        if status_code == status.HTTP_409_CONFLICT:
+            logger.info(
+                "Refused a second trial for user %s in org %s (%s)",
+                current_user.id,
+                org_id,
+                exc.reason,
+            )
+        raise HTTPException(status_code=status_code, detail=exc.detail)
 
     try:
         await db.commit()
@@ -1177,6 +988,7 @@ async def start_free_trial(
             detail="This workspace already has an active subscription or trial",
         )
 
+    plan = await db.get(SubscriptionPlan, subscription.plan_id)
     await db.refresh(subscription)
     invalidate_entitlements(org_id)
 

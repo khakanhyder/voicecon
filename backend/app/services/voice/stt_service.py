@@ -248,6 +248,30 @@ class STTService:
         self._active_providers.clear()
 
 
+def deepgram_keyword_params(model: str, keywords: Optional[list]) -> str:
+    """
+    Build the Deepgram query-string params that bias transcription toward a
+    per-agent vocabulary (names, product names) — without this, an
+    out-of-dictionary name like "Asad Ali" or a product like "Sans Poids" had
+    no way to be recognised reliably (M11).
+
+    Deepgram's nova-3 uses the newer `keyterm` param; every earlier model
+    (nova-2, nova, enhanced, base) uses `keywords` with an `:intensifier`
+    suffix. Shared by both the browser-test STT relay and real-call sessions
+    so the two paths bias the same way.
+    """
+    if not keywords:
+        return ""
+    from urllib.parse import quote
+
+    terms = [str(k).strip() for k in keywords if str(k).strip()]
+    if not terms:
+        return ""
+    if (model or "").startswith("nova-3"):
+        return "".join(f"&keyterm={quote(t)}" for t in terms)
+    return "".join(f"&keywords={quote(t + ':2')}" for t in terms)
+
+
 # Global STT service instance
 _stt_service: Optional[STTService] = None
 

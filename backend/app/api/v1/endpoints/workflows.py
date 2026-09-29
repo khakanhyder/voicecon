@@ -13,6 +13,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -1139,6 +1140,7 @@ async def validate_workflow_graph(
 async def trigger_webhook(
     webhook_key: str,
     payload: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1161,12 +1163,15 @@ async def trigger_webhook(
     from app.schemas.workflow import TriggerType
 
     try:
-        # Build event data
+        # Build event data. `request.client.host` is already the real caller —
+        # Uvicorn's proxy-headers middleware rewrites it from X-Forwarded-For
+        # ahead of the application (see RateLimitMiddleware._client_ip for the
+        # verified rationale), so no second X-Forwarded-For parse belongs here.
         event_data = {
             "webhook_key": webhook_key,
             "payload": payload,
-            "headers": {},
-            "source_ip": "unknown",  # TODO: Get from request
+            "headers": dict(request.headers),
+            "source_ip": request.client.host if request.client else "unknown",
         }
 
         # Process webhook trigger. Matching is by webhook key only; workflows

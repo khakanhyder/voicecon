@@ -182,7 +182,12 @@ async def test_tool(
     try:
         result = await _execute_tool(tool, body.parameters)
         ms = int((time.time() - start) * 1000)
-        return ToolTestResponse(success=True, message="Tool executed successfully", response=result, response_time_ms=ms)
+        simulated = isinstance(result, dict) and bool(result.get("simulated"))
+        message = (
+            f"Simulated — not executed. {result.get('note', '')}".strip()
+            if simulated else "Tool executed successfully"
+        )
+        return ToolTestResponse(success=True, message=message, response=result, response_time_ms=ms, simulated=simulated)
     except Exception as exc:
         ms = int((time.time() - start) * 1000)
         return ToolTestResponse(success=False, message=str(exc), response_time_ms=ms)

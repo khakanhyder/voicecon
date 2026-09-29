@@ -9,6 +9,7 @@ Ownership is deliberately narrow here: only the owner may delete the workspace,
 and ownership never moves — the user who created a workspace owns it for its
 whole life. An admin can run the team but cannot seize or destroy it.
 """
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -25,8 +26,12 @@ from app.core.workspace import WorkspaceContext, get_membership, list_membership
 from app.database import get_db
 from app.models.user import Organization, OrganizationMember, User
 from app.schemas._types import NonBlankName
+from app.services.billing.entitlements import invalidate_entitlements
+from app.services.billing.trial import TrialUnavailable, grant_trial
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # ---- Schemas ----
@@ -248,9 +253,32 @@ async def create_workspace(
     )
     db.add(membership)
     current_user.active_organization_id = organization.id
+
+    # There's no onboarding step after this — unlike a fresh signup, the
+    # sidebar "create workspace" action drops the caller straight into the new
+    # workspace. Without a trial started here it would sit with zero
+    # subscription rows and immediately look like a lapsed subscription
+    # instead of a brand new one. Best-effort: eligibility is the same
+    # per-account rule as the explicit "Start trial" button, so a caller who
+    # already used theirs elsewhere just gets a plan-less workspace, same as
+    # before this existed.
+    granted_trial = False
+    try:
+        await grant_trial(db, organization_id=organization.id, user=current_user)
+        granted_trial = True
+    except TrialUnavailable as exc:
+        logger.info(
+            "No trial granted for new workspace %s (owner %s): %s",
+            organization.id,
+            current_user.id,
+            exc.reason,
+        )
+
     await db.commit()
     await db.refresh(organization)
     await db.refresh(membership)
+    if granted_trial:
+        invalidate_entitlements(organization.id)
 
     return await _detail(db, organization, membership)
 

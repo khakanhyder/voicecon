@@ -53,6 +53,9 @@ class Agent(Base):
     stt_language: Mapped[str] = mapped_column(String(10), default="en")
     stt_model: Mapped[Optional[str]] = mapped_column(String(100))
     stt_api_key_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    # Names/products to bias speech recognition toward — Deepgram had no way
+    # to tell it these mattered, so "Asad Ali" arrived as "a sad alley" (M11).
+    stt_keywords: Mapped[List[str]] = mapped_column(JSON, default=list)
 
     # Conversation Settings
     interrupt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)

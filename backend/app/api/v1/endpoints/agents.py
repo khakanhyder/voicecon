@@ -36,7 +36,7 @@ from app.schemas.agent import (
     AgentTestResponse,
     AgentCloneRequest,
 )
-from app.services.agent_service import get_agent_service
+from app.services.agent_service import get_agent_service, AgentVersionConflict
 from app.services.voice.llm_service import get_llm_service, ChatMessage
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
@@ -324,6 +324,8 @@ async def update_agent(
 
     except HTTPException:
         raise
+    except AgentVersionConflict as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating agent: {e}", exc_info=True)
         raise HTTPException(
@@ -574,6 +576,7 @@ async def agent_speak(
             text=request.text,
             provider=agent.tts_provider,
             voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+            speed=float(getattr(agent, "tts_speed", None) or 1.0),
             api_key=await resolve_tts_api_key(
                 db, org_id, agent.tts_provider, agent.tts_voice_id
             ),
@@ -723,26 +726,37 @@ async def agent_respond(
                     return None
 
                 async def _synth() -> "str | None":
-                    try:
-                        tts_result = await asyncio.wait_for(
-                            tts_service.synthesize(
-                                text=text,
-                                provider=agent.tts_provider,
-                                voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
-                                model="eleven_flash_v2_5",
-                                api_key=tts_api_key,
-                            ),
-                            timeout=5.0,
-                        )
-                        audio_b64 = base64.b64encode(tts_result.audio_data).decode()
-                        return json.dumps({
-                            "type": "sentence",
-                            "text": text,
-                            "audio_base64": audio_b64,
-                            "audio_format": tts_result.format or "mp3",
-                        })
-                    except Exception as e:
-                        logger.warning(f"TTS error (text-only fallback): {e}")
+                    # A reply with many short sentences fires this many times
+                    # concurrently; a single 5s timeout with no retry meant
+                    # 1-3 of them would come back with no audio at all — text
+                    # shown, nothing spoken (M9). One retry covers a transient
+                    # slow response without letting one stuck sentence hold up
+                    # the others for long.
+                    for attempt in range(2):
+                        try:
+                            tts_result = await asyncio.wait_for(
+                                tts_service.synthesize(
+                                    text=text,
+                                    provider=agent.tts_provider,
+                                    voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
+                                    model="eleven_flash_v2_5",
+                                    speed=float(getattr(agent, "tts_speed", None) or 1.0),
+                                    api_key=tts_api_key,
+                                ),
+                                timeout=5.0,
+                            )
+                            audio_b64 = base64.b64encode(tts_result.audio_data).decode()
+                            return json.dumps({
+                                "type": "sentence",
+                                "text": text,
+                                "audio_base64": audio_b64,
+                                "audio_format": tts_result.format or "mp3",
+                            })
+                        except Exception as e:
+                            if attempt == 0:
+                                logger.info(f"TTS attempt 1 failed, retrying once: {e}")
+                                continue
+                            logger.warning(f"TTS error (text-only fallback): {e}")
                         return json.dumps({"type": "sentence", "text": text, "audio_base64": None})
 
                 return asyncio.create_task(_synth())
@@ -800,7 +814,10 @@ async def agent_respond(
                 # answer through the same sentence/TTS pipeline. Use the agent's
                 # configured model (function-calling capable) rather than the voice
                 # nano override.
-                tool_model = agent.llm_model or "gpt-4o-mini"
+                # None (not an OpenAI-specific literal) lets llm_service resolve
+                # its own per-provider default — "gpt-4o-mini" sent to Anthropic
+                # failed outright (M2).
+                tool_model = agent.llm_model or None
                 resolved_text = ""
                 for _ in range(5):
                     completion = await llm_service.chat(
@@ -818,8 +835,14 @@ async def agent_respond(
                         except Exception:
                             args = {}
                         yield f"data: {json.dumps({'type': 'tool_call', 'name': fcall.name})}\n\n"
+                        # Any text alongside the function call (a "let me
+                        # check…" filler) is never actually spoken — only the
+                        # LOOP'S FINAL completion is sent to TTS. Carrying it
+                        # into history anyway gave the model its own unspoken
+                        # line to restate, so the real answer repeated it
+                        # verbatim once the tool result came back (m4).
                         messages.append(ChatMessage(
-                            role="assistant", content=completion.content or "",
+                            role="assistant", content="",
                             function_call={"name": fcall.name, "arguments": fcall.arguments},
                         ))
                         tool_result = await _execute_tool_call(fcall.name, args)
@@ -916,13 +939,28 @@ async def agent_respond(
 
         except Exception as e:
             logger.error(f"Error in respond stream: {e}", exc_info=True)
+            err_text = str(e).lower()
             err_msg = "I'm having a technical issue right now. Please try again."
-            if "quota" in str(e).lower() or "429" in str(e):
+            reason = f"{type(e).__name__}: {str(e)[:300]}"
+            if "invalid_api_key" in err_text or "authentication" in err_text or "401" in err_text:
                 err_msg = "The AI service is temporarily unavailable. Please try again shortly."
-            elif "rate" in str(e).lower():
+                reason = f"Provider API key rejected — check the {agent.llm_provider} credentials. ({reason})"
+            elif "quota" in err_text or "429" in err_text:
+                err_msg = "The AI service is temporarily unavailable. Please try again shortly."
+                reason = f"Provider quota/billing limit reached for {agent.llm_provider}. ({reason})"
+            elif "rate" in err_text:
                 err_msg = "I'm receiving too many requests. Please wait a moment and try again."
+                reason = f"Provider rate limit hit for {agent.llm_provider}. ({reason})"
+            elif not (agent.llm_model or "").strip():
+                reason = f"No model selected for this agent (llm_provider={agent.llm_provider}, llm_model is empty)."
+            # `reason` names the real cause (provider, key, quota) for the
+            # workspace owner testing the agent — this endpoint is only ever
+            # called by an authenticated teammate, never a live caller, so
+            # it's safe to be specific here instead of guessing with API
+            # probes after the fact (M3). `message`/full_text stay the
+            # caller-safe generic line.
             yield f"data: {json.dumps({'type': 'sentence', 'text': err_msg, 'audio_base64': None})}\n\n"
-            yield f"data: {json.dumps({'type': 'error', 'message': err_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': err_msg, 'reason': reason})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'full_text': err_msg, 'end_call': False})}\n\n"
 
     async def generate():
@@ -1121,8 +1159,10 @@ async def agent_stt_websocket(
 
         stt_model = getattr(agent, "stt_model", None) or "nova-3"
         stt_language = getattr(agent, "stt_language", None) or "en"
+        stt_keywords = getattr(agent, "stt_keywords", None) or []
 
     from app.core.config import settings
+    from app.services.voice.stt_service import deepgram_keyword_params
 
     if not getattr(settings, "DEEPGRAM_API_KEY", None):
         await websocket.send_json({"type": "error", "message": "Deepgram API key not configured"})
@@ -1142,6 +1182,7 @@ async def agent_stt_websocket(
         # groups, so a phone number arrived as three separate messages.
         f"&endpointing=700"
         f"&utterance_end_ms=1500"
+        f"{deepgram_keyword_params(stt_model, stt_keywords)}"
     )
 
     try:
@@ -1178,12 +1219,20 @@ async def agent_stt_websocket(
                                 if msg_type == "Results":
                                     alts = data.get("channel", {}).get("alternatives", [{}])
                                     transcript = alts[0].get("transcript", "") if alts else ""
-                                    if transcript:
+                                    is_final = data.get("is_final", False)
+                                    speech_final = data.get("speech_final", False)
+                                    # The message that ends a turn (speech_final)
+                                    # often carries an empty transcript — the
+                                    # words already arrived in an earlier
+                                    # "final" segment. Dropping it here dropped
+                                    # the end-of-turn signal itself, so the
+                                    # caller's turn never committed.
+                                    if transcript or is_final or speech_final:
                                         await websocket.send_json({
                                             "type": "transcript",
                                             "text": transcript,
-                                            "is_final": data.get("is_final", False),
-                                            "speech_final": data.get("speech_final", False),
+                                            "is_final": is_final,
+                                            "speech_final": speech_final,
                                         })
                                 elif msg_type == "UtteranceEnd":
                                     await websocket.send_json({"type": "utterance_end"})

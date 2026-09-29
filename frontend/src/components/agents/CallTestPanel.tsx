@@ -88,7 +88,6 @@ export function CallTestPanel({
   // it, which is how "0300 1234567" arrived as "one two three".
   const finalBufRef       = useRef('')
   const interruptRef      = useRef(true)
-  const endPhrasesRef     = useRef<string[]>([])
   const maxDurRef         = useRef(1800)
   const idleTimeoutRef    = useRef(8000)
   const streamRef         = useRef<MediaStream | null>(null)
@@ -124,7 +123,6 @@ export function CallTestPanel({
   useEffect(() => {
     if (open && agent) {
       interruptRef.current  = agent.interrupt_enabled ?? true
-      endPhrasesRef.current = [] // agent.end_call_phrases || []
       maxDurRef.current     = agent.max_call_duration || 1800
       // silence_timeout is a few seconds, meant for end-of-speech. Used as the
       // check-in delay it interrupted anyone who paused to think, so a check-in
@@ -289,6 +287,12 @@ export function CallTestPanel({
               // booking that already went through. Sent as a system note, which
               // every backend version accepts.
               historyRef.current.push({ role: 'system', text: `Earlier in this call, the ${ev.name} tool returned: ${ev.result}` })
+            } else if (ev.type === 'error') {
+              // The caller only ever hears the generic line in `sentence`/
+              // `done` — this `reason` is for the workspace owner testing the
+              // agent, naming the actual cause (bad key, no model, quota)
+              // instead of leaving them to probe the API to find it (M3).
+              if (ev.reason) toast.error(ev.reason, { duration: 8000 })
             } else if (ev.type === 'done') {
               fullText  = ev.full_text || fullText
               shouldEnd = !!ev.end_call
@@ -357,12 +361,18 @@ export function CallTestPanel({
           } catch { ws.close(); dgAvailRef.current = false; setSttMode('webspeech'); startWebSpeechRef.current() }
         } else if (ev.type === 'transcript') {
           const { text, is_final, speech_final } = ev
-          if (!text?.trim()) return
-          resetIdleRef.current()
-          if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
-          setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
-          const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
-          if (agentBusy && interruptRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
+          // The message that carries speech_final often has an empty
+          // transcript (the words already arrived in an earlier "final"
+          // segment) — returning early here used to eat the commit signal
+          // itself, so the turn hung until the utterance_end fallback ~1-1.5s
+          // later, or forever if that never fired either.
+          if (text?.trim()) {
+            resetIdleRef.current()
+            if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
+            setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
+            const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
+            if (agentBusy && interruptRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
+          }
           if (speech_final) sendHeardTurn()
         } else if (ev.type === 'utterance_end') {
           // Deepgram's fallback end-of-turn, for when noise kept speech_final

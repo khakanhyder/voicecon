@@ -13,7 +13,9 @@ from app.schemas._types import NonBlankName, NonBlankText
 class LLMConfig(BaseModel):
     """LLM configuration schema."""
     provider: str = Field(default="openai", description="LLM provider")
-    model: str = Field(default="gpt-5.4-nano", description="Model name")
+    # A blank model silently became "I'm having a technical issue" on every
+    # reply, with no indication in the UI that anything was wrong (B1).
+    model: str = Field(default="gpt-5.4-nano", min_length=1, description="Model name")
     temperature: Decimal = Field(default=Decimal("0.7"), ge=0, le=2, description="Temperature (0-2)")
     max_tokens: int = Field(default=1000, ge=1, le=4000, description="Max tokens")
     api_key: Optional[str] = Field(default=None, description="Custom API key (will be encrypted)")
@@ -36,6 +38,9 @@ class STTConfig(BaseModel):
     language: str = Field(default="en", description="Language code")
     model: Optional[str] = Field(default="nova-2", description="Model name")
     api_key: Optional[str] = Field(default=None, description="Custom API key")
+    # Names/products the agent should recognise reliably (Deepgram keyterm/
+    # keywords biasing).
+    keywords: List[str] = Field(default_factory=list, description="Vocabulary to bias speech recognition toward")
 
 
 # Conversation Settings
@@ -91,6 +96,10 @@ class AgentCreate(BaseModel):
         return v
 
     class Config:
+        # A flat field like `llm_model` (instead of the nested `llm.model`)
+        # used to be silently dropped, so the agent was created with defaults
+        # and no error (M12). Unknown fields now fail validation instead.
+        extra = "forbid"
         json_schema_extra = {
             "example": {
                 "name": "Customer Support Agent",
@@ -133,6 +142,17 @@ class AgentUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_public: Optional[bool] = None
 
+    # Optimistic-lock token: the `version` a client last read with GET.
+    # When set, the update is rejected with 409 if the agent has since
+    # been changed elsewhere, instead of a stale tab silently overwriting
+    # fields (system_prompt, end_call_phrases, stt_model, ...) it never
+    # showed the user (B2). Omitted entirely, the update is unconditional —
+    # existing API callers that don't send it are unaffected.
+    version: Optional[int] = None
+
+    class Config:
+        extra = "forbid"
+
 
 # Agent Response Schema
 class AgentResponse(BaseModel):
@@ -164,6 +184,7 @@ class AgentResponse(BaseModel):
     stt_provider: str
     stt_language: str
     stt_model: Optional[str]
+    stt_keywords: List[str]
 
     # Conversation settings
     interrupt_enabled: bool

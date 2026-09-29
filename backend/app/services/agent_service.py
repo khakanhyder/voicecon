@@ -24,6 +24,12 @@ from app.core.security_fixed import encrypt_value, decrypt_value
 logger = logging.getLogger(__name__)
 
 
+class AgentVersionConflict(Exception):
+    """Raised when a PATCH carries a `version` that no longer matches the
+    agent's current version — the caller read a since-stale copy."""
+    pass
+
+
 # Predefined agent templates
 AGENT_TEMPLATES = [
     {
@@ -288,6 +294,7 @@ class AgentService:
                 stt_provider=agent_data.stt.provider,
                 stt_language=agent_data.stt.language,
                 stt_model=agent_data.stt.model,
+                stt_keywords=agent_data.stt.keywords,
                 # Conversation settings
                 interrupt_enabled=agent_data.settings.interrupt_enabled,
                 interrupt_sensitivity=agent_data.settings.interrupt_sensitivity,
@@ -363,6 +370,17 @@ class AgentService:
             if not agent:
                 return None
 
+            # Optimistic lock: a stale tab that read version 5 and now saves
+            # after someone else pushed it to 6 gets rejected instead of
+            # blindly overwriting fields it never displayed — system_prompt,
+            # stt_model, end_call_phrases — with the values it loaded minutes
+            # or hours ago (B2).
+            if agent_data.version is not None and agent_data.version != agent.version:
+                raise AgentVersionConflict(
+                    "This agent was changed elsewhere since you opened it. "
+                    "Reload the page and re-apply your changes."
+                )
+
             # Update fields
             if agent_data.name is not None:
                 agent.name = agent_data.name
@@ -396,6 +414,7 @@ class AgentService:
                 agent.stt_provider = agent_data.stt.provider
                 agent.stt_language = agent_data.stt.language
                 agent.stt_model = agent_data.stt.model
+                agent.stt_keywords = agent_data.stt.keywords
                 if agent_data.stt.api_key:
                     agent.stt_api_key_encrypted = encrypt_value(agent_data.stt.api_key)
 
@@ -432,6 +451,8 @@ class AgentService:
 
             return agent
 
+        except AgentVersionConflict:
+            raise
         except Exception as e:
             logger.error(f"Error updating agent: {e}", exc_info=True)
             await db.rollback()
@@ -554,6 +575,7 @@ class AgentService:
                 stt_provider=source.stt_provider,
                 stt_language=source.stt_language,
                 stt_model=source.stt_model,
+                stt_keywords=list(source.stt_keywords or []),
                 interrupt_enabled=source.interrupt_enabled,
                 interrupt_sensitivity=source.interrupt_sensitivity,
                 silence_timeout=source.silence_timeout,

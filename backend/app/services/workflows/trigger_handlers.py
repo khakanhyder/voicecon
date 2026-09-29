@@ -405,10 +405,22 @@ class WebhookTriggerHandler(BaseTriggerHandler):
 
         Returns:
             Prepared trigger data
+
+        The posted body is flattened alongside the metadata, so
+        `{{trigger.email}}` resolves the same way a manually-run workflow's
+        `{{trigger.X}}` does — a webhook-triggered run was the only one where
+        the real data sat a level deeper, under `{{trigger.payload.email}}`,
+        with nothing telling a workflow author that before they hit a silent
+        empty string (m5). `payload` is kept too, for anything already built
+        around the nested form. Metadata keys are applied last so a payload
+        field literally named "headers" or "source_ip" can't shadow them.
         """
+        payload = event_data.get("payload", {})
+        payload = payload if isinstance(payload, dict) else {}
         return {
+            **payload,
+            "payload": payload,
             "event_type": "webhook",
-            "payload": event_data.get("payload", {}),
             "headers": event_data.get("headers", {}),
             "source_ip": event_data.get("source_ip"),
             "triggered_at": datetime.utcnow().isoformat(),

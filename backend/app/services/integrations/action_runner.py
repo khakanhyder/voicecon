@@ -98,6 +98,40 @@ def with_confirmation(parameters: Dict[str, Any]) -> Dict[str, Any]:
     return schema
 
 
+def _validate_required(action_def: Dict[str, Any], supplied: Dict[str, Any]) -> None:
+    """
+    Reject missing/wrong-shaped arguments before any network call.
+
+    Malformed calls (append_row with no range_name, upsert_row's `values`
+    sent as a list instead of an object, delete_row with an ambiguous match
+    and no row_number) used to reach the connector, which only discovered the
+    problem after a real request to the provider — or, for a required
+    positional argument like `range_name`, blew up as a raw Python
+    TypeError. Either way the caller waited out a real network round-trip
+    (and its retries) for an error that was always knowable locally (M6).
+    """
+    schema = action_def.get("parameters") or {}
+    properties = schema.get("properties") or {}
+    required = [r for r in (schema.get("required") or []) if r != CONFIRM_KEY]
+
+    missing = [r for r in required if supplied.get(r) in (None, "")]
+    if missing:
+        raise IntegrationActionError(f"Missing required value(s): {', '.join(missing)}.")
+
+    for name, spec in properties.items():
+        if name not in supplied or supplied[name] is None:
+            continue
+        want = spec.get("type") if isinstance(spec, dict) else None
+        value = supplied[name]
+        if want == "object" and not isinstance(value, dict):
+            raise IntegrationActionError(
+                f"'{name}' must be an object of column/value pairs (e.g. "
+                f'{{"Status": "Booked"}}), not a {type(value).__name__}.'
+            )
+        if want == "array" and not isinstance(value, list):
+            raise IntegrationActionError(f"'{name}' must be a list, not a {type(value).__name__}.")
+
+
 def confirmation_instructions(action_def: Dict[str, Any]) -> str:
     """Sentence appended to an update/delete tool's description for the agent."""
     verb = "delete" if operation_of(action_def) == OP_DELETE else "change"
@@ -224,6 +258,12 @@ async def run_integration_action(
     # (Trello's board_id), so the connector method never sees it.
     expected_scope = {s["param"]: params.get(s["param"]) for s in scopes} if source == SOURCE_AGENT else {}
     params = strip_ui_only_parameters(slug, action, params)
+    # Validated here — after connection defaults filled in what the agent left
+    # blank (spreadsheet_id and friends are commonly absent from `supplied`
+    # and only appear once defaults are applied), but still on the
+    # schema-named keys, before adapt_parameters may rename them for the
+    # connector method (M6).
+    _validate_required(action_def, params)
     # Keep the schema-named values for the audit row, before renaming.
     audited_params = dict(params)
     try:
