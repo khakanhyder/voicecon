@@ -76,7 +76,9 @@ const nextConfig = {
               // Stripe.js must load from js.stripe.com and mounts its card field and
               // 3-D Secure challenge in iframes; without these checkout never opens
               // (its API calls to api.stripe.com are covered by connect-src https:).
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com",
+              // Google Analytics (gtag.js) loads from googletagmanager.com; its hits go
+              // out over connect-src/img-src https:, which already allow them.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com https://www.googletagmanager.com",
               "frame-src https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",

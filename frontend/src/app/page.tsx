@@ -5,8 +5,12 @@ import { HomePage, homeMetadata } from '@/components/landing/HomePage'
 // them from the API at most once a minute (see lib/pricing.ts).
 export const revalidate = 60
 
-export function generateMetadata(): Promise<Metadata> {
-  return homeMetadata('/')
+export async function generateMetadata(): Promise<Metadata> {
+  // Search Console ownership check — the SEO team wants it on the homepage only.
+  return {
+    ...(await homeMetadata('/')),
+    verification: { google: 'IRfPeiEqfP2qJ8RLXGOeMHSgVG3srGifZRR_anba3y8' },
+  }
 }
 
 export default function LandingPage() {

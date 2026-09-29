@@ -46,6 +46,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Google tag (gtag.js) — the SEO team asked for it first in <head> on every page. */}
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZC5PPBD3B6"></script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+
+gtag('config', 'G-ZC5PPBD3B6');`,
+          }}
+        />
+      </head>
       <body className={`${dmSans.variable} font-sans`}>
         <Providers>
           {children}
