@@ -9,7 +9,12 @@ export async function generateMetadata(): Promise<Metadata> {
   // Search Console ownership check — the SEO team wants it on the homepage only.
   return {
     ...(await homeMetadata('/')),
-    verification: { google: 'IRfPeiEqfP2qJ8RLXGOeMHSgVG3srGifZRR_anba3y8' },
+    verification: {
+      google: [
+        'IRfPeiEqfP2qJ8RLXGOeMHSgVG3srGifZRR_anba3y8', // SEO team
+        '8KNY_vK3bZItS-vHf60FjezG7zqewTbB1QHw3MoSixg', // Google OAuth app owner
+      ],
+    },
   }
 }
 
