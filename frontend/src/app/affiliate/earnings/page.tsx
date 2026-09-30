@@ -66,7 +66,7 @@ function statusHelp(c: Commission): string | null {
 function typeLabel(c: Commission): { kind: string; reason: string | null } {
   return {
     kind: KIND_LABELS[c.kind] ?? c.kind,
-    reason: c.kind === 'commission' ? billingReasonLabel(c.billing_reason) : null,
+    reason: c.kind === 'commission' ? billingReasonLabel(c.billing_reason, c.billing_period) : null,
   }
 }
 
@@ -129,7 +129,7 @@ export default function AffiliateEarningsPage() {
           <EmptyState icon={<Receipt className="h-6 w-6" />} title={status ? 'Nothing here' : 'No earnings yet'}>
             {status
               ? `You have no ${COMMISSION_STATUS_LABELS[status].toLowerCase()} commissions.`
-              : 'When a customer you referred pays for an annual plan, your commission appears here.'}
+              : 'When a customer you referred makes a payment that earns commission, it appears here.'}
           </EmptyState>
         ) : (
           <>

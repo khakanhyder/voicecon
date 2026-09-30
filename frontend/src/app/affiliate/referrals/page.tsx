@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Users } from 'lucide-react'
-import { affiliateApi, formatDate, money, REFERRAL_STATUS_LABELS } from '@/lib/affiliate'
+import { affiliateApi, earnsOnPhrase, formatDate, money, REFERRAL_STATUS_LABELS } from '@/lib/affiliate'
+import { useAffiliateMe } from '@/components/affiliate/useAffiliateMe'
 import { getErrorMessage } from '@/lib/api'
 import {
   Badge,
@@ -30,6 +31,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
 const SOURCE_LABELS: Record<string, string> = { link: 'Referral link', coupon: 'Coupon' }
 
 export default function AffiliateReferralsPage() {
+  const me = useAffiliateMe()
   const [page, setPage] = useState(1)
   const q = useQuery({
     queryKey: ['affiliate', 'referrals', page],
@@ -81,7 +83,9 @@ export default function AffiliateReferralsPage() {
         )}
       </div>
       <p className="mt-4 text-xs text-slate-500">
-        Only annual plan payments earn a commission. Customers on monthly plans still count as your referrals.
+        {me.data?.rules.billing_periods === 'both'
+          ? 'Monthly and annual plan payments both earn you a commission.'
+          : `Only ${earnsOnPhrase(me.data?.rules.billing_periods)} earn you a commission. Other customers still count as your referrals.`}
       </p>
     </div>
   )

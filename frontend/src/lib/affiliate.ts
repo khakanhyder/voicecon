@@ -50,13 +50,21 @@ export interface Coupon {
   description: string
 }
 
+/** Which payments earn this affiliate a commission. */
+export type EarnsOn = 'yearly' | 'monthly' | 'both'
+
 export interface Rules {
-  billing_period: string
+  billing_periods: EarnsOn
+  /** Rate on annual payments. */
   commission_percent: number
+  /** Rate on monthly payments (already resolved: equals the annual rate when not set separately). */
+  commission_percent_monthly: number
   hold_days: number
   min_payout_amount: number
   /** 1 = first annual payment, N = first N, null = every renewal. */
   max_commission_payments: number | null
+  /** The same, counted in monthly payments. */
+  max_monthly_commission_payments: number | null
   referral_window_days: number | null
   cookie_days: number
   /** Plan names; empty means every plan qualifies. */
@@ -259,7 +267,7 @@ export function formatDate(value: string | null | undefined): string {
 export const REFERRAL_STATUS_LABELS: Record<string, string> = {
   signed_up: 'Signed up',
   trial: 'On free trial',
-  paying_monthly: 'Paying monthly (no commission)',
+  paying_monthly: 'Paying monthly',
   paying_annual: 'Paying annually',
   canceled: 'Canceled',
   lapsed: 'Lapsed',
@@ -280,13 +288,21 @@ export const KIND_LABELS: Record<string, string> = {
 }
 
 /** Stripe/Polar billing reasons, phrased for a partner. */
-export function billingReasonLabel(reason: string | null | undefined): string | null {
+export function billingReasonLabel(reason: string | null | undefined, period?: string | null): string | null {
   if (!reason) return null
+  const kind = period === 'monthly' ? 'monthly' : 'annual'
   // Mirrors BASE_/PRORATION_BILLING_REASONS in backend services/affiliates/program.py.
   const labels: Record<string, string> = {
-    subscription_create: 'New annual subscription',
-    subscription_cycle: 'Annual renewal',
+    subscription_create: `New ${kind} subscription`,
+    subscription_cycle: period === 'monthly' ? 'Monthly renewal' : 'Annual renewal',
     subscription_update: 'Upgrade',
   }
   return labels[reason] ?? null
+}
+
+/** "annual plans" / "monthly plans" / "monthly and annual plans" */
+export function earnsOnPhrase(earnsOn: EarnsOn | undefined): string {
+  if (earnsOn === 'monthly') return 'monthly plans'
+  if (earnsOn === 'both') return 'monthly and annual plans'
+  return 'annual plans'
 }

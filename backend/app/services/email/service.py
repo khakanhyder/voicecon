@@ -220,7 +220,7 @@ class EmailService:
         name: str,
         action_url: str,
         needs_password: bool,
-        commission_percent: str,
+        earning_terms: str,
     ) -> bool:
         """Invite a partner to the affiliate portal. Never raises."""
         brand = settings.APP_NAME
@@ -232,7 +232,7 @@ class EmailService:
                 "Your portal shows your referral link, coupon code, referred customers and earnings."
             ),
             bullets=[
-                f"You earn {commission_percent}% of what referred customers pay for annual plans.",
+                earning_terms,
                 "Connect your Stripe account in the portal to receive payouts.",
             ],
             action_url=action_url,

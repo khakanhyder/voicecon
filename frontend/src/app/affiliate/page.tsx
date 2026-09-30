@@ -13,7 +13,7 @@ import {
   UserPlus,
   Wallet,
 } from 'lucide-react'
-import { money, type AffiliateMe, type Rules } from '@/lib/affiliate'
+import { earnsOnPhrase, money, type AffiliateMe, type Rules } from '@/lib/affiliate'
 import { useAffiliateMe } from '@/components/affiliate/useAffiliateMe'
 import {
   CopyField,
@@ -33,23 +33,37 @@ function plural(n: number, one: string, many = `${one}s`) {
   return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
 }
 
-function paymentsLine(max: number | null): string {
-  if (max === null || max === undefined) return 'on every annual payment they make, renewals included'
-  if (max <= 1) return 'on their first annual payment'
-  return `on their first ${max} annual payments`
+function paymentsLine(max: number | null, kind: 'annual' | 'monthly'): string {
+  if (max === null || max === undefined) return `on every ${kind} payment they make, renewals included`
+  if (max <= 1) return `on their first ${kind} payment`
+  return `on their first ${max} ${kind} payments`
+}
+
+function earnLines(rules: Rules): React.ReactNode[] {
+  const annual = (
+    <>
+      You earn <strong>{rules.commission_percent}%</strong> of what the customers you refer pay for{' '}
+      <strong>annual plans</strong>, {paymentsLine(rules.max_commission_payments, 'annual')}.
+    </>
+  )
+  const monthly = (
+    <>
+      You earn <strong>{rules.commission_percent_monthly}%</strong> of what the customers you refer pay for{' '}
+      <strong>monthly plans</strong>, {paymentsLine(rules.max_monthly_commission_payments, 'monthly')}.
+    </>
+  )
+  if (rules.billing_periods === 'monthly') return [<>{monthly} Annual plans don’t earn a commission.</>]
+  if (rules.billing_periods === 'both') return [annual, monthly]
+  return [<>{annual} Monthly plans don’t earn a commission.</>]
 }
 
 function HowYouEarn({ rules }: { rules: Rules }) {
   const points: React.ReactNode[] = [
-    <>
-      You earn <strong>{rules.commission_percent}%</strong> of what the customers you refer pay for{' '}
-      <strong>annual plans</strong>, {paymentsLine(rules.max_commission_payments)}. Monthly plans don’t earn a
-      commission.
-    </>,
+    ...earnLines(rules),
     rules.eligible_plans.length > 0 ? (
       <>Eligible plans: {rules.eligible_plans.join(', ')}.</>
     ) : (
-      <>Every plan qualifies when it’s billed annually.</>
+      <>Every plan qualifies when it’s billed {rules.billing_periods === 'monthly' ? 'monthly' : rules.billing_periods === 'both' ? 'monthly or annually' : 'annually'}.</>
     ),
     rules.hold_days > 0 ? (
       <>
@@ -61,8 +75,8 @@ function HowYouEarn({ rules }: { rules: Rules }) {
     ),
     rules.referral_window_days ? (
       <>
-        A referred customer needs to start an annual plan within {plural(rules.referral_window_days, 'day')} of signing
-        up for it to count.
+        A referred customer needs to make their first commissioned payment within{' '}
+        {plural(rules.referral_window_days, 'day')} of signing up for it to count.
       </>
     ) : null,
     rules.cookie_days > 0 ? (
@@ -195,7 +209,7 @@ export default function AffiliateOverviewPage() {
           icon={<TrendingUp className={iconClass} />}
           label="Conversions"
           value={me.stats.conversions.toLocaleString('en-US')}
-          sub="Referrals that paid annually"
+          sub="Referrals that earned you a commission"
         />
         <StatCard
           icon={<Clock className={iconClass} />}
@@ -223,8 +237,18 @@ export default function AffiliateOverviewPage() {
         <StatCard
           icon={<BadgePercent className={iconClass} />}
           label="Commission rate"
-          value={`${me.rules.commission_percent}%`}
-          sub="Of annual plan payments"
+          value={
+            me.rules.billing_periods === 'monthly'
+              ? `${me.rules.commission_percent_monthly}%`
+              : me.rules.billing_periods === 'both' && me.rules.commission_percent_monthly !== me.rules.commission_percent
+                ? `${me.rules.commission_percent}% / ${me.rules.commission_percent_monthly}%`
+                : `${me.rules.commission_percent}%`
+          }
+          sub={
+            me.rules.billing_periods === 'both' && me.rules.commission_percent_monthly !== me.rules.commission_percent
+              ? 'Annual / monthly plan payments'
+              : `Of ${earnsOnPhrase(me.rules.billing_periods)} payments`
+          }
         />
         <StatCard
           icon={<TrendingUp className={iconClass} />}

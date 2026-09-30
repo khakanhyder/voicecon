@@ -1,7 +1,8 @@
 # Affiliate program
 
 Partners refer customers by link or coupon and earn a commission on those
-customers' **annual** payments. Staff run it from the admin console
+customers' payments — on **annual plans, monthly plans or both**, chosen per
+affiliate with a separate rate for each. Staff run it from the admin console
 (Growth → Affiliates); partners use their own portal at `/affiliate`.
 
 ## How it works
@@ -12,7 +13,7 @@ customers' **annual** payments. Staff run it from the admin console
 | Link | `https://voicecon.ai/?ref=CODE` (or `app.voicecon.ai/register?ref=CODE`). The code is stored for `cookie_days` in a cookie on `.voicecon.ai`, so it survives the hop from the landing site to the app. |
 | Attribution | A **new** account created with a stored code is credited to that affiliate. A coupon applied in onboarding or at checkout credits a workspace that isn't referred yet. **First touch wins**, and it's once per workspace. Self-referral and existing paying customers are refused. |
 | Coupon | Percent off, for annual plans only or for all plans, applied to the first payment, every payment, or N months. Stripe gets a coupon on the subscription; Polar gets a discount on the hosted checkout. New customers only. |
-| Commission | Earned when a referred workspace pays a **yearly** invoice or order. Monthly payments never earn (a fixed rule). It is calculated on what was paid after the discount and before tax. |
+| Commission | Earned when a referred workspace pays an invoice or order whose billing period the affiliate earns on: **annual only** (default), **monthly only**, or **both**. Each has its own rate (monthly rate blank = same as annual). It is calculated on what was paid after the discount and before tax. Payments on a billing type the affiliate doesn't earn on are skipped. |
 | Hold | New commissions are `pending` for `hold_days` (the refund window), then become `approved`. The billing scheduler moves them. |
 | Refund | Before payout, a refund shrinks or reverses the commission. After payout, a negative clawback is taken off the next payout. |
 | Payout | Admin clicks **Pay** on the affiliate. This sends one Stripe Connect transfer for the whole approved balance, or records a manual payment with its reference. |
@@ -23,7 +24,7 @@ Admin-set rules (Program rules page):
 - minimum payout
 - cookie days
 - referral window: the first annual payment must come within N days of sign-up
-- number of commissioned annual payments per customer: 1 = first only, blank = every renewal; each affiliate can override this
+- number of commissioned **annual** payments per customer (1 = first only, blank = every renewal) and, separately, commissioned **monthly** payments per customer (default 12 = first year, blank = every month); each affiliate can override both
 - eligible plans
 
 ## Before going live
@@ -33,7 +34,7 @@ Admin-set rules (Program rules page):
 3. A **restricted key** (`rk_`) additionally needs write access to Coupons, Connected accounts (Accounts, Account links, Login links) and Transfers.
 4. Add **`charge.refunded`** to the Stripe webhook's events. Polar's `order.refunded` is already handled. The Polar token needs `discounts:write`.
 5. Optional: `LANDING_URL` sets the base of referral links. Without it, the base is `FRONTEND_URL` minus its `app.` prefix.
-6. Migration `0030_affiliate_program` runs on deploy (`start.sh`).
+6. Migrations `0030_affiliate_program` and `0031_affiliate_billing_periods` run on deploy (`start.sh`). 0031 keeps existing affiliates on annual-only.
 
 ## Not verified yet
 
@@ -51,3 +52,9 @@ Admin-set rules (Program rules page):
 - Portal sign-in: `/auth/affiliate/*`. Its sessions carry scope `affiliate` and only reach `/api/v1/affiliate` (see `_enforce_session_scope`)
 - Frontend: `src/app/affiliate/`, `src/app/admin/affiliates/`, `src/lib/referral.ts`, `src/components/billing/CouponField.tsx`
 - Tests: `backend/tests/unit/test_affiliates.py`
+
+## Local testing
+
+`backend/scripts/simulate_affiliate_payment.py` runs the webhook commission code for a referred customer without a payment provider:
+`pay <email> [--period monthly|yearly] [--reason subscription_cycle]`, `refund <email> --fraction 0.5`, `mature`.
+Never run it against production.

@@ -16,6 +16,7 @@ from jose import JWTError, jwt
 from app.core.config import settings
 from app.core.security import TOKEN_VERSION_CLAIM
 from app.models.affiliate import Affiliate
+from app.services.affiliates.program import describe_earning
 
 logger = logging.getLogger(__name__)
 
@@ -60,5 +61,5 @@ async def send_invite(affiliate: Affiliate) -> bool:
         name=affiliate.name,
         action_url=invite_url(affiliate),
         needs_password=not affiliate.user.hashed_password,
-        commission_percent=f"{float(affiliate.commission_percent):g}",
+        earning_terms=describe_earning(affiliate),
     )

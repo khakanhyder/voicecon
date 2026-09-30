@@ -124,12 +124,13 @@ export function PayoutStatusBadge({ status }: { status: AffiliatePayout['status'
   return <ToneBadge tone={tones[status] ?? 'neutral'}>{humanize(status)}</ToneBadge>
 }
 
-export function billingReasonLabel(reason: string | null | undefined): string {
+export function billingReasonLabel(reason: string | null | undefined, period?: string | null): string {
+  const kind = period === 'monthly' ? 'monthly' : 'annual'
   switch (reason) {
     case 'subscription_create':
-      return 'New annual'
+      return `New ${kind}`
     case 'subscription_cycle':
-      return 'Annual renewal'
+      return period === 'monthly' ? 'Monthly renewal' : 'Annual renewal'
     case 'subscription_update':
       return 'Upgrade'
     default:

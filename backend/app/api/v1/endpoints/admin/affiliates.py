@@ -62,6 +62,7 @@ class ProgramUpdate(BaseModel):
     cookie_days: int = Field(ge=1, le=365)
     referral_window_days: Optional[int] = Field(None, ge=1, le=3650)
     max_commission_payments: Optional[int] = Field(None, ge=1, le=100)
+    max_monthly_commission_payments: Optional[int] = Field(None, ge=1, le=240)
     eligible_plan_slugs: List[str] = Field(default_factory=list, max_length=50)
 
 
@@ -74,9 +75,8 @@ def _program_view(program, plans: List[SubscriptionPlan]) -> dict:
         "cookie_days": program.cookie_days,
         "referral_window_days": program.referral_window_days,
         "max_commission_payments": program.max_commission_payments,
+        "max_monthly_commission_payments": program.max_monthly_commission_payments,
         "eligible_plan_slugs": list(program.eligible_plan_slugs or []),
-        # Fixed rule, shown so the console can explain it.
-        "commission_billing_period": "yearly",
         # Retired plans still listed as eligible stay visible, so saving the
         # form never silently drops them.
         "plans": [
@@ -138,7 +138,12 @@ class AffiliateTerms(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     company: Optional[str] = Field(None, max_length=255)
+    #: Which payments earn: yearly only, monthly only, or both.
+    commission_billing_periods: Optional[Literal["yearly", "monthly", "both"]] = None
+    #: Rate on yearly payments.
     commission_percent: Optional[Decimal] = Field(None, ge=0, le=100)
+    #: Rate on monthly payments; null = same as ``commission_percent``.
+    commission_percent_monthly: Optional[Decimal] = Field(None, ge=0, le=100)
     referral_code: Optional[str] = Field(None, max_length=40)
     coupon_code: Optional[str] = Field(None, max_length=40)
     discount_percent: Optional[Decimal] = Field(None, ge=0, le=100)
@@ -147,6 +152,7 @@ class AffiliateTerms(BaseModel):
     discount_duration_months: Optional[int] = Field(None, ge=1, le=36)
     custom_max_payments: Optional[bool] = None
     max_commission_payments: Optional[int] = Field(None, ge=1, le=100)
+    max_monthly_commission_payments: Optional[int] = Field(None, ge=1, le=240)
     notes: Optional[str] = Field(None, max_length=5000)
 
 
@@ -201,8 +207,8 @@ async def _check_codes(db: AsyncSession, affiliate: Optional[Affiliate], referra
 def _apply_terms(affiliate: Affiliate, body: AffiliateTerms) -> None:
     data = body.model_dump(exclude_unset=True)
     for field in (
-        "name", "company", "commission_percent", "discount_percent", "discount_applies_to",
-        "discount_duration", "custom_max_payments", "notes",
+        "name", "company", "commission_billing_periods", "commission_percent", "discount_percent",
+        "discount_applies_to", "discount_duration", "custom_max_payments", "notes",
     ):
         if field in data and data[field] is not None:
             setattr(affiliate, field, data[field])
@@ -212,12 +218,17 @@ def _apply_terms(affiliate: Affiliate, body: AffiliateTerms) -> None:
         affiliate.discount_duration_months = data["discount_duration_months"]
     if "max_commission_payments" in data:
         affiliate.max_commission_payments = data["max_commission_payments"]
+    if "max_monthly_commission_payments" in data:
+        affiliate.max_monthly_commission_payments = data["max_monthly_commission_payments"]
+    if "commission_percent_monthly" in data:
+        affiliate.commission_percent_monthly = data["commission_percent_monthly"]
     if affiliate.discount_duration != DISCOUNT_REPEATING:
         affiliate.discount_duration_months = None
     elif not affiliate.discount_duration_months:
         raise _bad("Choose how many months a repeating discount lasts.")
     if not affiliate.custom_max_payments:
         affiliate.max_commission_payments = None
+        affiliate.max_monthly_commission_payments = None
 
 
 async def _affiliate_or_404(db: AsyncSession, affiliate_id: str) -> Affiliate:
@@ -238,9 +249,14 @@ def _affiliate_view(a: Affiliate, *, balance=None, refs=None, clicks=None) -> di
         "referral_code": a.referral_code,
         "links": views.links(a),
         "coupon": views.coupon_view(a),
+        "commission_billing_periods": a.commission_billing_periods,
         "commission_percent": float(a.commission_percent),
+        "commission_percent_monthly": float(a.commission_percent_monthly)
+        if a.commission_percent_monthly is not None
+        else None,
         "custom_max_payments": a.custom_max_payments,
         "max_commission_payments": a.max_commission_payments,
+        "max_monthly_commission_payments": a.max_monthly_commission_payments,
         "discount_percent": float(a.discount_percent or 0),
         "discount_applies_to": a.discount_applies_to,
         "discount_duration": a.discount_duration,
@@ -372,6 +388,7 @@ async def create_affiliate(
         commission_percent=body.commission_percent
         if body.commission_percent is not None
         else program.default_commission_percent,
+        commission_billing_periods=body.commission_billing_periods or "yearly",
         discount_applies_to=body.discount_applies_to or DISCOUNT_YEARLY_ONLY,
         discount_duration=body.discount_duration or DISCOUNT_ONCE,
         custom_max_payments=bool(body.custom_max_payments),
@@ -388,7 +405,10 @@ async def create_affiliate(
         affiliate.invited_at = utcnow()
     audit(
         db, admin, "affiliate.create", target_type="affiliate", target_id=affiliate.id,
-        summary=f"Created affiliate {name} <{email}> at {float(affiliate.commission_percent):g}%",
+        summary=(
+            f"Created affiliate {name} <{email}> at {float(affiliate.commission_percent):g}% "
+            f"({affiliate.commission_billing_periods} payments)"
+        ),
         details={"referral_code": referral, "coupon_code": coupon, "discount_percent": float(discount)},
         request=request,
     )
@@ -663,7 +683,8 @@ async def update_affiliate(
         k: {"from": before[k], "to": after[k]}
         for k in (
             "name", "company", "commission_percent", "referral_code", "coupon", "custom_max_payments",
-            "max_commission_payments", "notes",
+            "max_commission_payments", "notes", "commission_billing_periods", "commission_percent_monthly",
+            "max_monthly_commission_payments",
         )
         if before[k] != after[k]
     }

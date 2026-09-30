@@ -29,7 +29,7 @@ from app.models.subscription import (
     SubscriptionPlan,
 )
 from app.services.affiliates import coupons, payouts
-from app.services.affiliates.program import max_payments_for
+from app.services.affiliates.program import max_payments_for, rate_for
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
@@ -160,11 +160,14 @@ def coupon_view(affiliate: Affiliate) -> Optional[dict]:
 def rules_view(affiliate: Affiliate, program: AffiliateProgram, plan_names: Dict[str, str]) -> dict:
     eligible = [s for s in (program.eligible_plan_slugs or []) if s]
     return {
-        "billing_period": "yearly",
-        "commission_percent": _num(affiliate.commission_percent),
+        #: ``yearly`` | ``monthly`` | ``both`` — which payments earn.
+        "billing_periods": affiliate.commission_billing_periods,
+        "commission_percent": _num(rate_for(affiliate, "yearly")),
+        "commission_percent_monthly": _num(rate_for(affiliate, "monthly")),
         "hold_days": program.hold_days,
         "min_payout_amount": _num(program.min_payout_amount),
-        "max_commission_payments": max_payments_for(affiliate, program),
+        "max_commission_payments": max_payments_for(affiliate, program, "yearly"),
+        "max_monthly_commission_payments": max_payments_for(affiliate, program, "monthly"),
         "referral_window_days": program.referral_window_days,
         "cookie_days": program.cookie_days,
         "eligible_plans": [plan_names.get(slug, slug) for slug in eligible] if eligible else [],

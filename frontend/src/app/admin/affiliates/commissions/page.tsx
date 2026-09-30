@@ -116,7 +116,7 @@ function CommissionsTab({ onOpenAffiliate }: { onOpenAffiliate: (id: string) => 
                   ) : (
                     <>
                       <p className="text-slate-700">{[plan, c.billing_period && humanize(c.billing_period)].filter(Boolean).join(' · ') || '—'}</p>
-                      {c.billing_reason && <p className="text-xs text-slate-400">{billingReasonLabel(c.billing_reason)}</p>}
+                      {c.billing_reason && <p className="text-xs text-slate-400">{billingReasonLabel(c.billing_reason, c.billing_period)}</p>}
                       {c.status === 'rejected' && c.note && (
                         <p className="max-w-[16rem] truncate text-xs text-rose-500" title={c.note}>{c.note}</p>
                       )}
@@ -256,7 +256,7 @@ export default function AffiliateCommissionsPage() {
     <>
       <PageHeader
         title="Commissions & Payouts"
-        description="Every commission affiliates have earned, and every payout sent to them. Commission is earned on annual plan payments only."
+        description="Every commission affiliates have earned, and every payout sent to them. Each affiliate earns on monthly plans, annual plans or both, as set on the affiliate."
       />
 
       <div role="tablist" aria-label="View" className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">

@@ -257,8 +257,51 @@ async def test_annual_payment_earns_commission_on_net_amount(db, referred_org, a
     assert referral.converted_at == NOW
 
 
-async def test_monthly_payment_never_earns(db, referred_org):
+async def test_annual_only_affiliate_does_not_earn_on_monthly(db, referred_org, affiliate):
+    assert affiliate.commission_billing_periods == "yearly"  # the default
     assert await commissions.record_payment(db, payment(referred_org, period="monthly", amount="149")) is None
+
+
+async def test_monthly_only_affiliate_earns_on_monthly_not_annual(db, referred_org, affiliate):
+    affiliate.commission_billing_periods = "monthly"
+    affiliate.commission_percent_monthly = Decimal("10")
+    await db.flush()
+    assert await commissions.record_payment(db, payment(referred_org)) is None
+    monthly = await commissions.record_payment(db, payment(referred_org, period="monthly", amount="149"))
+    assert monthly.amount == Decimal("14.90") and monthly.rate_percent == Decimal("10")
+
+
+async def test_both_periods_use_their_own_rates(db, referred_org, affiliate):
+    affiliate.commission_billing_periods = "both"
+    affiliate.commission_percent_monthly = Decimal("10")
+    await db.flush()
+    yearly = await commissions.record_payment(db, payment(referred_org))
+    monthly = await commissions.record_payment(db, payment(referred_org, period="monthly", amount="149"))
+    assert yearly.amount == Decimal("357.00")  # 25% annual rate
+    assert monthly.amount == Decimal("14.90")  # 10% monthly rate
+
+    affiliate.commission_percent_monthly = None  # blank: same as the annual rate
+    await db.flush()
+    again = await commissions.record_payment(
+        db, payment(referred_org, period="monthly", reason="subscription_cycle", amount="149")
+    )
+    assert again.amount == Decimal("37.25")
+
+
+async def test_monthly_and_annual_limits_are_counted_separately(db, referred_org, affiliate):
+    affiliate.commission_billing_periods = "both"
+    affiliate.custom_max_payments = True
+    affiliate.max_commission_payments = 1
+    affiliate.max_monthly_commission_payments = 2
+    await db.flush()
+    month = lambda n: payment(referred_org, period="monthly", amount="149",
+                              reason="subscription_create" if n == 0 else "subscription_cycle",
+                              paid_at=NOW + timedelta(days=30 * n), period_end=NOW + timedelta(days=30 * (n + 1)))
+    assert await commissions.record_payment(db, month(0)) is not None
+    assert await commissions.record_payment(db, month(1)) is not None
+    assert await commissions.record_payment(db, month(2)) is None  # monthly limit of 2 reached
+    # The annual allowance is untouched by the monthly payments.
+    assert await commissions.record_payment(db, payment(referred_org, paid_at=NOW + timedelta(days=90))) is not None
 
 
 async def test_same_payment_twice_earns_once(db, referred_org):
@@ -568,3 +611,16 @@ async def test_invite_link_sets_password_and_works_once(http, db, affiliate):
         "/api/v1/auth/affiliate/accept-invite", json={"token": token, "password": "Other-New!Pass9"}
     )
     assert again.status_code == 400
+
+
+async def test_payout_includes_monthly_and_annual_commissions(db, referred_org, affiliate):
+    affiliate.commission_billing_periods = "both"
+    affiliate.commission_percent_monthly = Decimal("10")
+    await db.flush()
+    for p in (payment(referred_org), payment(referred_org, period="monthly", amount="149")):
+        c = await commissions.record_payment(db, p)
+        c.status = COMMISSION_APPROVED
+    await db.commit()
+    payout = await payouts.create_payout(db, affiliate.id, method="manual", actor_id=None, reference="WIRE-3")
+    assert payout.amount == Decimal("371.90")  # 357.00 annual + 14.90 monthly
+    assert payout.commission_count == 2

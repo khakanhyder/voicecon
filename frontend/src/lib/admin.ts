@@ -428,10 +428,11 @@ export interface AffiliateProgram {
   referral_window_days: number | null
   /** null = every annual renewal. */
   max_commission_payments: number | null
+  /** For affiliates who earn on monthly plans. null = every month. */
+  max_monthly_commission_payments: number | null
   /** Empty = every plan. */
   eligible_plan_slugs: string[]
-  commission_billing_period: 'yearly'
-  plans: { slug: string; name: string; has_yearly: boolean }[]
+  plans: { slug: string; name: string; has_yearly: boolean; is_active?: boolean }[]
   stripe_connect_ready: boolean
   payment_provider: 'stripe' | 'polar'
   updated_at: string | null
@@ -439,8 +440,17 @@ export interface AffiliateProgram {
 
 export type AffiliateProgramUpdate = Omit<
   AffiliateProgram,
-  'commission_billing_period' | 'plans' | 'stripe_connect_ready' | 'payment_provider' | 'updated_at'
+  'plans' | 'stripe_connect_ready' | 'payment_provider' | 'updated_at'
 >
+
+/** Which payments earn an affiliate commission. */
+export type CommissionBillingPeriods = 'yearly' | 'monthly' | 'both'
+
+export const COMMISSION_PERIOD_LABELS: Record<CommissionBillingPeriods, string> = {
+  yearly: 'Annual plans only',
+  monthly: 'Monthly plans only',
+  both: 'Monthly and annual plans',
+}
 
 export interface AffiliateCoupon {
   code: string
@@ -481,9 +491,14 @@ export interface AffiliateRow {
   referral_code: string
   links: { landing: string; signup: string }
   coupon: AffiliateCoupon | null
+  commission_billing_periods: CommissionBillingPeriods
+  /** Rate on annual payments. */
   commission_percent: number
+  /** Rate on monthly payments; null = same as the annual rate. */
+  commission_percent_monthly: number | null
   custom_max_payments: boolean
   max_commission_payments: number | null
+  max_monthly_commission_payments: number | null
   discount_percent: number
   discount_applies_to: 'yearly' | 'all'
   discount_duration: 'once' | 'forever' | 'repeating'
@@ -515,7 +530,9 @@ export interface AffiliateDetail extends AffiliateRow {
 export interface AffiliateTermsBody {
   name?: string
   company?: string | null
+  commission_billing_periods?: CommissionBillingPeriods
   commission_percent?: number | null
+  commission_percent_monthly?: number | null
   referral_code?: string | null
   coupon_code?: string | null
   discount_percent?: number | null
@@ -524,6 +541,7 @@ export interface AffiliateTermsBody {
   discount_duration_months?: number | null
   custom_max_payments?: boolean
   max_commission_payments?: number | null
+  max_monthly_commission_payments?: number | null
   notes?: string | null
 }
 

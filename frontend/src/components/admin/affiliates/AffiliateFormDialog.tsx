@@ -1,12 +1,14 @@
 'use client'
 
-/** Create / edit an affiliate: identity, commission terms, coupon and commission limit. */
+/** Create / edit an affiliate: identity, which payments earn and at what rate, coupon and commission limits. */
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   adminApi,
+  COMMISSION_PERIOD_LABELS,
   type AffiliateCreateBody,
+  type CommissionBillingPeriods,
   type AffiliateDetail,
   type AffiliateUpdateBody,
 } from '@/lib/admin'
@@ -20,7 +22,9 @@ interface FormState {
   email: string
   name: string
   company: string
+  earnsOn: CommissionBillingPeriods
   commission: string
+  commissionMonthly: string
   referralCode: string
   discount: string
   couponCode: string
@@ -29,6 +33,7 @@ interface FormState {
   months: string
   customMax: boolean
   maxPayments: string
+  maxMonthlyPayments: string
   notes: string
   sendInvite: boolean
   removeCoupon: boolean
@@ -38,7 +43,9 @@ const EMPTY: FormState = {
   email: '',
   name: '',
   company: '',
+  earnsOn: 'yearly',
   commission: '',
+  commissionMonthly: '',
   referralCode: '',
   discount: '0',
   couponCode: '',
@@ -47,6 +54,7 @@ const EMPTY: FormState = {
   months: '3',
   customMax: false,
   maxPayments: '',
+  maxMonthlyPayments: '',
   notes: '',
   sendInvite: true,
   removeCoupon: false,
@@ -58,7 +66,9 @@ function fromAffiliate(a: AffiliateDetail): FormState {
     email: a.email ?? '',
     name: a.name,
     company: a.company ?? '',
+    earnsOn: a.commission_billing_periods ?? 'yearly',
     commission: String(a.commission_percent),
+    commissionMonthly: a.commission_percent_monthly == null ? '' : String(a.commission_percent_monthly),
     referralCode: a.referral_code,
     discount: String(a.coupon?.percent_off ?? a.discount_percent ?? 0),
     couponCode: a.coupon?.code ?? '',
@@ -67,6 +77,7 @@ function fromAffiliate(a: AffiliateDetail): FormState {
     months: a.discount_duration_months ? String(a.discount_duration_months) : '3',
     customMax: a.custom_max_payments,
     maxPayments: a.max_commission_payments ? String(a.max_commission_payments) : '',
+    maxMonthlyPayments: a.max_monthly_commission_payments ? String(a.max_monthly_commission_payments) : '',
     notes: a.notes ?? '',
   }
 }
@@ -84,7 +95,10 @@ function problems(f: FormState, editing: boolean): string | null {
   if (!editing && !f.email.includes('@')) return 'Enter a valid email address.'
   if (!f.name.trim()) return 'Enter the affiliate’s name.'
   const commission = num(f.commission)
-  if (f.commission.trim() && (commission == null || commission < 0 || commission > 100)) return 'Commission must be 0–100%.'
+  if (f.commission.trim() && (commission == null || commission < 0 || commission > 100)) return 'Annual commission must be 0–100%.'
+  const monthly = num(f.commissionMonthly)
+  if (f.earnsOn !== 'yearly' && f.commissionMonthly.trim() && (monthly == null || monthly < 0 || monthly > 100))
+    return 'Monthly commission must be 0–100%.'
   if (f.referralCode.trim() && !REFERRAL_RE.test(f.referralCode.trim()))
     return 'Referral codes are 3–40 characters: lowercase letters, numbers and hyphens.'
   if (!f.removeCoupon) {
@@ -97,9 +111,15 @@ function problems(f: FormState, editing: boolean): string | null {
       if (m == null || m < 1 || m > 36 || !Number.isInteger(m)) return 'A repeating discount lasts 1–36 months.'
     }
   }
-  if (f.customMax && f.maxPayments.trim()) {
+  if (f.customMax && f.earnsOn !== 'monthly' && f.maxPayments.trim()) {
     const m = num(f.maxPayments)
-    if (m == null || m < 1 || m > 100 || !Number.isInteger(m)) return 'Commissioned payments must be a whole number from 1 to 100.'
+    if (m == null || m < 1 || m > 100 || !Number.isInteger(m))
+      return 'Commissioned annual payments must be a whole number from 1 to 100, or blank for unlimited.'
+  }
+  if (f.customMax && f.earnsOn !== 'yearly' && f.maxMonthlyPayments.trim()) {
+    const m = num(f.maxMonthlyPayments)
+    if (m == null || m < 1 || m > 240 || !Number.isInteger(m))
+      return 'Commissioned monthly payments must be a whole number from 1 to 240, or blank for unlimited.'
   }
   return null
 }
@@ -111,13 +131,17 @@ function terms(f: FormState) {
   return {
     name: f.name.trim(),
     company: f.company.trim(),
+    commission_billing_periods: f.earnsOn,
     commission_percent: num(f.commission),
+    // Blank = same as the annual rate. Irrelevant (and cleared) for annual-only.
+    commission_percent_monthly: f.earnsOn === 'yearly' ? null : num(f.commissionMonthly),
     discount_percent: discount,
     discount_applies_to: f.appliesTo,
     discount_duration: duration,
     discount_duration_months: duration === 'repeating' ? num(f.months) : null,
     custom_max_payments: f.customMax,
     max_commission_payments: f.customMax ? num(f.maxPayments) : null,
+    max_monthly_commission_payments: f.customMax ? num(f.maxMonthlyPayments) : null,
     notes: f.notes.trim(),
   }
 }
@@ -193,6 +217,10 @@ export function AffiliateFormDialog({
   const couponOff = form.removeCoupon
   const defaultPct = program.data?.default_commission_percent
   const programMax = program.data?.max_commission_payments
+  const programMonthlyMax = program.data?.max_monthly_commission_payments
+  const earnsYearly = form.earnsOn !== 'monthly'
+  const earnsMonthly = form.earnsOn !== 'yearly'
+  const annualPct = form.commission.trim() || (editing ? '' : defaultPct != null ? String(defaultPct) : '')
 
   return (
     <Dialog
@@ -227,18 +255,6 @@ export function AffiliateFormDialog({
           <Field label="Company">
             <input value={form.company} onChange={(e) => set('company', e.target.value)} className={inputClass} placeholder="Optional" />
           </Field>
-          <Field label="Commission %" hint={editing ? undefined : 'Blank uses the program default.'}>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              value={form.commission}
-              onChange={(e) => set('commission', e.target.value)}
-              className={inputClass}
-              placeholder={defaultPct != null ? String(defaultPct) : ''}
-            />
-          </Field>
           <Field label="Referral code" hint={editing ? 'Changing it breaks links already shared.' : 'Blank = generated from the name. Lowercase letters, digits, hyphens.'}>
             <input
               value={form.referralCode}
@@ -248,6 +264,58 @@ export function AffiliateFormDialog({
             />
           </Field>
         </div>
+
+        <fieldset className="rounded-xl border border-slate-200 p-4">
+          <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Commission</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Earns commission on" hint="Payments on the other billing type earn nothing.">
+              <select
+                value={form.earnsOn}
+                onChange={(e) => set('earnsOn', e.target.value as CommissionBillingPeriods)}
+                className={inputClass}
+              >
+                {(Object.keys(COMMISSION_PERIOD_LABELS) as CommissionBillingPeriods[]).map((k) => (
+                  <option key={k} value={k}>{COMMISSION_PERIOD_LABELS[k]}</option>
+                ))}
+              </select>
+            </Field>
+            {earnsYearly && (
+              <Field label="Annual commission %" hint={editing ? 'Of each commissioned annual payment.' : 'Blank uses the program default.'}>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={form.commission}
+                  onChange={(e) => set('commission', e.target.value)}
+                  className={inputClass}
+                  placeholder={defaultPct != null ? String(defaultPct) : ''}
+                />
+              </Field>
+            )}
+            {earnsMonthly && (
+              <Field
+                label="Monthly commission %"
+                hint={
+                  form.earnsOn === 'both'
+                    ? `Of each commissioned monthly payment. Blank = same as annual${annualPct ? ` (${annualPct}%)` : ''}.`
+                    : `Of each commissioned monthly payment.${!editing && defaultPct != null ? ` Blank = program default (${defaultPct}%).` : ''}`
+                }
+              >
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={form.commissionMonthly}
+                  onChange={(e) => set('commissionMonthly', e.target.value)}
+                  className={inputClass}
+                  placeholder={form.earnsOn === 'both' ? annualPct || 'Same as annual' : defaultPct != null ? String(defaultPct) : ''}
+                />
+              </Field>
+            )}
+          </div>
+        </fieldset>
 
         <fieldset className="rounded-xl border border-slate-200 p-4">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer coupon</legend>
@@ -309,16 +377,31 @@ export function AffiliateFormDialog({
             <div>
               <p className="text-sm text-slate-800">Custom limit for this affiliate</p>
               <p className="text-xs text-slate-500">
-                Off = program rule ({programMax ? `${programMax} annual payment${programMax === 1 ? '' : 's'} per customer` : 'every annual renewal'}).
+                Off = program rule:{' '}
+                {[
+                  earnsYearly && (programMax ? `${programMax} annual payment${programMax === 1 ? '' : 's'}` : 'every annual payment'),
+                  earnsMonthly &&
+                    (programMonthlyMax ? `${programMonthlyMax} monthly payment${programMonthlyMax === 1 ? '' : 's'}` : 'every monthly payment'),
+                ]
+                  .filter(Boolean)
+                  .join(' and ')}{' '}
+                per customer.
               </p>
             </div>
             <Toggle checked={form.customMax} onChange={(v) => set('customMax', v)} label="Custom commission limit" />
           </div>
           {form.customMax && (
-            <div className="mt-3 max-w-xs">
-              <Field label="Commissioned payments per customer" hint="Blank = unlimited (every annual renewal). 1 = first annual payment only.">
-                <input type="number" min={1} max={100} value={form.maxPayments} onChange={(e) => set('maxPayments', e.target.value)} className={inputClass} placeholder="Unlimited" />
-              </Field>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              {earnsYearly && (
+                <Field label="Commissioned annual payments per customer" hint="1 = first annual payment only. Blank = every annual renewal.">
+                  <input type="number" min={1} max={100} value={form.maxPayments} onChange={(e) => set('maxPayments', e.target.value)} className={inputClass} placeholder="Unlimited" />
+                </Field>
+              )}
+              {earnsMonthly && (
+                <Field label="Commissioned monthly payments per customer" hint="12 = the first year of monthly payments. Blank = every month.">
+                  <input type="number" min={1} max={240} value={form.maxMonthlyPayments} onChange={(e) => set('maxMonthlyPayments', e.target.value)} className={inputClass} placeholder="Unlimited" />
+                </Field>
+              )}
             </div>
           )}
         </fieldset>

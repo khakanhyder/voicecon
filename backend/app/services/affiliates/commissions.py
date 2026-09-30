@@ -7,13 +7,17 @@ the billing scheduler to move commissions out of their hold period.
 Eligibility, in order — the first failing rule skips the payment:
 
 1. the program is on and the workspace was referred by an affiliate who may earn;
-2. the payment is for a **yearly** plan (fixed rule; monthly never earns);
+2. the payment's billing period (monthly / yearly) is one this affiliate earns
+   on — set per affiliate: yearly only (the default), monthly only, or both;
 3. the plan is on the program's eligible list (empty list: every plan);
-4. it pays for a new year (create or renewal) — a mid-year upgrade proration
-   only earns while an already-commissioned year is running;
+4. it pays for a new period (create or renewal) — a mid-period upgrade
+   proration only earns while an already-commissioned period is running;
 5. the first qualifying payment falls inside the referral window;
-6. the customer has not used up the affiliate's number of commissioned payments;
+6. the customer has not used up the affiliate's number of commissioned payments
+   *of that billing period* (monthly and yearly are counted separately);
 7. something was actually paid, net of discount and tax.
+
+The rate is the affiliate's rate for that billing period.
 """
 from __future__ import annotations
 
@@ -42,10 +46,11 @@ from app.models.affiliate import (
 )
 from app.services.affiliates.program import (
     BASE_BILLING_REASONS,
-    COMMISSION_BILLING_PERIOD,
     PRORATION_BILLING_REASONS,
+    earns_on,
     get_program,
     max_payments_for,
+    rate_for,
     money,
     utcnow,
 )
@@ -97,8 +102,12 @@ async def record_payment(db: AsyncSession, payment: Payment) -> Optional[Affilia
     if not program.enabled:
         _skip("program disabled", payment)
         return None
-    if payment.billing_period != COMMISSION_BILLING_PERIOD:
-        _skip(f"billing period is {payment.billing_period}, commission is annual-only", payment)
+    if not earns_on(affiliate, payment.billing_period):
+        _skip(
+            f"billing period is {payment.billing_period}; affiliate earns on "
+            f"{affiliate.commission_billing_periods} payments only",
+            payment,
+        )
         return None
     eligible = [s for s in (program.eligible_plan_slugs or []) if s]
     if eligible and payment.plan_slug not in eligible:
@@ -119,9 +128,14 @@ async def record_payment(db: AsyncSession, payment: Payment) -> Optional[Affilia
             if payment.paid_at > deadline:
                 _skip("first yearly payment came after the referral window", payment)
                 return None
-        limit = max_payments_for(affiliate, program)
-        if limit is not None and len(earned) >= limit:
-            _skip(f"customer already earned {len(earned)} of {limit} commissioned payments", payment)
+        same_period = [c for c in earned if c.billing_period == payment.billing_period]
+        limit = max_payments_for(affiliate, program, payment.billing_period)
+        if limit is not None and len(same_period) >= limit:
+            _skip(
+                f"customer already earned {len(same_period)} of {limit} commissioned "
+                f"{payment.billing_period} payments",
+                payment,
+            )
             return None
     elif payment.billing_reason in PRORATION_BILLING_REASONS:
         covered = any(
@@ -140,7 +154,7 @@ async def record_payment(db: AsyncSession, payment: Payment) -> Optional[Affilia
         _skip("nothing was paid", payment)
         return None
 
-    rate = Decimal(affiliate.commission_percent)
+    rate = rate_for(affiliate, payment.billing_period)
     amount = money(base * rate / 100)
     if amount <= 0:
         _skip("commission rounds to zero", payment)

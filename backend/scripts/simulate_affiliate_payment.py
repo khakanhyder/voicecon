@@ -125,7 +125,7 @@ def _quiet_logs() -> None:
     async_engine.echo = False  # DEBUG=true in .env turns SQL echo on
     reasons = logging.getLogger("app.services.affiliates.commissions")
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("  why: %(message)s"))
+    handler.setFormatter(logging.Formatter("  · %(message)s"))
     reasons.addHandler(handler)
     reasons.setLevel(logging.INFO)
     reasons.propagate = False

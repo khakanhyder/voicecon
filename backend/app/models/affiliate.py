@@ -7,8 +7,9 @@ what happened. Four facts drive everything:
 * A **referral** ties one organization (the billing unit) to one affiliate,
   once. First touch wins: a later link or coupon never moves it.
 * A **commission** is earned from one paid invoice (Stripe) or order (Polar),
-  and only when that payment is for a **yearly** plan. ``external_ref`` makes
-  it idempotent across webhook re-deliveries.
+  when that payment's billing period is one the affiliate earns on (monthly,
+  yearly or both — set per affiliate, each with its own rate).
+  ``external_ref`` makes it idempotent across webhook re-deliveries.
 * Commissions wait out a hold period (``pending``) so a refund can still
   cancel them, then become ``approved`` — payable.
 * A **payout** gathers an affiliate's approved commissions and sends them in
@@ -66,6 +67,12 @@ DISCOUNT_ONCE = "once"
 DISCOUNT_FOREVER = "forever"
 DISCOUNT_REPEATING = "repeating"
 
+# ---- Which billing periods earn commission (per affiliate) ----
+EARNS_YEARLY = "yearly"
+EARNS_MONTHLY = "monthly"
+EARNS_BOTH = "both"
+EARNS_CHOICES = (EARNS_YEARLY, EARNS_MONTHLY, EARNS_BOTH)
+
 
 class AffiliateProgram(Base):
     """Program-wide rules. One row (``id == 1``), created on first read."""
@@ -94,6 +101,9 @@ class AffiliateProgram(Base):
     #: How many yearly payments per customer earn a commission: 1 is the first
     #: yearly payment only. NULL: every yearly renewal. Affiliates can override.
     max_commission_payments: Mapped[Optional[int]] = mapped_column(Integer, default=1, nullable=True)
+    #: The same for monthly payments (for affiliates who earn on monthly plans):
+    #: 12 is the first year of monthly payments. NULL: every month.
+    max_monthly_commission_payments: Mapped[Optional[int]] = mapped_column(Integer, default=12, nullable=True)
     #: Plan slugs that earn commission. Empty: every paid plan.
     eligible_plan_slugs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
@@ -124,10 +134,18 @@ class Affiliate(Base):
     #: Upper-case code typed at checkout. NULL: this affiliate has no coupon.
     coupon_code: Mapped[Optional[str]] = mapped_column(String(40), unique=True, nullable=True)
 
+    #: Which payments earn: ``yearly`` | ``monthly`` | ``both``.
+    commission_billing_periods: Mapped[str] = mapped_column(
+        String(10), default=EARNS_YEARLY, server_default=EARNS_YEARLY, nullable=False
+    )
+    #: Rate on yearly payments.
     commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
-    #: Override of ``AffiliateProgram.max_commission_payments``.
+    #: Rate on monthly payments. NULL: same as ``commission_percent``.
+    commission_percent_monthly: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
+    #: Override of the program's payment limits (both periods at once).
     custom_max_payments: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     max_commission_payments: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_monthly_commission_payments: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     #: Percent off for customers using the coupon. NULL or 0: no discount.
     discount_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)

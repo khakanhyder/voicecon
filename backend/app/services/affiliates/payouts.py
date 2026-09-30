@@ -193,7 +193,11 @@ async def create_payout(
     if method not in (METHOD_STRIPE, METHOD_MANUAL):
         raise PayoutError("Unknown payout method.")
 
-    affiliate = await db.scalar(select(Affiliate).where(Affiliate.id == affiliate_id).with_for_update())
+    # ``of=Affiliate``: the user relationship is joined in (outer join), and
+    # Postgres refuses FOR UPDATE on the nullable side of one.
+    affiliate = await db.scalar(
+        select(Affiliate).where(Affiliate.id == affiliate_id).with_for_update(of=Affiliate)
+    )
     if affiliate is None:
         raise PayoutError("Affiliate not found.")
     in_flight = await db.scalar(

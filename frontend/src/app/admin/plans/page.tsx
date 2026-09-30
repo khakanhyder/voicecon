@@ -258,8 +258,91 @@ export default function PlansPage() {
   const unlinked = data?.plans.filter((p) => p.is_active && p.is_public && !p.polar_product_id) ?? []
   const catalog = useQuery({ queryKey: ['admin', 'catalog'], queryFn: adminApi.catalog, staleTime: Infinity })
   const [editing, setEditing] = useState<Plan | null>(null)
+  const [showRetired, setShowRetired] = useState(false)
+  // Unavailable + hidden = retired (e.g. Sales Chatbot / Voice AI). The rows stay
+  // because old subscriptions and billing history still reference them.
+  const isRetired = (p: Plan) => !p.is_active && !p.is_public
+  const currentPlans = data?.plans.filter((p) => !isRetired(p)) ?? []
+  const retiredPlans = data?.plans.filter(isRetired) ?? []
 
   const featureLabel = (key: string) => catalog.data?.features.find((f) => f.key === key)?.label ?? humanize(key)
+
+  const renderPlan = (plan: Plan) => {
+    const enabled = Object.entries(plan.features).filter(([, v]) => v).map(([k]) => k)
+    return (
+      <section key={plan.id} className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-100 p-5">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">{plan.name}</h2>
+              {!plan.is_active && <Badge tone="danger">Unavailable</Badge>}
+              {!plan.is_public && <Badge>Hidden</Badge>}
+              {plan.admin_managed && <Badge tone="brand">Edited in admin</Badge>}
+            </div>
+            <p className="mt-0.5 text-sm text-slate-500">{plan.description}</p>
+            <p className="mt-3 text-2xl font-semibold text-slate-900">
+              {formatMoney(plan.price_monthly, plan.currency)}
+              <span className="text-sm font-normal text-slate-500"> / month</span>
+              {plan.price_yearly != null && (
+                <span className="ml-2 text-sm font-normal text-slate-500">· {formatMoney(plan.price_yearly, plan.currency)} / year</span>
+              )}
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+            {data?.polar_configured && <PolarSyncButton plan={plan} disabled={false} />}
+            <AdminButton icon={Pencil} disabled={!catalog.data} onClick={() => setEditing(plan)}>Edit</AdminButton>
+          </div>
+        </header>
+
+        <div className="grid flex-1 gap-5 p-5 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Limits</p>
+            <dl className="space-y-1.5 text-sm">
+              {catalog.data?.limits.map((l) => (
+                <div key={l.key} className="flex justify-between gap-2">
+                  <dt className="text-slate-500">{humanize(l.label)}</dt>
+                  <dd className="tabular-nums text-slate-800">{formatLimit(plan.limits[l.key])}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Features ({enabled.length})</p>
+            <ul className="space-y-1.5 text-sm">
+              {catalog.data?.features.map((f) => (
+                <li key={f.key} className="flex items-center gap-2">
+                  {plan.features[f.key] ? (
+                    <Check className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
+                  ) : (
+                    <X className="h-3.5 w-3.5 flex-shrink-0 text-slate-300" />
+                  )}
+                  <span className={plan.features[f.key] ? 'text-slate-700' : 'text-slate-400'}>{featureLabel(f.key)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {plan.subscribers} live subscription{plan.subscribers === 1 ? '' : 's'}</span>
+          <span>Trial: {plan.is_trialable ? `${plan.trial_days} days` : 'none'}</span>
+          <span className="font-mono">{plan.slug}</span>
+          <span className="font-mono">{plan.stripe_price_id}</span>
+          <span>
+            Polar:{' '}
+            {plan.polar_product_id ? (
+              <span className="font-mono">
+                {plan.polar_product_id}
+                {plan.polar_product_id_yearly ? ` · ${plan.polar_product_id_yearly}` : ''}
+              </span>
+            ) : (
+              <span className={polarActive ? 'font-medium text-amber-700' : ''}>not linked</span>
+            )}
+          </span>
+        </footer>
+      </section>
+    )
+  }
 
   return (
     <>
@@ -288,83 +371,17 @@ export default function PlansPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {isLoading && Array.from({ length: 2 }).map((_, i) => <div key={i} className="h-80 animate-pulse rounded-xl bg-white" />)}
-        {data?.plans.map((plan) => {
-          const enabled = Object.entries(plan.features).filter(([, v]) => v).map(([k]) => k)
-          return (
-            <section key={plan.id} className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
-              <header className="flex items-start justify-between gap-4 border-b border-slate-100 p-5">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-semibold text-slate-900">{plan.name}</h2>
-                    {!plan.is_active && <Badge tone="danger">Unavailable</Badge>}
-                    {!plan.is_public && <Badge>Hidden</Badge>}
-                    {plan.admin_managed && <Badge tone="brand">Edited in admin</Badge>}
-                  </div>
-                  <p className="mt-0.5 text-sm text-slate-500">{plan.description}</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-900">
-                    {formatMoney(plan.price_monthly, plan.currency)}
-                    <span className="text-sm font-normal text-slate-500"> / month</span>
-                    {plan.price_yearly != null && (
-                      <span className="ml-2 text-sm font-normal text-slate-500">· {formatMoney(plan.price_yearly, plan.currency)} / year</span>
-                    )}
-                  </p>
-                </div>
-                <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
-                  {data.polar_configured && <PolarSyncButton plan={plan} disabled={false} />}
-                  <AdminButton icon={Pencil} disabled={!catalog.data} onClick={() => setEditing(plan)}>Edit</AdminButton>
-                </div>
-              </header>
-
-              <div className="grid flex-1 gap-5 p-5 sm:grid-cols-2">
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Limits</p>
-                  <dl className="space-y-1.5 text-sm">
-                    {catalog.data?.limits.map((l) => (
-                      <div key={l.key} className="flex justify-between gap-2">
-                        <dt className="text-slate-500">{humanize(l.label)}</dt>
-                        <dd className="tabular-nums text-slate-800">{formatLimit(plan.limits[l.key])}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Features ({enabled.length})</p>
-                  <ul className="space-y-1.5 text-sm">
-                    {catalog.data?.features.map((f) => (
-                      <li key={f.key} className="flex items-center gap-2">
-                        {plan.features[f.key] ? (
-                          <Check className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
-                        ) : (
-                          <X className="h-3.5 w-3.5 flex-shrink-0 text-slate-300" />
-                        )}
-                        <span className={plan.features[f.key] ? 'text-slate-700' : 'text-slate-400'}>{featureLabel(f.key)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-                <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {plan.subscribers} live subscription{plan.subscribers === 1 ? '' : 's'}</span>
-                <span>Trial: {plan.is_trialable ? `${plan.trial_days} days` : 'none'}</span>
-                <span className="font-mono">{plan.slug}</span>
-                <span className="font-mono">{plan.stripe_price_id}</span>
-                <span>
-                  Polar:{' '}
-                  {plan.polar_product_id ? (
-                    <span className="font-mono">
-                      {plan.polar_product_id}
-                      {plan.polar_product_id_yearly ? ` · ${plan.polar_product_id_yearly}` : ''}
-                    </span>
-                  ) : (
-                    <span className={polarActive ? 'font-medium text-amber-700' : ''}>not linked</span>
-                  )}
-                </span>
-              </footer>
-            </section>
-          )
-        })}
+        {currentPlans.map((plan) => renderPlan(plan))}
       </div>
+
+      {retiredPlans.length > 0 && (
+        <div className="mt-8">
+          <AdminButton onClick={() => setShowRetired((v) => !v)}>
+            {showRetired ? 'Hide' : 'Show'} retired plans ({retiredPlans.length})
+          </AdminButton>
+          {showRetired && <div className="mt-4 grid gap-6 lg:grid-cols-2">{retiredPlans.map((plan) => renderPlan(plan))}</div>}
+        </div>
+      )}
 
       {editing && catalog.data && (
         <PlanEditor plan={editing} catalog={catalog.data} stripeConfigured={data?.stripe_configured ?? false} onClose={() => setEditing(null)} />

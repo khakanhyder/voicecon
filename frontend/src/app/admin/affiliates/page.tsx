@@ -45,7 +45,7 @@ export default function AffiliatesPage() {
     <>
       <PageHeader
         title="Affiliates"
-        description="Partners who earn a commission on the annual plans their referrals buy. Open one to see their links, balance, referrals and to pay them."
+        description="Partners who earn a commission on the plans their referrals buy (monthly, annual or both — set per affiliate). Open one to see their links, balance, referrals and to pay them."
         actions={
           <>
             <AdminButton icon={SlidersHorizontal} onClick={() => router.push('/admin/affiliates/program')}>Program rules</AdminButton>
@@ -123,7 +123,18 @@ export default function AffiliatesPage() {
                     <span className="text-slate-400">—</span>
                   )}
                 </Td>
-                <Td className="text-right tabular-nums">{a.commission_percent}%</Td>
+                <Td className="text-right tabular-nums">
+                  {a.commission_billing_periods === 'monthly' ? (
+                    <>{a.commission_percent_monthly ?? a.commission_percent}% <span className="text-xs text-slate-400">monthly</span></>
+                  ) : a.commission_billing_periods === 'both' ? (
+                    <>
+                      {a.commission_percent}% <span className="text-xs text-slate-400">annual</span>
+                      <span className="block">{a.commission_percent_monthly ?? a.commission_percent}% <span className="text-xs text-slate-400">monthly</span></span>
+                    </>
+                  ) : (
+                    <>{a.commission_percent}% <span className="text-xs text-slate-400">annual</span></>
+                  )}
+                </Td>
                 <Td className="text-right tabular-nums">{a.stats.referrals} / {a.stats.conversions}</Td>
                 <Td className="text-right tabular-nums">{formatMoney(a.balance.lifetime)}</Td>
                 <Td className="text-right font-medium tabular-nums">{formatMoney(a.balance.available)}</Td>

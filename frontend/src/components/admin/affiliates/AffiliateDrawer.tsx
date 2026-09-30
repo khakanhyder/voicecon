@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Ban, Banknote, Mail, Pencil, PlayCircle, Plus } from 'lucide-react'
-import { adminApi, type AffiliateDetail, type AffiliatePayout } from '@/lib/admin'
+import { adminApi, COMMISSION_PERIOD_LABELS, type AffiliateDetail, type AffiliatePayout } from '@/lib/admin'
 import {
   AdminButton,
   Badge,
@@ -291,7 +291,7 @@ function CommissionsTable({ affiliateId }: { affiliateId: string }) {
                 {c.customer && c.organization_name && <p className="text-xs text-slate-400">{c.organization_name}</p>}
               </Td>
               <Td className="text-slate-500">
-                {c.kind === 'commission' ? billingReasonLabel(c.billing_reason) || humanize(c.kind) : humanize(c.kind)}
+                {c.kind === 'commission' ? billingReasonLabel(c.billing_reason, c.billing_period) || humanize(c.kind) : humanize(c.kind)}
                 {c.kind === 'adjustment' && c.note && <p className="max-w-[12rem] truncate text-xs text-slate-400" title={c.note}>{c.note}</p>}
               </Td>
               <Td className={cn('text-right font-medium tabular-nums', moneyClass(c.amount))}>{formatMoney(c.amount, c.currency)}</Td>
@@ -448,10 +448,27 @@ export function AffiliateDrawer({ affiliateId, onClose }: { affiliateId: string;
           <section>
             <SectionTitle>Terms</SectionTitle>
             <dl className="grid grid-cols-2 gap-4">
-              <Detail label="Commission">{a.commission_percent}% of annual payments</Detail>
+              <Detail label="Earns on">{COMMISSION_PERIOD_LABELS[a.commission_billing_periods ?? 'yearly']}</Detail>
+              <Detail label="Commission">
+                {a.commission_billing_periods !== 'monthly' && <span className="block">{a.commission_percent}% of annual payments</span>}
+                {a.commission_billing_periods !== 'yearly' && (
+                  <span className="block">{a.commission_percent_monthly ?? a.commission_percent}% of monthly payments</span>
+                )}
+              </Detail>
               <Detail label="Referral code"><span className="font-mono">{a.referral_code}</span></Detail>
               <Detail label="Commissioned payments / customer">
-                {a.custom_max_payments ? (a.max_commission_payments ? `${a.max_commission_payments} (custom)` : 'Unlimited (custom)') : 'Program default'}
+                {a.custom_max_payments ? (
+                  <>
+                    {a.commission_billing_periods !== 'monthly' && (
+                      <span className="block">Annual: {a.max_commission_payments ?? 'unlimited'} (custom)</span>
+                    )}
+                    {a.commission_billing_periods !== 'yearly' && (
+                      <span className="block">Monthly: {a.max_monthly_commission_payments ?? 'unlimited'} (custom)</span>
+                    )}
+                  </>
+                ) : (
+                  'Program default'
+                )}
               </Detail>
               <Detail label="Coupon">
                 {a.coupon ? (

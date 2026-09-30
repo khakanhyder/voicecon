@@ -10,10 +10,8 @@ from typing import Optional
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.affiliate import Affiliate, AffiliateProgram
+from app.models.affiliate import EARNS_BOTH, Affiliate, AffiliateProgram
 
-#: The one rule staff cannot change: only yearly payments earn commission.
-COMMISSION_BILLING_PERIOD = "yearly"
 
 #: Invoices that pay for a new year of service. A proration from a mid-year
 #: upgrade (``subscription_update``) earns only while a commissioned year runs.
@@ -51,6 +49,7 @@ async def get_program(db: AsyncSession) -> AffiliateProgram:
             cookie_days=60,
             referral_window_days=365,
             max_commission_payments=1,
+            max_monthly_commission_payments=12,
             eligible_plan_slugs=[],
         )
         db.add(program)
@@ -58,8 +57,27 @@ async def get_program(db: AsyncSession) -> AffiliateProgram:
     return program
 
 
-def max_payments_for(affiliate: Affiliate, program: AffiliateProgram) -> Optional[int]:
-    """How many yearly payments per customer earn this affiliate commission (None: all)."""
+def earns_on(affiliate: Affiliate, billing_period: Optional[str]) -> bool:
+    """Does this affiliate earn on payments of ``billing_period`` (monthly|yearly)?"""
+    choice = affiliate.commission_billing_periods or "yearly"
+    return billing_period in ("monthly", "yearly") and choice in (billing_period, EARNS_BOTH)
+
+
+def rate_for(affiliate: Affiliate, billing_period: Optional[str]) -> Decimal:
+    """Commission percent on a payment of ``billing_period``."""
+    if billing_period == "monthly" and affiliate.commission_percent_monthly is not None:
+        return Decimal(affiliate.commission_percent_monthly)
+    return Decimal(affiliate.commission_percent)
+
+
+def max_payments_for(
+    affiliate: Affiliate, program: AffiliateProgram, billing_period: str = "yearly"
+) -> Optional[int]:
+    """How many payments of ``billing_period`` per customer earn commission (None: all)."""
+    if billing_period == "monthly":
+        if affiliate.custom_max_payments:
+            return affiliate.max_monthly_commission_payments
+        return program.max_monthly_commission_payments
     if affiliate.custom_max_payments:
         return affiliate.max_commission_payments
     return program.max_commission_payments
@@ -143,3 +161,17 @@ def mask_email(email: Optional[str]) -> str:
         return "Deleted account"
     visible = local[:2] if len(local) > 2 else local[:1]
     return f"{visible}***@{domain}"
+
+
+def describe_earning(affiliate: Affiliate) -> str:
+    """One sentence on what this affiliate earns, e.g. for the invite email."""
+    yearly = f"{float(rate_for(affiliate, 'yearly')):g}%"
+    monthly = f"{float(rate_for(affiliate, 'monthly')):g}%"
+    choice = affiliate.commission_billing_periods or "yearly"
+    if choice == "monthly":
+        return f"You earn {monthly} of what referred customers pay for monthly plans."
+    if choice == EARNS_BOTH:
+        if yearly == monthly:
+            return f"You earn {yearly} of what referred customers pay, on monthly and annual plans."
+        return f"You earn {yearly} of annual plan payments and {monthly} of monthly plan payments from referred customers."
+    return f"You earn {yearly} of what referred customers pay for annual plans."

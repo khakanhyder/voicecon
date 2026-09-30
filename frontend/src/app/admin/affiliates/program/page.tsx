@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Lock, Save } from 'lucide-react'
+import { Save } from 'lucide-react'
 import { adminApi, type AffiliateProgram, type AffiliateProgramUpdate } from '@/lib/admin'
 import {
   AdminButton,
@@ -26,6 +26,7 @@ interface FormState {
   cookieDays: string
   windowDays: string
   maxPayments: string
+  maxMonthlyPayments: string
   plans: string[]
 }
 
@@ -38,6 +39,7 @@ function fromProgram(p: AffiliateProgram): FormState {
     cookieDays: String(p.cookie_days),
     windowDays: p.referral_window_days == null ? '' : String(p.referral_window_days),
     maxPayments: p.max_commission_payments == null ? '' : String(p.max_commission_payments),
+    maxMonthlyPayments: p.max_monthly_commission_payments == null ? '' : String(p.max_monthly_commission_payments),
     plans: [...p.eligible_plan_slugs],
   }
 }
@@ -62,7 +64,10 @@ function toBody(f: FormState): { body: AffiliateProgramUpdate | null; problem: s
   const window = int(f.windowDays, 1, 3650)
   if (Number.isNaN(window)) return { body: null, problem: 'Referral window must be 1–3650 days, or blank for no limit.' }
   const maxPayments = int(f.maxPayments, 1, 100)
-  if (Number.isNaN(maxPayments)) return { body: null, problem: 'Commissioned payments must be 1–100, or blank for every renewal.' }
+  if (Number.isNaN(maxPayments)) return { body: null, problem: 'Commissioned annual payments must be 1–100, or blank for every renewal.' }
+  const maxMonthlyPayments = int(f.maxMonthlyPayments, 1, 240)
+  if (Number.isNaN(maxMonthlyPayments))
+    return { body: null, problem: 'Commissioned monthly payments must be 1–240, or blank for every month.' }
   return {
     problem: null,
     body: {
@@ -73,6 +78,7 @@ function toBody(f: FormState): { body: AffiliateProgramUpdate | null; problem: s
       cookie_days: cookie,
       referral_window_days: window,
       max_commission_payments: maxPayments,
+      max_monthly_commission_payments: maxMonthlyPayments,
       eligible_plan_slugs: f.plans,
     },
   }
@@ -156,12 +162,10 @@ export default function AffiliateProgramPage() {
                 ? 'On — referral links and coupons are tracked and eligible payments earn commission.'
                 : 'Off — links and coupons are not tracked and no new commissions are earned. Existing balances can still be paid.'}
             </p>
-            <div className="mt-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
-              <span>
-                <span className="font-medium">Commission is paid on annual (yearly) plans only</span> — monthly payments never earn commission.
-              </span>
-            </div>
+            <p className="mt-3 text-sm text-slate-600">
+              Whether an affiliate earns on <span className="font-medium">monthly plans, annual plans or both</span> — and
+              the rate for each — is set on each affiliate. New affiliates earn on annual plans only unless you choose otherwise.
+            </p>
           </Panel>
 
           <Panel title="Commission & payouts">
@@ -183,11 +187,14 @@ export default function AffiliateProgramPage() {
               <Field label="Referral cookie (days)" hint="How long a click on a referral link is remembered before sign-up.">
                 <input type="number" min={1} max={365} value={form.cookieDays} onChange={(e) => set('cookieDays', e.target.value)} className={inputClass} />
               </Field>
-              <Field label="Referral window (days)" hint="The first annual payment must happen within this many days of sign-up. Blank = no limit.">
+              <Field label="Referral window (days)" hint="The first commissioned payment must happen within this many days of sign-up. Blank = no limit.">
                 <input type="number" min={1} max={3650} value={form.windowDays} onChange={(e) => set('windowDays', e.target.value)} className={inputClass} placeholder="No limit" />
               </Field>
-              <Field label="Commissioned payments per customer" hint="Blank = every annual renewal. 1 = first annual payment only. Affiliates can override this.">
+              <Field label="Commissioned annual payments per customer" hint="1 = first annual payment only. Blank = every annual renewal. Affiliates can override this.">
                 <input type="number" min={1} max={100} value={form.maxPayments} onChange={(e) => set('maxPayments', e.target.value)} className={inputClass} placeholder="Every renewal" />
+              </Field>
+              <Field label="Commissioned monthly payments per customer" hint="For affiliates who earn on monthly plans. 12 = the first year. Blank = every month.">
+                <input type="number" min={1} max={240} value={form.maxMonthlyPayments} onChange={(e) => set('maxMonthlyPayments', e.target.value)} className={inputClass} placeholder="Every month" />
               </Field>
             </div>
           </Panel>
@@ -213,7 +220,7 @@ export default function AffiliateProgramPage() {
             )}
             <p className="mt-3 text-xs text-slate-500">
               {form.plans.length === 0 ? 'Currently: all plans are eligible.' : `Currently: ${form.plans.length} plan${form.plans.length === 1 ? '' : 's'} eligible.`}{' '}
-              Plans without an annual price can never earn commission.
+              Plans without an annual price can only earn for affiliates who earn on monthly plans.
             </p>
           </Panel>
         </div>
