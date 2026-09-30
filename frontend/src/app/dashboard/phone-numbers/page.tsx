@@ -15,7 +15,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertCircle, ArrowRight, Bot, Check, ChevronDown, DollarSign, ExternalLink, Loader2, MessageSquare,
+  AlertCircle, ArrowRight, Bot, Check, DollarSign, ExternalLink, Loader2, MessageSquare,
   Phone, PhoneCall, Plug, Plus, RefreshCw, Trash2, TrendingUp,
 } from 'lucide-react'
 import { apiClient } from '@/lib/api'
@@ -30,6 +30,7 @@ import {
 } from '@/lib/phoneNumbers'
 import { BuyNumberDialog } from '@/components/phone-numbers/BuyNumberDialog'
 import { OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const statusStyle: Record<string, string> = {
   active: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
@@ -98,31 +99,42 @@ function AgentPicker({
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <div className="relative min-w-0 flex-1">
-        <Bot className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#0F6A59]" />
-        <select
+      <Select value={current ?? undefined} disabled={saving} onValueChange={(value) => value && onChange(value)}>
+        <SelectTrigger
           aria-label={label}
           title={label}
-          value={current ?? ''}
-          disabled={saving}
-          onChange={(e) => e.target.value && onChange(e.target.value)}
-          className="h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-sm font-medium text-slate-800 transition-colors hover:border-[#0F6A59]/40 focus:border-[#0F6A59] focus:outline-none focus:ring-2 focus:ring-[#0F6A59]/20 disabled:cursor-wait disabled:opacity-60"
+          className="h-9 min-w-0 flex-1 gap-2 rounded-lg border-slate-200 bg-white px-2.5 font-poppins text-sm font-medium text-slate-800 transition-colors hover:border-[#0F6A59]/40 focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 data-[state=open]:border-[#0F6A59] data-[state=open]:ring-2 data-[state=open]:ring-[#0F6A59]/15 disabled:cursor-wait disabled:opacity-60"
         >
-          {!current && <option value="">Choose an assistant…</option>}
-          {!known && current && <option value={current}>Unknown assistant</option>}
+          <span className="flex min-w-0 items-center gap-2">
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-slate-400" />
+            ) : (
+              <Bot className="h-3.5 w-3.5 flex-shrink-0 text-[#0F6A59]" />
+            )}
+            <span className="truncate">
+              <SelectValue placeholder="Choose an assistant…" />
+            </span>
+          </span>
+        </SelectTrigger>
+        <SelectContent searchable={agents.length > 6}>
+          {!known && current && (
+            <SelectItem value={current} textValue="Unknown assistant">
+              <span className="text-slate-500">Unknown assistant</span>
+            </SelectItem>
+          )}
           {agents.map((a) => (
-            <option key={a.id} value={a.id} disabled={a.is_active === false && a.id !== current}>
+            <SelectItem
+              key={a.id}
+              value={a.id}
+              textValue={a.name}
+              disabled={a.is_active === false && a.id !== current}
+            >
               {a.name}
-              {a.is_active === false ? ' (turned off)' : ''}
-            </option>
+              {a.is_active === false && <span className="ml-1.5 text-xs text-slate-400">(turned off)</span>}
+            </SelectItem>
           ))}
-        </select>
-        {saving ? (
-          <Loader2 className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-slate-400" />
-        ) : (
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-        )}
-      </div>
+        </SelectContent>
+      </Select>
       {current && known && (
         <Link
           href={`/dashboard/agents/${current}`}
