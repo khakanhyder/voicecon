@@ -5,6 +5,7 @@ import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
+from app.core.time import UTCDatetime
 
 
 # Phone Number Schemas
@@ -28,8 +29,8 @@ class PhoneNumberResponse(PhoneNumberBase):
     provider_number_id: Optional[str] = None
     capabilities: Dict[str, Any] = Field(default_factory=dict)
     status: str = "active"
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -62,9 +63,9 @@ class CallResponse(BaseModel):
     to_number: str
     direction: str
     status: str
-    started_at: Optional[datetime] = None
-    answered_at: Optional[datetime] = None
-    ended_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    answered_at: Optional[UTCDatetime] = None
+    ended_at: Optional[UTCDatetime] = None
     duration_seconds: Optional[int] = None
     recording_url: Optional[str] = None
     recording_duration: Optional[int] = None
@@ -80,8 +81,8 @@ class CallResponse(BaseModel):
     cost_total: Optional[float] = None
     tags: List[str] = Field(default_factory=list)
     call_metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -99,7 +100,7 @@ class CallLogResponse(BaseModel):
     """Schema for call log entry."""
     id: uuid.UUID
     call_id: uuid.UUID
-    timestamp: datetime
+    timestamp: UTCDatetime
     event_type: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -115,21 +116,21 @@ class TranscriptionMessage(BaseModel):
     text: str
     is_final: bool
     confidence: Optional[float] = None
-    timestamp: datetime
+    timestamp: UTCDatetime
 
 
 class AgentMessage(BaseModel):
     """WebSocket message for agent response."""
     type: str = "agent_message"
     text: str
-    timestamp: datetime
+    timestamp: UTCDatetime
 
 
 class AgentResponseMessage(BaseModel):
     """WebSocket message for agent response."""
     type: str = "agent_response"
     text: str
-    timestamp: datetime
+    timestamp: UTCDatetime
 
 
 class ErrorMessage(BaseModel):

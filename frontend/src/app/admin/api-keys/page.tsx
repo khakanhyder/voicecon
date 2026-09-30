@@ -35,8 +35,8 @@ import {
   Toggle,
   errorText,
   inputClass,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { cn } from '@/lib/utils'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -214,7 +214,7 @@ function SettingRow({ entry, encryptionReady }: { entry: SettingEntry; encryptio
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
           {entry.source === 'database' && entry.updated_at && (
             <span>
-              Changed {timeAgo(entry.updated_at)}
+              Changed <RelativeTime value={entry.updated_at} />
               {entry.updated_by ? ` by ${entry.updated_by}` : ''}
             </span>
           )}

@@ -21,8 +21,8 @@ import {
   humanize,
   initialParam,
   parseDate,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { cn } from '@/lib/utils'
 import { AffiliateDrawer } from '@/components/admin/affiliates/AffiliateDrawer'
 import {
@@ -232,7 +232,7 @@ function PayoutsTab({ onOpenAffiliate }: { onOpenAffiliate: (id: string) => void
               </Td>
               <Td className="text-slate-500" >
                 <span title={formatDate(p.created_at, true)}>{formatDate(p.created_at)}</span>
-                {p.status === 'processing' && <p className="text-xs text-slate-400">{timeAgo(p.created_at)}</p>}
+                {p.status === 'processing' && <p className="text-xs text-slate-400"><RelativeTime value={p.created_at} /></p>}
               </Td>
               <Td className="text-slate-500">{formatDate(p.paid_at)}</Td>
               <Td className="max-w-[18rem] whitespace-normal">

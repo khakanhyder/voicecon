@@ -26,8 +26,8 @@ import {
   formatDate,
   humanize,
   initialParam,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 type Confirm = { title: string; description: string; confirm: string; danger?: boolean; run: () => Promise<unknown> } | null
 
@@ -292,7 +292,7 @@ export default function UsersPage() {
                 <Td className="text-slate-500">{humanize(u.auth_provider)}</Td>
                 <Td className="text-right tabular-nums">{u.organizations}</Td>
                 <Td className="text-slate-500">{formatDate(u.created_at)}</Td>
-                <Td className="text-slate-500">{timeAgo(u.last_login_at)}</Td>
+                <Td className="text-slate-500"><RelativeTime value={u.last_login_at} /></Td>
                 <Td className="w-12 text-right">
                   {!u.is_platform_admin && (
                     <button

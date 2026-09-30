@@ -6,6 +6,7 @@
  * disable a button rather than let the user click it into a 402.
  */
 import { apiClient } from './api'
+import { formatDate } from '@/lib/datetime'
 
 /** Effective subscription status, after the server applies trial expiry. */
 export type SubscriptionStatus =
@@ -343,10 +344,7 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
   }
 
   if (ent.cancel_at_period_end && ent.current_period_end) {
-    const when = new Date(ent.current_period_end).toLocaleDateString(undefined, {
-      month: 'long',
-      day: 'numeric',
-    })
+    const when = formatDate(ent.current_period_end, { withYear: false, month: 'long' })
     return {
       key: 'cancelling',
       tone: 'warning',

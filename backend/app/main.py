@@ -25,7 +25,11 @@ from app.database import init_db, close_db
 from app.core.entitlement_guard import EntitlementError
 from app.core.exceptions import VoiceconException
 from app.core.public_errors import public_message
+from app.core.time import install_json_encoder
 from app.services.analytics.scheduler import start_scheduler, stop_scheduler
+
+# Every datetime a dict response carries goes out marked as UTC (see app/core/time.py).
+install_json_encoder()
 
 # Configure logging
 logging.basicConfig(

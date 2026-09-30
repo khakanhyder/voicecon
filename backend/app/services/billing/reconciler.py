@@ -53,6 +53,7 @@ from app.services.billing.entitlements import (
     TRIAL_GRACE_DAYS,
     invalidate_entitlements,
 )
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ async def _expire_trials(db: AsyncSession, now: datetime, report: ReconcileRepor
             subscription=subscription,
             from_status=STATUS_TRIALING,
             to_status=STATUS_GRACE,
-            payload={"grace_period_end": grace_end.isoformat()},
+            payload={"grace_period_end": utc_iso(grace_end)},
         )
         invalidate_entitlements(subscription.organization_id)
         report.trials_to_grace += 1

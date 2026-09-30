@@ -36,8 +36,8 @@ import {
   formatNumber,
   humanize,
   inputClass,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { cn } from '@/lib/utils'
 
 type Action = 'suspend' | 'activate' | 'extend' | 'grant' | 'end' | 'reset' | null
@@ -394,7 +394,7 @@ export default function OrganizationDetailPage({ params }: { params: { id: strin
                 <Td><Badge>{humanize(m.role)}</Badge></Td>
                 <Td>{m.is_active ? <StatusBadge status="active" /> : <StatusBadge status="failed" label="Disabled" />}</Td>
                 <Td className="text-slate-500">{formatDate(m.joined_at)}</Td>
-                <Td className="text-slate-500">{timeAgo(m.last_login_at)}</Td>
+                <Td className="text-slate-500"><RelativeTime value={m.last_login_at} /></Td>
               </Tr>
             ))}
           </tbody>
@@ -413,7 +413,7 @@ export default function OrganizationDetailPage({ params }: { params: { id: strin
               <TableState colSpan={4} empty={org.recent_calls.length === 0} emptyText="No calls yet." />
               {org.recent_calls.map((c) => (
                 <Tr key={c.id}>
-                  <Td className="text-slate-500">{timeAgo(c.created_at)}</Td>
+                  <Td className="text-slate-500"><RelativeTime value={c.created_at} /></Td>
                   <Td>{c.agent_name ?? '—'} <span className="text-xs text-slate-400">({c.direction})</span></Td>
                   <Td><StatusBadge status={c.status} /></Td>
                   <Td className="text-right tabular-nums">{formatDuration(c.duration_seconds)}</Td>

@@ -7,6 +7,8 @@ Jobs run on a schedule to pre-aggregate data for performance.
 import asyncio
 import logging
 from datetime import datetime, date, timedelta
+
+from app.core.time import utc_today
 from typing import List
 import uuid
 
@@ -108,9 +110,10 @@ class AnalyticsScheduler:
 
         while self.is_running:
             try:
-                now = datetime.now()
+                now = datetime.utcnow()
 
-                # Calculate next run time (1 AM)
+                # Calculate next run time (01:00 UTC — the day boundary the stored
+                # timestamps use, whatever zone the host is set to)
                 next_run = now.replace(hour=1, minute=0, second=0, microsecond=0)
                 if now.hour >= 1:
                     # If past 1 AM, schedule for tomorrow
@@ -187,7 +190,7 @@ class AnalyticsScheduler:
         """Run daily aggregation for all organizations."""
         logger.info("Running daily aggregation for all organizations")
 
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = utc_today() - timedelta(days=1)
 
         async with get_db_session() as db:
             # Get all active organizations

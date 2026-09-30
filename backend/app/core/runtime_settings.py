@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import UserFacingError
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -335,8 +336,8 @@ def status() -> Dict[str, Any]:
     return {
         "overrides_applied": len(_state.applied),
         "errors": dict(_state.errors),
-        "loaded_at": _state.loaded_at.isoformat() if _state.loaded_at else None,
-        "checked_at": _state.checked_at.isoformat() if _state.checked_at else None,
+        "loaded_at": utc_iso(_state.loaded_at),
+        "checked_at": utc_iso(_state.checked_at),
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
     }
 

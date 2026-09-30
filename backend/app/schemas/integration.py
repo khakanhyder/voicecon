@@ -8,6 +8,7 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, validator
 from app.schemas._types import NonBlankName
+from app.core.time import UTCDatetime
 
 
 # Connector Schemas
@@ -62,8 +63,8 @@ class IntegrationConnectorResponse(IntegrationConnectorBase):
     is_active: bool
     is_beta: bool
     is_premium: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -144,13 +145,13 @@ class IntegrationConnectionResponse(BaseModel):
 
     # Status
     is_active: bool
-    last_sync_at: Optional[datetime]
+    last_sync_at: Optional[UTCDatetime]
     last_error: Optional[str]
     error_count: int
 
     # Timestamps
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -194,7 +195,7 @@ class OAuth2TokenRefreshResponse(BaseModel):
     """OAuth2 token refresh response."""
     success: bool
     message: str
-    token_expires_at: Optional[datetime] = None
+    token_expires_at: Optional[UTCDatetime] = None
 
 
 # Connection Test Schemas
@@ -250,8 +251,8 @@ class SyncResponse(BaseModel):
     success: bool
     message: str
     records_synced: int
-    sync_started_at: datetime
-    sync_completed_at: Optional[datetime] = None
+    sync_started_at: UTCDatetime
+    sync_completed_at: Optional[UTCDatetime] = None
 
 
 # Statistics Schemas

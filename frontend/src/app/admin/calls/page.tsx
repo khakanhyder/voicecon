@@ -23,8 +23,8 @@ import {
   formatMoney,
   humanize,
   initialParam,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 type Turn = { role?: string; speaker?: string; text?: string; content?: string }
 
@@ -149,7 +149,7 @@ export default function CallsPage() {
             {data?.items.map((c) => (
               <Tr key={c.id} onClick={() => setOpen(c.id)}>
                 <Td>
-                  <p className="text-slate-700">{timeAgo(c.created_at)}</p>
+                  <p className="text-slate-700"><RelativeTime value={c.created_at} /></p>
                   <p className="text-xs text-slate-400">{formatDate(c.created_at, true)}</p>
                 </Td>
                 <Td className="font-medium text-slate-900">{c.organization_name}</Td>

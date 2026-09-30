@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 from app.core.passwords import PasswordPolicyError, validate_password
 from app.schemas._types import NonBlankName
+from app.core.time import UTCDatetime
 
 
 # Base schemas
@@ -90,10 +91,10 @@ class UserInDB(UserBase):
     #: Only used to show the Admin link; the admin API checks the flag itself.
     is_platform_admin: bool = False
     has_password: bool = True
-    email_verified_at: Optional[datetime] = None
-    last_login_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    email_verified_at: Optional[UTCDatetime] = None
+    last_login_at: Optional[UTCDatetime] = None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class UserResponse(UserInDB):
@@ -135,8 +136,8 @@ class OrganizationInDB(OrganizationBase):
     owner_id: UUID
     is_active: bool
     settings: dict
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class OrganizationResponse(OrganizationInDB):
@@ -172,8 +173,8 @@ class OrganizationMemberInDB(OrganizationMemberBase):
     organization_id: UUID
     user_id: UUID
     invited_by: Optional[UUID] = None
-    joined_at: datetime
-    created_at: datetime
+    joined_at: UTCDatetime
+    created_at: UTCDatetime
 
 
 class OrganizationMemberResponse(OrganizationMemberInDB):
@@ -202,7 +203,7 @@ class ApiKeyBase(BaseModel):
 class ApiKeyCreate(ApiKeyBase):
     """Schema for creating an API key."""
     name: NonBlankName = Field(...)
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[UTCDatetime] = None
 
 
 class ApiKeyUpdate(BaseModel):
@@ -214,7 +215,7 @@ class ApiKeyUpdate(BaseModel):
     name: Optional[NonBlankName] = Field(default=None)
     is_active: Optional[bool] = None
     scopes: Optional[list[str]] = None
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[UTCDatetime] = None
 
 
 class ApiKeyInDB(ApiKeyBase):
@@ -226,10 +227,10 @@ class ApiKeyInDB(ApiKeyBase):
     organization_id: UUID
     key_prefix: str
     is_active: bool
-    last_used_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    last_used_at: Optional[UTCDatetime] = None
+    expires_at: Optional[UTCDatetime] = None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class ApiKeyResponse(ApiKeyInDB):

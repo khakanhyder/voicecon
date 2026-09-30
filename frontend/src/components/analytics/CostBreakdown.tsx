@@ -17,6 +17,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { DollarSign, TrendingUp, TrendingDown, Phone, Zap, Plug } from 'lucide-react';
+import { formatDate as formatDay } from '@/lib/datetime';
 
 interface CostBreakdownProps {
   dateRange: {
@@ -73,8 +74,7 @@ export const CostBreakdown: React.FC<CostBreakdownProps> = ({ dateRange: _dateRa
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return formatDay(dateString, { withYear: false });
   };
 
   const RADIAN = Math.PI / 180;

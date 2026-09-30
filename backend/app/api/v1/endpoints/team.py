@@ -37,6 +37,7 @@ from app.models.invitation import Invitation
 from app.schemas.invitation import InviteRequest, InvitationResponse
 from app.services.team import invitation_service
 from app.services.team.invitation_service import InvitationError
+from app.core.time import UTCDatetime
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ class TeamMemberResponse(BaseModel):
     email: str
     role: str
     status: str
-    joined_at: datetime
+    joined_at: UTCDatetime
 
 
 class UpdateMemberRequest(BaseModel):

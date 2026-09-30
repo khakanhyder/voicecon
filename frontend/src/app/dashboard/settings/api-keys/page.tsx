@@ -14,6 +14,7 @@ import { useEntitlementStore } from '@/store/entitlementStore'
 import { FEATURES, LIMITS, PLAN_LABELS } from '@/lib/entitlements'
 
 import { useConfirm } from '@/hooks/use-confirm'
+import { formatDate as formatDay } from '@/lib/datetime'
 
 interface ApiKey {
   id: string
@@ -36,7 +37,7 @@ const EXPIRY_OPTIONS: [string, number | null][] = [
 
 function formatDate(value: string | null) {
   if (!value) return '—'
-  return new Date(value).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return formatDay(value)
 }
 
 function isExpired(key: ApiKey) {

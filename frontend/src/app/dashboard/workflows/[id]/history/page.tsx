@@ -23,6 +23,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { apiToFlow, type ApiGraph, type FlowNode } from '@/lib/workflow/graph'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { formatDateTime } from '@/lib/datetime'
 
 interface ExecutionRow {
   id: string
@@ -188,7 +189,7 @@ export default function WorkflowHistoryPage() {
                     )}
                   </div>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    {new Date(exec.started_at).toLocaleString()}
+                    {formatDateTime(exec.started_at)}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
                     {exec.steps_successful}/{exec.steps_executed} steps

@@ -6,17 +6,7 @@ import { toast } from 'sonner'
 import { useNotifications, type AppNotification } from '@/hooks/useNotifications'
 import { getErrorMessage } from '@/lib/api'
 import { setActiveWorkspaceId } from '@/lib/workspace'
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  return `${days}d ago`
-}
+import { RelativeTime } from '@/components/ui/relative-time'
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
@@ -134,7 +124,7 @@ export function NotificationBell() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-900">{n.title}</p>
                       {n.body && <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">{n.body}</p>}
-                      <p className="mt-1 text-[11px] text-slate-400">{timeAgo(n.created_at)}</p>
+                      <p className="mt-1 text-[11px] text-slate-400"><RelativeTime value={n.created_at} /></p>
 
                       {canAct(n) && (
                         <div className="mt-2 flex gap-2">

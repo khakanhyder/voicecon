@@ -64,6 +64,7 @@ from app.services.telephony.purchase_account import (
     resolve_account,
 )
 from app.core.dependencies import get_current_active_user, get_current_org_id
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,7 @@ def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
         capabilities=phone_number.capabilities or {},
         status=phone_number.status,
         monthly_cost=float(phone_number.monthly_cost) if phone_number.monthly_cost else None,
-        created_at=phone_number.created_at.isoformat(),
+        created_at=utc_iso(phone_number.created_at),
         source=SOURCE_VOICECON if voicecon else SOURCE_OWN,
         imported=_is_imported(phone_number),
     ), voicecon=voicecon))

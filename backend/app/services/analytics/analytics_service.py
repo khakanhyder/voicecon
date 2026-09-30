@@ -16,6 +16,7 @@ from app.models.analytics import (
 from app.models.call import Call, CallLog
 from app.models.agent import Agent
 from app.models.integration import Workflow, WorkflowExecution
+from app.core.time import utc_iso
 
 
 # The trend columns are Numeric(5, 2). Going from 1 call to 11 is +1000%,
@@ -819,7 +820,7 @@ class AnalyticsService:
                 'id': str(row.id),
                 'status': row.status,
                 'duration': row.duration_seconds,
-                'started_at': row.started_at.isoformat() if row.started_at else None,
+                'started_at': utc_iso(row.started_at),
                 'agent_name': row.agent_name
             }
             for row in recent_calls_result

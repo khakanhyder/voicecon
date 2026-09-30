@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from app.core.time import UTCDatetime
 
 
 class VoiceRef(BaseModel):
@@ -38,7 +39,7 @@ class CustomVoiceResponse(BaseModel):
     # Whether the voice is spoken with the workspace's own provider key. The
     # key itself is never returned.
     uses_own_key: bool
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class VoiceProviderField(BaseModel):

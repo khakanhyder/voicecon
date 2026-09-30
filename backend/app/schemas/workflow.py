@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 from app.schemas._types import NonBlankName
+from app.core.time import UTCDatetime
 
 
 # Enums
@@ -235,11 +236,11 @@ class WorkflowResponse(BaseModel):
     total_executions: int
     successful_executions: int
     failed_executions: int
-    last_executed_at: Optional[datetime]
+    last_executed_at: Optional[UTCDatetime]
 
     version: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     @validator('id', 'user_id', 'organization_id', pre=True)
     def convert_uuid_to_str(cls, v):
@@ -289,8 +290,8 @@ class WorkflowExecutionStepResult(BaseModel):
     step_id: str
     step_name: str
     status: str
-    started_at: datetime
-    completed_at: Optional[datetime]
+    started_at: UTCDatetime
+    completed_at: Optional[UTCDatetime]
     duration_ms: Optional[int]
     result: Optional[Dict[str, Any]]
     error: Optional[str]
@@ -303,8 +304,8 @@ class WorkflowExecutionResponse(BaseModel):
     trigger_data: Optional[Dict[str, Any]]
 
     status: str
-    started_at: datetime
-    completed_at: Optional[datetime]
+    started_at: UTCDatetime
+    completed_at: Optional[UTCDatetime]
     duration_ms: Optional[int]
 
     steps_executed: int
@@ -316,7 +317,7 @@ class WorkflowExecutionResponse(BaseModel):
     error_details: Optional[Dict[str, Any]]
 
     cost: Optional[float]
-    created_at: datetime
+    created_at: UTCDatetime
 
     class Config:
         from_attributes = True

@@ -37,6 +37,7 @@ from app.services.workflows.graph import normalize_graph
 # same trigger rules as creating a workflow by hand, and it is what generates
 # a webhook key for a webhook-triggered template.
 from app.api.v1.endpoints.workflows import _prepare_trigger_config
+from app.core.time import UTCDatetime
 
 router = APIRouter()
 
@@ -72,7 +73,7 @@ class WorkflowTemplateResponse(BaseModel):
     average_rating: float
     review_count: int
     required_integrations: Optional[List[str]]
-    published_at: Optional[datetime]
+    published_at: Optional[UTCDatetime]
 
 
 class WorkflowTemplateDetailResponse(WorkflowTemplateResponse):
@@ -138,7 +139,7 @@ class InstallationResponse(BaseModel):
     installed_version: str
     created_agent_id: Optional[uuid.UUID]
     created_workflow_id: Optional[uuid.UUID]
-    installed_at: datetime
+    installed_at: UTCDatetime
 
 
 # ==================== Workflow Templates ====================

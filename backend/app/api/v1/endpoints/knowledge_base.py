@@ -28,6 +28,7 @@ from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Docum
 from app.services.knowledge_base import RAGService
 from app.core.config import settings
 from app.schemas._types import NonBlankName
+from app.core.time import UTCDatetime
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,8 @@ class KnowledgeBaseResponse(BaseModel):
     chunk_overlap: int
     vector_store_type: str
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     document_count: int = 0
 
     class Config:
@@ -83,8 +84,8 @@ class DocumentResponse(BaseModel):
     processing_error: Optional[str]
     total_chunks: int
     total_tokens: Optional[int]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

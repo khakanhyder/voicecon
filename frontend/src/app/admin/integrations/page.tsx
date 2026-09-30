@@ -17,8 +17,8 @@ import {
   formatDate,
   humanize,
   initialParam,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { cn } from '@/lib/utils'
 
 function Connections() {
@@ -59,7 +59,7 @@ function Connections() {
                 {c.error_count > 0 && <span className="ml-1 text-slate-400">({c.error_count}×)</span>}
               </Td>
               <Td className="text-slate-500">{formatDate(c.token_expires_at, true)}</Td>
-              <Td className="text-slate-500">{timeAgo(c.updated_at)}</Td>
+              <Td className="text-slate-500"><RelativeTime value={c.updated_at} /></Td>
             </Tr>
           ))}
         </tbody>

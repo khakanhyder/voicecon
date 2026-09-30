@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { exportDashboardSummary } from '@/lib/analytics-export'
 import CallerHistory from '@/components/analytics/CallerHistory'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 // ---- API types matching the backend ----
 interface DashboardData {
@@ -474,7 +475,7 @@ export default function AnalyticsPage() {
             </h3>
             {realtime?.last_updated && (
               <span className="text-xs text-slate-400">
-                {new Date(realtime.last_updated).toLocaleTimeString()}
+                Updated <RelativeTime value={realtime.last_updated} />
               </span>
             )}
           </div>

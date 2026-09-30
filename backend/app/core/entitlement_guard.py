@@ -31,6 +31,7 @@ from app.core.dependencies import get_db, get_workspace
 from app.core.workspace import WorkspaceContext
 from app.services.billing import catalog
 from app.services.billing.entitlements import Entitlements, resolve_entitlements
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class EntitlementError(HTTPException):
         if required_plans:
             payload["required_plans"] = required_plans
         if entitlements.grace_period_end:
-            payload["grace_period_end"] = entitlements.grace_period_end.isoformat()
+            payload["grace_period_end"] = utc_iso(entitlements.grace_period_end)
 
         self.payload = payload
         super().__init__(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=message)

@@ -30,6 +30,7 @@ from app.models.agent import Agent, AgentFunction
 from app.models.tool import Tool
 from app.models.call import Call, CallLog
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1548,7 +1549,7 @@ class VoiceSession:
                 "to_number": getattr(self.call, "to_number", None) or "",
                 "direction": getattr(self.call, "direction", None),
                 "transcript": self.transcript_entries,
-                "ended_at": self.call.ended_at.isoformat() if self.call.ended_at else None,
+                "ended_at": utc_iso(self.call.ended_at),
             }
 
             organization_id = getattr(self.call, "organization_id", None)

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
+import { RelativeTime } from '@/components/ui/relative-time'
 import Link from 'next/link'
 import {
   Phone, Search,
@@ -31,18 +32,6 @@ function formatDuration(seconds: number | null) {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return m > 0 ? `${m}m ${s}s` : `${s}s`
-}
-
-function formatDate(dateStr: string | null | undefined) {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  if (Number.isNaN(d.getTime())) return '—'
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 60_000) return 'Just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export default function CallsPage() {
@@ -269,7 +258,7 @@ export default function CallsPage() {
                         </div>
 
                         <div className="text-[13px] font-poppins text-black/70 truncate">
-                          {formatDate(call.started_at || call.created_at)}
+                          <RelativeTime value={call.started_at || call.created_at} />
                         </div>
 
                         <div className="text-[13px] font-poppins text-black/70">

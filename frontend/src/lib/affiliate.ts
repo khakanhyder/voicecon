@@ -11,6 +11,7 @@
 import axios from 'axios'
 import { apiClient } from '@/lib/api'
 import { clearScope, getAccessToken, storeSession } from '@/lib/session'
+import { formatDate as formatDay } from '@/lib/datetime'
 
 const BASE = '/api/v1/affiliate'
 const NO_WORKSPACE = { headers: { 'X-Skip-Workspace': '1' } }
@@ -258,10 +259,7 @@ export function money(value: number | null | undefined): string {
 }
 
 export function formatDate(value: string | null | undefined): string {
-  if (!value) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return formatDay(value)
 }
 
 export const REFERRAL_STATUS_LABELS: Record<string, string> = {

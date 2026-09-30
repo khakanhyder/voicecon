@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, ConfigDict
+from app.core.time import UTCDatetime
 
 
 class InviteRequest(BaseModel):
@@ -20,10 +21,10 @@ class InvitationResponse(BaseModel):
     role: str
     status: str
     invited_by_name: Optional[str] = None
-    expires_at: datetime
-    created_at: datetime
+    expires_at: UTCDatetime
+    created_at: UTCDatetime
     #: When the invitation email was last sent. Resending is rate-limited from it.
-    last_sent_at: Optional[datetime] = None
+    last_sent_at: Optional[UTCDatetime] = None
     #: Set on create/resend only: whether the email actually went out.
     email_sent: Optional[bool] = None
 

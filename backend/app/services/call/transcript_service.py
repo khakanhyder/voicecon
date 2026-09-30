@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.call import Call, CallLog
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ class TranscriptService:
                 {
                     "speaker": entry.speaker,
                     "text": entry.text,
-                    "timestamp": entry.timestamp.isoformat(),
+                    "timestamp": utc_iso(entry.timestamp),
                     "confidence": entry.confidence,
                     "duration_ms": entry.duration_ms,
                 }

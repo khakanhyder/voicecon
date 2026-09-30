@@ -60,6 +60,7 @@ from app.services.billing.conversion import (  # noqa: F401 — re-exported for 
 from app.services.billing import trial as trial_service
 from app.services.billing.trial import TrialUnavailable
 from app.services.affiliates import coupons as affiliate_coupons
+from app.core.time import UTCDatetime, utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -146,10 +147,10 @@ class SubscriptionResponse(BaseModel):
     plan_name: str
     status: str
     billing_period: str
-    current_period_start: datetime
-    current_period_end: datetime
-    trial_end: Optional[datetime]
-    canceled_at: Optional[datetime]
+    current_period_start: UTCDatetime
+    current_period_end: UTCDatetime
+    trial_end: Optional[UTCDatetime]
+    canceled_at: Optional[UTCDatetime]
     current_period_minutes: int
     current_period_calls: int
     #: A downgrade queued for the end of the paid period, if any.
@@ -181,10 +182,10 @@ class InvoiceResponse(BaseModel):
     amount_due: float
     amount_paid: float
     total: float
-    period_start: datetime
-    period_end: datetime
-    due_date: Optional[datetime]
-    paid_at: Optional[datetime]
+    period_start: UTCDatetime
+    period_end: UTCDatetime
+    due_date: Optional[UTCDatetime]
+    paid_at: Optional[UTCDatetime]
     invoice_pdf: Optional[str]
     hosted_invoice_url: Optional[str]
 
@@ -482,7 +483,7 @@ async def cancel_subscription(
         actor_id=current_user.id,
         payload={
             "immediate": immediate or trial_without_stripe,
-            "access_until": subscription.current_period_end.isoformat(),
+            "access_until": utc_iso(subscription.current_period_end),
         },
     )
     await db.commit()
@@ -743,12 +744,12 @@ class EntitlementsResponse(BaseModel):
     in_grace: bool
     has_subscription: bool
 
-    trial_end: Optional[datetime]
+    trial_end: Optional[UTCDatetime]
     days_remaining: Optional[int]
     trial_expiring_soon: bool
-    grace_period_end: Optional[datetime]
+    grace_period_end: Optional[UTCDatetime]
     grace_days_remaining: Optional[int]
-    current_period_end: Optional[datetime]
+    current_period_end: Optional[UTCDatetime]
     cancel_at_period_end: bool
 
     features: List[str]
@@ -773,7 +774,7 @@ class SubscriptionEventResponse(BaseModel):
     from_status: Optional[str]
     to_status: Optional[str]
     actor_type: str
-    created_at: datetime
+    created_at: UTCDatetime
     payload: dict
 
 
@@ -1385,7 +1386,7 @@ async def change_plan(
             else ("upgrade" if is_upgrade else "downgrade"),
             "effective": "immediately"
             if applied_now
-            else subscription.current_period_end.isoformat(),
+            else utc_iso(subscription.current_period_end),
         },
     )
 

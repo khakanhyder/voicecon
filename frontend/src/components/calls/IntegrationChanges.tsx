@@ -5,6 +5,7 @@ import { CalendarClock, AlertCircle, History, Trash2 } from 'lucide-react'
 import { apiClient, publicErrorText } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { appDisplayName } from '@/lib/appNames'
+import { formatDate } from '@/lib/datetime'
 
 interface Change {
   id: string
@@ -81,6 +82,8 @@ function recordName(change: Change): string {
 function when(value: unknown): string | null {
   const raw = typeof value === 'object' && value ? (value as { dateTime?: string; date?: string }).dateTime ?? (value as { date?: string }).date : value
   if (typeof raw !== 'string') return null
+  // An all-day event's `date` is a calendar day — show it as one, not as UTC midnight.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return formatDate(raw)
   const d = new Date(raw)
   return Number.isNaN(d.getTime()) ? raw : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }

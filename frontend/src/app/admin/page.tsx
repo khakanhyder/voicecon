@@ -30,8 +30,8 @@ import {
   formatMoney,
   formatNumber,
   parseDate,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 const BRAND = '#0f7a63'
 
@@ -272,7 +272,7 @@ export default function AdminOverviewPage() {
                 </div>
                 <span className="hidden w-20 text-right text-xs text-slate-400 md:block">
                   <Clock className="mr-1 inline h-3 w-3" />
-                  {timeAgo(org.created_at)}
+                  <RelativeTime value={org.created_at} />
                 </span>
               </Link>
             </li>

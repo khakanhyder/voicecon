@@ -8,11 +8,12 @@ import {
   type ChatSessionSummary,
   type ChatTranscriptMessage,
 } from '@/lib/chatbots'
+import { formatDateTime } from '@/lib/datetime'
 
 const PAGE_SIZE = 20
 
 function when(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDateTime(iso)
 }
 
 /** A chatbot's conversations, with the transcript of the selected one. */

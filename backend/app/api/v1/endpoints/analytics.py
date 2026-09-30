@@ -15,6 +15,7 @@ from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_user_organization
 from app.models.user import User, Organization
 from app.services.analytics import AnalyticsService
+from app.core.time import utc_iso, utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +426,7 @@ async def get_realtime_metrics(
             system_health=metrics.system_health,
             error_rate_last_hour=float(metrics.error_rate_last_hour) if metrics.error_rate_last_hour else None,
             recent_calls=metrics.recent_calls,
-            last_updated=metrics.last_updated.isoformat()
+            last_updated=utc_iso(metrics.last_updated)
         )
 
     except Exception as e:
@@ -489,7 +490,8 @@ async def get_dashboard_summary(
     """
     try:
         analytics_service = AnalyticsService(db)
-        today = date.today()
+        # Calls are stored in UTC, so "today" has to be the UTC day too.
+        today = utc_today()
 
         # Get real-time metrics
         realtime = await analytics_service.update_realtime_metrics(

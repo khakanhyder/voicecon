@@ -42,6 +42,7 @@ from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
 from app.services.knowledge_base.agent_context import get_agent_kb_context
+from app.core.time import UTCDatetime, utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ async def get_agent_stats(
                 # Share of calls that ran to completion. Undefined rather than
                 # 0% when nothing has been dialled yet, so the UI can say "—".
                 "success_rate": round(completed / total * 100) if total else None,
-                "last_call_at": row.last_call_at.isoformat() if row.last_call_at else None,
+                "last_call_at": utc_iso(row.last_call_at),
             }
 
         return {"stats": stats}
@@ -1011,7 +1012,7 @@ async def agent_respond(
 
 class SessionLogRequest(BaseModel):
     """Request to log a completed web test session as a call record."""
-    started_at: datetime
+    started_at: UTCDatetime
     duration_seconds: int = Field(ge=0)
     messages: list = Field(default_factory=list)  # [{"role": "user"|"agent", "text": "..."}]
 

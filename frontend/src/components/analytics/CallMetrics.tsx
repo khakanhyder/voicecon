@@ -17,6 +17,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { TrendingUp, Clock, CheckCircle, XCircle, Phone } from 'lucide-react';
+import { formatDate as formatDay } from '@/lib/datetime';
 
 interface CallMetricsProps {
   dateRange: {
@@ -74,8 +75,7 @@ export const CallMetrics: React.FC<CallMetricsProps> = ({ dateRange: _dateRange 
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return formatDay(dateString, { withYear: false });
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {

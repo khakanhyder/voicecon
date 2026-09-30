@@ -16,6 +16,7 @@ import { chatbotService, type Chatbot } from '@/lib/chatbots'
 import { PERMISSIONS } from '@/lib/workspace'
 import { usePermission } from '@/store/workspaceStore'
 import { ChatbotStatus } from '@/components/chatbot/ChatbotStatus'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 export default function ChatbotListPage() {
   const canWrite = usePermission(PERMISSIONS.agentsWrite)
@@ -111,7 +112,7 @@ export default function ChatbotListPage() {
               <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-4 text-[12px] text-slate-500">
                 <span>
                   {bot.session_count} conversation{bot.session_count === 1 ? '' : 's'}
-                  {bot.last_activity_at && <> · last {new Date(bot.last_activity_at).toLocaleDateString()}</>}
+                  {bot.last_activity_at && <> · last <RelativeTime value={bot.last_activity_at} /></>}
                 </span>
                 <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#0F6A59]" />
               </div>

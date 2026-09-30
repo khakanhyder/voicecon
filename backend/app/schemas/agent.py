@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, validator
 from uuid import UUID
 from app.schemas._types import NonBlankName, NonBlankText
+from app.core.time import UTCDatetime
 
 
 # LLM Configuration
@@ -208,8 +209,8 @@ class AgentResponse(BaseModel):
     tags: List[str]
     version: int
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -268,8 +269,8 @@ class AgentFunctionResponse(BaseModel):
     retry_count: int
     is_active: bool
     execution_order: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

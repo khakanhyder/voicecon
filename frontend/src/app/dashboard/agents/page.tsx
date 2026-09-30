@@ -14,6 +14,7 @@ import {
   Activity, Clock, ToggleLeft, ToggleRight, Trash2, Pencil,
   Users, LayoutGrid, List, Headphones, User, ShoppingCart, Calendar, HelpCircle
 } from 'lucide-react'
+import { apiTime, formatDate } from '@/lib/datetime';
 
 interface Agent {
   id: string
@@ -99,7 +100,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
             <p className="text-sm text-slate-500 mt-0.5 line-clamp-1">{agent.description || 'No description provided.'}</p>
             <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-400">
               <Calendar className="w-3.5 h-3.5" />
-              Created {new Date(agent.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              Created {formatDate(agent.created_at)}
             </div>
           </div>
         </div>
@@ -186,7 +187,7 @@ function AgentCard({ agent, index, viewMode, stats, onClick, onDelete, canWrite,
               </p>
               <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-400">
                 <Calendar className="w-3.5 h-3.5" />
-                Created {new Date(agent.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                Created {formatDate(agent.created_at)}
               </div>
             </div>
           </div>
@@ -311,7 +312,7 @@ export default function AgentsPage() {
     .sort((a, b) => {
       if (sortBy === 'Name') return a.name.localeCompare(b.name);
       if (sortBy === 'Most Active') return (b.is_active === a.is_active) ? 0 : b.is_active ? -1 : 1;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return apiTime(b.created_at) - apiTime(a.created_at);
     })
 
   if (isLoading) {

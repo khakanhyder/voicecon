@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
 from app.schemas._types import NonBlankName
+from app.core.time import UTCDatetime
 
 
 class ToolCreate(BaseModel):
@@ -38,8 +39,8 @@ class ToolResponse(BaseModel):
     category: str
     config: Dict[str, Any]
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -55,7 +56,7 @@ class AgentToolAssignmentResponse(BaseModel):
     agent_id: UUID
     tool_id: UUID
     tool: ToolResponse
-    created_at: datetime
+    created_at: UTCDatetime
 
     class Config:
         from_attributes = True

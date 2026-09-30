@@ -41,6 +41,7 @@ from app.models.subscription import (
     Invoice,
     PaymentFailure,
 )
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1066,7 +1067,7 @@ class StripeService:
             to_status=subscription.status,
             actor_type=billing_events.ACTOR_STRIPE,
             stripe_event_id=event_id,
-            payload={"grace_period_end": subscription.grace_period_end.isoformat()},
+            payload={"grace_period_end": utc_iso(subscription.grace_period_end)},
         )
         await db.commit()
         invalidate_entitlements(subscription.organization_id)

@@ -28,6 +28,7 @@ from app.models.call import Call, CallLog
 from app.models.agent import Agent
 from app.services.billing.usage_tracker import UsageTracker
 from sqlalchemy import select
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ class CallSession:
             await self._send_message({
                 "type": "agent_message",
                 "text": self.agent.first_message,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_iso(datetime.utcnow()),
             })
 
             # Synthesize welcome message to audio
@@ -226,7 +227,7 @@ class CallSession:
                     "text": result.text,
                     "is_final": True,
                     "confidence": result.confidence,
-                    "timestamp": result.timestamp.isoformat(),
+                    "timestamp": utc_iso(result.timestamp),
                 })
 
                 # Log final transcription
@@ -248,7 +249,7 @@ class CallSession:
                     "type": "transcription",
                     "text": result.text,
                     "is_final": False,
-                    "timestamp": result.timestamp.isoformat(),
+                    "timestamp": utc_iso(result.timestamp),
                 })
 
         except Exception as e:
@@ -308,7 +309,7 @@ class CallSession:
             await self._send_message({
                 "type": "agent_response",
                 "text": full_response,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_iso(datetime.utcnow()),
             })
 
             # Log LLM interaction
@@ -332,7 +333,7 @@ class CallSession:
             await self._send_message({
                 "type": "agent_response",
                 "text": fallback,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_iso(datetime.utcnow()),
             })
             await self._synthesize_and_send_audio(fallback)
 

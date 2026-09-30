@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { Phone, PhoneIncoming, PhoneOutgoing, ArrowUpRight } from 'lucide-react'
 
 interface AgentCall {
@@ -87,14 +88,6 @@ export function AgentCallsTab({ agentId }: { agentId: string }) {
           {calls.map(call => {
             const dur = call.duration_seconds
             const durStr = !dur ? '—' : dur < 60 ? `${dur}s` : `${Math.floor(dur/60)}m ${dur%60}s`
-            const when = call.started_at ? (() => {
-              const d = new Date(call.started_at), now = new Date()
-              const diff = now.getTime() - d.getTime()
-              if (diff < 60_000) return 'Just now'
-              if (diff < 3_600_000) return `${Math.floor(diff/60_000)}m ago`
-              if (diff < 86_400_000) return `${Math.floor(diff/3_600_000)}h ago`
-              return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            })() : '—'
             return (
               <Link href={`/dashboard/calls/${call.id}`} key={call.id}>
                 <div className="flex flex-col md:grid md:grid-cols-[2rem_1fr_6rem_5rem_6rem_3rem] gap-2 md:gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group cursor-pointer">
@@ -113,7 +106,7 @@ export function AgentCallsTab({ agentId }: { agentId: string }) {
                     </span>
                   </div>
                   <div className="hidden md:flex items-center text-sm text-slate-500">{durStr}</div>
-                  <div className="hidden md:flex items-center text-xs text-slate-400">{when}</div>
+                  <div className="hidden md:flex items-center text-xs text-slate-400"><RelativeTime value={call.started_at} /></div>
                   <div className="hidden md:flex items-center">
                     <ArrowUpRight className="h-4 w-4 text-slate-300 group-hover:text-blue-500 transition-colors" />
                   </div>

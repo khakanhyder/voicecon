@@ -30,6 +30,7 @@ from app.models.affiliate import (
 from app.models.user import User
 from app.services.affiliates import attribution, commissions, invites, payouts, views
 from app.services.affiliates.program import get_program, mask_email
+from app.core.time import utc_iso
 
 router = APIRouter()
 public_router = APIRouter()
@@ -123,8 +124,8 @@ async def list_referrals(
             "customer": mask_email(users[r.user_id].email) if r.user_id in users else "—",
             "source": r.source,
             "status": views.referral_status(subs.get(r.organization_id)),
-            "signed_up_at": r.created_at.isoformat(),
-            "converted_at": r.converted_at.isoformat() if r.converted_at else None,
+            "signed_up_at": utc_iso(r.created_at),
+            "converted_at": utc_iso(r.converted_at),
             "earned": float(earned.get(r.id, 0)),
         }
         for r in rows

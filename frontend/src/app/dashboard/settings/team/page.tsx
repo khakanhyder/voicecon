@@ -32,6 +32,8 @@ import { useWorkspaceStore } from '@/store/workspaceStore'
 import { PERMISSIONS } from '@/lib/workspace'
 
 import { useConfirm } from '@/hooks/use-confirm'
+import { apiTime, formatDate } from '@/lib/datetime'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 interface TeamMember {
   id: string
@@ -307,7 +309,7 @@ export default function TeamSettingsPage() {
           </h2>
           <div className="space-y-3">
             {invitations.map((invite) => {
-              const expired = new Date(invite.expires_at).getTime() < Date.now()
+              const expired = apiTime(invite.expires_at) < Date.now()
               // Sending an admin invite is owner-only, and so is resending one.
               const canResend = invite.role !== 'admin' || canManageAdmins
               return (
@@ -324,9 +326,9 @@ export default function TeamSettingsPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Invited as <span className="capitalize">{invite.role}</span>
                       {invite.invited_by_name ? ` by ${invite.invited_by_name}` : ''} ·{' '}
-                      {expired ? 'expired' : 'expires'} {new Date(invite.expires_at).toLocaleDateString()}
+                      {expired ? 'expired' : 'expires'} {formatDate(invite.expires_at)}
                       {invite.last_sent_at && (
-                        <> · last sent {new Date(invite.last_sent_at).toLocaleString()}</>
+                        <> · last sent <RelativeTime value={invite.last_sent_at} /></>
                       )}
                     </p>
                   </div>

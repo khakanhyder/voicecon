@@ -48,6 +48,7 @@ from ._common import (
     subscription_view,
     utcnow,
 )
+from app.core.time import UTCDatetime
 
 router = APIRouter()
 
@@ -484,7 +485,7 @@ class OverrideBody(BaseModel):
     features: Dict[str, bool] = Field(default_factory=dict)
     limits: Dict[str, int] = Field(default_factory=dict)
     reason: Optional[str] = Field(None, max_length=1000)
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[UTCDatetime] = None
 
 
 @router.put("/organizations/{org_id}/override")

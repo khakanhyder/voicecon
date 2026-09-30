@@ -15,6 +15,7 @@ import logging
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.time import utc_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ async def health_check():
     """
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_iso(datetime.utcnow()),
         "service": "voicecon-api",
         "version": settings.APP_VERSION
     }
@@ -81,7 +82,7 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
     # Overall status
     response = {
         "status": "healthy" if all_healthy else "unhealthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_iso(datetime.utcnow()),
         "checks": checks
     }
 
@@ -108,7 +109,7 @@ async def liveness_check():
     # Simple check - if we can respond, we're alive
     return {
         "status": "alive",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": utc_iso(datetime.utcnow())
     }
 
 
@@ -162,7 +163,7 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
 
     return {
         "status": "healthy" if all_healthy else "degraded",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_iso(datetime.utcnow()),
         "checks": checks
     }
 

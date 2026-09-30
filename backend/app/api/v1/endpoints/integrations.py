@@ -20,6 +20,7 @@ from app.services.billing.entitlements import resolve_entitlements
 from app.database import get_db
 from app.core.dependencies import get_current_active_user, get_current_org_id
 from app.models.user import User, OrganizationMember
+from app.core.time import utc_iso
 
 
 from app.models.integration import (
@@ -1251,7 +1252,7 @@ async def list_integration_changes(
                 "result": c.result,
                 "success": c.success,
                 "error_message": c.error_message,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "created_at": utc_iso(c.created_at),
             }
             for c in rows
         ]

@@ -22,18 +22,14 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { parseApiDate } from '@/lib/datetime'
 
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
 
-/** The API sends naive UTC timestamps; without a zone JS would read them as local. */
-export function parseDate(value: string | null | undefined): Date | null {
-  if (!value) return null
-  const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value)
-  const d = new Date(hasZone ? value : `${value}Z`)
-  return Number.isNaN(d.getTime()) ? null : d
-}
+/** See `@/lib/datetime` — naive API timestamps are UTC, date-only values are local days. */
+export const parseDate = parseApiDate
 
 export function formatDate(value: string | null | undefined, withTime = false): string {
   const d = parseDate(value)
@@ -44,28 +40,6 @@ export function formatDate(value: string | null | undefined, withTime = false): 
     day: 'numeric',
     ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   })
-}
-
-export function timeAgo(value: string | null | undefined): string {
-  const d = parseDate(value)
-  if (!d) return '—'
-  const seconds = Math.round((Date.now() - d.getTime()) / 1000)
-  const future = seconds < 0
-  const s = Math.abs(seconds)
-  const units: [number, string][] = [
-    [60 * 60 * 24 * 365, 'y'],
-    [60 * 60 * 24 * 30, 'mo'],
-    [60 * 60 * 24, 'd'],
-    [60 * 60, 'h'],
-    [60, 'm'],
-  ]
-  for (const [size, label] of units) {
-    if (s >= size) {
-      const n = Math.floor(s / size)
-      return future ? `in ${n}${label}` : `${n}${label} ago`
-    }
-  }
-  return future ? 'in a moment' : 'just now'
 }
 
 export function formatDuration(seconds: number | null | undefined): string {

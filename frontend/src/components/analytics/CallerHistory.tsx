@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { RelativeTime } from '@/components/ui/relative-time'
 import {
   Users, Search, Phone, PhoneIncoming, PhoneOutgoing, ChevronRight,
   Clock, FileText, ArrowUpRight, Smile, Meh, Frown,
@@ -46,17 +47,6 @@ function fmtDuration(seconds: number | null) {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return m > 0 ? `${m}m ${s}s` : `${s}s`
-}
-
-function fmtDate(dateStr: string | null) {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 60_000) return 'Just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function SentimentIcon({ score }: { score: number | null }) {
@@ -153,7 +143,7 @@ export default function CallerHistory() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-900 truncate">{c.contact_number}</p>
                     <p className="text-xs text-slate-400">
-                      {c.total_calls} call{c.total_calls !== 1 ? 's' : ''} · {fmtDate(c.last_call_at)}
+                      {c.total_calls} call{c.total_calls !== 1 ? 's' : ''} · <RelativeTime value={c.last_call_at} />
                     </p>
                   </div>
                   <SentimentIcon score={c.avg_sentiment_score} />
@@ -195,7 +185,7 @@ export default function CallerHistory() {
                           <span className="text-xs text-slate-400 flex items-center gap-1">
                             <Clock className="h-3 w-3" /> {fmtDuration(call.duration_seconds)}
                           </span>
-                          <span className="text-xs text-slate-400 ml-auto">{fmtDate(call.started_at)}</span>
+                          <span className="text-xs text-slate-400 ml-auto"><RelativeTime value={call.started_at} /></span>
                           <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-500 transition-colors" />
                         </div>
                         <p className="text-xs text-slate-600 line-clamp-2">

@@ -23,6 +23,7 @@ import { billingService } from '@/lib/billing';
 import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/lib/pricing';
 
 import { useConfirm } from '@/hooks/use-confirm';
+import { formatDate as formatDay } from '@/lib/datetime';
 
 interface SubscriptionPlan {
   id: string;
@@ -323,11 +324,7 @@ export default function BillingPage() {
   };
 
   const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    formatDay(dateString);
 
   const currentPlan = plans.find((p) => p.id === subscription?.plan_id);
   const visiblePlans = plans.filter((p) => p.is_active && p.is_public);

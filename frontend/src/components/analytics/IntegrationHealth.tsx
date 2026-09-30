@@ -14,6 +14,7 @@ import {
   Cell,
 } from 'recharts';
 import { Activity, CheckCircle, XCircle, AlertCircle, TrendingUp, Clock } from 'lucide-react';
+import { formatDate as formatDay } from '@/lib/datetime';
 
 interface IntegrationHealthProps {
   dateRange: {
@@ -106,8 +107,7 @@ export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange:
   }));
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return formatDay(dateString, { withYear: false });
   };
 
   const getStatusColor = (status: string) => {

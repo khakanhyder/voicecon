@@ -30,10 +30,11 @@ from app.models.subscription import (
 )
 from app.services.affiliates import coupons, payouts
 from app.services.affiliates.program import max_payments_for, rate_for
+from app.core.time import utc_iso
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+    return utc_iso(value)
 
 
 def _num(value) -> float:

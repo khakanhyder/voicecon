@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.subscription import Subscription, SubscriptionPlan
 from app.services.billing.entitlements import effective_grace_end, effective_status
+from app.core.time import utc_iso
 
 
 def utcnow() -> datetime:
@@ -19,7 +20,7 @@ def utcnow() -> datetime:
 
 
 def iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+    return utc_iso(value)
 
 
 def num(value: Any) -> Any:

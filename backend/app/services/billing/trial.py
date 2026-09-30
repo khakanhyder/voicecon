@@ -30,6 +30,7 @@ from app.models.subscription import (
 from app.services.billing import catalog, events
 from app.services.billing.conversion import mark_onboarding_done
 from app.services.billing.entitlements import get_entitlement_service
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ async def grant_trial(
         to_plan_id=plan.id,
         actor_type=events.ACTOR_USER,
         actor_id=user.id,
-        payload={"trial_days": trial_days, "trial_end": trial_end.isoformat()},
+        payload={"trial_days": trial_days, "trial_end": utc_iso(trial_end)},
     )
 
     await mark_onboarding_done(db, organization_id)

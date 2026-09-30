@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from pydantic import BaseModel, ConfigDict
+from app.core.time import UTCDatetime
 
 
 class NotificationResponse(BaseModel):
@@ -16,7 +17,7 @@ class NotificationResponse(BaseModel):
     data: Dict[str, Any]
     is_read: bool
     is_actioned: bool
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class UnreadCountResponse(BaseModel):

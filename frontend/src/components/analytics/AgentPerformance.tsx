@@ -20,6 +20,7 @@ import {
   Cell,
 } from 'recharts';
 import { Users, MessageSquare, Zap, TrendingUp, Award, Activity } from 'lucide-react';
+import { formatDate as formatDay } from '@/lib/datetime';
 
 interface AgentPerformanceProps {
   dateRange: {
@@ -126,8 +127,7 @@ export const AgentPerformance: React.FC<AgentPerformanceProps> = ({ dateRange: _
   ];
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return formatDay(dateString, { withYear: false });
   };
 
   const getSentimentColor = (sentiment: number) => {

@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Database, RefreshCw, Server, XCircle } from 'lucide-react'
 import { adminApi } from '@/lib/admin'
-import { AdminButton, Callout, Detail, PageHeader, Panel, errorText, humanize, timeAgo } from '@/components/admin/ui'
+import { AdminButton, Callout, Detail, PageHeader, Panel, errorText, humanize } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 function Check({ ok, label, detail }: { ok: boolean; label: string; detail?: React.ReactNode }) {
   return (
@@ -62,7 +63,7 @@ export default function SystemPage() {
               <Detail label="Dashboard settings applied">
                 <span className="inline-flex items-center gap-1.5"><Database className="h-3.5 w-3.5 text-slate-400" />{data.runtime_settings.overrides_applied}</span>
               </Detail>
-              <Detail label="Settings last checked">{timeAgo(data.runtime_settings.checked_at)}</Detail>
+              <Detail label="Settings last checked"><RelativeTime value={data.runtime_settings.checked_at} /></Detail>
             </dl>
             {Object.keys(data.runtime_settings.errors).length > 0 && (
               <div className="mt-4">

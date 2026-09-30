@@ -28,6 +28,7 @@ from app.models.user import Organization, OrganizationMember, User
 from app.schemas._types import NonBlankName
 from app.services.billing.entitlements import invalidate_entitlements
 from app.services.billing.trial import TrialUnavailable, grant_trial
+from app.core.time import UTCDatetime
 
 router = APIRouter()
 
@@ -47,7 +48,7 @@ class WorkspaceSummary(BaseModel):
     is_owner: bool
     is_current: bool
     member_count: int
-    joined_at: datetime
+    joined_at: UTCDatetime
     plan_type: str
 
 
@@ -63,7 +64,7 @@ class WorkspaceDetail(BaseModel):
     permissions: List[str]
     member_count: int
     owner_email: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 class WorkspaceUpdate(BaseModel):

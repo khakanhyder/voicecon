@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import { importWorkflow } from '@/lib/workflow/transferApi'
 import { WorkflowImportError } from '@/lib/workflow/transfer'
+import { apiTime, formatDate } from '@/lib/datetime';
+import { RelativeTime } from '@/components/ui/relative-time';
 
 interface Workflow {
   id: string
@@ -22,6 +24,7 @@ interface Workflow {
   is_active: boolean
   created_at: string
   total_executions?: number
+  last_executed_at?: string | null
 }
 
 const getCardIcon = (workflow: Workflow) => {
@@ -147,8 +150,8 @@ export default function WorkflowsPage() {
     if (activeTab === 'Webhooks') return style?.label === 'Webhook';
     return true;
   }).sort((a, b) => {
-    const tA = new Date(a.created_at).getTime();
-    const tB = new Date(b.created_at).getTime();
+    const tA = apiTime(a.created_at);
+    const tB = apiTime(b.created_at);
     return sortOrder === 'newest' ? tB - tA : tA - tB;
   });
 
@@ -301,15 +304,15 @@ export default function WorkflowsPage() {
                 <div className="mt-8 pt-4 border-t border-gray-100 flex items-center justify-between text-[11px] font-semibold text-gray-400 w-full">
                   <div className="flex items-center gap-1.5">
                     <Calendar size={13} className="text-gray-400" />
-                    Created {new Date(workflow.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    Created {formatDate(workflow.created_at)}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Clock size={13} className="text-gray-400" />
-                    Last run {Math.floor(Math.random() * 5) + 1}h ago
+                    {workflow.last_executed_at ? <>Last run <RelativeTime value={workflow.last_executed_at} /></> : 'Never run'}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <BarChart2 size={13} className="text-gray-400" />
-                    {workflow.total_executions || Math.floor(Math.random() * 150)} runs
+                    {workflow.total_executions ?? 0} runs
                   </div>
                 </div>
               </div>

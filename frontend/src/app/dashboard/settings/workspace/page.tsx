@@ -14,6 +14,7 @@ import { useConfirm } from '@/hooks/use-confirm'
 import { getErrorMessage } from '@/lib/api'
 import { PERMISSIONS, workspaceService } from '@/lib/workspace'
 import { useWorkspaceStore } from '@/store/workspaceStore'
+import { formatDate } from '@/lib/datetime'
 
 const fieldClass =
   'w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]'
@@ -236,11 +237,7 @@ export default function WorkspaceSettingsPage() {
             {current.owner_email && <ReadOnlyRow label="Owner" value={current.owner_email} />}
             <ReadOnlyRow
               label="Created"
-              value={new Date(current.created_at).toLocaleDateString('en-GB', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-              })}
+              value={formatDate(current.created_at)}
             />
           </div>
 

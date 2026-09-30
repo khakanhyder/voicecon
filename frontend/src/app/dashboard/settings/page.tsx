@@ -33,6 +33,7 @@ import { PLAN_LABELS } from '@/lib/entitlements'
 import { useAuthStore } from '@/store/authStore'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
+import { formatDate } from '@/lib/datetime'
 
 // Matches the trigger styling the agent builder's selects already use, so a
 // dropdown looks the same wherever it appears.
@@ -205,11 +206,7 @@ export default function SettingsGeneralPage() {
       ? `${entitlements.days_remaining} ${entitlements.days_remaining === 1 ? 'day' : 'days'} left`
       : '—'
     : entitlements?.current_period_end
-      ? new Date(entitlements.current_period_end).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        })
+      ? formatDate(entitlements.current_period_end)
       : '—'
 
   return (

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getIconUrl } from './IntegrationCard';
+import { RelativeTime } from '@/components/ui/relative-time';
 
 interface ConnectionStatusProps {
   integration: {
@@ -72,29 +73,6 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
     return <Key className="w-4 h-4 text-purple-600" />;
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return 'Today';
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else if (diffDays < 30) {
-      const weeks = Math.floor(diffDays / 7);
-      return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
-    } else if (diffDays < 365) {
-      const months = Math.floor(diffDays / 30);
-      return `${months} ${months === 1 ? 'month' : 'months'} ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
-
   return (
     <div
       className={`border rounded-2xl p-6 transition-all ${
@@ -139,13 +117,13 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Calendar className="w-4 h-4" />
-                <span>Connected {formatDate(integration.connectedAt)}</span>
+                <span>Connected <RelativeTime value={integration.connectedAt} /></span>
               </div>
 
               {integration.lastSync && integration.status === 'connected' && (
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <RefreshCw className="w-4 h-4" />
-                  <span>Last synced {formatDate(integration.lastSync)}</span>
+                  <span>Last synced <RelativeTime value={integration.lastSync} /></span>
                 </div>
               )}
 

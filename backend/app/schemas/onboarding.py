@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.core.time import UTCDatetime
 
 #: A hostname label: alphanumeric, inner hyphens allowed.
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
@@ -126,8 +127,8 @@ class CompanyProfileResponse(BaseModel):
     phone_number: Optional[str] = None
     onboarding_completed: bool
     onboarding_step: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
 
 class ClaimPhoneNumberRequest(BaseModel):

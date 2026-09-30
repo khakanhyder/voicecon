@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 
 import { useConfirm } from '@/hooks/use-confirm'
 import { downloadWorkflow } from '@/lib/workflow/transferApi'
+import { formatDateTime } from '@/lib/datetime'
 
 interface Workflow {
   id: string
@@ -302,7 +303,7 @@ export default function WorkflowDetailPage() {
                       {ex.steps_successful}/{ex.steps_executed} steps
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {new Date(ex.started_at).toLocaleString()}
+                      {formatDateTime(ex.started_at)}
                     </span>
                   </div>
                   <span className="text-xs text-muted-foreground">
@@ -524,12 +525,12 @@ export default function WorkflowDetailPage() {
 
           <div>
             <p className="text-sm text-muted-foreground">Created</p>
-            <p className="text-sm mt-1">{new Date(workflow.created_at).toLocaleString()}</p>
+            <p className="text-sm mt-1">{formatDateTime(workflow.created_at)}</p>
           </div>
 
           <div>
             <p className="text-sm text-muted-foreground">Last Updated</p>
-            <p className="text-sm mt-1">{new Date(workflow.updated_at).toLocaleString()}</p>
+            <p className="text-sm mt-1">{formatDateTime(workflow.updated_at)}</p>
           </div>
         </div>
       </div>

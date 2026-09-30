@@ -29,6 +29,7 @@ from app.services.telephony.twilio_service import get_twilio_service_for_number
 from app.core.config import settings
 from app.core.entitlement_guard import require_entitlement
 from app.services.billing import catalog
+from app.core.time import utc_iso
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -496,7 +497,7 @@ async def list_call_contacts(
             "total_duration_seconds": int(row.total_duration or 0),
             "total_cost": float(row.total_cost or 0),
             "avg_sentiment_score": float(row.avg_sentiment) if row.avg_sentiment is not None else None,
-            "last_call_at": row.last_call_at.isoformat() if row.last_call_at else None,
+            "last_call_at": utc_iso(row.last_call_at),
         }
         for row in rows
         if row.contact  # skip blank / system numbers

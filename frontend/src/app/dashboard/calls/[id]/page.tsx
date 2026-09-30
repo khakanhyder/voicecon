@@ -12,6 +12,7 @@ import {
   Bot, User, Play, Pause, Volume2, Activity, FileText, ChevronRight,
   Mic, Cpu, Tag, Sparkles,
 } from 'lucide-react'
+import { formatDateTime, formatTime } from '@/lib/datetime'
 
 interface CallDetail {
   id: string
@@ -117,10 +118,7 @@ function fmtDur(s: number | null) {
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return formatDateTime(d)
 }
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -366,7 +364,7 @@ export default function CallDetailPage() {
                         <p className="text-[14px] font-poppins leading-relaxed">{entry.text}</p>
                         {entry.timestamp && (
                           <p className={`text-[11px] font-poppins mt-1 ${isAgent ? 'text-black/40' : 'text-white/60'}`}>
-                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {formatTime(entry.timestamp)}
                           </p>
                         )}
                       </div>

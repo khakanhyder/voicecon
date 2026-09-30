@@ -30,6 +30,7 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.chat import ChatMessage, ChatSession, ChatWidget
 from app.models.user import User
+from app.core.time import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -223,8 +224,8 @@ def _chatbot_dict(
         "embed_snippet": _embed_snippet(widget.public_key, request),
         "session_count": (stats or {}).get("session_count", 0),
         "last_activity_at": (stats or {}).get("last_activity_at"),
-        "created_at": widget.created_at.isoformat() if widget.created_at else None,
-        "updated_at": widget.updated_at.isoformat() if widget.updated_at else None,
+        "created_at": utc_iso(widget.created_at),
+        "updated_at": utc_iso(widget.updated_at),
     }
 
 
@@ -302,7 +303,7 @@ async def _session_stats(db: AsyncSession, widget_ids: list) -> Dict[uuid.UUID, 
     return {
         widget_id: {
             "session_count": count,
-            "last_activity_at": last.isoformat() if last else None,
+            "last_activity_at": utc_iso(last),
         }
         for widget_id, count, last in rows
     }
@@ -559,8 +560,8 @@ async def _sessions_page(db: AsyncSession, condition, page: int, page_size: int)
                 "status": s.status,
                 "message_count": s.message_count,
                 "source_url": s.source_url,
-                "started_at": s.started_at.isoformat(),
-                "last_activity_at": s.last_activity_at.isoformat(),
+                "started_at": utc_iso(s.started_at),
+                "last_activity_at": utc_iso(s.last_activity_at),
             }
             for s in rows
         ],
@@ -609,7 +610,7 @@ async def get_session_messages(
                 "role": m.role,
                 "content": m.content,
                 "tool_name": m.tool_name,
-                "created_at": m.created_at.isoformat(),
+                "created_at": utc_iso(m.created_at),
             }
             for m in rows
         ],

@@ -16,8 +16,8 @@ import {
   Th,
   Tr,
   formatDate,
-  timeAgo,
 } from '@/components/admin/ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 const ACTIONS = [
   { value: '', label: 'All actions' },
@@ -63,7 +63,7 @@ export default function AuditLogPage() {
                       {hasDetails && (open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />)}
                     </Td>
                     <Td>
-                      <p className="text-slate-700">{timeAgo(row.created_at)}</p>
+                      <p className="text-slate-700"><RelativeTime value={row.created_at} /></p>
                       <p className="text-xs text-slate-400">{formatDate(row.created_at, true)}</p>
                     </Td>
                     <Td className="text-slate-700">{row.actor_email ?? '—'}</Td>
