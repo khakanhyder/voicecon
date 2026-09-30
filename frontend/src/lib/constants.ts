@@ -33,6 +33,8 @@ export const API_ENDPOINTS = {
   PHONE_NUMBERS_PROVISION: `${API_BASE}/api/v1/phone-numbers/provision`,
   PHONE_NUMBERS_PROVIDERS: `${API_BASE}/api/v1/phone-numbers/providers`,
   PHONE_NUMBERS_PURCHASE_OPTIONS: `${API_BASE}/api/v1/phone-numbers/purchase-options`,
+  PHONE_NUMBERS_OWN: `${API_BASE}/api/v1/phone-numbers/own-numbers`,
+  PHONE_NUMBERS_IMPORT: `${API_BASE}/api/v1/phone-numbers/import`,
 
   // Integrations
   INTEGRATIONS: `${API_BASE}/api/v1/integrations`,

@@ -14,6 +14,7 @@ from app.services.telephony.providers.base import (
     AvailableNumber,
     NumberProvider,
     NumberProviderError,
+    OwnedNumber,
     PurchasedNumber,
 )
 
@@ -171,6 +172,59 @@ class TwilioNumberProvider(NumberProvider):
         )
         logger.info(f"[twilio] repointed voice webhook for {phone_number or sid}")
         return provider_metadata or {}
+
+    #: Enough for any account we expect; stops a runaway pager.
+    _OWNED_PAGE_LIMIT = 5
+
+    async def list_owned_numbers(self) -> List[OwnedNumber]:
+        results: List[OwnedNumber] = []
+        path: Optional[str] = f"/2010-04-01/Accounts/{self.account_sid}/IncomingPhoneNumbers.json"
+        params: Optional[Dict[str, Any]] = {"PageSize": 1000}
+
+        for _ in range(self._OWNED_PAGE_LIMIT):
+            if not path:
+                break
+            payload = await self._request("GET", path, params=params) or {}
+            for item in payload.get("incoming_phone_numbers") or []:
+                caps = item.get("capabilities") or {}
+                results.append(
+                    OwnedNumber(
+                        phone_number=item.get("phone_number"),
+                        provider=self.slug,
+                        provider_sid=item.get("sid"),
+                        friendly_name=item.get("friendly_name"),
+                        capabilities={
+                            "voice": bool(caps.get("voice")),
+                            "sms": bool(caps.get("sms") or caps.get("SMS")),
+                            "mms": bool(caps.get("mms") or caps.get("MMS")),
+                        },
+                        voice_url=item.get("voice_url") or None,
+                    )
+                )
+            # next_page_uri already carries the paging query.
+            path, params = payload.get("next_page_uri"), None
+
+        logger.info(f"[twilio] account has {len(results)} numbers")
+        return results
+
+    async def disconnect_voice_webhook(
+        self,
+        provider_sid: Optional[str],
+        phone_number: Optional[str] = None,
+        provider_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        sid = provider_sid or await self._lookup_sid(phone_number)
+        if not sid:
+            return
+        # Put back whatever the number did before it was brought to Voicecon
+        # (empty when it had nothing).
+        original = (provider_metadata or {}).get("original_voice_url") or ""
+        await self._request(
+            "POST",
+            f"/2010-04-01/Accounts/{self.account_sid}/IncomingPhoneNumbers/{sid}.json",
+            form={"VoiceUrl": original, "StatusCallback": ""},
+        )
+        logger.info(f"[twilio] disconnected {phone_number or sid} from Voicecon")
 
     async def _lookup_sid(self, phone_number: Optional[str]) -> Optional[str]:
         """Find a number's SID by its E.164 value (fallback for older rows)."""

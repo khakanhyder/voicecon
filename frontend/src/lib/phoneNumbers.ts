@@ -27,6 +27,19 @@ export interface PhoneNumber {
   status: string
   monthly_cost: number | null
   created_at: string
+  /** Brought in from the user's own account; removing it only disconnects it. */
+  imported?: boolean
+}
+
+/** A number already on one of the workspace's own carrier accounts. */
+export interface OwnAccountNumber {
+  phone_number: string
+  friendly_name: string | null
+  capabilities: Record<string, boolean>
+  /** Set when the number is already in this workspace. */
+  phone_number_id: string | null
+  /** False when it's already in this or another workspace. */
+  available: boolean
 }
 
 export interface AvailableNumber {
@@ -121,11 +134,33 @@ export const phoneNumberService = {
     return data
   },
 
+  /** Numbers already on a connected account, including ones bought directly there. */
+  async ownAccountNumbers(connectionId: string): Promise<OwnAccountNumber[]> {
+    const { data } = await apiClient.get<OwnAccountNumber[]>(API_ENDPOINTS.PHONE_NUMBERS_OWN, {
+      params: { connection_id: connectionId },
+    })
+    return Array.isArray(data) ? data : []
+  },
+
+  /** Bring a number from the user's own account into Voicecon. */
+  async importNumber(payload: {
+    connection_id: string
+    phone_number: string
+    agent_id?: string | null
+  }): Promise<PhoneNumber> {
+    const { data } = await apiClient.post<PhoneNumber>(API_ENDPOINTS.PHONE_NUMBERS_IMPORT, {
+      ...payload,
+      agent_id: payload.agent_id || null,
+    })
+    return data
+  },
+
   /**
-   * Point a number at a different agent. The backend re-points the carrier
-   * too, and inbound calls follow the saved assignment from the next call on.
+   * Point a number at a different agent, or detach it with `null`. The
+   * backend re-points the carrier too, and inbound calls follow the saved
+   * assignment from the next call on — a detached number stops answering.
    */
-  async assignAgent(phoneNumberId: string, agentId: string): Promise<PhoneNumber> {
+  async assignAgent(phoneNumberId: string, agentId: string | null): Promise<PhoneNumber> {
     const { data } = await apiClient.patch<PhoneNumber>(API_ENDPOINTS.PHONE_NUMBER(phoneNumberId), {
       agent_id: agentId,
     })
@@ -181,7 +216,7 @@ export function validateSearch(country: string, areaCode: string, contains: stri
 
 // ---- Errors --------------------------------------------------------------------
 
-export type PhoneAction = 'search' | 'purchase' | 'options' | 'list' | 'release' | 'assign'
+export type PhoneAction = 'search' | 'purchase' | 'options' | 'list' | 'release' | 'assign' | 'own_list' | 'import'
 
 const FALLBACK: Record<PhoneAction, string> = {
   search: 'We couldn’t load available numbers right now. Please try again.',
@@ -190,6 +225,8 @@ const FALLBACK: Record<PhoneAction, string> = {
   list: 'We couldn’t load your phone numbers right now. Please try again.',
   release: 'We couldn’t release this number right now. Please try again or contact support.',
   assign: 'We couldn’t change the assistant for this number right now. Please try again.',
+  own_list: 'We couldn’t load the numbers on your account right now. Please try again.',
+  import: 'We couldn’t add this number right now. Please try again.',
 }
 
 /**

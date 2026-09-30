@@ -24,6 +24,7 @@ from app.services.telephony.providers.base import (
     AvailableNumber,
     NumberProvider,
     NumberProviderError,
+    OwnedNumber,
     PurchasedNumber,
 )
 
@@ -194,6 +195,76 @@ class TelnyxNumberProvider(NumberProvider):
         metadata = dict(provider_metadata or {})
         metadata["texml_application_id"] = application_id
         return metadata
+
+    #: 250 per page (the Telnyx maximum) × this many pages.
+    _OWNED_PAGE_LIMIT = 8
+
+    async def list_owned_numbers(self) -> List[OwnedNumber]:
+        items: List[Dict[str, Any]] = []
+        for page in range(1, self._OWNED_PAGE_LIMIT + 1):
+            payload = await self._request(
+                "GET",
+                "/v2/phone_numbers",
+                params={"page[size]": 250, "page[number]": page},
+            ) or {}
+            items.extend(payload.get("data") or [])
+            total_pages = ((payload.get("meta") or {}).get("total_pages")) or 1
+            if page >= total_pages:
+                break
+
+        # A number routes through a connection id. When that connection is a
+        # TeXML application its URL says whether it already points at Voicecon.
+        app_urls = await self._texml_application_urls() if any(
+            (i or {}).get("connection_id") for i in items
+        ) else {}
+
+        results = [
+            OwnedNumber(
+                phone_number=item.get("phone_number"),
+                provider=self.slug,
+                provider_sid=item.get("id"),
+                friendly_name=item.get("customer_reference") or None,
+                # Telnyx doesn't list per-number capabilities here; its
+                # numbers are voice-capable.
+                capabilities={"voice": True},
+                voice_url=app_urls.get(item.get("connection_id")),
+                connection_id=item.get("connection_id") or None,
+            )
+            for item in items
+            if item and item.get("phone_number") and item.get("status", "active") == "active"
+        ]
+        logger.info(f"[telnyx] account has {len(results)} numbers")
+        return results
+
+    async def disconnect_voice_webhook(
+        self,
+        provider_sid: Optional[str],
+        phone_number: Optional[str] = None,
+        provider_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        number_id = provider_sid or await self._lookup_number_id(phone_number)
+        if not number_id:
+            return
+        # Back to the connection it had before Voicecon (none when it had none),
+        # so calls stop reaching Voicecon's TeXML application.
+        original = (provider_metadata or {}).get("original_connection_id") or None
+        await self._request(
+            "PATCH",
+            f"/v2/phone_numbers/{number_id}",
+            json_body={"connection_id": original},
+        )
+        logger.info(f"[telnyx] disconnected {phone_number or number_id} from Voicecon")
+
+    async def _texml_application_urls(self) -> Dict[str, str]:
+        """TeXML application id -> its voice URL."""
+        payload = await self._request(
+            "GET", "/v2/texml_applications", params={"page[size]": 250}
+        )
+        return {
+            app.get("id"): app.get("voice_url")
+            for app in (payload or {}).get("data") or []
+            if app and app.get("id")
+        }
 
     # ── internals ───────────────────────────────────────────────────────────
 

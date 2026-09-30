@@ -62,6 +62,8 @@ MESSAGES = {
     "purchase": "Unable to complete the purchase. Please try again or contact support.",
     "release": "We couldn't release this number right now. Please try again or contact support.",
     "update": "We couldn't update this number right now. Please try again.",
+    "list_own": "We couldn't load the numbers on your account right now. Please try again.",
+    "import": "We couldn't add this number right now. Please try again.",
 }
 NUMBER_TAKEN = "That number is no longer available. Please choose another one."
 

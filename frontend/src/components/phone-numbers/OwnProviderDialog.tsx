@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, CheckCircle2, Info, Plug } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Download, Info, Plug } from 'lucide-react'
 import { PhoneDialog } from './PhoneDialog'
 import { getIconUrl } from '@/components/integrations/IntegrationCard'
 import type { OwnProvider, PurchaseOptions } from '@/lib/phoneNumbers'
@@ -12,6 +12,8 @@ interface Props {
   options: PurchaseOptions | null
   /** Continue to buying a number on one of the connected accounts. */
   onUseAccount: (provider: OwnProvider) => void
+  /** Bring in numbers already on one of the connected accounts. */
+  onImportFrom: (provider: OwnProvider) => void
 }
 
 /**
@@ -19,9 +21,10 @@ interface Props {
  *
  * This is deliberately the only place provider names appear. Connecting
  * happens on the provider's Integrations page (credentials, test, save);
- * once connected, the account shows here and numbers can be bought on it.
+ * once connected, the account shows here: numbers already on it can be added,
+ * and new ones bought on it.
  */
-export function OwnProviderDialog({ open, onClose, options, onUseAccount }: Props) {
+export function OwnProviderDialog({ open, onClose, options, onUseAccount, onImportFrom }: Props) {
   const own = options?.own_providers ?? []
   const supported = options?.supported_providers ?? []
 
@@ -61,13 +64,22 @@ export function OwnProviderDialog({ open, onClose, options, onUseAccount }: Prop
                     </p>
                     <p className="truncate text-[12px] text-slate-500">{p.connection_name || 'Your account'}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onUseAccount(p)}
-                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-[13px] font-semibold text-white hover:bg-[#0c5a4b]"
-                  >
-                    Buy a number here <ArrowRight className="h-4 w-4" />
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onImportFrom(p)}
+                      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-[13px] font-semibold text-white hover:bg-[#0c5a4b]"
+                    >
+                      <Download className="h-4 w-4" /> Use my numbers
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUseAccount(p)}
+                      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Buy new <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -108,7 +120,7 @@ export function OwnProviderDialog({ open, onClose, options, onUseAccount }: Prop
 
         <p className="flex items-start gap-2 rounded-xl bg-slate-50 px-4 py-3 text-[12px] leading-relaxed text-slate-600">
           <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
-          Numbers bought on your own account are billed by your provider, not by Voicecon. You’ll need your
+          Numbers on your own account — ones you already have and ones you buy here — are billed by your provider, not by Voicecon. You’ll need your
           account’s API credentials to connect it.
         </p>
       </div>

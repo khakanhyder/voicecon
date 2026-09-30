@@ -8,6 +8,7 @@ Handles:
 - Listing user's phone numbers
 - Updating phone number configuration
 - Releasing phone numbers
+- Bringing in numbers already on the user's own carrier account
 
 Two purchase flows share these endpoints (see
 ``services/telephony/purchase_account``):
@@ -37,6 +38,7 @@ from app.models.agent import Agent
 from app.models.user import User
 from app.services.telephony.number_provisioning import (
     NumberNotRecordedError,
+    webhook_base_url,
     WebhookUrlNotConfigured,
     purchase_number_for_agent,
     status_webhook_url,
@@ -106,7 +108,10 @@ class PhoneNumberProvision(BaseModel):
 
 class PhoneNumberUpdate(BaseModel):
     """Phone number update request."""
-    agent_id: Optional[UUID] = Field(default=None, description="Update agent association")
+    agent_id: Optional[UUID] = Field(
+        default=None,
+        description="Agent that answers the number. Send null to detach it, so the number stops answering.",
+    )
     status: Optional[str] = Field(default=None, description="Update status (active, inactive)")
 
 
@@ -126,6 +131,13 @@ class PhoneNumberResponse(BaseModel):
     source: str = Field(
         default=SOURCE_VOICECON,
         description="'voicecon' (a Voicecon number) or 'own' (your own connected provider)",
+    )
+    imported: bool = Field(
+        default=False,
+        description=(
+            "Brought in from the user's own account rather than bought through "
+            "Voicecon. Removing it only disconnects it; the number stays on their account."
+        ),
     )
 
     class Config:
@@ -177,6 +189,51 @@ class TelephonyProviderResponse(BaseModel):
     )
 
 
+class OwnAccountNumber(BaseModel):
+    """A number already on one of the workspace's connected carrier accounts."""
+    phone_number: str
+    friendly_name: Optional[str] = None
+    capabilities: dict = Field(default_factory=dict)
+    phone_number_id: Optional[UUID] = Field(
+        default=None, description="Set when the number is already in this workspace"
+    )
+    available: bool = Field(description="Whether it can be brought into this workspace")
+
+
+class PhoneNumberImport(BaseModel):
+    """Bring a number from the user's own carrier account into Voicecon."""
+    connection_id: str = Field(..., description="The connected carrier account the number is on")
+    phone_number: str = Field(..., description="The number, in E.164 format")
+    agent_id: Optional[UUID] = Field(
+        default=None, description="Agent to answer it. Leave empty to attach one later."
+    )
+
+
+#: provider_metadata flag for a number brought from the user's own account.
+IMPORTED_KEY = "imported"
+
+
+def _is_imported(phone_number: PhoneNumber) -> bool:
+    return bool((phone_number.provider_metadata or {}).get(IMPORTED_KEY))
+
+
+async def _answering_agent_for(db: AsyncSession, org_id: UUID, agent_id: UUID) -> Agent:
+    """The workspace agent that should answer a number; it must be turned on."""
+    agent = (
+        await db.execute(
+            select(Agent).where(Agent.id == agent_id, Agent.organization_id == org_id)
+        )
+    ).scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found or access denied")
+    if not agent.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{agent.name} is turned off. Turn it on before it can answer this number.",
+        )
+    return agent
+
+
 def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
     """Serialise a phone number row. A Voicecon number never names its carrier."""
     voicecon = is_voicecon_number(phone_number)
@@ -193,6 +250,7 @@ def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
         monthly_cost=float(phone_number.monthly_cost) if phone_number.monthly_cost else None,
         created_at=phone_number.created_at.isoformat(),
         source=SOURCE_VOICECON if voicecon else SOURCE_OWN,
+        imported=_is_imported(phone_number),
     ), voicecon=voicecon))
 
 
@@ -253,6 +311,162 @@ async def get_purchase_options(
             for p in OWN_PROVIDER_CATALOG
         ],
     )
+
+
+@router.get("/own-numbers", response_model=List[OwnAccountNumber])
+async def list_own_account_numbers(
+    connection_id: str = Query(..., description="The connected carrier account to look at"),
+    current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Numbers already on one of the workspace's own carrier accounts — including
+    ones bought directly with the carrier — and whether each is in Voicecon.
+    """
+    try:
+        _, connection_id = await resolve_account(
+            db, org_id, source=SOURCE_OWN, provider=None, connection_id=connection_id
+        )
+        resolved = await resolve_provider(db, org_id, slug=None, connection_id=connection_id)
+        owned = await resolved.provider.list_owned_numbers()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise public_error(e, action="list_own", voicecon=False)
+
+    values = [n.phone_number for n in owned if n.phone_number]
+    known: Dict[str, PhoneNumber] = {}
+    if values:
+        rows = await db.execute(select(PhoneNumber).where(PhoneNumber.phone_number.in_(values)))
+        known = {row.phone_number: row for row in rows.scalars().all()}
+
+    results: List[OwnAccountNumber] = []
+    for number in owned:
+        if not number.phone_number:
+            continue
+        row = known.get(number.phone_number)
+        mine = row is not None and row.organization_id == org_id
+        results.append(OwnAccountNumber(
+            phone_number=number.phone_number,
+            friendly_name=number.friendly_name,
+            capabilities=number.capabilities or {},
+            phone_number_id=row.id if mine else None,
+            # A row in another workspace means that workspace connected the same
+            # carrier account first; never move a number out from under it.
+            available=row is None,
+        ))
+    return results
+
+
+@router.post(
+    "/import",
+    response_model=PhoneNumberResponse,
+    status_code=status.HTTP_201_CREATED,
+    # Nothing is bought, so only the number allowance applies.
+    dependencies=[Depends(require_entitlement(limit=catalog.LIMIT_PHONE_NUMBERS))],
+)
+async def import_own_number(
+    import_request: PhoneNumberImport,
+    current_user: User = Depends(get_current_active_user),
+    org_id: UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Bring a number the user already has on their own carrier account into
+    Voicecon, optionally pointing it at an agent straight away.
+    """
+    agent = (
+        await _answering_agent_for(db, org_id, import_request.agent_id)
+        if import_request.agent_id else None
+    )
+
+    existing = (
+        await db.execute(
+            select(PhoneNumber).where(PhoneNumber.phone_number == import_request.phone_number)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "That number is already in this workspace."
+                if existing.organization_id == org_id
+                else "That number is already connected to another Voicecon workspace."
+            ),
+        )
+
+    try:
+        _, connection_id = await resolve_account(
+            db, org_id, source=SOURCE_OWN, provider=None, connection_id=import_request.connection_id
+        )
+        resolved = await resolve_provider(db, org_id, slug=None, connection_id=connection_id)
+        owned = next(
+            (n for n in await resolved.provider.list_owned_numbers()
+             if n.phone_number == import_request.phone_number),
+            None,
+        )
+        if owned is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"That number isn't on your {resolved.option.name} account any more. Refresh the list and try again.",
+            )
+
+        metadata: Dict[str, Any] = {
+            IMPORTED_KEY: True,
+            CREDENTIAL_SOURCE_KEY: resolved.option.source,
+        }
+        # Remember where calls went before, unless that was already Voicecon,
+        # so removing the number later puts it back: a URL on Twilio, a
+        # connection/application on Telnyx.
+        if not (owned.voice_url and owned.voice_url.startswith(webhook_base_url())):
+            if owned.voice_url:
+                metadata["original_voice_url"] = owned.voice_url
+            if owned.connection_id:
+                metadata["original_connection_id"] = owned.connection_id
+
+        if agent is not None:
+            metadata.update(await resolved.provider.update_voice_webhook(
+                provider_sid=owned.provider_sid,
+                voice_url=voice_webhook_url(resolved.slug, str(agent.id)),
+                phone_number=owned.phone_number,
+                status_callback_url=status_webhook_url(resolved.slug),
+                provider_metadata=metadata,
+            ) or {})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise public_error(e, action="import", voicecon=False)
+
+    record = PhoneNumber(
+        phone_number=owned.phone_number,
+        provider=resolved.slug,
+        provider_sid=owned.provider_sid,
+        integration_connection_id=resolved.connection_uuid,
+        provider_metadata=metadata,
+        agent_id=agent.id if agent else None,
+        user_id=current_user.id,
+        organization_id=org_id,
+        capabilities=owned.capabilities or {"voice": True},
+        status="active",
+    )
+    try:
+        db.add(record)
+        await db.commit()
+        await db.refresh(record)
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to record imported number {owned.phone_number}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="We couldn't add this number right now. Please try again.",
+        )
+
+    logger.info(
+        f"Imported {record.phone_number} from {resolved.slug} into org {org_id} "
+        f"(agent {record.agent_id})"
+    )
+    return _to_response(record)
 
 
 @router.get("/search", response_model=List[AvailablePhoneNumber])
@@ -530,26 +744,16 @@ async def update_phone_number(
     try:
         # Update agent association. Picking the agent it already has is a
         # no-op: nothing to tell the carrier.
-        if update_request.agent_id is not None and update_request.agent_id != phone_number.agent_id:
-            # Verify agent belongs to user
-            agent_result = await db.execute(
-                select(Agent).where(
-                    Agent.id == update_request.agent_id,
-                    Agent.organization_id == org_id,
-                )
+        detach = "agent_id" in update_request.model_fields_set and update_request.agent_id is None
+        if detach and phone_number.agent_id is not None:
+            # The carrier keeps its webhook; inbound calls read the number's
+            # own record, so an unassigned number simply stops answering.
+            logger.info(
+                f"Detached {phone_number.phone_number} from agent {phone_number.agent_id}"
             )
-            agent = agent_result.scalar_one_or_none()
-
-            if not agent:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Agent not found or access denied"
-                )
-            if not agent.is_active:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{agent.name} is turned off. Turn it on before it can answer this number.",
-                )
+            phone_number.agent_id = None
+        elif update_request.agent_id is not None and update_request.agent_id != phone_number.agent_id:
+            agent = await _answering_agent_for(db, org_id, update_request.agent_id)
 
             try:
                 resolved = await resolve_provider_for_number(
@@ -614,6 +818,9 @@ async def release_phone_number(
 ):
     """
     Release (delete) a phone number back to the carrier it was bought from.
+
+    A number brought in from the user's own account is only disconnected from
+    Voicecon: it stays on their account, with its old call routing restored.
     """
     result = await db.execute(
         select(PhoneNumber).where(
@@ -637,13 +844,29 @@ async def release_phone_number(
             connection_id=phone_number.integration_connection_id,
             provider_metadata=phone_number.provider_metadata or {},
         )
-        await resolved.provider.release_number(
-            provider_sid=phone_number.provider_sid,
-            phone_number=phone_number.phone_number,
-            provider_metadata=phone_number.provider_metadata or {},
-        )
+        if _is_imported(phone_number):
+            try:
+                await resolved.provider.disconnect_voice_webhook(
+                    provider_sid=phone_number.provider_sid,
+                    phone_number=phone_number.phone_number,
+                    provider_metadata=phone_number.provider_metadata or {},
+                )
+            except Exception as e:
+                # Removal must not hinge on the carrier; the number stays on
+                # their account either way and they can re-point it there.
+                logger.warning(f"Could not disconnect {phone_number.phone_number}: {e}")
+        else:
+            await resolved.provider.release_number(
+                provider_sid=phone_number.provider_sid,
+                phone_number=phone_number.phone_number,
+                provider_metadata=phone_number.provider_metadata or {},
+            )
     except Exception as e:
-        raise public_error(e, action="release", voicecon=is_voicecon_number(phone_number))
+        if not _is_imported(phone_number):
+            raise public_error(e, action="release", voicecon=is_voicecon_number(phone_number))
+        # The account itself may be disconnected; the number is still theirs,
+        # so removing it from Voicecon goes ahead.
+        logger.warning(f"Removing {phone_number.phone_number} without reaching its carrier: {e}")
 
     try:
         await db.delete(phone_number)

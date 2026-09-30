@@ -104,6 +104,23 @@ class PurchasedNumber:
     provider_metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class OwnedNumber:
+    """A number already on the connected carrier account (bought anywhere)."""
+
+    phone_number: str
+    provider: str
+    provider_sid: str
+    friendly_name: Optional[str] = None
+    capabilities: Dict[str, bool] = field(default_factory=dict)
+    #: Where the carrier currently sends calls — restored when the number is
+    #: removed from Voicecon, so the account is left as it was found. Twilio
+    #: routes by URL; Telnyx routes through a connection/application, whose
+    #: URL is filled in when it is a TeXML application.
+    voice_url: Optional[str] = None
+    connection_id: Optional[str] = None
+
+
 class NumberProvider(ABC):
     """
     Base class for a carrier that can sell and configure phone numbers.
@@ -178,6 +195,24 @@ class NumberProvider(ABC):
         """
         Re-point the number's voice webhook (used when a number is reassigned
         to a different agent). Returns provider metadata to persist.
+        """
+
+    async def list_owned_numbers(self) -> List[OwnedNumber]:
+        """Numbers already on this account, however they were bought."""
+        raise NumberProviderError.public(
+            f"Listing existing numbers isn't supported for {self.name} yet."
+        )
+
+    async def disconnect_voice_webhook(
+        self,
+        provider_sid: Optional[str],
+        phone_number: Optional[str] = None,
+        provider_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Stop the number sending calls to Voicecon, used when a number the user
+        brought from their own account is removed. The number stays on their
+        account. Carriers that can't do this leave it as it is.
         """
 
     # ── shared HTTP plumbing ────────────────────────────────────────────────

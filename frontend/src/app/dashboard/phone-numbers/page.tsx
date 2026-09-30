@@ -30,6 +30,7 @@ import {
 } from '@/lib/phoneNumbers'
 import { BuyNumberDialog } from '@/components/phone-numbers/BuyNumberDialog'
 import { OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
+import { ImportNumbersDialog } from '@/components/phone-numbers/ImportNumbersDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const statusStyle: Record<string, string> = {
@@ -61,10 +62,14 @@ function OpenPurchaseFromUrl({ onOpen }: { onOpen: () => void }) {
 
 type AgentOption = { id: string; name: string; is_active?: boolean }
 
+// Radix Select can't use an empty value, so "no assistant" gets a sentinel.
+const NO_AGENT = '__none__'
+
 /**
- * Which assistant answers a number, changeable in place. Saving re-points the
- * carrier; until the request settles the picker is disabled so a second pick
- * can't race the first.
+ * Which assistant answers a number, changeable in place — including "No
+ * assistant", which detaches it so the number stops answering. Saving
+ * re-points the carrier; until the request settles the picker is disabled so a
+ * second pick can't race the first.
  */
 function AgentPicker({
   number,
@@ -75,7 +80,7 @@ function AgentPicker({
   number: PhoneNumber
   agents: AgentOption[]
   saving: boolean
-  onChange: (agentId: string) => void
+  onChange: (agentId: string | null) => void
 }) {
   const current = number.agent_id
   const known = !current || agents.some((a) => a.id === current)
@@ -99,7 +104,7 @@ function AgentPicker({
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <Select value={current ?? undefined} disabled={saving} onValueChange={(value) => value && onChange(value)}>
+      <Select value={current ?? NO_AGENT} disabled={saving} onValueChange={(value) => onChange(value === NO_AGENT ? null : value)}>
         <SelectTrigger
           aria-label={label}
           title={label}
@@ -111,17 +116,23 @@ function AgentPicker({
             {saving ? (
               <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-slate-400" />
             ) : (
-              <Bot className="h-3.5 w-3.5 flex-shrink-0 text-[#0F6A59]" />
+              <Bot className={`h-3.5 w-3.5 flex-shrink-0 ${current ? 'text-[#0F6A59]' : 'text-slate-400'}`} />
             )}
-            <span className="truncate">
+            <span className={`truncate ${current ? '' : 'text-slate-500'}`}>
               {/* Name only, so the options' own icon isn't repeated here. */}
-              <SelectValue placeholder="Choose an assistant…">
-                {current ? (known ? agents.find((a) => a.id === current)?.name : 'Unknown assistant') : undefined}
+              <SelectValue>
+                {current ? (known ? agents.find((a) => a.id === current)?.name : 'Unknown assistant') : 'No assistant'}
               </SelectValue>
             </span>
           </div>
         </SelectTrigger>
         <SelectContent searchable={agents.length > 6}>
+          <SelectItem value={NO_AGENT} textValue="No assistant">
+            <span className="flex items-center gap-2 text-slate-500">
+              <Bot className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+              No assistant
+            </span>
+          </SelectItem>
           {!known && current && (
             <SelectItem value={current} textValue="Unknown assistant">
               <span className="flex items-center gap-2 text-slate-500">
@@ -259,6 +270,7 @@ export default function PhoneNumbersPage() {
   // purchases, the connected account to buy on.
   const [buy, setBuy] = useState<{ source: NumberSource; provider?: OwnProvider } | null>(null)
   const [ownOpen, setOwnOpen] = useState(false)
+  const [importFrom, setImportFrom] = useState<OwnProvider | null>(null)
   const openVoicecon = useCallback(() => setBuy({ source: 'voicecon' }), [])
 
   // Whether this plan may buy numbers at all. The API refuses regardless; this
@@ -298,15 +310,25 @@ export default function PhoneNumbersPage() {
 
   const agentNames = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents])
 
-  const assignAgent = async (num: PhoneNumber, agentId: string) => {
+  const assignAgent = async (num: PhoneNumber, agentId: string | null) => {
     if (agentId === num.agent_id) return
-    const nextName = agentNames.get(agentId) || 'the selected assistant'
+    const shown = formatPhoneNumber(num.phone_number)
+    if (agentId === null) {
+      const ok = await confirm({
+        title: 'Detach assistant',
+        description: `Calls to ${shown} won’t be answered until you attach an assistant again. The number stays in your workspace.`,
+        confirmText: 'Detach',
+        isDestructive: false,
+      })
+      if (!ok) return
+    }
+    const nextName = agentId ? agentNames.get(agentId) || 'the selected assistant' : null
     setAssigning((s) => new Set(s).add(num.id))
     try {
       const updated = await phoneNumberService.assignAgent(num.id, agentId)
       // Only this row changes; every other number keeps its own assistant.
       setNumbers((list) => list.map((n) => (n.id === num.id ? { ...n, ...updated } : n)))
-      toast.success(`Calls to ${formatPhoneNumber(num.phone_number)} now go to ${nextName}`)
+      toast.success(nextName ? `Calls to ${shown} now go to ${nextName}` : `Assistant detached from ${shown}`)
     } catch (e) {
       toast.error(friendlyPhoneError(e, 'assign'))
     } finally {
@@ -319,16 +341,28 @@ export default function PhoneNumbersPage() {
   }
 
   const releaseNumber = async (num: PhoneNumber) => {
-    const ok = await confirm({
-      title: 'Release phone number',
-      description: `Release ${formatPhoneNumber(num.phone_number)}? Calls to it will stop reaching your assistant, and the number may be given to someone else. This can’t be undone.`,
-      confirmText: 'Release number',
-      isDestructive: true,
-    })
+    const shown = formatPhoneNumber(num.phone_number)
+    // A number brought from the user's own account is only disconnected; it
+    // stays on their account.
+    const ok = await confirm(
+      num.imported
+        ? {
+            title: 'Remove from Voicecon',
+            description: `Remove ${shown} from Voicecon? It stays on your ${appDisplayName(num.provider)} account and its previous call settings are restored. You can add it again any time.`,
+            confirmText: 'Remove',
+            isDestructive: true,
+          }
+        : {
+            title: 'Release phone number',
+            description: `Release ${shown}? Calls to it will stop reaching your assistant, and the number may be given to someone else. This can’t be undone.`,
+            confirmText: 'Release number',
+            isDestructive: true,
+          }
+    )
     if (!ok) return
     try {
       await apiClient.delete(API_ENDPOINTS.PHONE_NUMBER(num.id))
-      toast.success('Phone number released')
+      toast.success(num.imported ? `${shown} removed from Voicecon` : 'Phone number released')
       fetchNumbers()
     } catch (e) {
       toast.error(friendlyPhoneError(e, 'release'))
@@ -548,8 +582,8 @@ export default function PhoneNumbersPage() {
                       </span>
                       <button
                         onClick={() => releaseNumber(num)}
-                        aria-label={`Release ${formatPhoneNumber(num.phone_number)}`}
-                        title="Release number"
+                        aria-label={`${num.imported ? 'Remove' : 'Release'} ${formatPhoneNumber(num.phone_number)}`}
+                        title={num.imported ? 'Remove from Voicecon' : 'Release number'}
                         className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -580,6 +614,20 @@ export default function PhoneNumbersPage() {
         options={options}
         onUseAccount={(provider) => {
           setOwnOpen(false)
+          setBuy({ source: 'own', provider })
+        }}
+        onImportFrom={(provider) => {
+          setOwnOpen(false)
+          setImportFrom(provider)
+        }}
+      />
+      <ImportNumbersDialog
+        provider={importFrom}
+        onClose={() => setImportFrom(null)}
+        agents={agents}
+        onImported={() => fetchNumbers()}
+        onBuy={(provider) => {
+          setImportFrom(null)
           setBuy({ source: 'own', provider })
         }}
       />

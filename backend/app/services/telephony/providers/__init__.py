@@ -9,6 +9,7 @@ from app.services.telephony.providers.base import (
     AvailableNumber,
     NumberProvider,
     NumberProviderError,
+    OwnedNumber,
     PurchasedNumber,
 )
 from app.services.telephony.providers.telnyx_provider import TelnyxNumberProvider
@@ -29,6 +30,7 @@ __all__ = [
     "AvailableNumber",
     "NumberProvider",
     "NumberProviderError",
+    "OwnedNumber",
     "PurchasedNumber",
     "TwilioNumberProvider",
     "TelnyxNumberProvider",

@@ -1375,3 +1375,429 @@ class TestOnboardingClaim:
         )
         assert second.status_code == 400
         assert "already in use" in second.json()["detail"]
+
+
+# ---------- numbers already on the user's own account ----------
+
+
+OWN_TWILIO_NUMBERS = {
+    "incoming_phone_numbers": [
+        {
+            "sid": "PN_existing_1",
+            "phone_number": "+12125550101",
+            "friendly_name": "Main line",
+            "capabilities": {"voice": True, "sms": True},
+            "voice_url": "https://their-old-ivr.example.com/voice",
+        },
+        {
+            "sid": "PN_existing_2",
+            "phone_number": "+12125550102",
+            "friendly_name": "Support",
+            "capabilities": {"voice": True, "sms": False},
+            "voice_url": "",
+        },
+    ],
+    "next_page_uri": None,
+}
+
+
+@pytest.fixture
+def own_twilio_account(monkeypatch):
+    """A connected Twilio account that already holds two numbers."""
+    CARRIER_CALLS.clear()
+
+    async def fake_request(self, method, path, **kwargs):
+        CARRIER_CALLS.append({"provider": self.slug, "method": method, "path": path, **kwargs})
+        if method == "GET" and path.endswith("IncomingPhoneNumbers.json"):
+            return OWN_TWILIO_NUMBERS
+        if method == "POST" and "IncomingPhoneNumbers/" in path:
+            return None  # webhook update
+        raise AssertionError(f"unexpected call: {method} {path}")
+
+    monkeypatch.setattr(NumberProvider, "_request", fake_request)
+    return CARRIER_CALLS
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestOwnAccountNumbers:
+    async def test_existing_numbers_on_the_account_are_listed(
+        self, client, owner, twilio_connected, own_twilio_account
+    ):
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/own-numbers",
+            params={"connection_id": str(twilio_connected.id)},
+        )
+        assert res.status_code == 200, res.text
+        body = {n["phone_number"]: n for n in res.json()}
+        assert set(body) == {"+12125550101", "+12125550102"}
+        assert body["+12125550101"]["available"] is True
+        assert body["+12125550101"]["phone_number_id"] is None
+        assert body["+12125550102"]["capabilities"]["sms"] is False
+
+    async def test_import_with_an_agent_points_the_number_at_it(
+        self, client, owner, agent, twilio_connected, own_twilio_account, db_session
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(twilio_connected.id),
+                "phone_number": "+12125550101",
+                "agent_id": str(agent.id),
+            },
+        )
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["agent_id"] == str(agent.id)
+        assert body["source"] == "own"
+        assert body["imported"] is True
+        assert body["provider"] == "twilio"
+
+        update = calls_for("twilio", "POST", "IncomingPhoneNumbers/PN_existing_1")[0]
+        assert update["form"]["VoiceUrl"].endswith(f"/api/v1/telephony/twilio/voice/{agent.id}")
+
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+12125550101")
+            )
+        ).scalar_one()
+        assert row.integration_connection_id == twilio_connected.id
+        assert row.provider_metadata["original_voice_url"] == "https://their-old-ivr.example.com/voice"
+
+        listed = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/own-numbers",
+            params={"connection_id": str(twilio_connected.id)},
+        )
+        imported = next(n for n in listed.json() if n["phone_number"] == "+12125550101")
+        assert imported["phone_number_id"] == str(row.id)
+        assert imported["available"] is False
+
+    async def test_import_without_an_agent_touches_nothing_at_the_carrier(
+        self, client, owner, twilio_connected, own_twilio_account
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={"connection_id": str(twilio_connected.id), "phone_number": "+12125550102"},
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["agent_id"] is None
+        assert not calls_for("twilio", "POST")
+
+    async def test_a_number_not_on_the_account_is_refused(
+        self, client, owner, twilio_connected, own_twilio_account
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={"connection_id": str(twilio_connected.id), "phone_number": "+19995550000"},
+        )
+        assert res.status_code == 404
+
+    async def test_importing_twice_is_refused(
+        self, client, owner, twilio_connected, own_twilio_account
+    ):
+        payload = {"connection_id": str(twilio_connected.id), "phone_number": "+12125550102"}
+        assert (await as_user(client, owner).post("/api/v1/phone-numbers/import", json=payload)).status_code == 201
+        again = await as_user(client, owner).post("/api/v1/phone-numbers/import", json=payload)
+        assert again.status_code == 409
+
+    async def test_another_users_connection_cannot_be_used(
+        self, client, other_user, twilio_connected, own_twilio_account
+    ):
+        res = await as_user(client, other_user).get(
+            "/api/v1/phone-numbers/own-numbers",
+            params={"connection_id": str(twilio_connected.id)},
+        )
+        assert res.status_code == 400
+        assert not own_twilio_account
+
+    async def test_attach_detach_and_reattach(
+        self, client, owner, agent, second_agent, twilio_connected, own_twilio_account
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={"connection_id": str(twilio_connected.id), "phone_number": "+12125550102"},
+        )
+        number_id = imported.json()["id"]
+
+        attached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": str(agent.id)}
+        )
+        assert attached.status_code == 200, attached.text
+        assert attached.json()["agent_id"] == str(agent.id)
+
+        detached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": None}
+        )
+        assert detached.status_code == 200, detached.text
+        assert detached.json()["agent_id"] is None
+
+        reattached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": str(second_agent.id)}
+        )
+        assert reattached.json()["agent_id"] == str(second_agent.id)
+        last = calls_for("twilio", "POST", "IncomingPhoneNumbers/PN_existing_2")[-1]
+        assert last["form"]["VoiceUrl"].endswith(f"/voice/{second_agent.id}")
+
+    async def test_removing_an_imported_number_never_releases_it(
+        self, client, owner, agent, twilio_connected, own_twilio_account, db_session
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(twilio_connected.id),
+                "phone_number": "+12125550101",
+                "agent_id": str(agent.id),
+            },
+        )
+        own_twilio_account.clear()
+
+        res = await as_user(client, owner).delete(f"/api/v1/phone-numbers/{imported.json()['id']}")
+        assert res.status_code == 204
+
+        assert not calls_for("twilio", "DELETE"), "an imported number must stay on the user's account"
+        restore = calls_for("twilio", "POST", "IncomingPhoneNumbers/PN_existing_1")[0]
+        assert restore["form"]["VoiceUrl"] == "https://their-old-ivr.example.com/voice"
+        remaining = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+12125550101")
+            )
+        ).scalar_one_or_none()
+        assert remaining is None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestDetach:
+    async def test_a_detached_number_stops_answering(
+        self, client, owner, agent, telnyx_number
+    ):
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}", json={"agent_id": None}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agent_id"] is None
+        assert CARRIER_CALLS == []
+
+        answer = await client.post(
+            f"/api/v1/telephony/telnyx/voice/{agent.id}",  # the carrier still names the old agent
+            data={
+                "CallSid": "CA-detached-1",
+                "From": "+15550009999",
+                "To": telnyx_number.phone_number,
+                "CallStatus": "ringing",
+            },
+        )
+        assert answer.status_code == 200
+        assert "not available" in answer.text
+
+    async def test_leaving_agent_out_keeps_it(self, client, owner, agent, telnyx_number):
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{telnyx_number.id}", json={"status": "active"}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["agent_id"] == str(agent.id)
+
+
+@pytest.fixture
+def own_telnyx_account(monkeypatch):
+    """
+    A connected Telnyx account holding numbers across two pages: one routed
+    through the customer's own SIP connection, one routed nowhere.
+    """
+    CARRIER_CALLS.clear()
+    texml_apps: dict = {"https://their-pbx.example.com/texml": "app-theirs"}
+    pages = {
+        1: [{"id": "num-own-1", "phone_number": "+13125550101", "status": "active",
+             "connection_id": "conn-sip-1", "customer_reference": "Front desk"}],
+        2: [{"id": "num-own-2", "phone_number": "+13125550102", "status": "active",
+             "connection_id": None}],
+    }
+
+    async def fake_request(self, method, path, **kwargs):
+        CARRIER_CALLS.append({"provider": self.slug, "method": method, "path": path, **kwargs})
+        key = f"{method} {path}"
+        if key == "GET /v2/phone_numbers":
+            params = kwargs.get("params") or {}
+            if "filter[phone_number]" in params:
+                match = [n for page in pages.values() for n in page
+                         if n["phone_number"] == params["filter[phone_number]"]]
+                return {"data": match}
+            return {"data": pages.get(params.get("page[number]", 1), []),
+                    "meta": {"total_pages": len(pages)}}
+        if key == "GET /v2/texml_applications":
+            return {"data": [{"id": i, "voice_url": u} for u, i in texml_apps.items()]}
+        if key == "POST /v2/texml_applications":
+            url = kwargs["json_body"]["voice_url"]
+            texml_apps[url] = f"app-{len(texml_apps) + 1}"
+            return {"data": {"id": texml_apps[url]}}
+        if method == "PATCH" and path.startswith("/v2/phone_numbers/"):
+            return {"data": {}}
+        raise AssertionError(f"unexpected call: {key}")
+
+    monkeypatch.setattr(NumberProvider, "_request", fake_request)
+    return CARRIER_CALLS
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestOwnTelnyxNumbers:
+    async def test_every_page_of_the_account_is_listed(
+        self, client, owner, telnyx_connected, own_telnyx_account
+    ):
+        res = await as_user(client, owner).get(
+            "/api/v1/phone-numbers/own-numbers",
+            params={"connection_id": str(telnyx_connected.id)},
+        )
+        assert res.status_code == 200, res.text
+        body = {n["phone_number"]: n for n in res.json()}
+        assert set(body) == {"+13125550101", "+13125550102"}
+        assert body["+13125550101"]["friendly_name"] == "Front desk"
+        assert all(n["available"] for n in body.values())
+
+    async def test_import_with_an_agent_attaches_its_texml_app(
+        self, client, owner, agent, telnyx_connected, own_telnyx_account, db_session
+    ):
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(telnyx_connected.id),
+                "phone_number": "+13125550101",
+                "agent_id": str(agent.id),
+            },
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["provider"] == "telnyx"
+        assert res.json()["imported"] is True
+
+        app = calls_for("telnyx", "POST", "/v2/texml_applications")[0]
+        assert app["json_body"]["voice_url"].endswith(f"/api/v1/telephony/telnyx/voice/{agent.id}")
+        attach = calls_for("telnyx", "PATCH", "/v2/phone_numbers/num-own-1")[0]
+        assert attach["json_body"]["connection_id"] == "app-2"
+
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+13125550101")
+            )
+        ).scalar_one()
+        assert row.provider_sid == "num-own-1"
+        assert row.integration_connection_id == telnyx_connected.id
+        assert row.provider_metadata["original_connection_id"] == "conn-sip-1"
+
+    async def test_attach_detach_and_reattach(
+        self, client, owner, agent, second_agent, telnyx_connected, own_telnyx_account
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={"connection_id": str(telnyx_connected.id), "phone_number": "+13125550102"},
+        )
+        assert imported.status_code == 201, imported.text
+        assert not calls_for("telnyx", "PATCH")
+        number_id = imported.json()["id"]
+
+        attached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": str(agent.id)}
+        )
+        assert attached.json()["agent_id"] == str(agent.id)
+
+        detached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": None}
+        )
+        assert detached.status_code == 200, detached.text
+        assert detached.json()["agent_id"] is None
+
+        reattached = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{number_id}", json={"agent_id": str(second_agent.id)}
+        )
+        assert reattached.json()["agent_id"] == str(second_agent.id)
+        apps = [c["json_body"]["voice_url"] for c in calls_for("telnyx", "POST", "/v2/texml_applications")]
+        assert apps[-1].endswith(f"/voice/{second_agent.id}")
+
+    async def test_a_detached_telnyx_number_stops_answering(
+        self, client, owner, agent, telnyx_connected, own_telnyx_account
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(telnyx_connected.id),
+                "phone_number": "+13125550101",
+                "agent_id": str(agent.id),
+            },
+        )
+        await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{imported.json()['id']}", json={"agent_id": None}
+        )
+        answer = await client.post(
+            f"/api/v1/telephony/telnyx/voice/{agent.id}",
+            data={"CallSid": "CA-own-detached", "From": "+15550009999",
+                  "To": "+13125550101", "CallStatus": "ringing"},
+        )
+        assert "not available" in answer.text
+
+    async def test_removing_restores_the_original_connection_and_never_releases(
+        self, client, owner, agent, telnyx_connected, own_telnyx_account, db_session
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(telnyx_connected.id),
+                "phone_number": "+13125550101",
+                "agent_id": str(agent.id),
+            },
+        )
+        own_telnyx_account.clear()
+
+        res = await as_user(client, owner).delete(f"/api/v1/phone-numbers/{imported.json()['id']}")
+        assert res.status_code == 204
+
+        assert not calls_for("telnyx", "DELETE"), "an imported number must stay on the user's account"
+        restore = calls_for("telnyx", "PATCH", "/v2/phone_numbers/num-own-1")[0]
+        assert restore["json_body"] == {"connection_id": "conn-sip-1"}
+        remaining = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+13125550101")
+            )
+        ).scalar_one_or_none()
+        assert remaining is None
+
+    async def test_a_number_with_no_prior_routing_is_unrouted_on_removal(
+        self, client, owner, agent, telnyx_connected, own_telnyx_account
+    ):
+        imported = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={
+                "connection_id": str(telnyx_connected.id),
+                "phone_number": "+13125550102",
+                "agent_id": str(agent.id),
+            },
+        )
+        own_telnyx_account.clear()
+        await as_user(client, owner).delete(f"/api/v1/phone-numbers/{imported.json()['id']}")
+        restore = calls_for("telnyx", "PATCH", "/v2/phone_numbers/num-own-2")[0]
+        assert restore["json_body"] == {"connection_id": None}
+
+    async def test_a_number_already_on_a_voicecon_app_is_not_remembered_as_original(
+        self, client, owner, agent, telnyx_connected, own_telnyx_account, db_session, monkeypatch
+    ):
+        """Re-adding a number whose Telnyx routing still points at Voicecon must
+        not 'restore' Voicecon's own app when it is removed."""
+        from app.services.telephony.providers.telnyx_provider import TelnyxNumberProvider
+
+        original = TelnyxNumberProvider._texml_application_urls
+
+        async def with_voicecon_app(self):
+            urls = await original(self)
+            urls["conn-sip-1"] = f"https://api.voicecon.test/api/v1/telephony/telnyx/voice/{agent.id}"
+            return urls
+
+        monkeypatch.setattr(TelnyxNumberProvider, "_texml_application_urls", with_voicecon_app)
+        res = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/import",
+            json={"connection_id": str(telnyx_connected.id), "phone_number": "+13125550101"},
+        )
+        assert res.status_code == 201, res.text
+        row = (
+            await db_session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == "+13125550101")
+            )
+        ).scalar_one()
+        assert "original_connection_id" not in row.provider_metadata

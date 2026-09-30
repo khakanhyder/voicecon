@@ -444,7 +444,8 @@ async def _answering_agent(
     a reassignment takes effect on the very next call even if the carrier still
     has the old agent in the webhook URL (an update that never reached it, or a
     number set up before reassignment existed). The agent in the URL is only
-    the fallback — for a number we have no record of.
+    the fallback — for a number we have no record of. A number on record with
+    no agent was detached, so nobody answers it.
 
     An outbound call's answer webhook carries our ``call_id`` and its ``To`` is
     the person being called, so it keeps the agent that placed the call.
@@ -458,7 +459,12 @@ async def _answering_agent(
                 )
             )
         ).scalars().first()
-        if number is not None and number.agent_id is not None:
+        if number is not None and number.agent_id is None:
+            # Detached on the Phone Numbers page: nobody answers, even though
+            # the carrier webhook may still name the agent it had before.
+            logger.info(f"{to_number} has no agent attached; not answering")
+            return None
+        if number is not None:
             agent = (
                 await db.execute(
                     select(Agent).where(
