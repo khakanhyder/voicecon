@@ -100,6 +100,8 @@ export const API_ENDPOINTS = {
   BILLING_CHECKOUT_SESSION: `${API_BASE}/api/v1/billing/checkout-session`,
   BILLING_CHECKOUT_STATUS: (id: string) => `${API_BASE}/api/v1/billing/checkout-session/${encodeURIComponent(id)}`,
   BILLING_PORTAL: `${API_BASE}/api/v1/billing/portal`,
+  BILLING_COUPON: `${API_BASE}/api/v1/billing/coupon`,
+  BILLING_COUPON_APPLY: `${API_BASE}/api/v1/billing/coupon/apply`,
 
   // Onboarding
   ONBOARDING_STATUS: `${API_BASE}/api/v1/onboarding/status`,

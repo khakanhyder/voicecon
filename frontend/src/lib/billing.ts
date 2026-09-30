@@ -41,6 +41,8 @@ export const billingService = {
     return_path?: string
     /** Where Polar's back button goes. Defaults to the current page. */
     cancel_path?: string
+    /** An affiliate coupon, already checked with `checkCoupon`. */
+    coupon_code?: string
   }): Promise<void> {
     const { data } = await apiClient.post<{ url: string; checkout_id: string }>(
       API_ENDPOINTS.BILLING_CHECKOUT_SESSION,
@@ -51,6 +53,28 @@ export const billingService = {
       }
     )
     window.location.assign(data.url)
+  },
+
+  /**
+   * Check an affiliate coupon for this workspace without applying it. With no
+   * code, checks the coupon of the affiliate who referred the workspace, so
+   * checkout can prefill it. Never throws for an unusable code: `valid` is
+   * false and `message` says why, in words for the customer.
+   */
+  async checkCoupon(code: string | undefined, billingPeriod: 'monthly' | 'yearly'): Promise<CouponQuote> {
+    const { data } = await apiClient.get<CouponQuote>(API_ENDPOINTS.BILLING_COUPON, {
+      params: { code: code || undefined, billing_period: billingPeriod },
+    })
+    return data
+  },
+
+  /** Apply a coupon ahead of checkout; credits a new workspace to its affiliate. */
+  async applyCoupon(code: string, billingPeriod: 'monthly' | 'yearly'): Promise<CouponQuote> {
+    const { data } = await apiClient.post<CouponQuote>(API_ENDPOINTS.BILLING_COUPON_APPLY, {
+      code,
+      billing_period: billingPeriod,
+    })
+    return data
   },
 
   async checkoutStatus(checkoutId: string): Promise<CheckoutStatus> {
@@ -77,4 +101,25 @@ export function useBillingConfig() {
     staleTime: 30_000,
     retry: 1,
   })
+}
+
+export interface CouponQuote {
+  valid: boolean
+  code?: string | null
+  percent_off?: number | null
+  /** `once` | `forever` | `repeating` */
+  duration?: string | null
+  duration_in_months?: number | null
+  /** `yearly` (annual plans only) | `all` */
+  applies_to?: string | null
+  /** e.g. "20% off your first payment" */
+  description?: string | null
+  /** Why the code can't be used. */
+  message?: string | null
+}
+
+/** The first payment after a coupon, rounded to cents. */
+export function discountedPrice(price: number, coupon: CouponQuote | null | undefined): number {
+  if (!coupon?.valid || !coupon.percent_off) return price
+  return Math.round(price * (100 - coupon.percent_off)) / 100
 }

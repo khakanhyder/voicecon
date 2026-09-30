@@ -75,6 +75,16 @@ class BillingScheduler:
                 break
             except Exception as exc:
                 logger.error(f"Subscription reconcile failed: {exc}", exc_info=True)
+            # Affiliate commissions leave their refund hold on the same beat.
+            try:
+                from app.services.affiliates.commissions import mature_and_commit
+
+                async with get_db_session() as db:
+                    await mature_and_commit(db)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(f"Affiliate commission maturing failed: {exc}", exc_info=True)
             try:
                 await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
             except asyncio.CancelledError:

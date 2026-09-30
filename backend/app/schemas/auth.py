@@ -56,6 +56,11 @@ class RegisterRequest(BaseModel):
             "confirmed. Required unless the server has email verification off."
         ),
     )
+    referral_code: Optional[str] = Field(
+        default=None,
+        max_length=60,
+        description="Affiliate referral code the visitor arrived with (?ref=), if any.",
+    )
 
 
     @model_validator(mode="after")
@@ -150,6 +155,7 @@ class GoogleAuthRequest(BaseModel):
     """Google sign-in request (authorization-code flow)."""
     code: str = Field(..., description="Authorization code from Google (popup auth-code flow)")
     redirect_uri: str = Field(default="postmessage", description="Redirect URI used by the client")
+    referral_code: Optional[str] = Field(default=None, max_length=60, description="Affiliate referral code, if any")
 
 
 class AppleAuthRequest(BaseModel):
@@ -157,6 +163,7 @@ class AppleAuthRequest(BaseModel):
     id_token: str = Field(..., description="Identity token returned by AppleID.auth.signIn")
     full_name: Optional[str] = Field(default=None, description="Name (only sent by Apple on first sign-in)")
     nonce: Optional[str] = Field(default=None, description="Nonce to match against the token, if used")
+    referral_code: Optional[str] = Field(default=None, max_length=60, description="Affiliate referral code, if any")
 
 
 class PasswordResetRequest(BaseModel):
@@ -187,3 +194,17 @@ class ChangePasswordRequest(BaseModel):
 class EmailVerificationRequest(BaseModel):
     """Email verification request schema."""
     token: str
+
+
+class AffiliateInviteInfoResponse(BaseModel):
+    """What the invite page shows before the partner accepts."""
+    email: str
+    name: str
+    needs_password: bool
+
+
+class AffiliateAcceptInviteRequest(BaseModel):
+    """Accept an affiliate portal invitation."""
+    token: str
+    #: Required when the account has no password yet; ignored otherwise.
+    password: Optional[str] = None

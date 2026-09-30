@@ -44,6 +44,12 @@ export function middleware(request: NextRequest) {
     // The bare root goes straight to login; the login page sends visitors who
     // are already signed in on to /dashboard.
     if (pathname === '/') {
+      // An affiliate link pointed at the app host goes to sign-up with its
+      // code; a plain redirect to /login would drop the ?ref=.
+      const ref = request.nextUrl.searchParams.get('ref')
+      if (ref) {
+        return NextResponse.redirect(`https://${APP_HOST}/register?ref=${encodeURIComponent(ref)}`, 307)
+      }
       return NextResponse.redirect(`https://${APP_HOST}/login`, 307)
     }
     // Section URLs (/pricing, /faq, ...) are marketing pages; the app host

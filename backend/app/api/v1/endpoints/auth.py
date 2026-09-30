@@ -20,6 +20,7 @@ from app.core.dependencies import get_current_user
 from app.core.security import (
     EMAIL_VERIFICATION_TOKEN_MINUTES,
     SCOPE_ADMIN,
+    SCOPE_AFFILIATE,
     SCOPE_APP,
     session_scope,
     verify_password,
@@ -34,6 +35,8 @@ from app.core.security import (
 from app.core.exceptions import credentials_exception, bad_request_exception
 from app.models.user import User, Organization, OrganizationMember
 from app.schemas.auth import (
+    AffiliateAcceptInviteRequest,
+    AffiliateInviteInfoResponse,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
@@ -62,6 +65,7 @@ from app.services.auth.verification import (
 )
 from app.services.auth import login_throttle
 from app.services.auth.workspaces import unique_org_slug
+from app.services.affiliates.attribution import attribute_signup
 from app.services.email.service import email_service
 
 logger = logging.getLogger(__name__)
@@ -360,6 +364,9 @@ async def register(
     )
 
     db.add(membership)
+    await attribute_signup(
+        db, code=user_data.referral_code, organization_id=organization.id, user_id=user.id
+    )
     await db.commit()
     await db.refresh(user)
 
@@ -483,6 +490,113 @@ async def admin_login(
     return _login_response_for(user, scope=SCOPE_ADMIN)
 
 
+async def _affiliate_for_login(db: AsyncSession, user: User):
+    """The user's affiliate account if it may sign in to the portal, else None."""
+    from app.models.affiliate import AFFILIATE_SUSPENDED, Affiliate
+
+    affiliate = await db.scalar(select(Affiliate).where(Affiliate.user_id == user.id))
+    if affiliate is None or affiliate.status == AFFILIATE_SUSPENDED:
+        return None
+    return affiliate
+
+
+def _activate_affiliate(affiliate) -> None:
+    from app.models.affiliate import AFFILIATE_ACTIVE, AFFILIATE_INVITED
+
+    if affiliate.status == AFFILIATE_INVITED:
+        affiliate.status = AFFILIATE_ACTIVE
+        affiliate.activated_at = datetime.utcnow()
+
+
+@router.post("/affiliate/login", response_model=LoginResponse)
+async def affiliate_login(
+    credentials: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sign in to the affiliate portal.
+
+    Issues an **affiliate-scoped** session, accepted only by ``/api/v1/affiliate``.
+    An account with no affiliate profile (or a suspended one) gets the same 401
+    as a wrong password, so the endpoint does not reveal who is a partner.
+    """
+    user = await _authenticate_password(db, credentials)
+    affiliate = await _affiliate_for_login(db, user)
+    if affiliate is None:
+        raise credentials_exception()
+    _activate_affiliate(affiliate)
+    await db.commit()
+    return _login_response_for(user, scope=SCOPE_AFFILIATE)
+
+
+async def _invited_affiliate(db: AsyncSession, token: str):
+    from app.services.affiliates.invites import read_invite_token
+
+    payload = read_invite_token(token)
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This invitation link is invalid or has expired. Ask us to send a new one.",
+    )
+    if payload is None:
+        raise invalid
+    try:
+        user = await db.get(User, _uuid.UUID(payload["sub"]))
+    except (ValueError, TypeError):
+        raise invalid
+    if user is None or not user.is_active or not token_version_matches(payload, user):
+        raise invalid
+    affiliate = await _affiliate_for_login(db, user)
+    if affiliate is None or str(affiliate.id) != payload.get("aff"):
+        raise invalid
+    return user, affiliate
+
+
+@router.get("/affiliate/invite", response_model=AffiliateInviteInfoResponse)
+async def affiliate_invite_info(token: str, db: AsyncSession = Depends(get_db)):
+    """Who an affiliate invitation is for, and whether it needs a password set."""
+    user, affiliate = await _invited_affiliate(db, token)
+    return AffiliateInviteInfoResponse(
+        email=user.email, name=affiliate.name, needs_password=not user.hashed_password
+    )
+
+
+@router.post("/affiliate/accept-invite", response_model=LoginResponse)
+async def affiliate_accept_invite(
+    payload: AffiliateAcceptInviteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Accept an affiliate invitation and sign in to the portal.
+
+    The link was emailed to the address, so following it proves the address.
+    An account without a password sets one here; an account that already has
+    one keeps it. Either way ``token_version`` is bumped, which spends the link
+    (and signs the account's other sessions out once).
+    """
+    from app.core.passwords import PasswordPolicyError, validate_password
+
+    user, affiliate = await _invited_affiliate(db, payload.token)
+    if not user.hashed_password:
+        if not payload.password:
+            raise bad_request_exception("Choose a password to finish setting up your account.")
+        try:
+            validate_password(payload.password, email=user.email, full_name=user.full_name)
+        except PasswordPolicyError as exc:
+            raise bad_request_exception(str(exc))
+        user.hashed_password = get_password_hash(payload.password)
+    # Spends the link (its token carries the old version). It also ends the
+    # account's other sessions once — the price of the link being single-use.
+    user.token_version = int(user.token_version or 0) + 1
+    if not user.is_verified:
+        user.is_verified = True
+        user.email_verified_at = datetime.utcnow()
+    _activate_affiliate(affiliate)
+    user.last_login_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(user)
+    return _login_response_for(user, scope=SCOPE_AFFILIATE)
+
+
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh_token(
     token_data: RefreshTokenRequest,
@@ -562,7 +676,7 @@ async def google_auth(
     oauth = get_oauth_service()
     try:
         profile = await oauth.verify_google_code(payload.code, redirect_uri=payload.redirect_uri)
-        user, is_new = await oauth.resolve_user(db, profile)
+        user, is_new = await oauth.resolve_user(db, profile, referral_code=payload.referral_code)
     except OAuthError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.public_message)
 
@@ -585,7 +699,7 @@ async def apple_auth(
         profile = await oauth.verify_apple(
             payload.id_token, full_name=payload.full_name, nonce=payload.nonce
         )
-        user, is_new = await oauth.resolve_user(db, profile)
+        user, is_new = await oauth.resolve_user(db, profile, referral_code=payload.referral_code)
     except OAuthError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.public_message)
 

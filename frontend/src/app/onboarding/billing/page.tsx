@@ -23,7 +23,8 @@ import { useOnboardingStore } from '@/store/onboardingStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { FREE_TRIAL_DAYS } from '@/lib/constants'
 import { Lock } from 'lucide-react'
-import { billingService, useBillingConfig, type BillingConfig } from '@/lib/billing'
+import { billingService, discountedPrice, useBillingConfig, type BillingConfig, type CouponQuote } from '@/lib/billing'
+import { CouponField } from '@/components/billing/CouponField'
 import {
   Select,
   SelectContent,
@@ -104,14 +105,21 @@ function nextPaymentDate(period: 'monthly' | 'yearly'): string {
 }
 
 /** Order summary block reused in two places on the billing screen. */
+function money(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2)
+}
+
 function SummaryCard({
   planName,
   price,
+  listPrice,
   periodLabel,
   footer,
 }: {
   planName: string
   price: number
+  /** The price before a coupon; shown struck through when it differs. */
+  listPrice?: number
   periodLabel: string
   footer?: React.ReactNode
 }) {
@@ -123,7 +131,12 @@ function SummaryCard({
       </div>
       <div className="flex items-center justify-between border-b border-slate-200 py-3">
         <span className="text-sm text-slate-600">Price</span>
-        <span className="text-sm font-semibold text-slate-900">${price.toFixed(0)}</span>
+        <span className="text-sm font-semibold text-slate-900">
+          {listPrice !== undefined && listPrice !== price && (
+            <span className="mr-1.5 font-normal text-slate-400 line-through">${money(listPrice)}</span>
+          )}
+          ${money(price)}
+        </span>
       </div>
       <div className="flex items-center justify-between pt-3">
         <span className="text-sm text-slate-600">Total Amount</span>
@@ -138,7 +151,8 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
   const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
-  const { selectedPlan, billingPeriod: chosenPeriod, setBillingPeriod, finish } = useOnboardingStore()
+  const { selectedPlan, billingPeriod: chosenPeriod, setBillingPeriod, finish, promoCode } = useOnboardingStore()
+  const [coupon, setCoupon] = useState<CouponQuote | null>(null)
   // Yearly only where the admin priced the plan yearly; the backend refuses a
   // yearly checkout without a yearly price, so never send one.
   const offersYearly = selectedPlan?.price_yearly != null
@@ -166,9 +180,10 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
   // A plan persisted by an older session may predate the field, hence the fallback.
   const trialDays = selectedPlan?.trial_days ?? FREE_TRIAL_DAYS
 
-  const price = selectedPlan
+  const listPrice = selectedPlan
     ? priceFor(billingPeriod, selectedPlan.price_monthly, selectedPlan.price_yearly)
     : 0
+  const price = discountedPrice(listPrice, coupon)
   const periodLabel = billingPeriod === 'yearly' ? 'Billed Yearly' : 'Billed Monthly'
 
   const checkoutMutation = useMutation({
@@ -188,6 +203,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         plan_id: selectedPlan.id,
         payment_method_id: paymentMethod.id,
         billing_period: billingPeriod,
+        coupon_code: coupon?.code ?? undefined,
       })
     },
     onSuccess: async () => {
@@ -219,6 +235,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         billing_period: billingPeriod,
         return_path: '/dashboard',
         cancel_path: '/onboarding/billing',
+        coupon_code: coupon?.code ?? undefined,
       })
     },
     onError: (err: any) => {
@@ -269,6 +286,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         <SummaryCard
           planName={selectedPlan.name}
           price={price}
+          listPrice={listPrice}
           periodLabel={periodLabel}
           footer={
             offersYearly && (
@@ -282,6 +300,14 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
             )
           }
         />
+        <div className="mt-3">
+          <CouponField
+            billingPeriod={billingPeriod}
+            initialCode={promoCode || undefined}
+            onChange={setCoupon}
+            disabled={busy}
+          />
+        </div>
       </div>
 
       {/* Payment: Polar's hosted page, or the in-app card form (Stripe) */}
@@ -396,6 +422,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
         <SummaryCard
           planName={selectedPlan.name}
           price={price}
+          listPrice={listPrice}
           periodLabel={periodLabel}
           footer={
             <p className="mt-2 text-xs italic text-brand-700">

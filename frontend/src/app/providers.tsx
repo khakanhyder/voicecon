@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import { SECTION_PATHS } from '@/components/landing/sections'
+import { captureReferral } from '@/lib/referral'
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
@@ -28,6 +29,8 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMounted(true)
     initialize()
+    // Affiliate links (?ref=) can land on any page, marketing ones included.
+    captureReferral()
   }, [initialize])
 
   // Public marketing pages need no query client, session or Google script,

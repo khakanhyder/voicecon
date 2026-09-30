@@ -292,6 +292,7 @@ def render_billing_notice_email(
     action_label: str,
     bullets: list[str] | None = None,
     closing: str = "",
+    footer: str | None = None,
 ) -> tuple[str, str]:
     """Return (html, text) for a trial or subscription lifecycle notice.
 
@@ -310,7 +311,7 @@ def render_billing_notice_email(
     )
     html = _wrap(
         body,
-        footer=f"This is an automated message about your {brand} subscription.",
+        footer=footer or f"This is an automated message about your {brand} subscription.",
         brand=brand,
     )
     bullet_text = "".join(f"  - {bullet}\n" for bullet in bullets)

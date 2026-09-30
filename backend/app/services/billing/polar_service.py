@@ -32,6 +32,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import httpx
@@ -165,6 +166,10 @@ class PolarClient:
 
     async def get_product(self, product_id: str) -> dict:
         return await self._request("GET", f"/v1/products/{product_id}")
+
+    # -- discounts (affiliate coupons) --
+    async def create_discount(self, body: dict) -> dict:
+        return await self._request("POST", "/v1/discounts/", json_body=body)
 
 
 def _error_detail(response: httpx.Response) -> str:
@@ -655,7 +660,7 @@ async def _on_order_paid(db: AsyncSession, data: dict, outcome: WebhookOutcome, 
             logger.error("Polar order %s paid for an unlinkable subscription %s", data.get("id"), polar_subscription_id)
             return
 
-    await _upsert_invoice(db, local, data)
+    invoice = await _upsert_invoice(db, local, data)
 
     nested = data.get("subscription") or {}
     period_start = parse_dt(nested.get("current_period_start"))
@@ -699,7 +704,49 @@ async def _on_order_paid(db: AsyncSession, data: dict, outcome: WebhookOutcome, 
             actor_type=events.ACTOR_POLAR,
             stripe_event_id=event_key,
         )
+    await _record_affiliate_commission(db, local, data, invoice, period_end)
     outcome.invalidate.add(local.organization_id)
+
+
+async def _record_affiliate_commission(
+    db: AsyncSession,
+    subscription: Subscription,
+    order: dict,
+    invoice: Invoice,
+    period_end: Optional[datetime],
+) -> None:
+    """Credit the referring affiliate, if any, for this paid order.
+
+    The base is ``net_amount``: what the customer paid after the discount and
+    before tax. The billing period comes from the product actually bought.
+    """
+    from app.services.affiliates import commissions
+
+    if not order.get("id"):
+        return
+    plan, period = await plan_for_product(db, order.get("product_id"))
+    if plan is None:
+        plan = await db.get(SubscriptionPlan, subscription.plan_id)
+        period = subscription.billing_period
+    net = order.get("net_amount")
+    if net is None:
+        net = int(order.get("total_amount") or 0) - int(order.get("tax_amount") or 0)
+    await commissions.record_payment_safely(
+        db,
+        commissions.Payment(
+            provider="polar",
+            external_ref=f"polar:{order['id']}",
+            organization_id=subscription.organization_id,
+            plan_slug=plan.slug if plan else None,
+            billing_period=period,
+            billing_reason=order.get("billing_reason"),
+            base_amount=Decimal(max(0, int(net or 0))) / 100,
+            currency=order.get("currency") or "usd",
+            paid_at=parse_dt(order.get("created_at")) or _utcnow(),
+            service_period_end=period_end,
+            invoice_id=invoice.id if invoice is not None else None,
+        ),
+    )
 
 
 def _money(cents: Any) -> float:
@@ -745,6 +792,25 @@ async def _on_order_refunded(db: AsyncSession, data: dict) -> None:
     if invoice is None:
         return
     invoice.status = str(data.get("status") or "refunded")[:50]
+    await _reverse_affiliate_commission(db, data)
+
+
+async def _reverse_affiliate_commission(db: AsyncSession, order: dict) -> None:
+    """Shrink or reverse the affiliate commission of a refunded order.
+
+    ``refunded_amount`` excludes tax (Polar reports ``refunded_tax_amount``
+    separately), so it is compared with ``net_amount``.
+    """
+    from app.services.affiliates import commissions
+
+    if order.get("status") == "refunded":
+        fraction = Decimal("1")
+    else:
+        net = int(order.get("net_amount") or order.get("total_amount") or 0)
+        if net <= 0:
+            return
+        fraction = Decimal(int(order.get("refunded_amount") or 0)) / Decimal(net)
+    await commissions.apply_refund_safely(db, f"polar:{order.get('id')}", fraction)
 
 
 # ---------------------------------------------------------------------------

@@ -213,6 +213,38 @@ class EmailService:
         message = EmailMessage(to=to_email, subject=subject, html=html, text=text)
         return await self.send(message)
 
+    async def send_affiliate_invite(
+        self,
+        *,
+        to_email: str,
+        name: str,
+        action_url: str,
+        needs_password: bool,
+        commission_percent: str,
+    ) -> bool:
+        """Invite a partner to the affiliate portal. Never raises."""
+        brand = settings.APP_NAME
+        html, text = render_billing_notice_email(
+            brand=brand,
+            heading=f"Welcome to the {brand} affiliate program",
+            intro=(
+                f"Hi {name}, you've been added as a {brand} affiliate partner. "
+                "Your portal shows your referral link, coupon code, referred customers and earnings."
+            ),
+            bullets=[
+                f"You earn {commission_percent}% of what referred customers pay for annual plans.",
+                "Connect your Stripe account in the portal to receive payouts.",
+            ],
+            action_url=action_url,
+            action_label="Set your password" if needs_password else "Open the affiliate portal",
+            closing="This link expires in 7 days. If it has expired, ask us to send a new one.",
+            footer=f"You received this because {brand} added you to its affiliate program.",
+        )
+        message = EmailMessage(
+            to=to_email, subject=f"You're invited to the {brand} affiliate program", html=html, text=text
+        )
+        return await self.send(message)
+
     async def send_subscription_confirmation(
         self,
         *,

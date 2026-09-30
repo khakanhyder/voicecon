@@ -16,7 +16,7 @@
  * can only ever see the customer one.
  */
 
-export type SessionScope = 'app' | 'admin'
+export type SessionScope = 'app' | 'admin' | 'affiliate'
 
 interface Keys {
   accessToken: string
@@ -38,18 +38,29 @@ const KEYS: Record<SessionScope, Keys> = {
     refreshToken: 'admin_refresh_token',
     user: 'admin_user',
   },
+  // The affiliate portal (`/affiliate`) is a third front door with its own
+  // sign-in; a partner who is also a customer signs in to each separately.
+  affiliate: {
+    accessToken: 'affiliate_access_token',
+    refreshToken: 'affiliate_refresh_token',
+    user: 'affiliate_user',
+  },
 }
 
 /** The sign-in page a scope belongs to. */
 export const LOGIN_PATH: Record<SessionScope, string> = {
   app: '/login',
   admin: '/admin/login',
+  affiliate: '/affiliate/login',
 }
 
 /** Which session the current page belongs to. */
 export function currentScope(): SessionScope {
   if (typeof window === 'undefined') return 'app'
-  return window.location.pathname.startsWith('/admin') ? 'admin' : 'app'
+  const path = window.location.pathname
+  if (path.startsWith('/admin')) return 'admin'
+  if (path === '/affiliate' || path.startsWith('/affiliate/')) return 'affiliate'
+  return 'app'
 }
 
 function keys(scope: SessionScope = currentScope()): Keys {

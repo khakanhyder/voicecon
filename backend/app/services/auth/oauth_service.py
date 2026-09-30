@@ -196,7 +196,9 @@ class OAuthService:
     # ------------------------------------------------------------------ #
     # User resolution
     # ------------------------------------------------------------------ #
-    async def resolve_user(self, db: AsyncSession, profile: OAuthProfile) -> tuple[User, bool]:
+    async def resolve_user(
+        self, db: AsyncSession, profile: OAuthProfile, referral_code: Optional[str] = None
+    ) -> tuple[User, bool]:
         """
         Find-or-create a local user for a verified OAuth profile.
 
@@ -234,8 +236,9 @@ class OAuthService:
                 by_email.full_name = profile.full_name
             return await self._touch_login(db, by_email, profile), False
 
-        # 3) New user + personal organization.
-        return await self._create_user(db, profile), True
+        # 3) New user + personal organization. Only a brand-new account can be
+        #    credited to an affiliate; signing in again with a link does nothing.
+        return await self._create_user(db, profile, referral_code=referral_code), True
 
     def _set_provider_id(self, user: User, profile: OAuthProfile) -> None:
         if profile.provider == "google":
@@ -253,7 +256,9 @@ class OAuthService:
         await db.refresh(user)
         return user
 
-    async def _create_user(self, db: AsyncSession, profile: OAuthProfile) -> User:
+    async def _create_user(
+        self, db: AsyncSession, profile: OAuthProfile, referral_code: Optional[str] = None
+    ) -> User:
         user = User(
             email=profile.email,
             hashed_password=None,
@@ -282,6 +287,11 @@ class OAuthService:
             role="owner",
         ))
 
+        from app.services.affiliates.attribution import attribute_signup
+
+        await attribute_signup(
+            db, code=referral_code, organization_id=organization.id, user_id=user.id
+        )
         await db.commit()
         await db.refresh(user)
         logger.info(f"Created new {profile.provider} user {user.email} ({user.id})")

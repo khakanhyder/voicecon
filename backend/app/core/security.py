@@ -76,11 +76,17 @@ SCOPE_APP = "app"
 #: A staff console session: the platform admin API, and nothing else.
 SCOPE_ADMIN = "admin"
 
+#: An affiliate portal session: the affiliate API, and nothing else. A partner
+#: who is also a customer signs in to each separately.
+SCOPE_AFFILIATE = "affiliate"
+
+SCOPES = (SCOPE_APP, SCOPE_ADMIN, SCOPE_AFFILIATE)
+
 
 def session_scope(payload: dict) -> str:
     """The scope a decoded token was issued for."""
     scope = payload.get(SESSION_SCOPE_CLAIM)
-    return scope if scope in (SCOPE_APP, SCOPE_ADMIN) else SCOPE_APP
+    return scope if scope in SCOPES else SCOPE_APP
 
 
 def create_access_token(

@@ -413,6 +413,192 @@ export interface AuditRow {
   created_at: string
 }
 
+// ---------- Affiliates ----------
+
+export type AffiliateStatus = 'invited' | 'active' | 'suspended'
+export type StripeConnectState = 'not_connected' | 'incomplete' | 'ready'
+
+export interface AffiliateProgram {
+  enabled: boolean
+  default_commission_percent: number
+  hold_days: number
+  min_payout_amount: number
+  cookie_days: number
+  /** null = no limit. */
+  referral_window_days: number | null
+  /** null = every annual renewal. */
+  max_commission_payments: number | null
+  /** Empty = every plan. */
+  eligible_plan_slugs: string[]
+  commission_billing_period: 'yearly'
+  plans: { slug: string; name: string; has_yearly: boolean }[]
+  stripe_connect_ready: boolean
+  payment_provider: 'stripe' | 'polar'
+  updated_at: string | null
+}
+
+export type AffiliateProgramUpdate = Omit<
+  AffiliateProgram,
+  'commission_billing_period' | 'plans' | 'stripe_connect_ready' | 'payment_provider' | 'updated_at'
+>
+
+export interface AffiliateCoupon {
+  code: string
+  percent_off: number
+  applies_to: 'yearly' | 'all'
+  duration: 'once' | 'forever' | 'repeating'
+  duration_in_months: number | null
+  active: boolean
+  description: string
+}
+
+export interface AffiliateStripe {
+  state: StripeConnectState
+  account_id: string | null
+  country: string | null
+  details_submitted: boolean
+  transfers_enabled: boolean
+  payouts_enabled: boolean
+  checked_at: string | null
+  connect_available: boolean
+}
+
+export interface AffiliateBalance {
+  pending: number
+  available: number
+  in_payout: number
+  paid: number
+  lifetime: number
+}
+
+export interface AffiliateRow {
+  id: string
+  user_id: string
+  email: string | null
+  name: string
+  company: string | null
+  status: AffiliateStatus
+  referral_code: string
+  links: { landing: string; signup: string }
+  coupon: AffiliateCoupon | null
+  commission_percent: number
+  custom_max_payments: boolean
+  max_commission_payments: number | null
+  discount_percent: number
+  discount_applies_to: 'yearly' | 'all'
+  discount_duration: 'once' | 'forever' | 'repeating'
+  discount_duration_months: number | null
+  stripe: AffiliateStripe
+  notes: string | null
+  has_password: boolean
+  invited_at: string | null
+  activated_at: string | null
+  created_at: string | null
+  balance: AffiliateBalance
+  stats: { referrals: number; conversions: number; clicks: number; clicks_30d: number }
+}
+
+export interface AffiliateDetail extends AffiliateRow {
+  payout: {
+    available: number
+    min_payout_amount: number
+    meets_minimum: boolean
+    stripe_ready: boolean
+    /** Payouts still in flight. */
+    processing: number
+  }
+  /** Only on create. */
+  invite_url?: string
+  invite_sent?: boolean
+}
+
+export interface AffiliateTermsBody {
+  name?: string
+  company?: string | null
+  commission_percent?: number | null
+  referral_code?: string | null
+  coupon_code?: string | null
+  discount_percent?: number | null
+  discount_applies_to?: 'yearly' | 'all'
+  discount_duration?: 'once' | 'forever' | 'repeating'
+  discount_duration_months?: number | null
+  custom_max_payments?: boolean
+  max_commission_payments?: number | null
+  notes?: string | null
+}
+
+export interface AffiliateCreateBody extends AffiliateTermsBody {
+  email: string
+  name: string
+  send_invite: boolean
+}
+
+export interface AffiliateUpdateBody extends AffiliateTermsBody {
+  /** Clears the coupon entirely (`coupon_code: null` alone means "unchanged"). */
+  remove_coupon?: boolean
+}
+
+export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'reversed' | 'rejected'
+
+export interface AffiliateCommission {
+  id: string
+  kind: 'commission' | 'clawback' | 'adjustment'
+  provider: string
+  customer: string | null
+  plan_slug: string | null
+  billing_period: string | null
+  billing_reason: string | null
+  base_amount: number
+  rate_percent: number
+  amount: number
+  original_amount: number
+  refunded_fraction: number
+  currency: string
+  status: CommissionStatus
+  note: string | null
+  earned_at: string | null
+  available_at: string | null
+  approved_at: string | null
+  paid_at: string | null
+  payout_id: string | null
+  // List endpoint only.
+  affiliate_id?: string
+  affiliate_name?: string | null
+  organization_id?: string | null
+  organization_name?: string | null
+  external_ref?: string | null
+}
+
+export interface AffiliatePayout {
+  id: string
+  amount: number
+  currency: string
+  method: 'stripe' | 'manual'
+  status: 'processing' | 'paid' | 'failed'
+  reference: string | null
+  commission_count: number
+  created_at: string | null
+  paid_at: string | null
+  affiliate_id: string
+  stripe_transfer_id: string | null
+  note: string | null
+  failure_reason: string | null
+  /** List endpoint only. */
+  affiliate_name?: string | null
+}
+
+export interface AffiliateReferral {
+  id: string
+  organization_id: string
+  organization_name: string | null
+  email: string | null
+  source: 'link' | 'coupon'
+  status: 'signed_up' | 'trial' | 'paying_monthly' | 'paying_annual' | 'canceled' | 'lapsed'
+  signed_up_at: string | null
+  converted_at: string | null
+  earned: number
+}
+
 // ---------- Client ----------
 
 export const adminApi = {
@@ -468,4 +654,29 @@ export const adminApi = {
 
   health: () => get<SystemHealth>('/system/health'),
   auditLogs: (params: Query) => get<Page<AuditRow>>('/audit-logs', params),
+
+  affiliateProgram: () => get<AffiliateProgram>('/affiliates/program'),
+  updateAffiliateProgram: (body: AffiliateProgramUpdate) => send<AffiliateProgram>('put', '/affiliates/program', body),
+  affiliates: (params: Query) => get<Page<AffiliateRow>>('/affiliates', params),
+  affiliate: (id: string) => get<AffiliateDetail>(`/affiliates/${id}`),
+  createAffiliate: (body: AffiliateCreateBody) => send<AffiliateDetail>('post', '/affiliates', body),
+  updateAffiliate: (id: string, body: AffiliateUpdateBody) => send<AffiliateDetail>('patch', `/affiliates/${id}`, body),
+  setAffiliateStatus: (id: string, status: 'active' | 'suspended') =>
+    send<AffiliateDetail>('post', `/affiliates/${id}/status`, { status }),
+  resendAffiliateInvite: (id: string) =>
+    send<{ invite_url: string; invite_sent: boolean }>('post', `/affiliates/${id}/invite`),
+  affiliateReferrals: (id: string, params?: Query) => get<Page<AffiliateReferral>>(`/affiliates/${id}/referrals`, params),
+  affiliateCommissions: (params: Query) => get<Page<AffiliateCommission>>('/affiliates/commissions', params),
+  approveAffiliateCommission: (id: string) =>
+    send<AffiliateCommission>('post', `/affiliates/commissions/${id}/approve`),
+  rejectAffiliateCommission: (id: string, reason: string) =>
+    send<AffiliateCommission>('post', `/affiliates/commissions/${id}/reject`, { reason }),
+  createAffiliateAdjustment: (body: { affiliate_id: string; amount: number; note: string }) =>
+    send<AffiliateCommission>('post', '/affiliates/commissions', body),
+  affiliatePayouts: (params: Query) => get<Page<AffiliatePayout>>('/affiliates/payouts', params),
+  createAffiliatePayout: (
+    id: string,
+    body: { method: 'stripe' | 'manual'; reference?: string | null; note?: string | null; ignore_minimum?: boolean }
+  ) => send<AffiliatePayout>('post', `/affiliates/${id}/payouts`, body),
+  resumeAffiliatePayout: (id: string) => send<AffiliatePayout>('post', `/affiliates/payouts/${id}/resume`),
 }

@@ -8,10 +8,12 @@ import axios from 'axios'
 import {
   Activity,
   Building2,
+  Coins,
   CreditCard,
   FileClock,
   Gauge,
   Hash,
+  HeartHandshake,
   KeyRound,
   Layers,
   LogOut,
@@ -20,6 +22,7 @@ import {
   Plug,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Users,
   X,
   type LucideIcon,
@@ -44,6 +47,15 @@ const NAV: { section: string; items: { name: string; href: string; icon: LucideI
       { name: 'Organizations', href: '/admin/organizations', icon: Building2 },
       { name: 'Users', href: '/admin/users', icon: Users },
       { name: 'Billing', href: '/admin/billing', icon: CreditCard },
+    ],
+  },
+  {
+    section: 'Growth',
+    items: [
+      // exact: the sub-pages below have their own entries.
+      { name: 'Affiliates', href: '/admin/affiliates', icon: HeartHandshake, exact: true },
+      { name: 'Commissions & Payouts', href: '/admin/affiliates/commissions', icon: Coins },
+      { name: 'Affiliate Program', href: '/admin/affiliates/program', icon: SlidersHorizontal },
     ],
   },
   {

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.admin import require_platform_admin
 
-from . import billing, operations, organizations, overview, settings, system, users
+from . import affiliates, billing, operations, organizations, overview, settings, system, users
 
 router = APIRouter(dependencies=[Depends(require_platform_admin)])
 router.include_router(system.router)
@@ -19,3 +19,4 @@ router.include_router(organizations.router)
 router.include_router(users.router)
 router.include_router(billing.router)
 router.include_router(operations.router)
+router.include_router(affiliates.router)

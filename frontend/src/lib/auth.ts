@@ -8,6 +8,7 @@ import {
   storeSession,
   type SessionScope,
 } from './session'
+import { clearReferralCode, getReferralCode } from '@/lib/referral'
 
 export interface User {
   id: string
@@ -53,6 +54,8 @@ export interface RegisterData {
   phone_number?: string
   /** Proof from verifyEmailCode that the address was confirmed. */
   email_verification_token?: string
+  /** Affiliate code the visitor arrived with; read from the `?ref=` cookie when omitted. */
+  referral_code?: string
 }
 
 export interface SendCodeResult {
@@ -93,7 +96,11 @@ export const authService = {
   },
 
   async register(data: RegisterData) {
-    const { data: res } = await apiClient.post('/api/v1/auth/register', data)
+    const { data: res } = await apiClient.post('/api/v1/auth/register', {
+      ...data,
+      referral_code: data.referral_code ?? getReferralCode(),
+    })
+    clearReferralCode()
     return res
   },
 
@@ -135,13 +142,24 @@ export const authService = {
     return data
   },
 
+  // A referral code only counts when the social sign-in creates a new account;
+  // the server ignores it for an existing one, so it is always sent.
   async googleAuth(code: string, redirectUri = 'postmessage') {
-    const { data } = await apiClient.post('/api/v1/auth/google', { code, redirect_uri: redirectUri })
+    const { data } = await apiClient.post('/api/v1/auth/google', {
+      code,
+      redirect_uri: redirectUri,
+      referral_code: getReferralCode(),
+    })
+    if (data?.user?.is_new) clearReferralCode()
     return authService.persistSession(data)
   },
 
   async appleAuth(params: { id_token: string; full_name?: string; nonce?: string }) {
-    const { data } = await apiClient.post('/api/v1/auth/apple', params)
+    const { data } = await apiClient.post('/api/v1/auth/apple', {
+      ...params,
+      referral_code: getReferralCode(),
+    })
+    if (data?.user?.is_new) clearReferralCode()
     return authService.persistSession(data)
   },
 

@@ -59,6 +59,7 @@ from app.services.billing.conversion import (  # noqa: F401 — re-exported for 
 # through this endpoint. See app.services.billing.trial for why.
 from app.services.billing import trial as trial_service
 from app.services.billing.trial import TrialUnavailable
+from app.services.affiliates import coupons as affiliate_coupons
 
 logger = logging.getLogger(__name__)
 
@@ -715,6 +716,8 @@ class CheckoutRequest(BaseModel):
         "monthly",
         description="monthly | yearly",
     )
+    #: An affiliate coupon code. Checked server-side against the plan's period.
+    coupon_code: Optional[str] = Field(None, max_length=60)
 
 
 class ChangePlanRequest(BaseModel):
@@ -1090,6 +1093,17 @@ async def checkout(
         db=db, plan=plan, billing_period=request.billing_period
     )
 
+    # 3a. An affiliate coupon becomes a Stripe coupon on the subscription, so
+    #     the invoice (and the affiliate's commission) is already net of it.
+    #     Committed now: the referral stands even if the card is then declined.
+    coupon_params: dict = {}
+    coupon_code = (request.coupon_code or "").strip()
+    if coupon_code:
+        quote = await _apply_coupon(db, coupon_code, org_id, current_user, request.billing_period)
+        coupon_params["coupon"] = await affiliate_coupons.stripe_coupon_id(quote.affiliate)
+        coupon_code = quote.code
+        await db.commit()
+
     # 4. Create the Stripe subscription. No ``trial_period_days``: any trial the
     #    customer had was ours, ran on our clock, and has already been used.
     stripe_subscription = await asyncio.to_thread(
@@ -1097,8 +1111,9 @@ async def checkout(
         customer=stripe_customer_id,
         items=[{"price": price_id}],
         expand=["latest_invoice.payment_intent"],
-        metadata={"organization_id": str(org_id), "plan_id": str(plan.id)},
-        idempotency_key=f"checkout:{org_id}:{plan.id}:{request.payment_method_id}",
+        metadata={"organization_id": str(org_id), "plan_id": str(plan.id), "coupon_code": coupon_code},
+        idempotency_key=f"checkout:{org_id}:{plan.id}:{request.payment_method_id}:{coupon_code}",
+        **coupon_params,
     )
 
     # 4a. Refuse to convert onto a subscription Stripe has not actually started.
@@ -1197,6 +1212,11 @@ async def checkout(
     await db.commit()
     await db.refresh(subscription)
     invalidate_entitlements(org_id)
+
+    latest_invoice = getattr(stripe_subscription, "latest_invoice", None)
+    if latest_invoice is not None and not isinstance(latest_invoice, str):
+        await stripe_service.record_affiliate_commission(db, subscription, latest_invoice)
+        await db.commit()
 
     try:
         from app.services.email.service import email_service
@@ -1477,6 +1497,88 @@ async def reactivate_subscription(
     return _subscription_response(subscription, result.scalar_one_or_none())
 
 
+# ==================== Affiliate coupons ====================
+
+
+class CouponResponse(BaseModel):
+    valid: bool
+    code: Optional[str] = None
+    percent_off: Optional[float] = None
+    duration: Optional[str] = None
+    duration_in_months: Optional[int] = None
+    #: ``yearly`` (annual plans only) | ``all``
+    applies_to: Optional[str] = None
+    #: e.g. "20% off your first payment"
+    description: Optional[str] = None
+    #: Why the code can't be used, in words for the customer.
+    message: Optional[str] = None
+
+
+class ApplyCouponRequest(BaseModel):
+    code: str = Field(..., max_length=60)
+    billing_period: Literal["monthly", "yearly"] = "yearly"
+
+
+async def _apply_coupon(
+    db: AsyncSession,
+    code: str,
+    org_id: uuid.UUID,
+    user: User,
+    billing_period: str,
+) -> "affiliate_coupons.CouponQuote":
+    try:
+        return await affiliate_coupons.apply(
+            db, code, organization_id=org_id, user_id=user.id, billing_period=billing_period
+        )
+    except affiliate_coupons.CouponError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.public_message)
+
+
+@router.get("/coupon", response_model=CouponResponse)
+async def check_coupon(
+    code: Optional[str] = None,
+    billing_period: Literal["monthly", "yearly"] = "yearly",
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check a coupon for this workspace without applying it.
+
+    With no ``code``, checks the coupon of the affiliate this workspace was
+    referred by, so checkout can prefill it. Returns ``valid: false`` rather
+    than an error when there is none.
+    """
+    if not code:
+        code = await affiliate_coupons.suggested_code(db, org_id)
+        if not code:
+            return CouponResponse(valid=False)
+    try:
+        quote = await affiliate_coupons.quote(
+            db, code, organization_id=org_id, user_id=current_user.id, billing_period=billing_period
+        )
+    except affiliate_coupons.CouponError as exc:
+        return CouponResponse(valid=False, code=code.strip().upper(), message=exc.public_message)
+    return CouponResponse(valid=True, **quote.as_dict())
+
+
+@router.post("/coupon/apply", response_model=CouponResponse)
+async def apply_coupon(
+    request: ApplyCouponRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply a coupon ahead of checkout (the onboarding promo box).
+
+    Credits a new workspace to the coupon's affiliate straight away, so the
+    referral holds even if the customer starts a free trial first and pays
+    later without re-entering the code.
+    """
+    quote = await _apply_coupon(db, request.code, org_id, current_user, request.billing_period)
+    await db.commit()
+    return CouponResponse(valid=True, **quote.as_dict())
+
+
 # ==================== Hosted checkout (Polar) and billing portal ====================
 
 
@@ -1502,6 +1604,8 @@ class CheckoutSessionRequest(BaseModel):
     return_path: Optional[str] = None
     #: Where Polar's back button goes, e.g. ``/onboarding/billing``.
     cancel_path: Optional[str] = None
+    #: An affiliate coupon code. Checked server-side against the plan's period.
+    coupon_code: Optional[str] = Field(None, max_length=60)
 
 
 class CheckoutSessionResponse(BaseModel):
@@ -1582,6 +1686,16 @@ async def create_checkout_session(
     }
     if current_user.full_name:
         body["customer_name"] = current_user.full_name[:256]
+
+    if request.coupon_code and request.coupon_code.strip():
+        quote = await _apply_coupon(db, request.coupon_code, org_id, current_user, request.billing_period)
+        try:
+            body["discount_id"] = await affiliate_coupons.polar_discount_id(quote.affiliate)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+        body["allow_discount_codes"] = False
+        body["metadata"]["coupon_code"] = quote.code
+        await db.commit()
 
     try:
         checkout = await polar_service.get_polar_client().create_checkout(body)

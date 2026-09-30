@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS, FREE_TRIAL_DAYS } from '@/lib/constants'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
-import { billingService, useBillingConfig } from '@/lib/billing'
+import { billingService, discountedPrice, useBillingConfig, type CouponQuote } from '@/lib/billing'
+import { CouponField } from '@/components/billing/CouponField'
 import { useEntitlementStore } from '@/store/entitlementStore'
 
 export interface CheckoutPlan {
@@ -57,10 +58,11 @@ interface PayProps {
   submitting: boolean
   onSuccess: () => void
   returnPath?: string
+  couponCode?: string
 }
 
 /** Stripe: the card is collected here. Must render inside <Elements>. */
-function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, onSuccess }: PayProps) {
+function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, onSuccess, couponCode }: PayProps) {
   const stripe = useStripe()
   const elements = useElements()
   const refreshConfigOnConflict = useRefreshConfigOnConflict()
@@ -80,6 +82,7 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
         plan_id: plan.id,
         payment_method_id: paymentMethod.id,
         billing_period: billingPeriod,
+        coupon_code: couponCode,
       })
       toast.success('Subscription activated!')
       onSuccess()
@@ -104,7 +107,7 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
 }
 
 /** Polar: the customer pays on Polar's hosted page and comes back. */
-function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, returnPath }: PayProps) {
+function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, returnPath, couponCode }: PayProps) {
   const refreshConfigOnConflict = useRefreshConfigOnConflict()
   const pay = async () => {
     setSubmitting(true)
@@ -113,6 +116,7 @@ function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmit
         plan_id: plan.id,
         billing_period: billingPeriod,
         return_path: returnPath ?? window.location.pathname,
+        coupon_code: couponCode,
       })
     } catch (err) {
       refreshConfigOnConflict(err)
@@ -167,7 +171,9 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
     }
   }, [stripePromise])
 
-  const price = priceFor(billingPeriod, plan.price_monthly, plan.price_yearly)
+  const listPrice = priceFor(billingPeriod, plan.price_monthly, plan.price_yearly)
+  const [coupon, setCoupon] = useState<CouponQuote | null>(null)
+  const price = discountedPrice(listPrice, coupon)
   const trialDays = plan.trial_days ?? FREE_TRIAL_DAYS
   const busy = submitting || startingTrial
   const configured =
@@ -199,6 +205,7 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
     setSubmitting,
     onSuccess,
     returnPath,
+    couponCode: coupon?.code ?? undefined,
   }
 
   return (
@@ -213,9 +220,22 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
           <div>
             <h3 id="checkout-modal-title" className="text-lg font-bold text-gray-900">Subscribe to {plan.name}</h3>
             <p className="text-sm text-gray-600">
-              ${price}/{billingPeriod === 'yearly' ? 'year' : 'month'}, billed {billingPeriod}.
+              {price !== listPrice ? (
+                <>
+                  <span className="mr-1 text-gray-400 line-through">${listPrice}</span>
+                  ${price} due today, billed {billingPeriod}.
+                </>
+              ) : (
+                <>
+                  ${price}/{billingPeriod === 'yearly' ? 'year' : 'month'}, billed {billingPeriod}.
+                </>
+              )}
             </p>
           </div>
+
+          {configured && !isLoading && (
+            <CouponField billingPeriod={billingPeriod} onChange={setCoupon} disabled={busy} />
+          )}
 
           {isLoading ? (
             <div className="flex h-20 items-center justify-center">

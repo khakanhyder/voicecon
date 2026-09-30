@@ -12,6 +12,7 @@ import { FREE_TRIAL_DAYS, QUERY_KEYS } from '@/lib/constants'
 import { onboardingService, type SubscriptionPlan } from '@/lib/onboarding'
 import { ENTERPRISE, periodPrice, planCardBullets, yearlySavingPercent } from '@/lib/pricing'
 import { useOnboardingStore } from '@/store/onboardingStore'
+import { billingService } from '@/lib/billing'
 
 /** Yearly falls back to monthly when the admin set no yearly price (monthly-only plan). */
 function planPrice(plan: SubscriptionPlan, period: 'monthly' | 'yearly'): number {
@@ -87,9 +88,28 @@ export default function PricingPage() {
     router.push('/onboarding/billing')
   }
 
+  // Applying credits a new workspace to the coupon's affiliate straight away,
+  // so the referral holds even if the customer starts the free trial instead.
+  const promoMutation = useMutation({
+    mutationFn: (code: string) => billingService.applyCoupon(code, billingPeriod),
+    onSuccess: (quote) => {
+      setPromoCode(quote.code ?? '')
+      setPromoInput(quote.code ?? '')
+      toast.success(`Coupon ${quote.code} applied: ${quote.description}`)
+    },
+    onError: (err) => {
+      setPromoCode('')
+      toast.error(getErrorMessage(err, "That coupon code isn't valid."))
+    },
+  })
+
   const applyPromo = () => {
-    setPromoCode(promoInput)
-    if (promoInput.trim()) toast.success(`Promo code "${promoInput}" applied`)
+    const code = promoInput.trim()
+    if (!code) {
+      setPromoCode('')
+      return
+    }
+    promoMutation.mutate(code)
   }
 
   const price = activePlan ? planPrice(activePlan, billingPeriod) : 0
@@ -255,15 +275,16 @@ export default function PricingPage() {
           <input
             value={promoInput}
             onChange={(e) => setPromoInput(e.target.value)}
-            placeholder="Enter promo code (e.g. SAVE25)"
+            placeholder="Enter a coupon code"
             className="flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           />
           <button
             type="button"
             onClick={applyPromo}
-            className="rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
+            disabled={promoMutation.isPending}
+            className="rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-60"
           >
-            Apply
+            {promoMutation.isPending ? 'Applying…' : 'Apply'}
           </button>
         </div>
       </div>

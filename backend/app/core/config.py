@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     # ---- Social login (Google / Apple "Sign in with") ----
     # Public URL of the frontend — used as the OAuth origin/redirect base.
     FRONTEND_URL: str = Field(default="http://localhost:3000")
+    #: Public marketing site, used for affiliate referral links. Unset: the
+    #: FRONTEND_URL host without its ``app.`` prefix (app.voicecon.ai -> voicecon.ai).
+    LANDING_URL: Optional[str] = None
 
     # Google OAuth 2.0 — from Google Cloud Console → APIs & Services → Credentials
     # (OAuth 2.0 Client ID of type "Web application").

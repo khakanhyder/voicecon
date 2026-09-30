@@ -32,6 +32,10 @@ from app.models.notification import Notification
 from app.models.verification import VerificationCode
 from app.models.platform import PlatformSetting, AdminAuditLog
 from app.models.voice import CustomVoice
+from app.models.affiliate import (
+    AffiliateProgram, Affiliate, AffiliateClick, AffiliateReferral,
+    AffiliateCommission, AffiliatePayout,
+)
 
 __all__ = [
     "Base",
@@ -44,6 +48,13 @@ __all__ = [
     # Platform administration
     "PlatformSetting",
     "AdminAuditLog",
+    # Affiliate program
+    "AffiliateProgram",
+    "Affiliate",
+    "AffiliateClick",
+    "AffiliateReferral",
+    "AffiliateCommission",
+    "AffiliatePayout",
     "Notification",
     # User models
     "User",

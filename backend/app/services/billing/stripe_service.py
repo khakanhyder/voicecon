@@ -889,6 +889,9 @@ class StripeService:
             elif event_type == "customer.subscription.deleted":
                 await self._on_subscription_deleted(db, data, event_id)
 
+            elif event_type == "charge.refunded":
+                await self._on_charge_refunded(db, data)
+
             return True
 
         except Exception as e:
@@ -962,8 +965,69 @@ class StripeService:
             stripe_event_id=event_id,
             payload={"billing_reason": billing_reason},
         )
+        await self.record_affiliate_commission(db, subscription, data)
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
+
+    async def record_affiliate_commission(
+        self, db: AsyncSession, subscription: Subscription, data: Dict[str, Any]
+    ) -> None:
+        """Credit the referring affiliate, if any, for this paid invoice. Caller commits.
+
+        Also called by checkout with the subscription's first invoice, because
+        ``invoice.paid`` can arrive before checkout has linked the local row
+        (the webhook then finds no subscription). ``external_ref`` is unique,
+        so whichever runs second is a no-op.
+
+        The base is what the customer paid net of discount and before tax. The
+        commission rules (annual-only, eligible plans, limits) are applied by
+        ``affiliates.commissions``; a failure there never fails this webhook.
+        """
+        from app.services.affiliates import commissions
+
+        if not _get(data, "id") or _get(data, "status") not in (None, "paid"):
+            return
+        data = _as_dict(data)
+        plan = await db.get(SubscriptionPlan, subscription.plan_id)
+        amount_paid = int(data.get("amount_paid") or 0)
+        excluding_tax = data.get("total_excluding_tax")
+        if excluding_tax is not None:
+            base_cents = min(amount_paid, int(excluding_tax))
+        else:
+            base_cents = amount_paid - int(data.get("tax") or 0)
+        local_invoice_id = await db.scalar(
+            select(Invoice.id).where(Invoice.stripe_invoice_id == data["id"])
+        )
+        paid_at = utc_from_timestamp(_get(data.get("status_transitions") or {}, "paid_at")) or datetime.utcnow()
+        _, period_end = invoice_service_period(data)
+        await commissions.record_payment_safely(
+            db,
+            commissions.Payment(
+                provider="stripe",
+                external_ref=f"stripe:{data['id']}",
+                organization_id=subscription.organization_id,
+                plan_slug=plan.slug if plan else None,
+                billing_period=subscription.billing_period,
+                billing_reason=data.get("billing_reason"),
+                base_amount=Decimal(max(0, base_cents)) / 100,
+                currency=data.get("currency") or "usd",
+                paid_at=paid_at,
+                service_period_end=period_end,
+                invoice_id=local_invoice_id,
+            ),
+        )
+
+    async def _on_charge_refunded(self, db: AsyncSession, data: Dict[str, Any]) -> None:
+        """Shrink or reverse the affiliate commission on a refunded invoice payment."""
+        from app.services.affiliates import commissions
+
+        invoice_id = data.get("invoice")
+        amount = int(data.get("amount") or 0)
+        if not invoice_id or amount <= 0:
+            return
+        fraction = Decimal(int(data.get("amount_refunded") or 0)) / Decimal(amount)
+        await commissions.apply_refund_safely(db, f"stripe:{invoice_id}", fraction)
+        await db.commit()
 
     async def _on_payment_failed(
         self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]

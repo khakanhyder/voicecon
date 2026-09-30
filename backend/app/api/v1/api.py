@@ -18,6 +18,7 @@ from app.core.dependencies import workspace_guard
 from app.core.entitlement_guard import entitlement_guard
 from app.api.v1.endpoints import admin as platform_admin
 from app.api.v1.endpoints import (
+    affiliate_portal,
     agents,
     analytics,
     api_keys,
@@ -142,7 +143,14 @@ api_router.include_router(
 # workspace role — see app.core.admin.
 api_router.include_router(platform_admin.router, prefix="/admin", tags=["platform-admin"])
 
+# ---- Affiliate portal: partners only, no workspace ----
+# Reached only with an affiliate-scoped session; see _enforce_session_scope.
+api_router.include_router(affiliate_portal.router, prefix="/affiliate", tags=["affiliate-portal"])
+
 # ---- Public: provider webhooks and unauthenticated surfaces ----
+api_router.include_router(
+    affiliate_portal.public_router, prefix="/affiliate-public", tags=["affiliate-portal"]
+)
 api_router.include_router(telephony.public_router, prefix="/telephony", tags=["telephony"])
 api_router.include_router(billing.public_router, prefix="/billing", tags=["billing"])
 api_router.include_router(chat.public_router, prefix="/chat", tags=["chat-widget"])

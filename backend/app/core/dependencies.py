@@ -28,6 +28,7 @@ from app.database import get_db
 from app.core.config import settings
 from app.core.security import (
     SCOPE_ADMIN,
+    SCOPE_AFFILIATE,
     SCOPE_APP,
     decode_token,
     session_scope,
@@ -77,6 +78,10 @@ class Principal:
     @property
     def is_admin_session(self) -> bool:
         return self.session_scope == SCOPE_ADMIN
+
+    @property
+    def is_affiliate_session(self) -> bool:
+        return self.session_scope == SCOPE_AFFILIATE
 
 
 async def _user_from_jwt(token: str, db: AsyncSession) -> tuple["User", str]:
@@ -130,6 +135,9 @@ def _presented_key(token: Optional[str], x_api_key: Optional[str]) -> Optional[s
 #: The platform admin API — the only thing a staff console session may touch.
 ADMIN_API_PREFIX = "/api/v1/admin"
 
+#: The affiliate portal API — the only thing an affiliate session may touch.
+AFFILIATE_API_PREFIX = "/api/v1/affiliate"
+
 #: The exceptions: endpoints that belong to whichever session presents them.
 #: Sign-out is the one the console needs, and refusing it would strand a staff
 #: session with no way to end itself.
@@ -166,6 +174,22 @@ def _enforce_session_scope(principal: Principal, path: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sign in through the admin console to use the admin API.",
+        )
+
+    # The affiliate portal is a third front door, kept apart the same way.
+    # ``/api/v1/affiliate-public`` is a different prefix and never gets here.
+    is_affiliate_api = normalized == AFFILIATE_API_PREFIX or normalized.startswith(
+        AFFILIATE_API_PREFIX + "/"
+    )
+    if principal.is_affiliate_session and not is_affiliate_api:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This is an affiliate portal session. Sign in to the app to use it.",
+        )
+    if is_affiliate_api and not principal.is_affiliate_session:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sign in through the affiliate portal to use it.",
         )
 
 
@@ -450,7 +474,7 @@ async def get_optional_user(
 
     # A staff console session is not a customer of these endpoints; treat it
     # the way an unrecognised credential is treated, as anonymous.
-    return None if scope == SCOPE_ADMIN else user
+    return None if scope != SCOPE_APP else user
 
 
 def get_optional_user_id(
