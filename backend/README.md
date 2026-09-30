@@ -347,7 +347,7 @@ agent = await create_from_template("appointment-scheduler")
 - [ ] Advanced sentiment analysis (ML)
 - [ ] Call summarization (LLM-powered)
 - [ ] Custom voice cloning
-- [ ] CRM integrations (Salesforce, HubSpot)
+- [ ] CRM integrations (HubSpot)
 - [ ] Workflow builder
 - [ ] Knowledge base RAG
 - [ ] Real-time collaboration

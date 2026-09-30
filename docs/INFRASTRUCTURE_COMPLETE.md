@@ -35,7 +35,7 @@ Populates database with sample data:
 - ✅ Demo user (email: `demo@voicecon.com`, password: `demo123456`)
 - ✅ Demo organization
 - ✅ Sample customer support agent
-- ✅ 10 popular integration connectors (Salesforce, HubSpot, Slack, etc.)
+- ✅ 9 popular integration connectors (HubSpot, Slack, etc.)
 
 **Python Script Features:**
 - Smart duplicate detection (won't seed twice)
@@ -369,8 +369,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 - STT: Deepgram
 - Status: Active
 
-**10 Integration Connectors:**
-- Salesforce (CRM)
+**9 Integration Connectors:**
 - HubSpot (CRM)
 - Slack (Communication)
 - Microsoft Teams (Communication)

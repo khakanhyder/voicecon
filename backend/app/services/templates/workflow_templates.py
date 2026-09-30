@@ -9,7 +9,7 @@ builder and executes, rather than a description of one.
 That is a deliberate constraint, and the reason this file is short. An earlier
 version carried ten templates written in an invented schema
 (``{trigger, conditions, actions}`` with step types like ``extract_data`` and
-``salesforce_create_lead``) that no handler implemented, alongside triggers
+``send_notification``) that no handler implemented, alongside triggers
 (``intent.detected``, ``lead.captured``) that are not trigger types and
 integrations (Zendesk, Shopify, Twilio, Mailgun) the platform has no connector
 for. None of it could run; none of it could even load into the builder.

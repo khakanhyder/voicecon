@@ -186,7 +186,7 @@ result = mapper.map_fields(source_data, config)
 **Advanced Mode:**
 ```json
 {
-  "id": "map_salesforce_data",
+  "id": "map_contact_data",
   "type": "transform",
   "config": {
     "source": "trigger",
@@ -214,7 +214,7 @@ result = mapper.map_fields(source_data, config)
 ## Real-World Use Cases
 
 ### 1. CRM Data Synchronization
-Transform contact data between HubSpot and Salesforce formats:
+Transform HubSpot contact data into a flat contact format:
 ```json
 {
   "fields": {

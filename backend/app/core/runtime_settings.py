@@ -167,13 +167,6 @@ SPECS: Tuple[SettingSpec, ...] = (
     # Integration OAuth apps
     _S("HUBSPOT_CLIENT_ID", "HubSpot client ID", "integration_apps"),
     _S("HUBSPOT_CLIENT_SECRET", "HubSpot client secret", "integration_apps", "secret"),
-    _S("SALESFORCE_CLIENT_ID", "Salesforce client ID", "integration_apps"),
-    _S("SALESFORCE_CLIENT_SECRET", "Salesforce client secret", "integration_apps", "secret"),
-    _S("SALESFORCE_LOGIN_URL", "Salesforce login URL", "integration_apps", "url",
-       "Leave empty for login.salesforce.com. Set the org's My Domain "
-       "(https://example.my.salesforce.com) when the Salesforce app is a Local "
-       "External Client App, or https://test.salesforce.com for a sandbox.",
-       placeholder="https://login.salesforce.com"),
     _S("SLACK_CLIENT_ID", "Slack client ID", "integration_apps"),
     _S("SLACK_CLIENT_SECRET", "Slack client secret", "integration_apps", "secret"),
     _S("NOTION_CLIENT_ID", "Notion client ID", "integration_apps"),

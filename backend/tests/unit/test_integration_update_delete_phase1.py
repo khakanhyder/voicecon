@@ -1,6 +1,6 @@
 """
 Phase 1 of update/delete in connected apps: ClickUp, Trello, Airtable,
-HubSpot, Salesforce, GoHighLevel and Stripe.
+HubSpot, GoHighLevel and Stripe.
 
 Each test goes through the real runner (the path agent tools and workflow steps
 share), with the provider's HTTP API faked at the connector's request helpers,
@@ -125,7 +125,6 @@ async def audit(db):
         ("airtable", "update_record", {"table_name": "Leads", "record_id": "rec1", "fields": {"a": 1}}),
         ("hubspot", "update_contact", {"contact_id": "1", "phone": "1"}),
         ("hubspot", "update_deal", {"deal_id": "1", "stage": "closedwon"}),
-        ("salesforce", "update_lead", {"lead_id": "00Q", "status": "Working"}),
         ("gohighlevel", "update_contact", {"contact_id": "g1", "phone": "1"}),
         ("stripe", "update_customer", {"customer_id": "cus_1", "name": "x"}),
     ],
@@ -142,7 +141,6 @@ async def test_updates_need_the_callers_confirmation(db, api, slug, action, para
     "slug, action, params",
     [
         ("hubspot", "delete_contact", {"contact_id": "1"}),
-        ("salesforce", "delete_contact", {"contact_id": "003"}),
         ("stripe", "cancel_subscription", {"subscription_id": "sub_1"}),
         ("stripe", "cancel_payment_intent", {"intent_id": "pi_1"}),
     ],
@@ -297,28 +295,6 @@ async def test_hubspot_delete_contact_when_allowed(db, api):
     assert api.sent("DELETE", "/crm/v3/objects/contacts/7")
     [change] = await audit(db)
     assert change.operation == "delete" and change.before["properties"]["email"] == "a@b.co"
-
-
-# ---- Salesforce ---------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_salesforce_search_leads_escapes_quotes(db, api):
-    api.on("GET", "/services/data/v57.0/query", {"records": []})
-    connection = await connect(db, "salesforce", config={"instance_url": "https://x.my.salesforce.com"})
-    await run(db, connection, "search_leads", {"query": "O'Brien"})
-    [(_, _, kw)] = api.sent("GET")
-    soql = kw["params"]["q"]
-    assert "O\\'Brien" in soql and "O'Brien'" not in soql
-
-
-@pytest.mark.asyncio
-async def test_salesforce_update_lead_maps_fields(db, api):
-    connection = await connect(db, "salesforce")
-    await run(db, connection, "update_lead", {"lead_id": "00Q1", "status": "Working - Contacted", "phone": "555", "confirmed": True})
-    [(_, path, kw)] = api.sent("PATCH")
-    assert path == "/services/data/v57.0/sobjects/Lead/00Q1"
-    assert kw["json"] == {"Phone": "555", "Status": "Working - Contacted"}
 
 
 # ---- GoHighLevel --------------------------------------------------------------

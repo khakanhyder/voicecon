@@ -9,389 +9,32 @@ Version 1.0.0 | Last Updated: December 19, 2025
 ## Table of Contents
 
 ### CRM Integrations
-1. [Salesforce](#salesforce-integration)
-2. [HubSpot](#hubspot-integration)
-3. [Pipedrive](#pipedrive-integration)
-4. [Zoho CRM](#zoho-crm-integration)
+1. [HubSpot](#hubspot-integration)
+2. [Pipedrive](#pipedrive-integration)
+3. [Zoho CRM](#zoho-crm-integration)
 
 ### Communication Tools
-5. [Slack](#slack-integration)
-6. [Microsoft Teams](#microsoft-teams-integration)
-7. [Discord](#discord-integration)
+4. [Slack](#slack-integration)
+5. [Microsoft Teams](#microsoft-teams-integration)
+6. [Discord](#discord-integration)
 
 ### Calendar & Scheduling
-8. [Google Calendar](#google-calendar-integration)
-9. [Calendly](#calendly-integration)
-10. [Microsoft Outlook Calendar](#microsoft-outlook-integration)
+7. [Google Calendar](#google-calendar-integration)
+8. [Calendly](#calendly-integration)
+9. [Microsoft Outlook Calendar](#microsoft-outlook-integration)
 
 ### Marketing & Email
-11. [Mailchimp](#mailchimp-integration)
-12. [SendGrid](#sendgrid-integration)
-13. [ActiveCampaign](#activecampaign-integration)
+10. [Mailchimp](#mailchimp-integration)
+11. [SendGrid](#sendgrid-integration)
+12. [ActiveCampaign](#activecampaign-integration)
 
 ### Database & Storage
-14. [Google Sheets](#google-sheets-integration)
-15. [Airtable](#airtable-integration)
+13. [Google Sheets](#google-sheets-integration)
+14. [Airtable](#airtable-integration)
 
 ### Custom Integrations
-16. [Webhook Integration](#webhook-integration)
-17. [REST API Integration](#rest-api-integration)
-
----
-
-## Salesforce Integration
-
-### Overview
-
-Connect Voicecon to Salesforce to automatically:
-- Create and update Leads, Contacts, Accounts, Opportunities
-- Log call activities and notes
-- Update opportunity stages
-- Sync customer data bidirectionally
-
-**Authentication**: OAuth 2.0
-
-**Supported Editions**:
-- Salesforce Professional
-- Salesforce Enterprise
-- Salesforce Unlimited
-
----
-
-### Prerequisites
-
-Before connecting Salesforce:
-
-1. **Salesforce Admin Access** - You need System Administrator or equivalent permissions
-2. **Connected App** - Create a Connected App in Salesforce (we'll guide you)
-3. **API Enabled** - Ensure API access is enabled for your org
-
----
-
-### Step 1: Create Connected App in Salesforce
-
-#### 1.1. Navigate to Setup
-
-1. Log in to Salesforce
-2. Click the gear icon (⚙️) → **Setup**
-3. In Quick Find, search for **App Manager**
-4. Click **App Manager**
-
-#### 1.2. Create New Connected App
-
-1. Click **New Connected App** button
-2. Fill in Basic Information:
-   - **Connected App Name**: `Voicecon Integration`
-   - **API Name**: `Voicecon_Integration` (auto-filled)
-   - **Contact Email**: Your email
-
-#### 1.3. Enable OAuth Settings
-
-1. Check **Enable OAuth Settings**
-2. **Callback URL**: `https://app.voicecon.com/oauth/callback/salesforce`
-3. **Selected OAuth Scopes**: Add these scopes:
-   - `Access and manage your data (api)`
-   - `Perform requests on your behalf at any time (refresh_token, offline_access)`
-   - `Access your basic information (id, profile, email, address, phone)`
-
-4. Click **Save**
-5. Click **Continue**
-
-#### 1.4. Retrieve Credentials
-
-After saving, you'll see:
-- **Consumer Key** (this is your Client ID)
-- **Consumer Secret** (click to reveal)
-
-**IMPORTANT**: Copy both values. You'll need them in Step 2.
-
----
-
-### Step 2: Connect in Voicecon
-
-#### 2.1. Navigate to Integrations
-
-1. Log in to Voicecon
-2. Go to **Integrations** in sidebar
-3. Find **Salesforce** card
-4. Click **Connect**
-
-#### 2.2. Enter Salesforce Details
-
-1. **Salesforce Domain**: Enter your domain
-   - Example: `mycompany.salesforce.com`
-   - For sandboxes: `mycompany--sandbox.sandbox.my.salesforce.com`
-
-2. **Client ID**: Paste Consumer Key from Step 1.4
-3. **Client Secret**: Paste Consumer Secret from Step 1.4
-
-4. Click **Authorize**
-
-#### 2.3. Grant Permissions
-
-1. You'll be redirected to Salesforce login
-2. Log in with your credentials
-3. Review requested permissions
-4. Click **Allow**
-5. You'll be redirected back to Voicecon
-
-**Success!** You should see "Salesforce Connected" ✅
-
----
-
-### Step 3: Configure Data Mapping
-
-Map Voicecon call data to Salesforce fields:
-
-#### 3.1. Lead Mapping
-
-Navigate to: **Integrations → Salesforce → Field Mapping → Leads**
-
-| Voicecon Field | Salesforce Field | Notes |
-|----------------|------------------|-------|
-| `caller_first_name` | `FirstName` | Required |
-| `caller_last_name` | `LastName` | Required |
-| `caller_email` | `Email` | |
-| `caller_phone` | `Phone` | |
-| `caller_company` | `Company` | Required |
-| `call_summary` | `Description` | |
-| Fixed: "Voice Call" | `LeadSource` | |
-| `detected_intent` | `Lead_Intent__c` | Custom field |
-| `call_duration` | `Call_Duration__c` | Custom field |
-
-**To add custom fields:**
-1. Click **Add Custom Field**
-2. Select Voicecon field
-3. Enter Salesforce field API name
-4. Click **Save**
-
-#### 3.2. Activity Mapping
-
-Map call activities:
-
-| Voicecon Field | Salesforce Activity Field |
-|----------------|---------------------------|
-| `call_id` | `Subject` (prefix: "Call:") |
-| `call_transcript` | `Description` |
-| `call_duration` | `DurationInMinutes` |
-| `call_start_time` | `ActivityDate` |
-| Fixed: "Call" | `Type` |
-| Fixed: "Completed" | `Status` |
-
----
-
-### Step 4: Test the Integration
-
-#### 4.1. Test Connection
-
-1. In Voicecon, go to **Integrations → Salesforce**
-2. Click **Test Connection**
-3. Verify success message: "Connection successful. API Version: v58.0"
-
-#### 4.2. Test Lead Creation
-
-1. Click **Test Action** → **Create Lead**
-2. Enter test data:
-```json
-{
-  "FirstName": "John",
-  "LastName": "Doe",
-  "Company": "Test Company",
-  "Email": "john@testcompany.com",
-  "Phone": "+1234567890",
-  "LeadSource": "Voice Call",
-  "Description": "Test lead created via Voicecon integration"
-}
-```
-3. Click **Run Test**
-4. Check Salesforce to verify lead was created
-
----
-
-### Step 5: Create Workflows
-
-#### Example Workflow 1: Create Lead After Qualified Call
-
-**Trigger**: Call Completed
-
-**Conditions**:
-- Call duration > 60 seconds
-- Intent = "purchase_interest" OR "demo_request"
-
-**Actions**:
-1. **Salesforce: Create Lead**
-   ```json
-   {
-     "FirstName": "{{caller_first_name}}",
-     "LastName": "{{caller_last_name}}",
-     "Company": "{{caller_company}}",
-     "Email": "{{caller_email}}",
-     "Phone": "{{caller_phone}}",
-     "LeadSource": "Voice Call - {{agent_name}}",
-     "Description": "{{call_summary}}",
-     "Lead_Intent__c": "{{detected_intent}}",
-     "Call_Duration__c": "{{call_duration}}"
-   }
-   ```
-
-2. **Salesforce: Create Task**
-   ```json
-   {
-     "Subject": "Follow up on voice call",
-     "Description": "Lead called about {{detected_intent}}. Listen to call: {{call_recording_url}}",
-     "Status": "Not Started",
-     "Priority": "High",
-     "ActivityDate": "{{tomorrow}}"
-   }
-   ```
-
-#### Example Workflow 2: Update Opportunity Stage
-
-**Trigger**: Call Completed
-
-**Conditions**:
-- Call tags contain "contract_discussion"
-- Salesforce Opportunity exists for contact
-
-**Actions**:
-1. **Salesforce: Update Opportunity**
-   ```json
-   {
-     "Id": "{{salesforce_opportunity_id}}",
-     "StageName": "Negotiation/Review",
-     "Next_Step__c": "Awaiting signed contract",
-     "Description": "Contract discussed on call {{call_date}}. Recording: {{call_recording_url}}"
-   }
-   ```
-
----
-
-### Common Use Cases
-
-#### Use Case 1: Inbound Lead Capture
-
-**Scenario**: Customer calls your support number expressing interest in your product.
-
-**Workflow**:
-1. Agent identifies purchase intent during call
-2. Agent asks qualifying questions (captured in transcript)
-3. On call completion → Create Lead in Salesforce
-4. Assign to sales team based on territory
-5. Create follow-up task for sales rep
-
-#### Use Case 2: Customer Support Ticket Creation
-
-**Scenario**: Customer calls with a technical issue.
-
-**Workflow**:
-1. Agent gathers issue details
-2. On call completion → Create Case in Salesforce
-3. Link Case to Contact (via phone number lookup)
-4. Set Case Priority based on issue severity
-5. Attach call recording and transcript to Case
-
-#### Use Case 3: Appointment Scheduling
-
-**Scenario**: Prospect wants to schedule a demo.
-
-**Workflow**:
-1. Agent checks calendar availability (via function)
-2. Books demo appointment
-3. Create Salesforce Event linked to Lead/Contact
-4. Send calendar invitation
-5. Create reminder task 24 hours before demo
-
----
-
-### Troubleshooting
-
-#### Error: "OAuth token expired"
-
-**Cause**: Salesforce access token expired (typically after 2 hours)
-
-**Solution**:
-1. Voicecon automatically refreshes tokens
-2. If issue persists, click **Reconnect** in Integrations page
-3. Re-authorize the connection
-
-#### Error: "Insufficient privileges"
-
-**Cause**: Connected user doesn't have permission to create/edit records
-
-**Solution**:
-1. In Salesforce, verify user has:
-   - Create/Edit permissions on Leads, Contacts, etc.
-   - API Enabled permission
-   - Connected App access
-2. Check Profile permissions
-3. Verify Permission Sets
-
-#### Error: "Required field missing: Company"
-
-**Cause**: Lead creation requires Company field
-
-**Solution**:
-1. Update field mapping to ensure Company is populated
-2. Options:
-   - Extract from conversation
-   - Use default value: "Unknown"
-   - Make field optional in Salesforce validation rules
-
-#### Leads Not Syncing
-
-**Troubleshooting Steps**:
-1. Check workflow execution logs: **Workflows → [Workflow Name] → Execution History**
-2. Verify integration status: **Integrations → Salesforce** (should show green checkmark)
-3. Test connection: Click **Test Connection**
-4. Review field mappings: Ensure all required fields are mapped
-5. Check Salesforce validation rules: May be blocking creation
-
----
-
-### Advanced Configuration
-
-#### Custom Object Support
-
-To create records on custom objects:
-
-1. **Identify Object API Name**: In Salesforce Setup → Object Manager
-   - Example: `Custom_Lead_Type__c`
-
-2. **Create Custom Workflow Action**:
-   - Integration: Salesforce
-   - Action: Create Record
-   - Object: Enter API name (`Custom_Lead_Type__c`)
-   - Field Mapping: Map as needed
-
-3. **Test with sample data**
-
-#### Relationship Mapping
-
-Link related records:
-
-**Example: Link Contact to Account**
-```json
-{
-  "FirstName": "{{caller_first_name}}",
-  "LastName": "{{caller_last_name}}",
-  "AccountId": "{{salesforce_account_id}}",
-  "Email": "{{caller_email}}"
-}
-```
-
-Use lookup functions to find AccountId:
-1. Add function: **Salesforce Lookup Account**
-2. Search by: Company Name
-3. Return: Account ID
-
-#### Bulk Operations
-
-For high-volume operations:
-
-1. Enable **Bulk API** in integration settings
-2. Set batch size (default: 200 records)
-3. Configure retry logic
-4. Monitor bulk job status in Salesforce Setup → Bulk Data Load Jobs
+15. [Webhook Integration](#webhook-integration)
+16. [REST API Integration](#rest-api-integration)
 
 ---
 
@@ -1282,13 +925,13 @@ Test before production:
 ### Template: Lead Capture and Nurture
 
 **Integrations Used**:
-- Salesforce (CRM)
+- HubSpot (CRM)
 - SendGrid (Email)
 - Slack (Notifications)
 
 **Workflow**:
 1. Call completed with purchase intent
-2. Create Lead in Salesforce
+2. Create Contact in HubSpot
 3. Send welcome email via SendGrid
 4. Notify sales team in Slack
 5. Schedule follow-up task

@@ -180,7 +180,7 @@
 ### Integration Builder 🔲
 - [ ] Integration models (backend ready)
 - [ ] Zapier-like connector UI
-- [ ] CRM integrations (Salesforce, HubSpot)
+- [ ] CRM integrations (HubSpot)
 - [ ] Calendar integrations
 - [ ] Webhook builder UI
 - [ ] Integration testing

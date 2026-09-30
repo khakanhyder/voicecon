@@ -15,7 +15,7 @@ I've successfully implemented a complete integration connector system with OAuth
 **File:** `app/models/integration.py`
 
 **Models:**
-- ✅ **IntegrationConnector** - Available third-party services (Salesforce, HubSpot, etc.)
+- ✅ **IntegrationConnector** - Available third-party services (HubSpot, etc.)
 - ✅ **IntegrationConnection** - User's active connections
 - ✅ **Workflow** - Workflow automation
 - ✅ **WorkflowExecution** - Execution history
@@ -149,7 +149,7 @@ Exports all services for easy imports.
 
 ## 🚀 Usage Examples
 
-### Example 1: OAuth2 Flow (Salesforce)
+### Example 1: OAuth2 Flow (HubSpot)
 
 **Step 1: Initiate OAuth Flow**
 ```python
@@ -165,12 +165,12 @@ oauth_result = await manager.initiate_oauth_flow(
     connector=connector,
     user_id=user_id,
     redirect_uri="https://app.example.com/integrations/callback",
-    scopes=["api", "refresh_token"],
+    scopes=["crm.objects.contacts.read", "crm.objects.contacts.write"],
 )
 
 # Returns:
 {
-    "authorization_url": "https://login.salesforce.com/services/oauth2/authorize?...",
+    "authorization_url": "https://app.hubspot.com/oauth/authorize?...",
     "state": "abc123..."
 }
 
@@ -189,7 +189,7 @@ connection = await manager.complete_oauth_flow(
     user_id=user_id,
     organization_id=organization_id,
     db=db,
-    connection_name="My Salesforce",
+    connection_name="My HubSpot",
 )
 
 # Connection created with encrypted tokens!
@@ -265,7 +265,7 @@ success = await manager.refresh_token(
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. User clicks "Connect to Salesforce"                     │
+│ 1. User clicks "Connect to HubSpot"                        │
 └────────────────┬────────────────────────────────────────────┘
                  │
 ┌────────────────▼────────────────────────────────────────────┐
@@ -276,9 +276,9 @@ success = await manager.refresh_token(
 └────────────────┬────────────────────────────────────────────┘
                  │
 ┌────────────────▼────────────────────────────────────────────┐
-│ 3. User redirected to Salesforce                           │
+│ 3. User redirected to HubSpot                              │
 │    - User logs in and authorizes                           │
-│    - Salesforce redirects back with code                   │
+│    - HubSpot redirects back with code                      │
 └────────────────┬────────────────────────────────────────────┘
                  │
 ┌────────────────▼────────────────────────────────────────────┐
@@ -312,7 +312,7 @@ success = await manager.refresh_token(
 ## 🎯 Supported Authentication Types
 
 ### 1. OAuth2 (Authorization Code Flow)
-**Use For:** Salesforce, Google, Microsoft, HubSpot, Slack, etc.
+**Use For:** Google, Microsoft, HubSpot, Slack, etc.
 
 **Required Connector Config:**
 ```json
@@ -360,22 +360,22 @@ success = await manager.refresh_token(
 
 ## 📋 Integration Connector Examples
 
-### Salesforce
+### HubSpot
 ```python
 connector = IntegrationConnector(
-    name="Salesforce",
-    slug="salesforce",
+    name="HubSpot",
+    slug="hubspot",
     category="crm",
     description="Customer Relationship Management platform",
     auth_type="oauth2",
-    base_url="https://login.salesforce.com",
+    base_url="https://api.hubapi.com",
     auth_config={
-        "authorize_url": "https://login.salesforce.com/services/oauth2/authorize",
-        "token_url": "https://login.salesforce.com/services/oauth2/token",
+        "authorize_url": "https://app.hubspot.com/oauth/authorize",
+        "token_url": "https://api.hubapi.com/oauth/v1/token",
         "client_id": "your-client-id",
         "client_secret": "your-client-secret",
-        "scopes": ["api", "refresh_token", "offline_access"],
-        "test_endpoint": "/services/data/v57.0/"
+        "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write"],
+        "test_endpoint": "/crm/v3/objects/contacts?limit=1"
     },
     supports_webhooks=True,
     supports_actions=True,

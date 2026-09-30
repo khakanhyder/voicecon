@@ -380,7 +380,7 @@ Storage, Analytics, Payment. Sub-pages: `[slug]`, `connected`, `oauth/callback`.
 
 **Purpose.** Let agents read and write the systems a business already runs on.
 
-**How it works.** HubSpot, Salesforce, Google Calendar, Slack, and SendGrid make **real HTTP
+**How it works.** HubSpot, Google Calendar, Slack, and SendGrid make **real HTTP
 calls**. The connector code is genuine. What's missing is credentials, not logic. Cards are
 marked `OAuth 2.0` or `API Key` accordingly.
 

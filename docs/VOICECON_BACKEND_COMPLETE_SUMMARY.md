@@ -29,8 +29,7 @@ Voicecon Backend
 │   ├── Function Calling
 │   └── Agent Management
 │
-├── Integration Connectors (6)
-│   ├── Salesforce
+├── Integration Connectors (5)
 │   ├── HubSpot
 │   ├── Google Calendar
 │   ├── Slack
@@ -104,14 +103,7 @@ Voicecon Backend
 
 ### 4. Integration Connectors ✅
 
-**Implemented Connectors (6):**
-
-#### Salesforce Connector
-- Lead management
-- Contact management
-- Opportunity management
-- Custom objects
-- SOQL queries
+**Implemented Connectors (5):**
 
 #### HubSpot Connector
 - Contact management
@@ -237,7 +229,6 @@ Voicecon Backend
    - Background scheduler loop
 
 4. **Integration Event Triggers**
-   - Salesforce events
    - HubSpot events
    - Stripe events
    - Custom filtering
@@ -361,7 +352,6 @@ Voicecon Backend
 - **Twilio**: Telephony
 - **OpenAI**: LLM and TTS
 - **Deepgram**: STT
-- **Salesforce**: CRM
 - **HubSpot**: CRM
 - **Google Calendar**: Scheduling
 - **Slack**: Messaging
@@ -387,8 +377,8 @@ Voicecon Backend
 | Trigger Handlers | 1 | 650 | Event trigger system |
 | Scheduler | 1 | 400 | Scheduled execution |
 | API Endpoints | 1 | 990 | Workflow API |
-| Connectors | 6 | 3,300 | Integration connectors |
-| **Total** | **12** | **~7,000** | **Backend code** |
+| Connectors | 5 | 2,750 | Integration connectors |
+| **Total** | **11** | **~6,450** | **Backend code** |
 
 ### Documentation
 
@@ -400,7 +390,7 @@ Voicecon Backend
 | Quick Refs | 2 | 550 | Quick reference cards |
 | **Total** | **11** | **~5,750** | **Documentation** |
 
-**Grand Total: ~13,000 lines of code + documentation**
+**Grand Total: ~12,450 lines of code + documentation**
 
 ---
 
@@ -420,7 +410,7 @@ Voicecon Backend
       "id": "get_contact",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
+        "connection_id": "{{connections.hubspot}}",
         "action": "get_contact",
         "parameters": {
           "phone": "{{trigger.phone_number}}"
@@ -431,7 +421,7 @@ Voicecon Backend
       "id": "update_contact",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
+        "connection_id": "{{connections.hubspot}}",
         "action": "update_contact",
         "parameters": {
           "contact_id": "{{steps.get_contact.result.id}}",
@@ -499,8 +489,8 @@ Voicecon Backend
   "name": "New Lead Follow-up",
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created"
+    "integration_type": "hubspot",
+    "event_type": "contact.created"
   },
   "workflow_steps": [
     {
@@ -509,24 +499,11 @@ Voicecon Backend
       "config": {
         "mapping_config": {
           "fields": {
-            "email": "trigger.payload.Email",
+            "email": "trigger.payload.email",
             "name": {
-              "template": "{{trigger.payload.FirstName}} {{trigger.payload.LastName}}"
+              "template": "{{trigger.payload.firstname}} {{trigger.payload.lastname}}"
             }
           }
-        }
-      }
-    },
-    {
-      "id": "create_hubspot",
-      "type": "action",
-      "config": {
-        "connection_id": "{{connections.hubspot}}",
-        "action": "create_contact",
-        "parameters": {
-          "email": "{{steps.enrich_lead.result.email}}",
-          "firstname": "{{trigger.payload.FirstName}}",
-          "lastname": "{{trigger.payload.LastName}}"
         }
       }
     },
@@ -751,7 +728,7 @@ The Voicecon backend is a comprehensive, production-ready platform that provides
 
 ✅ **Complete Voice AI Pipeline** with STT, LLM, and TTS
 ✅ **Telephony Integration** via Twilio
-✅ **6 Integration Connectors** with 100+ methods
+✅ **5 Integration Connectors** with 100+ methods
 ✅ **Powerful Workflow Automation** with 5 step types
 ✅ **Advanced Data Mapping** with 30+ transformations
 ✅ **Flexible Trigger System** with 5 trigger types

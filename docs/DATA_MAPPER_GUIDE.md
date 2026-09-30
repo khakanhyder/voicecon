@@ -695,7 +695,7 @@ Validate using regex patterns:
   "id": "create_contact",
   "type": "action",
   "config": {
-    "connection_id": "{{connections.salesforce}}",
+    "connection_id": "{{connections.hubspot}}",
     "action": "create_contact",
     "parameters": {
       "email": "{{steps.map_contact_data.result.Email}}",
@@ -897,12 +897,12 @@ Map multiple items in a loop:
 # Add comments in workflow definitions
 {
     "id": "complex_transform",
-    "description": "Maps HubSpot contact format to Salesforce Lead format",
+    "description": "Maps HubSpot contact format to a standard contact format",
     "type": "transform",
     "config": {
         "mapping_config": {
             "fields": {
-                # HubSpot uses 'email', Salesforce uses 'Email'
+                # HubSpot uses 'email', the standard format uses 'Email'
                 "Email": "email",
                 # Combine first and last name for full name
                 "Name": {

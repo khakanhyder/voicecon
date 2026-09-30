@@ -12,7 +12,7 @@ from app.database import Base
 
 
 class IntegrationConnector(Base):
-    """Available integration connectors (e.g., Salesforce, HubSpot)."""
+    """Available integration connectors (e.g., HubSpot, Slack)."""
 
     __tablename__ = "integration_connectors"
 

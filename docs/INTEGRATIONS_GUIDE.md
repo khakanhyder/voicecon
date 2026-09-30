@@ -16,17 +16,17 @@ important thing to understand, because the dashboard collapses them into one "Co
 button.
 
 ```
-Layer 1  CATALOG        29 cards on the Integrations page       ← what you see
+Layer 1  CATALOG        28 cards on the Integrations page       ← what you see
 Layer 2  CONNECTION     storing your credential for a service   ← "Connect" / OAuth
 Layer 3  ACTION CODE    the Python that calls the service API   ← used by workflows
 ```
 
-- **Layer 1 (catalog)** is a *hardcoded list in the frontend* — 29 cards with icons and
+- **Layer 1 (catalog)** is a *hardcoded list in the frontend* — 28 cards with icons and
   descriptions ([integrations/page.tsx:33](../frontend/src/app/dashboard/integrations/page.tsx#L33)).
-  The cards render whether or not the backend works. Seeing 29 cards proves nothing.
+  The cards render whether or not the backend works. Seeing 28 cards proves nothing.
 - **Layer 2 (connection)** stores your OAuth token or API key against a connector.
 - **Layer 3 (action code)** is a real connector class (`create_contact`, `send_email`, …)
-  that only **6** of the 29 have.
+  that only **5** of the 28 have.
 
 A card on the page does not imply a connection can be made, and a connection does not imply
 any action code exists.
@@ -35,9 +35,9 @@ any action code exists.
 
 ## 2. The honest coverage map
 
-### Layer 3 — action code exists for 6 of 29
+### Layer 3 — action code exists for 5 of 28
 
-Real connector classes: **HubSpot, Salesforce, Slack, Stripe, SendGrid, Google Calendar**
+Real connector classes: **HubSpot, Slack, Stripe, SendGrid, Google Calendar**
 ([connectors/](../backend/app/services/integrations/connectors/)). HubSpot, for example, has
 `create_contact`, `update_deal`, `search_contacts`, and more — genuinely implemented.
 
@@ -62,10 +62,10 @@ The `IntegrationConnection` model has `auth_data_encrypted`, `access_token_encry
 `refresh_token_encrypted` — but the code writes and reads `api_key_encrypted`
 ([integration_manager.py:291](../backend/app/services/integrations/integration_manager.py#L291),
 [connector_base.py:129](../backend/app/services/integrations/connector_base.py#L129)). The
-column was never added. So the credential can't be stored, and the 6 real connectors can't
+column was never added. So the credential can't be stored, and the 5 real connectors can't
 retrieve it either.
 
-**OAuth connectors** (HubSpot, Salesforce, Slack, Google Calendar, Notion, …) fail because
+**OAuth connectors** (HubSpot, Slack, Google Calendar, Notion, …) fail because
 **no `client_id` is seeded** for any of them:
 
 ```
@@ -77,7 +77,7 @@ The client id is read from `connector.auth_config.client_id` in the DB
 and all 14 OAuth connectors have it empty. There is no UI or setting to enter one, so the
 OAuth flow can't even start.
 
-**Net:** the catalog is real, 6 connectors have real action code, but the connection layer
+**Net:** the catalog is real, 5 connectors have real action code, but the connection layer
 between them is non-functional. Nothing connects today without the fixes in §5.
 
 ### Bugs already fixed this session
@@ -146,7 +146,7 @@ configuration.
 
 1. **Add the `api_key_encrypted` column** to `IntegrationConnection` (model + migration).
    Four code sites already expect it. This unblocks every API-key connector at once —
-   Langfuse, Stripe, SendGrid, and the rest — and lets the 6 real connectors read their key.
+   Langfuse, Stripe, SendGrid, and the rest — and lets the 5 real connectors read their key.
    *This is the highest-value fix: it turns the whole API-key half of the catalog on.*
 2. **Seed OAuth `client_id` / `authorize_url` / `token_url` / `scopes`** into each OAuth
    connector's `auth_config`, and store the `client_secret` for the callback. This requires
@@ -167,7 +167,7 @@ workflow that creates a contact.
 
 | Symptom | Cause | Section |
 |---|---|---|
-| 29 cards show but nothing connects | Cards are a hardcoded frontend list | §1 |
+| 28 cards show but nothing connects | Cards are a hardcoded frontend list | §1 |
 | API-key "Connect" → 400 `api_key_encrypted` | Missing DB column | §2, §5.1 |
 | OAuth "Connect" → "Missing OAuth2 configuration" | No `client_id` seeded | §2, §5.2 |
 | Workflow action → `Unsupported connector` | One of the 23 with no code | §2 |

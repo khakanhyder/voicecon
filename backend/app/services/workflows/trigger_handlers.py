@@ -162,7 +162,7 @@ class TriggerValidator:
         if "event_type" not in config:
             raise TriggerError("event_type is required for integration events")
 
-        valid_integrations = ["salesforce", "hubspot", "stripe", "slack", "sendgrid", "google-calendar"]
+        valid_integrations = ["hubspot", "stripe", "slack", "sendgrid", "google-calendar"]
         if config["integration_type"] not in valid_integrations:
             raise TriggerError(f"Invalid integration_type: {config['integration_type']}")
 

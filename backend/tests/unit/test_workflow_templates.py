@@ -3,7 +3,7 @@ Tests that every shipped workflow template is actually installable and runnable.
 
 This file exists because the previous templates were not. They were written in
 an invented schema — ``{trigger, conditions, actions}`` with step types like
-``extract_data`` and ``salesforce_create_lead`` — that no handler implemented,
+``extract_data`` and ``send_notification`` — that no handler implemented,
 declared triggers (``intent.detected``) that are not trigger types, and named
 integrations the platform has no connector for. They listed cleanly in the
 marketplace and could not have produced a working workflow.
@@ -23,7 +23,6 @@ from app.services.workflows.trigger_handlers import TriggerValidator
 
 #: Apps the backend can actually route an integration event for.
 SUPPORTED_INTEGRATIONS = {
-    "salesforce",
     "hubspot",
     "stripe",
     "slack",

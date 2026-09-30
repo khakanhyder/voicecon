@@ -356,7 +356,7 @@ This session completed the **final major components** of the Voicecon backend, b
 ### Short-Term
 3. **Integration Features**
    - Zapier-like connector system
-   - CRM integrations (Salesforce, HubSpot)
+   - CRM integrations (HubSpot)
    - Calendar integrations (Google, Outlook)
    - Webhook builder
 

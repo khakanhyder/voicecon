@@ -462,118 +462,6 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
         },
     ],
 
-    "salesforce": [
-        {
-            "action": "create_contact",
-            "label": "Create Contact",
-            "description": "Create a new contact record in Salesforce",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "first_name": {"type": "string", "description": "Contact's first name"},
-                    "last_name": {"type": "string", "description": "Contact's last name"},
-                    "email": {"type": "string", "description": "Contact's email address"},
-                    "phone": {"type": "string", "description": "Contact's phone number"},
-                    "account_name": {"type": "string", "description": "Company/Account name"},
-                },
-                "required": ["last_name"],
-            },
-        },
-        {
-            "action": "create_lead",
-            "label": "Create Lead",
-            "description": "Create a new lead in Salesforce from caller information",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "first_name": {"type": "string", "description": "Lead's first name"},
-                    "last_name": {"type": "string", "description": "Lead's last name"},
-                    "email": {"type": "string", "description": "Lead's email address"},
-                    "phone": {"type": "string", "description": "Lead's phone number"},
-                    "company": {"type": "string", "description": "Company name"},
-                    "lead_source": {"type": "string", "description": "Lead source (e.g. Phone, Web)"},
-                },
-                "required": ["last_name", "company"],
-            },
-        },
-        {
-            "action": "search_contacts",
-            "label": "Search Contacts",
-            "description": "Search for contacts in Salesforce by name or email",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Name or email to search for"},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "action": "search_leads",
-            "label": "Search Leads",
-            "description": "Find leads by name, email, phone or company. Returns each lead's Id, which Update Lead needs.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Name, email, phone or company to search for"},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "action": "update_contact",
-            "label": "Update Contact",
-            "description": "Change an existing contact's details. Get the contact Id from Search Contacts first.",
-            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "contact_id": {"type": "string", "description": "Salesforce contact Id, from Search Contacts",
-                                   "title": "Contact", "x-runtime": True},
-                    "first_name": {"type": "string", "description": "New first name"},
-                    "last_name": {"type": "string", "description": "New last name"},
-                    "email": {"type": "string", "description": "New email address"},
-                    "phone": {"type": "string", "description": "New phone number"},
-                    "title": {"type": "string", "description": "New job title"},
-                },
-                "required": ["contact_id"],
-            },
-        },
-        {
-            "action": "update_lead",
-            "label": "Update Lead",
-            "description": "Change an existing lead's details or status. Get the lead Id from Search Leads first.",
-            "x-snapshot": {"method": "get_lead", "args": ["lead_id"]},
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "lead_id": {"type": "string", "description": "Salesforce lead Id, from Search Leads",
-                                "title": "Lead", "x-runtime": True},
-                    "first_name": {"type": "string", "description": "New first name"},
-                    "last_name": {"type": "string", "description": "New last name"},
-                    "email": {"type": "string", "description": "New email address"},
-                    "phone": {"type": "string", "description": "New phone number"},
-                    "company": {"type": "string", "description": "New company name"},
-                    "status": {"type": "string", "description": "New lead status, exactly as named in Salesforce (e.g. 'Working - Contacted')"},
-                },
-                "required": ["lead_id"],
-            },
-        },
-        {
-            "action": "delete_contact",
-            "label": "Delete Contact",
-            "description": "Delete a Salesforce contact (it goes to the Recycle Bin). Get the contact Id from Search Contacts first.",
-            "x-snapshot": {"method": "get_contact", "args": ["contact_id"]},
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "contact_id": {"type": "string", "description": "Salesforce contact Id, from Search Contacts",
-                                   "title": "Contact", "x-runtime": True},
-                },
-                "required": ["contact_id"],
-            },
-        },
-    ],
 
     "google-calendar": [
         {
@@ -2127,7 +2015,6 @@ INTEGRATION_ACTIONS.update(
 # Connector slug → Python class name mapping (mirrors step_handlers.py)
 CONNECTOR_CLASS_MAP: Dict[str, str] = {
     "hubspot": "HubSpotConnector",
-    "salesforce": "SalesforceConnector",
     "google_calendar": "GoogleCalendarConnector",
     "google-calendar": "GoogleCalendarConnector",
     "slack": "SlackConnector",
@@ -2264,27 +2151,6 @@ def _adapt_hubspot_create_deal(p: Dict[str, Any]) -> Dict[str, Any]:
     return p
 
 
-def _adapt_salesforce_create_contact(p: Dict[str, Any]) -> Dict[str, Any]:
-    # Account is a lookup relationship, so it cannot be set by name in the
-    # same call. Passed through as a custom field, which is where a Salesforce
-    # admin would map it, rather than silently dropped.
-    account = p.pop("account_name", None)
-    if account:
-        extra = dict(p.get("additional_fields") or {})
-        extra.setdefault("AccountName__c", account)
-        p["additional_fields"] = extra
-    return p
-
-
-def _adapt_salesforce_create_lead(p: Dict[str, Any]) -> Dict[str, Any]:
-    source = p.pop("lead_source", None)
-    if source:
-        extra = dict(p.get("additional_fields") or {})
-        extra.setdefault("LeadSource", source)
-        p["additional_fields"] = extra
-    return p
-
-
 def _adapt_slack_send_message(p: Dict[str, Any]) -> Dict[str, Any]:
     if "message" in p:
         p.setdefault("text", p.pop("message"))
@@ -2310,26 +2176,6 @@ def _adapt_hubspot_update_deal(p: Dict[str, Any]) -> Dict[str, Any]:
             p.pop(schema_name, None)
     p["properties"] = properties
     return p
-
-
-def _salesforce_fields(p: Dict[str, Any], mapping) -> Dict[str, Any]:
-    fields = {}
-    for schema_name, sf_field in mapping:
-        value = p.pop(schema_name, None)
-        if value not in (None, ""):
-            fields[sf_field] = value
-    p["fields"] = fields
-    return p
-
-
-def _adapt_salesforce_update_contact(p: Dict[str, Any]) -> Dict[str, Any]:
-    return _salesforce_fields(p, (("first_name", "FirstName"), ("last_name", "LastName"), ("email", "Email"),
-                                  ("phone", "Phone"), ("title", "Title")))
-
-
-def _adapt_salesforce_update_lead(p: Dict[str, Any]) -> Dict[str, Any]:
-    return _salesforce_fields(p, (("first_name", "FirstName"), ("last_name", "LastName"), ("email", "Email"),
-                                  ("phone", "Phone"), ("company", "Company"), ("status", "Status")))
 
 
 def _adapt_ghl_create_opportunity(p: Dict[str, Any]) -> Dict[str, Any]:
@@ -2383,11 +2229,7 @@ ACTION_ADAPTERS: Dict[Tuple[str, str], Callable[[Dict[str, Any]], Dict[str, Any]
     ("sendgrid", "send_email"): _adapt_sendgrid_send_email,
     ("hubspot", "update_contact"): _adapt_hubspot_update_contact,
     ("hubspot", "create_deal"): _adapt_hubspot_create_deal,
-    ("salesforce", "create_contact"): _adapt_salesforce_create_contact,
-    ("salesforce", "create_lead"): _adapt_salesforce_create_lead,
     ("hubspot", "update_deal"): _adapt_hubspot_update_deal,
-    ("salesforce", "update_contact"): _adapt_salesforce_update_contact,
-    ("salesforce", "update_lead"): _adapt_salesforce_update_lead,
     ("gohighlevel", "create_opportunity"): _adapt_ghl_create_opportunity,
     ("slack", "update_message"): _adapt_slack_update_message,
     ("sendgrid", "add_contact"): _adapt_sendgrid_add_contact,

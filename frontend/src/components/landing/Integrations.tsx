@@ -14,9 +14,9 @@ import {
 import { Accent, GlassCard, IconWell, ROUTES, Section, SectionHeading } from './primitives'
 import { Reveal } from './Reveal'
 
-/** The 35 connectors in the integrations catalog, grouped for scanning. */
+/** The 34 connectors in the integrations catalog, grouped for scanning. */
 const CATEGORIES = [
-  { name: 'CRM & sales', apps: ['HubSpot', 'Salesforce', 'Pipedrive', 'GoHighLevel'] },
+  { name: 'CRM & sales', apps: ['HubSpot', 'Pipedrive', 'GoHighLevel'] },
   { name: 'Scheduling', apps: ['Google Calendar', 'Calendly', 'Cal.com'] },
   {
     name: 'Messaging & telephony',
@@ -34,7 +34,6 @@ const CATEGORIES = [
 
 const LOGO: Record<string, string> = {
   HubSpot: 'hubspot.png',
-  Salesforce: 'salesforce.svg',
   Pipedrive: 'pipedrive.png',
   GoHighLevel: 'gohightlevel.png',
   'Google Calendar': 'calender.png',
@@ -77,10 +76,10 @@ export function Integrations() {
         eyebrow="Integrations"
         title={
           <>
-            <Accent>35 connectors</Accent> ready for your agents and workflows
+            <Accent>34 connectors</Accent> ready for your agents and workflows
           </>
         }
-        description="Connect an app once and use it everywhere: as a tool during calls or as a step in a workflow. Popular apps like HubSpot, Salesforce, Google, Slack and Notion connect in one click with OAuth."
+        description="Connect an app once and use it everywhere: as a tool during calls or as a step in a workflow. Popular apps like HubSpot, Google, Slack and Notion connect in one click with OAuth."
       />
 
       <div className="mt-14 columns-1 gap-5 sm:columns-2 lg:columns-4">
@@ -174,7 +173,7 @@ const USE_CASES = [
     title: 'Lead qualification',
     who: 'Sales teams, agencies, real estate',
     during: ['Answers inbound calls from new leads', 'Asks your qualifying questions', 'Captures name, need and budget'],
-    after: 'Creates the contact in HubSpot, Salesforce or GoHighLevel.',
+    after: 'Creates the contact in HubSpot, Pipedrive or GoHighLevel.',
   },
   {
     icon: CalendarCheck,

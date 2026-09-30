@@ -32,7 +32,6 @@ The Voicecon integration system provides a robust framework for connecting to th
 
 ### Supported Connectors
 
-- **Salesforce**: CRM integration (contacts, leads, opportunities)
 - **SendGrid**: Email sending and contact management
 - More connectors coming soon...
 
@@ -68,7 +67,7 @@ The Voicecon integration system provides a robust framework for connecting to th
 │  ┌──────────────────────────────────────────────┐          │
 │  │          Concrete Connectors                 │          │
 │  │  ┌──────────────┐  ┌──────────────┐         │          │
-│  │  │  Salesforce  │  │   SendGrid   │  ...    │          │
+│  │  │   HubSpot    │  │   SendGrid   │  ...    │          │
 │  │  └──────────────┘  └──────────────┘         │          │
 │  └──────────────────────────────────────────────┘          │
 │                                                             │
@@ -78,7 +77,7 @@ The Voicecon integration system provides a robust framework for connecting to th
 ### Data Models
 
 #### IntegrationConnector
-Defines available integration types (Salesforce, SendGrid, etc.)
+Defines available integration types (SendGrid, etc.)
 - Base URL, API version
 - Authentication configuration
 - Rate limits
@@ -101,7 +100,7 @@ Audit trail of all API requests
 
 ## Using Existing Connectors
 
-### 1. OAuth2 Flow (e.g., Salesforce)
+### 1. OAuth2 Flow (e.g., HubSpot)
 
 #### Step 1: Initiate OAuth Flow
 
@@ -110,16 +109,16 @@ POST /api/v1/integrations/oauth/authorize
 Content-Type: application/json
 
 {
-  "connector_id": "salesforce-connector-uuid",
+  "connector_id": "hubspot-connector-uuid",
   "redirect_uri": "https://your-app.com/oauth/callback",
-  "scopes": ["api", "refresh_token"]
+  "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write"]
 }
 ```
 
 Response:
 ```json
 {
-  "authorization_url": "https://login.salesforce.com/services/oauth2/authorize?...",
+  "authorization_url": "https://app.hubspot.com/oauth/authorize?...",
   "state": "random-state-token"
 }
 ```
@@ -135,7 +134,7 @@ POST /api/v1/integrations/oauth/callback?redirect_uri=https://your-app.com/oauth
 Content-Type: application/json
 
 {
-  "connector_id": "salesforce-connector-uuid",
+  "connector_id": "hubspot-connector-uuid",
   "code": "authorization-code-from-callback",
   "state": "random-state-token"
 }
@@ -145,12 +144,12 @@ Response:
 ```json
 {
   "id": "connection-uuid",
-  "connector_id": "salesforce-connector-uuid",
-  "name": "Salesforce Connection",
+  "connector_id": "hubspot-connector-uuid",
+  "name": "HubSpot Connection",
   "status": "active",
   "connector": {
-    "name": "Salesforce",
-    "slug": "salesforce"
+    "name": "HubSpot",
+    "slug": "hubspot"
   }
 }
 ```
@@ -193,12 +192,12 @@ Response:
   "connections": [
     {
       "id": "connection-uuid",
-      "connector_id": "salesforce-connector-uuid",
-      "name": "Salesforce Connection",
+      "connector_id": "hubspot-connector-uuid",
+      "name": "HubSpot Connection",
       "status": "active",
       "connector": {
-        "name": "Salesforce",
-        "slug": "salesforce"
+        "name": "HubSpot",
+        "slug": "hubspot"
       },
       "last_sync_at": "2025-01-15T10:30:00Z",
       "error_count": 0
@@ -520,72 +519,6 @@ Disconnect integration.
 
 ## Example Implementations
 
-### Salesforce Connector Examples
-
-#### Create Contact
-
-```python
-from app.services.integrations.connectors import SalesforceConnector
-
-# Initialize connector (see "Use Your Connector" section)
-salesforce = SalesforceConnector(connection, connector, db)
-
-try:
-    # Create contact
-    result = await salesforce.create_contact(
-        first_name="John",
-        last_name="Doe",
-        email="john.doe@example.com",
-        phone="+1234567890",
-        additional_fields={
-            "Title": "Software Engineer",
-            "Company": "Acme Inc",
-        }
-    )
-
-    print(f"Contact created: {result['id']}")
-
-finally:
-    await salesforce.close()
-```
-
-#### Search Contacts
-
-```python
-# Search by email
-contacts = await salesforce.search_contacts(
-    email="john.doe@example.com"
-)
-
-for contact in contacts:
-    print(f"{contact['FirstName']} {contact['LastName']}: {contact['Email']}")
-```
-
-#### Create Lead
-
-```python
-result = await salesforce.create_lead(
-    first_name="Jane",
-    last_name="Smith",
-    company="Tech Corp",
-    email="jane@techcorp.com",
-    phone="+1987654321",
-    status="Open - Not Contacted",
-)
-```
-
-#### SOQL Query
-
-```python
-result = await salesforce.query(
-    "SELECT Id, Name, Email FROM Contact WHERE Email LIKE '%@example.com%' LIMIT 10"
-)
-
-print(f"Found {result['total_size']} contacts")
-for record in result['records']:
-    print(f"{record['Name']}: {record['Email']}")
-```
-
 ### SendGrid Connector Examples
 
 #### Send Email
@@ -702,7 +635,7 @@ if not test_result["success"]:
     raise Exception(f"Connection test failed: {test_result['message']}")
 
 # Proceed with operations
-connector = SalesforceConnector(connection, connector, db)
+connector = HubSpotConnector(connection, connector, db)
 ```
 
 ### 4. Token Refresh
@@ -832,7 +765,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 # Connector will log all requests
-connector = SalesforceConnector(connection, connector, db)
+connector = HubSpotConnector(connection, connector, db)
 ```
 
 ### Support

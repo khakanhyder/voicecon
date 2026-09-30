@@ -564,7 +564,6 @@ function CallFilterFields({
 
 /** Event names commonly posted per app, offered as hints rather than a fixed list. */
 const EVENT_SUGGESTIONS: Record<string, string[]> = {
-  salesforce: ['lead.created', 'opportunity.updated', 'contact.created'],
   hubspot: ['contact.creation', 'deal.propertyChange', 'company.creation'],
   stripe: ['payment_intent.succeeded', 'invoice.paid', 'customer.subscription.deleted'],
   slack: ['message.channels', 'app_mention', 'reaction_added'],

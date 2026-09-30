@@ -36,7 +36,7 @@ A **second, unrelated** graph editor exists at `frontend/src/components/agents/F
 3. **No parallelism, no fan-out, no join.** `workflow_engine.py:252-358` is strictly one step at a time.
 4. **`on_true`/`on_false` are typed `List[str]`** (`schemas/workflow.py:79-80`) but consumed as a scalar and used as a dict key (`step_handlers.py:367` → `workflow_engine.py:253`). The schema-valid shape `on_true: ["s2"]` raises `TypeError: unhashable type: 'list'`.
 5. **`LoopStepConfig.steps: List[str]`** (`schemas/workflow.py:86`) contradicts the handler, which expects inline step *objects* (`step_handlers.py:546`). Schema-conformant loops fail.
-6. **Templates are unexecutable.** All 10 templates in `workflow_templates.py` use a different vocabulary (`contains_intent`, `salesforce_create_lead`, `notify`, `wait`, …) with no entry in `StepHandlerFactory` and no converter. Installing a template cannot produce a runnable workflow.
+6. **Templates are unexecutable.** All 10 templates in `workflow_templates.py` use a different vocabulary (`contains_intent`, `notify`, `wait`, …) with no entry in `StepHandlerFactory` and no converter. Installing a template cannot produce a runnable workflow.
 
 ### 1.3 Limitations — reliability
 

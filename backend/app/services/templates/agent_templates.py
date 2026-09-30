@@ -212,7 +212,7 @@ Remember: Be consultative, not pushy. Focus on understanding their needs.""",
 # Sales Qualification Agent Setup Guide
 
 ## Prerequisites
-- CRM system (Salesforce, HubSpot, or similar)
+- CRM system (HubSpot, Pipedrive, or similar)
 - Calendar integration for booking meetings
 - Define your ideal customer profile (ICP)
 
@@ -224,7 +224,7 @@ Remember: Be consultative, not pushy. Focus on understanding their needs.""",
    - Configure qualification criteria
 
 2. **Connect CRM**
-   - Integrate with Salesforce or HubSpot
+   - Integrate with HubSpot or Pipedrive
    - Set up automatic lead creation workflow
    - Configure lead scoring rules
 
@@ -263,7 +263,7 @@ Remember: Be consultative, not pushy. Focus on understanding their needs.""",
                 "description": "Book qualified prospects directly into sales calendars"
             }
         ],
-        "required_integrations": ["salesforce", "hubspot", "calendar"],
+        "required_integrations": ["hubspot", "calendar"],
         "status": "published",
         "published_at": datetime.utcnow(),
     },
@@ -611,7 +611,7 @@ Remember: Build rapport before asking for information. Make it feel like a conve
 # Lead Capture Agent Setup Guide
 
 ## Prerequisites
-- CRM system (HubSpot, Salesforce, etc.)
+- CRM system (HubSpot, Pipedrive, etc.)
 - Lead routing rules defined
 - Follow-up workflows configured
 
@@ -662,7 +662,7 @@ Remember: Build rapport before asking for information. Make it feel like a conve
                 "description": "Capture attendee information from events and webinars"
             }
         ],
-        "required_integrations": ["hubspot", "salesforce"],
+        "required_integrations": ["hubspot"],
         "status": "published",
         "published_at": datetime.utcnow(),
     },

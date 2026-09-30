@@ -103,7 +103,7 @@ export default function ConceptsPage() {
       />
       <P>
         You may hold several connections to the same connector — two Slack workspaces, a
-        sandbox and a production Salesforce. Each is selected independently.
+        test and a production HubSpot account. Each is selected independently.
       </P>
 
       <H2 id="knowledge-base">Knowledge base</H2>

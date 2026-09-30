@@ -568,7 +568,7 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'data', title: 'Data, payments, and observability' },
         ],
         keywords: [
-          'hubspot', 'salesforce', 'pipedrive', 'zendesk', 'intercom',
+          'hubspot', 'pipedrive', 'zendesk', 'intercom',
           'gohighlevel', 'notion', 'clickup', 'trello', 'monday', 'airtable',
           'zapier', 'make', 'integromat', 'slack', 'microsoft teams', 'teams',
           'sendgrid', 'gmail', 'outlook', 'smtp', 'email', 'whatsapp', 'stripe',

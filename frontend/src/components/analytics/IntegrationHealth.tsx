@@ -39,18 +39,6 @@ export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange:
   // Sample integration data
   const integrations: Integration[] = [
     {
-      id: '1',
-      name: 'Salesforce',
-      icon: '🔷',
-      status: 'healthy',
-      healthScore: 98.5,
-      executions: 342,
-      successRate: 99.1,
-      avgResponseTime: 245,
-      errors: 3,
-      uptime: 99.8,
-    },
-    {
       id: '2',
       name: 'HubSpot',
       icon: '🟠',
@@ -102,13 +90,13 @@ export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange:
 
   // Health trend over time
   const healthTrend = [
-    { date: '2024-01-10', salesforce: 97.5, hubspot: 95.8, slack: 88.2 },
-    { date: '2024-01-11', salesforce: 98.2, hubspot: 96.1, slack: 86.5 },
-    { date: '2024-01-12', salesforce: 98.8, hubspot: 95.9, slack: 87.8 },
-    { date: '2024-01-13', salesforce: 98.3, hubspot: 96.5, slack: 85.9 },
-    { date: '2024-01-14', salesforce: 99.1, hubspot: 96.8, slack: 84.7 },
-    { date: '2024-01-15', salesforce: 98.6, hubspot: 96.3, slack: 85.5 },
-    { date: '2024-01-16', salesforce: 98.5, hubspot: 96.2, slack: 85.3 },
+    { date: '2024-01-10', hubspot: 95.8, slack: 88.2 },
+    { date: '2024-01-11', hubspot: 96.1, slack: 86.5 },
+    { date: '2024-01-12', hubspot: 95.9, slack: 87.8 },
+    { date: '2024-01-13', hubspot: 96.5, slack: 85.9 },
+    { date: '2024-01-14', hubspot: 96.8, slack: 84.7 },
+    { date: '2024-01-15', hubspot: 96.3, slack: 85.5 },
+    { date: '2024-01-16', hubspot: 96.2, slack: 85.3 },
   ];
 
   // Response time comparison
@@ -254,14 +242,6 @@ export const IntegrationHealth: React.FC<IntegrationHealthProps> = ({ dateRange:
               style={{ fontSize: '12px' }}
             />
             <Tooltip labelFormatter={formatDate} />
-            <Line
-              type="monotone"
-              dataKey="salesforce"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              name="Salesforce"
-              dot={{ fill: '#3b82f6', r: 3 }}
-            />
             <Line
               type="monotone"
               dataKey="hubspot"

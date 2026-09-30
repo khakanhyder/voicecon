@@ -52,7 +52,6 @@ export default function CatalogPage() {
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
           [<Strong>HubSpot</Strong>, OAUTH, <Actions items={['create_contact', 'search_contacts', 'update_contact', 'create_deal']} />],
-          [<Strong>Salesforce</Strong>, OAUTH, <Actions items={['create_contact', 'create_lead', 'search_contacts']} />],
           [<Strong>Pipedrive</Strong>, KEY, <Actions items={['create_person', 'search_persons', 'create_deal', 'add_note']} />],
           [<Strong>Zendesk</Strong>, KEY, <Actions items={['create_ticket', 'add_comment', 'search_tickets']} />],
           [<Strong>Intercom</Strong>, KEY, <Actions items={['create_contact', 'search_contacts', 'add_note', 'create_conversation']} />],
@@ -61,8 +60,8 @@ export default function CatalogPage() {
       />
       <P>
         The most common voice pattern: identify the caller with a search action at the start
-        of the call, then write the outcome back when it ends. HubSpot, Salesforce, Pipedrive
-        and Intercom all support that pair. Zendesk is the one to reach for when the outcome is
+        of the call, then write the outcome back when it ends. HubSpot, Pipedrive and Intercom
+        all support that pair. Zendesk is the one to reach for when the outcome is
         a support ticket rather than a contact record — <C>create_ticket</C> during the call,{' '}
         <C>add_comment</C> from a{' '}
         <A href="/docs/workflows/triggers#call-completed">call completed</A> workflow carrying

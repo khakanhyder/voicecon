@@ -21,7 +21,7 @@ Complete guide for using and managing templates in the Voicecon marketplace.
 
 ## Overview
 
-The Voicecon Template Marketplace provides 15 pre-built templates (5 agents + 10 workflows) that you can install and customize for your business needs.
+The Voicecon Template Marketplace provides 14 pre-built templates (5 agents + 9 workflows) that you can install and customize for your business needs.
 
 ### Benefits
 
@@ -130,23 +130,9 @@ The Voicecon Template Marketplace provides 15 pre-built templates (5 agents + 10
 
 ---
 
-### Workflow Templates (10)
+### Workflow Templates (9)
 
-#### 1. Salesforce Lead Creation ☁️
-Automatically create Salesforce leads from phone calls.
-
-**Features**:
-- Auto-create leads
-- Field mapping
-- Duplicate detection
-- Lead routing
-
-**Required Integration**: Salesforce
-**Compatible Agents**: Sales Qualification, Lead Capture
-
----
-
-#### 2. HubSpot Deal Update 🔄
+#### 1. HubSpot Deal Update 🔄
 Update HubSpot deals based on call outcomes.
 
 **Features**:
@@ -160,7 +146,7 @@ Update HubSpot deals based on call outcomes.
 
 ---
 
-#### 3. Google Calendar Booking 📅
+#### 2. Google Calendar Booking 📅
 Create calendar events from appointment bookings.
 
 **Features**:
@@ -174,7 +160,7 @@ Create calendar events from appointment bookings.
 
 ---
 
-#### 4. Slack Notification 💬
+#### 3. Slack Notification 💬
 Send real-time call notifications to Slack.
 
 **Features**:
@@ -188,7 +174,7 @@ Send real-time call notifications to Slack.
 
 ---
 
-#### 5. Email Follow-up 📧
+#### 4. Email Follow-up 📧
 Send automated follow-up emails after calls.
 
 **Features**:
@@ -202,7 +188,7 @@ Send automated follow-up emails after calls.
 
 ---
 
-#### 6. SMS Confirmation 📱
+#### 5. SMS Confirmation 📱
 Send SMS confirmations and reminders.
 
 **Features**:
@@ -216,7 +202,7 @@ Send SMS confirmations and reminders.
 
 ---
 
-#### 7. Zendesk Ticket Creation 🎫
+#### 6. Zendesk Ticket Creation 🎫
 Create support tickets from calls automatically.
 
 **Features**:
@@ -230,7 +216,7 @@ Create support tickets from calls automatically.
 
 ---
 
-#### 8. Shopify Order Check 🛍️
+#### 7. Shopify Order Check 🛍️
 Look up Shopify order status during calls.
 
 **Features**:
@@ -244,7 +230,7 @@ Look up Shopify order status during calls.
 
 ---
 
-#### 9. Stripe Payment Link 💳
+#### 8. Stripe Payment Link 💳
 Generate and send Stripe payment links.
 
 **Features**:
@@ -258,7 +244,7 @@ Generate and send Stripe payment links.
 
 ---
 
-#### 10. Multi-step Lead Nurture 🌱
+#### 9. Multi-step Lead Nurture 🌱
 Automated multi-touch lead nurturing.
 
 **Features**:
@@ -267,7 +253,7 @@ Automated multi-touch lead nurturing.
 - Lead scoring
 - A/B testing
 
-**Required Integration**: HubSpot/Salesforce, SendGrid
+**Required Integration**: HubSpot, SendGrid
 **Compatible Agents**: Sales Qualification, Lead Capture
 
 ---
@@ -416,18 +402,17 @@ SEEDING AGENT TEMPLATES
 SEEDING WORKFLOW TEMPLATES
 ================================================================================
 
-✅ Created workflow template: Salesforce Lead Creation (salesforce-lead-creation)
 ✅ Created workflow template: HubSpot Deal Update (hubspot-deal-update)
 ...
 
-✅ Successfully seeded 10 workflow templates!
+✅ Successfully seeded 9 workflow templates!
 
 ================================================================================
 SEEDING SUMMARY
 ================================================================================
 ✅ Agent Templates: 5
-✅ Workflow Templates: 10
-✅ Total Templates: 15
+✅ Workflow Templates: 9
+✅ Total Templates: 14
 ================================================================================
 
 🎉 Template seeding completed successfully!
@@ -650,4 +635,4 @@ We value your feedback:
 
 **Last Updated**: January 2024
 **Version**: 1.0.0
-**Templates Available**: 15 (5 agents + 10 workflows)
+**Templates Available**: 14 (5 agents + 9 workflows)

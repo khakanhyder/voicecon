@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implemented four additional enterprise-grade integration connectors: HubSpot, Google Calendar, Slack, and Stripe. Combined with the existing Salesforce and SendGrid connectors, we now have **6 production-ready connectors** covering CRM, Email, Calendar, Communication, and Payment use cases.
+Implemented four additional enterprise-grade integration connectors: HubSpot, Google Calendar, Slack, and Stripe. Combined with the existing SendGrid connector, we now have **5 production-ready connectors** covering CRM, Email, Calendar, Communication, and Payment use cases.
 
 ---
 
@@ -403,7 +403,6 @@ charges = await stripe.list_charges(
 
 | Connector | Auth Types | Primary Use Case | Key Features | Lines of Code |
 |-----------|-----------|------------------|--------------|---------------|
-| **Salesforce** | OAuth2 | CRM & Sales | Contacts, Leads, Opportunities, SOQL | 550 |
 | **HubSpot** | OAuth2, API Key | CRM & Marketing | Contacts, Companies, Deals, Batch Operations | 650 |
 | **SendGrid** | API Key | Email Marketing | Email Sending, Templates, Lists, Stats | 450 |
 | **Google Calendar** | OAuth2 | Scheduling | Events, Availability, Quick Add | 550 |
@@ -419,16 +418,7 @@ charges = await stripe.list_charges(
 ```python
 # When a voice call completes, automatically:
 
-# 1. Create lead in Salesforce
-lead = await salesforce.create_lead(
-    first_name=caller_name,
-    last_name=caller_last,
-    company=company_name,
-    phone=caller_phone,
-    status="New Lead"
-)
-
-# 2. Create contact in HubSpot
+# 1. Create contact in HubSpot
 contact = await hubspot.create_contact(
     email=caller_email,
     first_name=caller_name,
@@ -436,14 +426,14 @@ contact = await hubspot.create_contact(
     phone=caller_phone
 )
 
-# 3. Send notification to Slack
+# 2. Send notification to Slack
 await slack.send_message(
     channel="#sales",
     text=f"New lead: {caller_name} from {company_name}",
     blocks=[...] # Rich formatting
 )
 
-# 4. Schedule follow-up in Google Calendar
+# 3. Schedule follow-up in Google Calendar
 await calendar.create_event(
     summary=f"Follow up: {caller_name}",
     start_time=tomorrow_9am,
@@ -472,11 +462,6 @@ subscription = await stripe.create_subscription(
 )
 
 # 3. Update CRM records
-await salesforce.update_contact(
-    contact_id=contact_id,
-    fields={"Subscription_Status__c": "Active"}
-)
-
 await hubspot.update_contact(
     contact_id=hubspot_contact_id,
     properties={"subscription_tier": "Premium"}
@@ -560,27 +545,25 @@ await slack.send_message(
 6. ✅ `NEW_CONNECTORS_SUMMARY.md` (this file)
 
 ### Previously Created
-- `salesforce_connector.py` (550 lines)
 - `sendgrid_connector.py` (450 lines)
 
 ---
 
 ## Total Implementation
 
-**6 Production-Ready Connectors**:
-- Salesforce CRM
+**5 Production-Ready Connectors**:
 - HubSpot CRM
 - SendGrid Email
 - Google Calendar
 - Slack Communication
 - Stripe Payments
 
-**Total Lines of Code**: ~3,300 lines
+**Total Lines of Code**: ~2,750 lines
 
 **Total Methods**: 100+ API methods across all connectors
 
 **Coverage**:
-- ✅ CRM (Salesforce, HubSpot)
+- ✅ CRM (HubSpot)
 - ✅ Email (SendGrid)
 - ✅ Calendar (Google Calendar)
 - ✅ Communication (Slack)
@@ -592,7 +575,6 @@ await slack.send_message(
 
 | Connector | Primary Auth | Alternative Auth | Scopes Required |
 |-----------|-------------|------------------|-----------------|
-| Salesforce | OAuth2 | - | api, refresh_token, full |
 | HubSpot | OAuth2 | API Key | crm.objects.contacts.write, crm.objects.companies.write |
 | SendGrid | API Key | - | mail.send, marketing.contacts.write |
 | Google Calendar | OAuth2 | - | calendar, calendar.events |
@@ -684,9 +666,6 @@ async def test_create_contact():
 ```python
 # test_integration_flow.py
 async def test_sales_pipeline_flow():
-    # Create lead in Salesforce
-    lead = await salesforce.create_lead(...)
-
     # Create contact in HubSpot
     contact = await hubspot.create_contact(...)
 
@@ -697,7 +676,6 @@ async def test_sales_pipeline_flow():
     await slack.send_message(...)
 
     # Verify all steps completed
-    assert lead["id"] is not None
     assert contact["id"] is not None
     assert event["id"] is not None
 ```
@@ -744,7 +722,7 @@ async def test_sales_pipeline_flow():
 
 ## Success Metrics
 
-✅ **6 Enterprise Connectors**: Production-ready implementations
+✅ **5 Enterprise Connectors**: Production-ready implementations
 ✅ **100+ API Methods**: Comprehensive coverage of each platform
 ✅ **3,300+ Lines of Code**: Well-documented and tested
 ✅ **Consistent Architecture**: All inherit from BaseConnector
@@ -756,9 +734,9 @@ async def test_sales_pipeline_flow():
 
 ## Conclusion
 
-The Voicecon platform now has a **world-class integration system** with 6 production-ready connectors covering the most essential business platforms:
+The Voicecon platform now has a **world-class integration system** with 5 production-ready connectors covering the most essential business platforms:
 
-- **CRM**: Salesforce, HubSpot
+- **CRM**: HubSpot
 - **Email**: SendGrid
 - **Calendar**: Google Calendar
 - **Communication**: Slack

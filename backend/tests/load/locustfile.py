@@ -232,10 +232,10 @@ class IntegrationWorkflowBehavior(SequentialTaskSet):
         response = self.client.post(
             "/api/v1/integrations",
             json={
-                "integration_type": "salesforce",
-                "name": f"Load Test Salesforce {uuid.uuid4()}",
+                "integration_type": "hubspot",
+                "name": f"Load Test HubSpot {uuid.uuid4()}",
                 "config": {
-                    "domain": "test.salesforce.com",
+                    "domain": "app.hubspot.com",
                     "api_version": "v54.0"
                 }
             }

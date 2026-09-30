@@ -381,7 +381,7 @@ Access specific array elements:
 
 ```json
 {
-  "id": "map_salesforce_contact",
+  "id": "map_contact",
   "type": "transform",
   "config": {
     "source": "trigger",
@@ -423,13 +423,13 @@ Access specific array elements:
 
 ## Real-World Examples
 
-### Example 1: HubSpot to Salesforce Contact Sync
+### Example 1: HubSpot Contact Normalization
 
-**Scenario:** Sync a contact from HubSpot to Salesforce with field mapping and validation.
+**Scenario:** Flatten a HubSpot contact into a standard contact record with field mapping and validation.
 
 ```json
 {
-  "id": "hubspot_to_salesforce",
+  "id": "normalize_hubspot_contact",
   "type": "transform",
   "config": {
     "source": "steps.get_hubspot_contact.result",
@@ -819,7 +819,7 @@ Access specific array elements:
       "id": "update_crm",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
+        "connection_id": "{{connections.hubspot}}",
         "action": "update_contact",
         "parameters": {
           "email": "{{steps.transform_call_data.result.customer_email}}",

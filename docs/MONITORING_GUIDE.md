@@ -550,8 +550,8 @@ class CallManager:
 increment_counter(
     'voicecon.integrations.api_call',
     tags=[
-        'integration:salesforce',
-        'action:create_lead',
+        'integration:hubspot',
+        'action:create_contact',
         'status:success'
     ]
 )

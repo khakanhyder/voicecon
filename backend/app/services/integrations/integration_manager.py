@@ -375,8 +375,6 @@ class IntegrationManager:
                 connection.integration_metadata = {
                     "token_type": token_data.get("token_type", "Bearer")
                 }
-                if token_data.get("instance_url"):
-                    connection.config = _with_instance_url(getattr(connection, "config", None), token_data)
                 # Whatever went wrong before is fixed by definition — we just
                 # completed a fresh authorisation.
                 connection.status = "active"
@@ -406,7 +404,7 @@ class IntegrationManager:
                 refresh_token_encrypted=encrypted_tokens.get("refresh_token_encrypted"),
                 token_expires_at=token_expires_at,
                 integration_metadata={"token_type": token_data.get("token_type", "Bearer")},
-                config=_with_instance_url({}, token_data),
+                config={},
             )
 
             db.add(connection)
@@ -830,8 +828,6 @@ class IntegrationManager:
             connection.refresh_token_encrypted = encrypted_tokens.get("refresh_token_encrypted")
             connection.token_expires_at = token_expires_at
             connection.updated_at = datetime.utcnow()
-            if token_data.get("instance_url"):
-                connection.config = _with_instance_url(getattr(connection, "config", None), token_data)
 
             # Saving the new tokens writes the connection's row. If another
             # transaction holds that row, wait a few seconds rather than hang
@@ -898,22 +894,6 @@ class IntegrationManager:
         await db.commit()
 
         logger.info(f"Integration disconnected: {connection.id}")
-
-
-def _with_instance_url(config: Optional[Dict[str, Any]], token_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep the per-account API host a provider returns with its tokens.
-
-    Salesforce answers the token request with ``instance_url``, the org's own
-    host (``https://acme.my.salesforce.com``). Every API call must go there; the
-    connector row's ``https://api.salesforce.com`` is not an API host at all, so
-    without this every Salesforce action returned 404. ``resolve_base_url``
-    reads ``config["base_url"]``.
-    """
-    updated = dict(config or {})
-    instance = token_data.get("instance_url")
-    if isinstance(instance, str) and instance.startswith("https://"):
-        updated["base_url"] = instance.rstrip("/")
-    return updated
 
 
 async def _limit_lock_wait(db: AsyncSession, seconds: int = 5) -> None:

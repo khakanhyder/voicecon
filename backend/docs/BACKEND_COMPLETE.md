@@ -641,7 +641,7 @@ docker run -d \
 - [ ] Custom TTS voice cloning
 - [ ] Call summarization (LLM-powered)
 - [ ] Proactive outbound campaigns
-- [ ] CRM integrations (Salesforce, HubSpot)
+- [ ] CRM integrations (HubSpot)
 - [ ] Zapier-like integration builder
 
 ---

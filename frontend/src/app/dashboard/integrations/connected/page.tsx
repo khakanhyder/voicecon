@@ -42,7 +42,6 @@ interface ConnectedIntegration {
 }
 
 const catalogMetadata: Record<string, { icon: string; category: string }> = {
-  salesforce: { icon: '🔷', category: 'crm' },
   hubspot: { icon: '🟠', category: 'crm' },
   'google-calendar': { icon: '📅', category: 'calendar' },
   slack: { icon: '💬', category: 'communication' },

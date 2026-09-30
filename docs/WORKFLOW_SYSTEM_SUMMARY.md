@@ -267,13 +267,14 @@ workflow_data = {
     "trigger_config": {"duration_min": 60},
     "workflow_steps": [
         {
-            "id": "create_lead",
-            "name": "Create Salesforce Lead",
+            "id": "create_contact",
+            "name": "Create HubSpot Contact",
             "type": "action",
             "config": {
-                "connection_id": "salesforce-id",
-                "action": "create_lead",
+                "connection_id": "hubspot-id",
+                "action": "create_contact",
                 "parameters": {
+                    "email": "{{trigger.caller_email}}",
                     "first_name": "{{trigger.caller_name}}",
                     "company": "{{trigger.company}}",
                     "phone": "{{trigger.caller_phone}}"
@@ -356,11 +357,11 @@ workflow_data = {
             "name": "Create Qualified Lead",
             "type": "action",
             "config": {
-                "connection_id": "salesforce-id",
-                "action": "create_lead",
+                "connection_id": "hubspot-id",
+                "action": "create_contact",
                 "parameters": {
-                    "status": "Qualified",
-                    "name": "{{trigger.caller_name}}"
+                    "lifecyclestage": "salesqualifiedlead",
+                    "first_name": "{{trigger.caller_name}}"
                 }
             }
         },
@@ -369,11 +370,11 @@ workflow_data = {
             "name": "Create Unqualified Lead",
             "type": "action",
             "config": {
-                "connection_id": "salesforce-id",
-                "action": "create_lead",
+                "connection_id": "hubspot-id",
+                "action": "create_contact",
                 "parameters": {
-                    "status": "Unqualified",
-                    "name": "{{trigger.caller_name}}"
+                    "lifecyclestage": "lead",
+                    "first_name": "{{trigger.caller_name}}"
                 }
             }
         }
@@ -463,8 +464,7 @@ workflow_data = {
 ✅ Transform - Data mapping
 ✅ Delay - Wait/pause
 
-### Supported Actions (70+)
-✅ Salesforce: 12 actions
+### Supported Actions (60+)
 ✅ HubSpot: 15 actions
 ✅ SendGrid: 12 actions
 ✅ Google Calendar: 10 actions
@@ -613,7 +613,7 @@ workflow_data = {
 ✅ **Complete System**: Triggers, Engine, Handlers, API, Documentation
 ✅ **6 Trigger Types**: Manual, Schedule, Webhook, Call events, Integration events
 ✅ **5 Step Types**: Action, Condition, Loop, Transform, Delay
-✅ **70+ Actions**: Across 6 integration connectors
+✅ **60+ Actions**: Across 5 integration connectors
 ✅ **10+ API Endpoints**: Full CRUD + execution + statistics
 ✅ **3,300+ Lines**: Production-ready code with comprehensive features
 ✅ **Variable System**: Powerful interpolation with dot notation
@@ -627,7 +627,7 @@ workflow_data = {
 The Voicecon Workflow System is a **production-ready automation platform** that enables users to build sophisticated workflows without code. It seamlessly integrates:
 
 - **Voice Calls** - Trigger workflows from call events
-- **6 Integrations** - Salesforce, HubSpot, SendGrid, Google Calendar, Slack, Stripe
+- **5 Integrations** - HubSpot, SendGrid, Google Calendar, Slack, Stripe
 - **Business Logic** - Conditions, loops, transformations
 - **Error Handling** - Retry, logging, monitoring
 

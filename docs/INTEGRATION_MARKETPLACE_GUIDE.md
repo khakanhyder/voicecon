@@ -8,7 +8,7 @@ A complete integration marketplace system that allows users to connect Voicecon 
 
 All requested features have been successfully implemented:
 
-- ✅ Integration marketplace with 12 pre-configured integrations
+- ✅ Integration marketplace with 11 pre-configured integrations
 - ✅ Integration connection flow (OAuth 2.0 & API Key)
 - ✅ OAuth callback handling with security features
 - ✅ Connection status dashboard
@@ -24,10 +24,9 @@ All requested features have been successfully implemented:
 
 **File:** [page.tsx](frontend/src/app/(dashboard)/integrations/page.tsx)
 
-**12 Pre-configured Integrations:**
+**11 Pre-configured Integrations:**
 
 #### CRM Category
-- **Salesforce** (OAuth 2.0) - Contact sync, lead management, opportunities
 - **HubSpot** (OAuth 2.0) - Contact management, deal pipeline, analytics
 - **Zendesk** (OAuth 2.0) - Ticket management, customer profiles
 
@@ -239,26 +238,26 @@ interface Integration {
 ```typescript
 {
   id: '1',
-  slug: 'salesforce',
-  name: 'Salesforce',
-  description: 'Sync contacts, leads, and opportunities with your Salesforce CRM',
+  slug: 'hubspot',
+  name: 'HubSpot',
+  description: 'Sync contacts, companies, and deals with your HubSpot CRM',
   category: 'crm',
-  icon: '🔷',
+  icon: '🟠',
   authType: 'oauth2',
-  features: ['Contact Sync', 'Lead Management', 'Opportunity Tracking', 'Custom Fields'],
+  features: ['Contact Sync', 'Company Records', 'Deal Pipeline', 'Custom Properties'],
   popular: true,
   permissions: [
     'Read and write contacts',
-    'Read and write leads',
-    'Read and write opportunities',
-    'Read custom objects',
+    'Read and write companies',
+    'Read and write deals',
+    'Read custom properties',
     'Access user information',
   ],
-  scopes: ['api', 'refresh_token', 'full'],
-  oauthUrl: 'https://login.salesforce.com/services/oauth2/authorize',
+  scopes: ['crm.objects.contacts.read', 'crm.objects.contacts.write', 'crm.objects.deals.write'],
+  oauthUrl: 'https://app.hubspot.com/oauth/authorize',
   setupSteps: [
     'Click "Connect" to authorize Voicecon',
-    'Sign in to your Salesforce account',
+    'Sign in to your HubSpot account',
     'Review and approve the requested permissions',
     'You will be redirected back to complete the setup',
   ],
@@ -307,7 +306,7 @@ interface Integration {
 ```
 1. User browses integrations marketplace
    ↓
-2. User clicks on OAuth integration (e.g., Salesforce)
+2. User clicks on OAuth integration (e.g., HubSpot)
    ↓
 3. Integration detail page shows:
    - Required permissions
@@ -591,8 +590,8 @@ const handleOAuthCallback = async () => {
   // ... existing code
 
   // Custom logic for specific integrations
-  if (integrationSlug === 'salesforce') {
-    // Handle Salesforce-specific OAuth
+  if (integrationSlug === 'hubspot') {
+    // Handle HubSpot-specific OAuth
   } else if (integrationSlug === 'google-calendar') {
     // Handle Google-specific OAuth
   }
@@ -608,7 +607,7 @@ const handleOAuthCallback = async () => {
 ### Manual Testing Checklist
 
 **Marketplace:**
-- [ ] All 12 integrations display correctly
+- [ ] All 11 integrations display correctly
 - [ ] Search filters integrations
 - [ ] Category filtering works
 - [ ] Statistics update correctly
@@ -679,7 +678,7 @@ const handleOAuthCallback = async () => {
 
 The Integration Marketplace provides a complete, production-ready system for:
 
-✅ **Discovering Integrations** - Browse 12 pre-configured integrations
+✅ **Discovering Integrations** - Browse 11 pre-configured integrations
 ✅ **Secure Connections** - OAuth 2.0 and API Key authentication
 ✅ **Easy Management** - Test, configure, and disconnect integrations
 ✅ **Clear Permissions** - Transparent permission requests
@@ -694,6 +693,6 @@ All features are fully integrated, tested, and ready for production use in the V
 **Status:** ✅ Complete
 **Files Created:** 8 files
 **Lines of Code:** ~1,500 lines
-**Integrations:** 12 pre-configured
+**Integrations:** 11 pre-configured
 
 Happy integrating! 🔗

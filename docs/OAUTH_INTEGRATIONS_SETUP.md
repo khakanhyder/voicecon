@@ -1,6 +1,6 @@
 # OAuth Integrations — Setup & How Users Connect
 
-How to make the OAuth integrations (HubSpot, Salesforce, Slack, Google Calendar/Sheets/
+How to make the OAuth integrations (HubSpot, Slack, Google Calendar/Sheets/
 Drive, Notion) connectable, and how an end user connects once they are.
 
 ---
@@ -47,8 +47,8 @@ registering an OAuth app requires signing into each provider.
 
 ## Step 1 — Register an OAuth app with each provider (you, once)
 
-Do this only for the providers you actually want. The four with working *action* code —
-**HubSpot, Salesforce, Slack, Google Calendar** — are the highest value.
+Do this only for the providers you actually want. The three with working *action* code —
+**HubSpot, Slack, Google Calendar** — are the highest value.
 
 For each provider, the one required setting is the **redirect URI** (a.k.a. callback URL).
 Use your deployed frontend's callback:
@@ -62,7 +62,6 @@ https://voicecon-fe.onrender.com/dashboard/integrations/oauth/callback
 | **Google** (Calendar/Sheets/Drive) | Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web application). Enable the relevant API (e.g. Google Calendar API). | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | **HubSpot** | HubSpot Developer account → Apps → Create app → Auth tab | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` |
 | **Slack** | api.slack.com/apps → Create New App → OAuth & Permissions | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` |
-| **Salesforce** | Setup → App Manager → New Connected App → Enable OAuth | `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET` |
 | **Notion** | notion.so/my-integrations → New integration (public) | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` |
 
 Notes:
@@ -123,7 +122,6 @@ HubSpot `create_contact`) to confirm the token works.
 | Connector | OAuth configured | Has action code | Worth it |
 |---|---|---|---|
 | HubSpot | ✅ | ✅ | Yes — connect + real CRM actions |
-| Salesforce | ✅ | ✅ | Yes |
 | Slack | ✅ | ✅ | Yes |
 | Google Calendar | ✅ | ✅ | Yes |
 | Google Sheets / Drive | ✅ | ⚠️ no action code yet | Connect works; actions need building |
@@ -240,55 +238,7 @@ approves.
 
 ---
 
-## D. Salesforce → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`
-
-Salesforce disabled creation of classic **Connected Apps** — Winter '26 for new orgs,
-Spring '26 for all orgs. The only app type you can create now is an **External Client
-App (ECA)**, and that changes what works.
-
-1. Salesforce → **Setup** → Quick Find **External Client App Manager** → **New External
-   Client App**.
-2. Name, contact email. **Distribution State** is set here and **cannot be changed
-   afterwards**:
-   - **Local** — usable only by users of this org. Fine for connecting Voicecon's own
-     Salesforce org. Requires `SALESFORCE_LOGIN_URL` (step 5).
-   - **Packaged** — required for customers on their own orgs. Needs the app shipped in a
-     2GP managed package that each customer installs; see "Cross-org" below.
-3. **OAuth Settings** → Enable OAuth:
-   - **Callback URL:** paste the redirect URI above.
-   - **OAuth Scopes:** "Manage user data via APIs (api)" and "Perform requests at any time
-     (refresh_token, offline_access)".
-   - PKCE either way is fine — the backend always sends a code challenge and
-     verifier.
-   - Under **Flow Enablement**, tick **Enable Authorization Code and Credentials Flow**.
-   - Under **Policies** (after saving), set **Permitted Users** so users can self-authorize.
-4. **Consumer Key and Secret** → `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`.
-5. **`SALESFORCE_LOGIN_URL`** — the login host. Empty means `https://login.salesforce.com`.
-   - Local ECA: set it to the owning org's **My Domain**, e.g.
-     `https://orgfarm-1234.my.salesforce.com`. Without this the callback fails with
-     `OAUTH_AUTHORIZATION_BLOCKED` / "Cross-org OAuth flows are not supported for this
-     external client app", because `login.salesforce.com` is a cross-org entry point and a
-     Local app refuses it.
-   - Sandbox: `https://test.salesforce.com`.
-
-### Cross-org: letting customers connect their own Salesforce orgs
-
-A Local ECA can never do this, and no Voicecon-side setting changes that — the block is in
-Salesforce. The supported route is to distribute the app:
-
-1. Create the ECA with **Distribution State = Packaged** in a stable org that will outlive
-   every release (not a trial or scratch org). OAuth consumer credentials are *global
-   settings* and stay in that org rather than travelling in the package.
-2. Package it as a 2GP managed package (Salesforce DX / `sf` CLI + a Dev Hub).
-3. Give each customer admin the package install link; they install it and grant access in
-   their org.
-4. Their users can then complete the normal Voicecon connect flow.
-
-Salesforce Support can also grant an exception to re-enable classic Connected App creation
-for an org, which restores the old cross-org-by-default behaviour without packaging. Worth
-asking for if the packaging route is too heavy for now.
-
-## E. Notion → `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`
+## D. Notion → `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`
 
 1. **notion.so/my-integrations** → **New integration** → choose **Public** (public integrations
    support OAuth; internal ones don't).

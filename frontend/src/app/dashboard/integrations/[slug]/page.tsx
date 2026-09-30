@@ -15,17 +15,6 @@ interface Connector { id: string; slug: string; name: string; auth_type: string 
 
 // Full integration catalog — static metadata (icons, features, setup steps)
 const integrationData: Record<string, any> = {
-  salesforce: {
-    slug: 'salesforce', name: 'Salesforce', icon: '🔷',
-    description: 'Sync contacts, leads, and opportunities with your Salesforce CRM',
-    category: 'crm', authType: 'oauth2',
-    features: ['Contact Sync', 'Lead Management', 'Opportunity Tracking', 'Custom Fields'],
-    popular: true,
-    permissions: ['Read and write contacts', 'Read and write leads', 'Read and write opportunities', 'Access user information'],
-    scopes: ['api', 'refresh_token'],
-    oauthUrl: 'https://login.salesforce.com/services/oauth2/authorize',
-    setupSteps: ['Click "Connect" to authorize Voicecon', 'Sign in to your Salesforce account', 'Review and approve permissions', 'You will be redirected back'],
-  },
   hubspot: {
     slug: 'hubspot', name: 'HubSpot', icon: '🟠',
     description: 'Connect HubSpot CRM to manage contacts and track interactions',

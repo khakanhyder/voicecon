@@ -161,10 +161,10 @@ curl -X POST \
 {
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created",
+    "integration_type": "hubspot",
+    "event_type": "contact.created",
     "filters": {
-      "LeadSource": "Website"
+      "lifecyclestage": "lead"
     }
   }
 }
@@ -174,7 +174,6 @@ curl -X POST \
 
 | Integration | Example Events |
 |-------------|----------------|
-| `salesforce` | `lead.created`, `contact.updated` |
 | `hubspot` | `contact.created`, `deal.updated` |
 | `stripe` | `payment.succeeded`, `subscription.created` |
 | `slack` | `message.posted` |
@@ -264,8 +263,8 @@ POST /api/v1/workflows/trigger/integration-event
 Authorization: Bearer {token}
 
 {
-  "integration_type": "salesforce",
-  "event_type": "lead.created",
+  "integration_type": "hubspot",
+  "event_type": "contact.created",
   "payload": {}
 }
 ```
@@ -299,7 +298,7 @@ Access trigger data in workflow steps using `{{trigger.*}}`:
 ### Integration Event
 ```
 {{trigger.integration_type}}
-{{trigger.payload.LeadId}}
+{{trigger.payload.contactId}}
 ```
 
 ---
@@ -402,10 +401,10 @@ print(result["would_trigger"])  # True/False
   "name": "New Lead Follow-up",
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created",
+    "integration_type": "hubspot",
+    "event_type": "contact.created",
     "filters": {
-      "LeadSource": "Website"
+      "lifecyclestage": "lead"
     }
   },
   "workflow_steps": [...]

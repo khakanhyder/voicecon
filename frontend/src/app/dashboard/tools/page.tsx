@@ -111,7 +111,7 @@ const TOOL_TYPES = {
     bg: 'bg-blue-50',
     border: 'border-blue-200',
     tools: [
-      { type: 'connected_integration', label: 'Connected Integration', icon: Link2, description: 'Use a connected integration (HubSpot, Salesforce, Google Calendar, Slack, etc.) as an AI-callable tool' },
+      { type: 'connected_integration', label: 'Connected Integration', icon: Link2, description: 'Use a connected integration (HubSpot, Google Calendar, Slack, etc.) as an AI-callable tool' },
       { type: 'api_request', label: 'API Request', icon: Globe, description: 'Make a custom HTTP API request to any server' },
       { type: 'mcp', label: 'MCP', icon: Settings2, description: 'Call a Model Context Protocol server tool' },
       { type: 'slack', label: 'Slack', icon: MessageSquare, description: 'Send a message to a Slack channel via webhook' },
@@ -133,7 +133,6 @@ function getCategoryMeta(cat: string) { return TOOL_TYPES[cat as CatKey] }
 const INTEGRATION_TOOL_SLUGS: Record<string, { label: string; icon: string; toolType: string }> = {
   slack: { label: 'Slack', icon: '💬', toolType: 'connected_integration' },
   hubspot: { label: 'HubSpot', icon: '🟠', toolType: 'connected_integration' },
-  salesforce: { label: 'Salesforce', icon: '☁️', toolType: 'connected_integration' },
   google_calendar: { label: 'Google Calendar', icon: '📅', toolType: 'connected_integration' },
   sendgrid: { label: 'SendGrid', icon: '📧', toolType: 'connected_integration' },
   'google-sheets': { label: 'Google Sheets', icon: '📊', toolType: 'connected_integration' },
@@ -295,7 +294,7 @@ function ConnectedIntegrationConfig({ config, onCfg, onParams, errors }: {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
         <strong>No connected integrations found.</strong>
-        <p className="mt-1 text-xs">Go to <span className="font-medium">Integrations</span> in the sidebar to connect HubSpot, Salesforce, Google Calendar, Slack, or SendGrid first.</p>
+        <p className="mt-1 text-xs">Go to <span className="font-medium">Integrations</span> in the sidebar to connect HubSpot, Google Calendar, Slack, or SendGrid first.</p>
       </div>
     )
   }

@@ -21,16 +21,15 @@ class TestIntegrationAPI:
         data = response.json()
 
         assert len(data["integrations"]) > 0
-        assert any(i["slug"] == "salesforce" for i in data["integrations"])
         assert any(i["slug"] == "hubspot" for i in data["integrations"])
 
     async def test_create_integration(self, auth_client, db_session):
         """Test creating a new integration."""
         integration_data = {
-            "integration_type": "salesforce",
-            "name": "My Salesforce",
+            "integration_type": "hubspot",
+            "name": "My HubSpot",
             "config": {
-                "domain": "test.salesforce.com",
+                "domain": "app.hubspot.com",
                 "api_version": "v54.0",
             },
         }
@@ -40,8 +39,8 @@ class TestIntegrationAPI:
         assert response.status_code == 201
         data = response.json()
 
-        assert data["name"] == "My Salesforce"
-        assert data["integration_type"] == "salesforce"
+        assert data["name"] == "My HubSpot"
+        assert data["integration_type"] == "hubspot"
         assert data["is_active"] is True
 
     async def test_list_organization_integrations(
@@ -124,7 +123,7 @@ class TestIntegrationAPI:
         """Test deleting an integration."""
         # Create integration
         integration_data = {
-            "integration_type": "salesforce",
+            "integration_type": "hubspot",
             "name": "Test Integration",
             "config": {},
         }
@@ -150,9 +149,9 @@ class TestIntegrationAPI:
         """Test testing integration connection."""
         # Create integration
         integration_data = {
-            "integration_type": "salesforce",
-            "name": "Test Salesforce",
-            "config": {"domain": "test.salesforce.com"},
+            "integration_type": "hubspot",
+            "name": "Test HubSpot",
+            "config": {"domain": "app.hubspot.com"},
         }
 
         create_response = auth_client.post(
@@ -182,7 +181,7 @@ class TestOAuthFlow:
     async def test_initiate_oauth_flow(self, auth_client):
         """Test initiating OAuth authorization flow."""
         oauth_data = {
-            "integration_type": "salesforce",
+            "integration_type": "hubspot",
             "redirect_uri": "https://app.example.com/oauth/callback",
         }
 
@@ -210,7 +209,7 @@ class TestOAuthFlow:
         callback_data = {
             "code": "auth_code_123",
             "state": "random_state",
-            "integration_type": "salesforce",
+            "integration_type": "hubspot",
         }
 
         response = auth_client.post(
@@ -254,7 +253,7 @@ class TestWorkflowAPI:
                 ],
                 "actions": [
                     {
-                        "type": "salesforce_create_lead",
+                        "type": "hubspot_create_contact",
                         "params": {
                             "first_name": "{{caller_name}}",
                             "email": "{{caller_email}}",
@@ -520,7 +519,7 @@ class TestWorkflowExecution:
             "trigger": "call_completed",
             "workflow_definition": {
                 "actions": [
-                    {"type": "salesforce_create_lead"},
+                    {"type": "hubspot_create_contact"},
                     {"type": "send_email"},
                     {"type": "slack_notification"},
                 ]

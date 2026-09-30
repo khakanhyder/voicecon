@@ -515,14 +515,6 @@ GET /api/v1/integrations/available
 {
   "integrations": [
     {
-      "slug": "salesforce",
-      "name": "Salesforce",
-      "category": "crm",
-      "auth_type": "oauth2",
-      "description": "Connect your Salesforce CRM",
-      "logo_url": "https://cdn.voicecon.com/logos/salesforce.svg"
-    },
-    {
       "slug": "hubspot",
       "name": "HubSpot",
       "category": "crm",
@@ -544,11 +536,11 @@ POST /api/v1/integrations
 **Request Body:**
 ```json
 {
-  "integration_type": "salesforce",
-  "name": "My Salesforce Integration",
+  "integration_type": "hubspot",
+  "name": "My HubSpot Integration",
   "config": {
-    "domain": "mycompany.salesforce.com",
-    "api_version": "v54.0"
+    "portal_id": "12345678",
+    "api_version": "v3"
   }
 }
 ```
@@ -570,7 +562,7 @@ POST /api/v1/integrations/{integration_id}/test
   "message": "Connection successful",
   "details": {
     "connected_at": "2025-01-01T10:00:00Z",
-    "api_version": "v54.0"
+    "api_version": "v3"
   }
 }
 ```
@@ -588,7 +580,7 @@ POST /api/v1/workflows
 **Request Body:**
 ```json
 {
-  "name": "Salesforce Lead Creation",
+  "name": "HubSpot Contact Creation",
   "agent_id": "agent-550e8400-e29b-41d4-a716-446655440000",
   "trigger": "call_completed",
   "workflow_definition": {
@@ -601,12 +593,12 @@ POST /api/v1/workflows
     ],
     "actions": [
       {
-        "type": "salesforce_create_lead",
+        "type": "hubspot_create_contact",
         "integration_id": "integration-850e8400-e29b-41d4-a716-446655440000",
         "params": {
-          "FirstName": "{{caller_name}}",
-          "Email": "{{caller_email}}",
-          "LeadSource": "Voice Call"
+          "firstname": "{{caller_name}}",
+          "email": "{{caller_email}}",
+          "lifecyclestage": "lead"
         }
       }
     ]

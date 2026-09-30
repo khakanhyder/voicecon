@@ -151,7 +151,6 @@ POST /api/v1/workflows/webhook/{webhook_key}
 ### 4. Integration Event Triggers
 
 **Supported Integrations:**
-- Salesforce (lead.created, contact.updated, etc.)
 - HubSpot (contact.created, deal.updated, etc.)
 - Stripe (payment.succeeded, subscription.created, etc.)
 - Slack (message.posted, reaction.added, etc.)
@@ -161,10 +160,10 @@ POST /api/v1/workflows/webhook/{webhook_key}
 {
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created",
+    "integration_type": "hubspot",
+    "event_type": "contact.created",
     "filters": {
-      "LeadSource": "Website"
+      "lifecyclestage": "lead"
     }
   }
 }
@@ -333,11 +332,11 @@ Authorization: Bearer {token}
 Content-Type: application/json
 
 {
-  "integration_type": "salesforce",
-  "event_type": "lead.created",
+  "integration_type": "hubspot",
+  "event_type": "contact.created",
   "payload": {
-    "LeadId": "00Q123",
-    "Email": "john@example.com"
+    "contactId": "12345",
+    "email": "john@example.com"
   }
 }
 ```
@@ -390,8 +389,8 @@ Each trigger type provides specific data to workflows:
 ```json
 {
   "event_type": "integration_event",
-  "integration_type": "salesforce",
-  "integration_event_type": "lead.created",
+  "integration_type": "hubspot",
+  "integration_event_type": "contact.created",
   "payload": {...},
   "metadata": {},
   "triggered_at": "2025-11-16T10:00:00Z"
@@ -422,7 +421,7 @@ Trigger workflow after support calls with negative sentiment:
       "id": "get_contact",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
+        "connection_id": "{{connections.hubspot}}",
         "action": "get_contact",
         "parameters": {
           "phone": "{{trigger.phone_number}}"
@@ -430,11 +429,11 @@ Trigger workflow after support calls with negative sentiment:
       }
     },
     {
-      "id": "create_case",
+      "id": "create_ticket",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
-        "action": "create_case",
+        "connection_id": "{{connections.hubspot}}",
+        "action": "create_ticket",
         "parameters": {
           "contact_id": "{{steps.get_contact.result.id}}",
           "subject": "Follow-up needed",

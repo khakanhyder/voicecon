@@ -407,11 +407,6 @@ Integrations allow your agents to:
 
 #### CRM Integrations
 
-**Salesforce**
-- Create/update leads, contacts, opportunities
-- Log call activities
-- Sync customer data
-
 **HubSpot**
 - Create contacts and deals
 - Log interactions
@@ -458,21 +453,20 @@ Integrations allow your agents to:
 - Track email delivery
 - Manage templates
 
-### Step-by-Step: Connect Salesforce
+### Step-by-Step: Connect HubSpot
 
 #### Step 1: Navigate to Integrations
 
 1. Click **Integrations** in sidebar
-2. Find **Salesforce** card
+2. Find **HubSpot** card
 3. Click **Connect**
 
 #### Step 2: Authorize Connection
 
-1. Enter your Salesforce domain (e.g., `mycompany.salesforce.com`)
-2. Click **Authorize**
-3. Log in to Salesforce
-4. Grant permissions
-5. You'll be redirected back to Voicecon
+1. Click **Authorize**
+2. Log in to HubSpot and choose your HubSpot account
+3. Grant permissions
+4. You'll be redirected back to Voicecon
 
 #### Step 3: Test Connection
 
@@ -483,8 +477,8 @@ Integrations allow your agents to:
 #### Step 4: Configure Settings
 
 **Data Mapping**:
-- Map Voicecon fields to Salesforce fields
-- Example: `caller_email` → `Email`, `caller_name` → `Name`
+- Map Voicecon fields to HubSpot contact properties
+- Example: `caller_email` → `email`, `caller_name` → `firstname`
 
 **Sync Settings**:
 - **Auto-sync**: Automatically sync after each call
@@ -543,7 +537,7 @@ Workflows automate actions based on call events:
 
 1. Go to **Workflows**
 2. Click **Create Workflow**
-3. Name it "Create Salesforce Lead After Qualified Call"
+3. Name it "Create HubSpot Contact After Qualified Call"
 
 #### Step 2: Configure Trigger
 
@@ -571,19 +565,18 @@ Add condition to only create leads for qualified calls:
 
 #### Step 4: Add Actions
 
-**Action 1: Create Salesforce Lead**
+**Action 1: Create HubSpot Contact**
 
 1. Click **Add Action**
-2. Select **Salesforce → Create Lead**
-3. Select your Salesforce integration
+2. Select **HubSpot → Create Contact**
+3. Select your HubSpot integration
 4. Map fields:
-   - `FirstName`: `{{caller_first_name}}`
-   - `LastName`: `{{caller_last_name}}`
-   - `Email`: `{{caller_email}}`
-   - `Phone`: `{{caller_phone}}`
-   - `Company`: `{{caller_company}}`
-   - `LeadSource`: `Voice Call`
-   - `Description`: `{{call_summary}}`
+   - `firstname`: `{{caller_first_name}}`
+   - `lastname`: `{{caller_last_name}}`
+   - `email`: `{{caller_email}}`
+   - `phone`: `{{caller_phone}}`
+   - `company`: `{{caller_company}}`
+   - `lifecyclestage`: `lead`
 
 **Action 2: Notify Sales Team**
 
@@ -600,7 +593,7 @@ Company: {{caller_company}}
 Interest: {{detected_intent}}
 
 Call Duration: {{call_duration}}s
-Salesforce Lead: {{salesforce_lead_url}}
+HubSpot Contact: {{hubspot_contact_url}}
 
 Listen to call: {{call_recording_url}}
 ```
@@ -631,7 +624,7 @@ Listen to call: {{call_recording_url}}
 ```
 3. Click **Run Test**
 4. Verify:
-   - Lead created in Salesforce
+   - Contact created in HubSpot
    - Slack message sent
    - Email delivered
 
@@ -1013,7 +1006,7 @@ Configure fallback behavior:
 **Example Workflow Error Handling**:
 ```
 Try:
-  Create Salesforce Lead
+  Create HubSpot Contact
 Catch Error:
   Log error
   Send to fallback queue
@@ -1034,20 +1027,18 @@ Catch Error:
 ```
 Trigger: Call Completed
 Actions:
-1. Create Salesforce Lead
-2. Create HubSpot Contact
-3. Send welcome email
-4. Schedule follow-up
-5. Post to Slack
-6. Update Google Sheets
-7. Send SMS
-8. Create Jira ticket
+1. Create HubSpot Contact
+2. Send welcome email
+3. Schedule follow-up
+4. Post to Slack
+5. Update Google Sheets
+6. Send SMS
+7. Create Jira ticket
 ```
 
 **Better - Split Into Multiple** ✅:
 
 Workflow 1: "Create CRM Records"
-- Create Salesforce Lead
 - Create HubSpot Contact
 
 Workflow 2: "Customer Communication"
@@ -1311,7 +1302,6 @@ A: No, minutes reset monthly. However:
 **Q: Which CRMs do you support?**
 
 A: Supported CRMs:
-- Salesforce
 - HubSpot
 - Pipedrive
 - Zoho CRM

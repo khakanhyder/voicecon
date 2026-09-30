@@ -126,16 +126,6 @@ async def seed_database():
         connectors = [
             # CRM
             IntegrationConnector(
-                name="Salesforce",
-                slug="salesforce",
-                category="crm",
-                description="Connect with Salesforce CRM to manage leads and opportunities",
-                auth_type="oauth2",
-                supports_triggers=True,
-                supports_actions=True,
-                is_active=True,
-            ),
-            IntegrationConnector(
                 name="HubSpot",
                 slug="hubspot",
                 category="crm",

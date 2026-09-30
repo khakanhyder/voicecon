@@ -255,12 +255,6 @@ class TestActionAdapters:
         )
         assert result["properties"] == {"phone": "555"}
 
-    def test_salesforce_lead_source_is_preserved_as_a_real_field(self):
-        result = adapt_parameters(
-            "salesforce", "create_lead", {"last_name": "Ali", "lead_source": "Phone"}
-        )
-        assert result["additional_fields"] == {"LeadSource": "Phone"}
-
     def test_an_action_with_no_adapter_passes_through_untouched(self):
         params = {"to": "123", "message": "hi"}
         assert adapt_parameters("whatsapp", "send_message", params) == params

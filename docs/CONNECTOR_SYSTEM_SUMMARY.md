@@ -94,29 +94,6 @@ Already implemented in previous work:
 
 ### 4. Example Connectors ✅
 
-#### Salesforce Connector
-**File**: `backend/app/services/integrations/connectors/salesforce_connector.py` (550+ lines)
-
-**Features**:
-- Contact management (create, update, get, delete, search)
-- Lead management (create, update)
-- Opportunity creation
-- SOQL query execution
-- Contact/lead search
-
-**Methods**:
-- `test_connection()` - Validates connection via userinfo endpoint
-- `create_contact()` - Create Salesforce contact
-- `update_contact()` - Update existing contact
-- `get_contact()` - Retrieve contact by ID
-- `delete_contact()` - Delete contact
-- `create_lead()` - Create lead with company info
-- `update_lead()` - Update lead fields
-- `create_opportunity()` - Create sales opportunity
-- `query()` - Execute SOQL queries
-- `search_contacts()` - Search contacts by email/phone/name
-- `search_leads()` - Search leads by email/phone/company
-
 #### SendGrid Connector
 **File**: `backend/app/services/integrations/connectors/sendgrid_connector.py` (450+ lines)
 
@@ -160,7 +137,6 @@ Already implemented in previous work:
    - BaseConnector methods
    - IntegrationManager methods
 6. Example implementations
-   - Salesforce examples (contact/lead creation, search, queries)
    - SendGrid examples (email sending, contact management, stats)
 7. Best practices
    - Error handling
@@ -284,39 +260,39 @@ Already implemented in previous work:
 
 ## Usage Examples
 
-### OAuth2 Flow (Salesforce)
+### OAuth2 Flow (HubSpot)
 
 ```python
 # 1. Initiate OAuth
 POST /api/v1/integrations/oauth/authorize
 {
-  "connector_id": "salesforce-uuid",
+  "connector_id": "hubspot-uuid",
   "redirect_uri": "https://app.com/callback",
-  "scopes": ["api", "refresh_token"]
+  "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write"]
 }
 
-# 2. User authorizes on Salesforce
+# 2. User authorizes on HubSpot
 
 # 3. Complete OAuth
 POST /api/v1/integrations/oauth/callback?redirect_uri=https://app.com/callback
 {
-  "connector_id": "salesforce-uuid",
+  "connector_id": "hubspot-uuid",
   "code": "authorization-code",
   "state": "state-token"
 }
 
 # 4. Use connector
-from app.services.integrations.connectors import SalesforceConnector
+from app.services.integrations.connectors import HubSpotConnector
 
-salesforce = SalesforceConnector(connection, connector, db)
+hubspot = HubSpotConnector(connection, connector, db)
 try:
-    contact = await salesforce.create_contact(
+    contact = await hubspot.create_contact(
         first_name="John",
         last_name="Doe",
         email="john@example.com"
     )
 finally:
-    await salesforce.close()
+    await hubspot.close()
 ```
 
 ### API Key Authentication (SendGrid)
@@ -358,12 +334,11 @@ finally:
 
 ### Example Connectors
 5. ✅ `backend/app/services/integrations/connectors/__init__.py`
-6. ✅ `backend/app/services/integrations/connectors/salesforce_connector.py` (550 lines)
-7. ✅ `backend/app/services/integrations/connectors/sendgrid_connector.py` (450 lines)
+6. ✅ `backend/app/services/integrations/connectors/sendgrid_connector.py` (450 lines)
 
 ### Documentation
-8. ✅ `INTEGRATION_CONNECTORS_GUIDE.md` (900 lines)
-9. ✅ `CONNECTOR_SYSTEM_SUMMARY.md` (this file)
+7. ✅ `INTEGRATION_CONNECTORS_GUIDE.md` (900 lines)
+8. ✅ `CONNECTOR_SYSTEM_SUMMARY.md` (this file)
 
 ### Previously Created (Referenced)
 - `backend/app/services/integrations/credential_manager.py` (260 lines)
@@ -376,9 +351,9 @@ finally:
 ## Total Lines of Code
 
 - **Core System**: ~3,000 lines
-- **Example Connectors**: ~1,000 lines
+- **Example Connectors**: ~450 lines
 - **Documentation**: ~900 lines
-- **Total**: ~4,900 lines
+- **Total**: ~4,350 lines
 
 ## What's Next
 
@@ -424,7 +399,7 @@ finally:
 ✅ **Robust Error Handling**: Exponential backoff retry with comprehensive logging
 ✅ **Production-Ready Rate Limiting**: Token bucket algorithm with multi-window support
 ✅ **Comprehensive API**: 15+ endpoints for full integration lifecycle
-✅ **Real-World Examples**: Salesforce & SendGrid with 30+ methods
+✅ **Real-World Examples**: SendGrid with 10+ methods
 ✅ **Complete Documentation**: 900+ lines covering all use cases
 
 ## Conclusion

@@ -99,7 +99,7 @@ Triggers define when a workflow should execute.
 
 **Integration Event**
 - Triggers on integration events
-- Example: New Salesforce lead
+- Example: New HubSpot contact
 
 ### 2. Steps
 
@@ -129,12 +129,13 @@ Workflow context stores variables and data that can be accessed across steps:
   "workflow_steps": [
     {
       "id": "step1",
-      "name": "Create Salesforce Lead",
+      "name": "Create HubSpot Contact",
       "type": "action",
       "config": {
-        "connection_id": "salesforce-connection-id",
-        "action": "create_lead",
+        "connection_id": "hubspot-connection-id",
+        "action": "create_contact",
         "parameters": {
+          "email": "{{trigger.caller_email}}",
           "first_name": "{{trigger.caller_name}}",
           "last_name": "{{trigger.caller_last}}",
           "company": "{{trigger.company}}",
@@ -213,12 +214,6 @@ Executes an integration connector action.
 ```
 
 **Available Actions by Connector:**
-
-**Salesforce:**
-- `create_contact`, `update_contact`, `get_contact`, `delete_contact`
-- `create_lead`, `update_lead`
-- `create_opportunity`
-- `query`, `search_contacts`, `search_leads`
 
 **HubSpot:**
 - `create_contact`, `update_contact`, `get_contact`, `delete_contact`
@@ -535,19 +530,18 @@ GET /api/v1/workflows/{workflow_id}/stats
   },
   "workflow_steps": [
     {
-      "id": "create_lead",
-      "name": "Create Salesforce Lead",
+      "id": "create_contact",
+      "name": "Create HubSpot Contact",
       "type": "action",
       "config": {
-        "connection_id": "salesforce-id",
-        "action": "create_lead",
+        "connection_id": "hubspot-id",
+        "action": "create_contact",
         "parameters": {
+          "email": "{{trigger.caller_email}}",
           "first_name": "{{trigger.caller_name}}",
           "last_name": "{{trigger.caller_last}}",
           "company": "{{trigger.company}}",
-          "phone": "{{trigger.caller_phone}}",
-          "status": "New Lead",
-          "description": "Call transcript: {{trigger.transcript}}"
+          "phone": "{{trigger.caller_phone}}"
         }
       }
     },
@@ -580,7 +574,7 @@ GET /api/v1/workflows/{workflow_id}/stats
           "summary": "Follow up: {{trigger.caller_name}}",
           "start_time": "{{trigger.next_week_10am}}",
           "end_time": "{{trigger.next_week_1030am}}",
-          "description": "Lead ID: {{steps.create_lead.result.id}}",
+          "description": "Contact ID: {{steps.create_contact.result.id}}",
           "attendees": ["{{trigger.agent_email}}"]
         }
       }
@@ -837,7 +831,7 @@ GET /api/v1/workflows/{id}/executions?status=failed
 ✅ **Powerful Engine**: Async execution with retry logic
 ✅ **6 Step Types**: Action, Condition, Loop, Transform, Delay
 ✅ **Variable Interpolation**: Context-aware variable system
-✅ **6 Integrations**: Salesforce, HubSpot, SendGrid, Google Calendar, Slack, Stripe
+✅ **5 Integrations**: HubSpot, SendGrid, Google Calendar, Slack, Stripe
 ✅ **Comprehensive API**: Full CRUD + execution + statistics
 ✅ **Production Ready**: Error handling, logging, monitoring
 

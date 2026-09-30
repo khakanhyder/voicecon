@@ -31,7 +31,6 @@ interface Integration {
 // Static catalog — icons, features, and metadata that aren't stored in the DB
 const integrationCatalog: Integration[] = [
   // CRM
-  { id: '1', slug: 'salesforce', name: 'Salesforce', description: 'Sync contacts, leads, and opportunities with Salesforce CRM', category: 'crm', icon: '🔷', authType: 'oauth2', features: ['Contact Sync', 'Lead Management', 'Opportunity Tracking', 'Custom Fields'], popular: true },
   { id: '2', slug: 'hubspot', name: 'HubSpot', description: 'Connect HubSpot CRM to manage contacts and track customer interactions', category: 'crm', icon: '🟠', authType: 'oauth2', features: ['Contact Management', 'Deal Pipeline', 'Email Tracking', 'Analytics'], popular: true },
   { id: '3', slug: 'pipedrive', name: 'Pipedrive', description: 'Sales pipeline CRM to track deals and contacts from voice calls', category: 'crm', icon: '🟢', authType: 'api_key', features: ['Deal Tracking', 'Contact Sync', 'Pipeline Management', 'Activity Logging'], popular: false },
   { id: '4', slug: 'zendesk', name: 'Zendesk', description: 'Create and update support tickets from voice interactions', category: 'crm', icon: '🎫', authType: 'api_key', features: ['Ticket Management', 'Customer Profiles', 'Automation', 'Reporting'], popular: false },

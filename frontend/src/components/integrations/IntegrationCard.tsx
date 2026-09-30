@@ -36,7 +36,6 @@ export const localIcons: Record<string, string> = {
   'make': 'make.svg',
   'notion': 'notion.svg',
   'pipedrive': 'pipedrive.png',
-  'salesforce': 'salesforce.svg',
   'sendgrid': 'sendgrid.svg',
   'supabase': 'supabase.svg',
   'vonage': 'vonage.svg',
@@ -64,7 +63,6 @@ export const getIconUrl = (slug: string) => {
 
   // Everything else still resolves from the icon CDN.
   const map: Record<string, string> = {
-    'salesforce': 'salesforce',
     'hubspot': 'hubspot',
     'pipedrive': 'pipedrive',
     'zendesk': 'zendesk',

@@ -165,7 +165,7 @@ kubectl set env deployment/backend -n voicecon \
 # Or rollback problematic integration
 kubectl exec -it deployment/backend -n voicecon -- \
   python -c "from app.services.integrations import disable_integration; \
-             disable_integration('salesforce')"
+             disable_integration('hubspot')"
 ```
 
 #### If Application Bug:

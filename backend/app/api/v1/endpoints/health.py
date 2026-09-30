@@ -375,7 +375,6 @@ async def check_integrations() -> Dict[str, Any]:
     """Check status of external integrations."""
     # Placeholder - implement based on your integrations
     return {
-        "salesforce": "healthy",
         "hubspot": "healthy",
         "slack": "healthy"
     }

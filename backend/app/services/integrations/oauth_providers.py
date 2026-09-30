@@ -12,7 +12,6 @@ are secrets and come only from the environment.
 """
 import os
 from typing import Dict, Any, Optional
-from urllib.parse import urljoin, urlparse
 
 from app.core.config import env_value
 
@@ -61,21 +60,6 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
         ],
         "client_id_env": "HUBSPOT_CLIENT_ID",
         "client_secret_env": "HUBSPOT_CLIENT_SECRET",
-    },
-    "salesforce": {
-        "authorize_url": "https://login.salesforce.com/services/oauth2/authorize",
-        "token_url": "https://login.salesforce.com/services/oauth2/token",
-        "scopes": ["api", "refresh_token"],
-        "client_id_env": "SALESFORCE_CLIENT_ID",
-        "client_secret_env": "SALESFORCE_CLIENT_SECRET",
-        # login.salesforce.com only works for an app any org can authorize. A
-        # Local External Client App (Salesforce's app type since Connected App
-        # creation was disabled) rejects it with OAUTH_AUTHORIZATION_BLOCKED
-        # "cross-org OAuth flows are not supported"; it has to be authorized on
-        # the My Domain host of the org that owns it. Sandboxes likewise need
-        # test.salesforce.com. SALESFORCE_LOGIN_URL swaps the host for both
-        # endpoints, e.g. https://example.my.salesforce.com.
-        "host_env": "SALESFORCE_LOGIN_URL",
     },
     "slack": {
         "authorize_url": "https://slack.com/oauth/v2/authorize",
@@ -139,18 +123,6 @@ OAUTH_PROVIDERS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _apply_host_override(url: Optional[str], host: Optional[str]) -> Optional[str]:
-    """Re-point ``url`` at ``host``, keeping the provider's documented path."""
-    if not url or not host:
-        return url
-    base = host.strip().rstrip("/")
-    if not base:
-        return url
-    if "://" not in base:
-        base = f"https://{base}"
-    return urljoin(base + "/", urlparse(url).path.lstrip("/"))
-
-
 def personal_token_config(slug: str) -> Optional[Dict[str, str]]:
     """How an OAuth connector sends a pasted personal token, or None if it takes none."""
     return OAUTH_PROVIDERS.get(slug, {}).get("personal_token")
@@ -194,18 +166,8 @@ def resolve_client_credentials(
     client_id = auth_config.get("client_id") or client_id
     client_secret = auth_config.get("client_secret") or client_secret
 
-    # A provider may allow the login host to be swapped (Salesforce My Domain /
-    # sandbox). The override is applied last, to whichever URL we ended up with:
-    # the seeded connector row carries its own token_url, so overriding only the
-    # registry default sent the authorize step to the My Domain host and the
-    # token exchange back to login.salesforce.com — half-migrated and broken.
-    host = env_value(provider["host_env"]) if provider.get("host_env") else None
-    authorize_url = _apply_host_override(
-        auth_config.get("authorize_url") or provider.get("authorize_url"), host
-    )
-    token_url = _apply_host_override(
-        auth_config.get("token_url") or provider.get("token_url"), host
-    )
+    authorize_url = auth_config.get("authorize_url") or provider.get("authorize_url")
+    token_url = auth_config.get("token_url") or provider.get("token_url")
 
     return {
         "authorize_url": authorize_url,

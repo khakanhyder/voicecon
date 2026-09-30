@@ -224,7 +224,7 @@ When running in development mode, API documentation is available at:
 
 ### Integrations
 - 500+ pre-built connectors
-- CRM (Salesforce, HubSpot, Zoho)
+- CRM (HubSpot, Zoho)
 - Marketing (Mailchimp, SendGrid, ActiveCampaign)
 - Calendar (Google Calendar, Outlook, Calendly)
 - Communication (Slack, Teams, SMS)

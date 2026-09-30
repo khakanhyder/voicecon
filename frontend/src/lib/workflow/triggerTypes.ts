@@ -50,7 +50,6 @@ export interface TriggerDescriptor {
 
 /** Integration types the backend's `_validate_integration_event` accepts. */
 export const INTEGRATION_TYPES = [
-  { value: 'salesforce', label: 'Salesforce' },
   { value: 'hubspot', label: 'HubSpot' },
   { value: 'stripe', label: 'Stripe' },
   { value: 'slack', label: 'Slack' },

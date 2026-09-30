@@ -384,8 +384,8 @@ Trigger workflows when integration events occur.
 {
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created"
+    "integration_type": "hubspot",
+    "event_type": "contact.created"
   }
 }
 ```
@@ -398,11 +398,11 @@ Filter events by payload fields:
 {
   "trigger_type": "integration_event",
   "trigger_config": {
-    "integration_type": "salesforce",
-    "event_type": "lead.created",
+    "integration_type": "hubspot",
+    "event_type": "contact.created",
     "filters": {
-      "LeadSource": "Website",
-      "Status": "New"
+      "lifecyclestage": "lead",
+      "hs_lead_status": "NEW"
     }
   }
 }
@@ -412,7 +412,6 @@ Filter events by payload fields:
 
 | Integration | Event Types |
 |-------------|-------------|
-| `salesforce` | `lead.created`, `contact.updated`, `opportunity.closed` |
 | `hubspot` | `contact.created`, `deal.updated`, `company.created` |
 | `stripe` | `payment.succeeded`, `subscription.created`, `invoice.paid` |
 | `slack` | `message.posted`, `reaction.added` |
@@ -422,13 +421,13 @@ Filter events by payload fields:
 ```json
 {
   "event_type": "integration_event",
-  "integration_type": "salesforce",
-  "integration_event_type": "lead.created",
+  "integration_type": "hubspot",
+  "integration_event_type": "contact.created",
   "payload": {
-    "LeadId": "00Q...",
-    "Email": "john@example.com",
-    "Company": "Acme Corp",
-    "LeadSource": "Website"
+    "contactId": "12345",
+    "email": "john@example.com",
+    "company": "Acme Corp",
+    "lifecyclestage": "lead"
   },
   "metadata": {},
   "triggered_at": "2025-11-16T10:00:00Z"
@@ -497,7 +496,7 @@ POST /api/v1/workflows/{workflow_id}/execute
       "id": "get_customer",
       "type": "action",
       "config": {
-        "connection_id": "{{connections.salesforce}}",
+        "connection_id": "{{connections.hubspot}}",
         "action": "get_contact",
         "parameters": {
           "phone": "{{trigger.phone_number}}"
@@ -695,11 +694,11 @@ POST /api/v1/workflows/trigger/integration-event
 **Request:**
 ```json
 {
-  "integration_type": "salesforce",
-  "event_type": "lead.created",
+  "integration_type": "hubspot",
+  "event_type": "contact.created",
   "payload": {
-    "LeadId": "00Q123",
-    "Email": "john@example.com"
+    "contactId": "12345",
+    "email": "john@example.com"
   }
 }
 ```
@@ -708,8 +707,8 @@ POST /api/v1/workflows/trigger/integration-event
 ```json
 {
   "success": true,
-  "integration_type": "salesforce",
-  "event_type": "lead.created",
+  "integration_type": "hubspot",
+  "event_type": "contact.created",
   "execution_ids": ["exec_1"],
   "count": 1
 }

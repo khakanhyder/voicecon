@@ -6,7 +6,6 @@ const APP_NAMES: Record<string, string> = {
   trello: 'Trello',
   airtable: 'Airtable',
   hubspot: 'HubSpot',
-  salesforce: 'Salesforce',
   gohighlevel: 'GoHighLevel',
   stripe: 'Stripe',
   'google-sheets': 'Google Sheets',
