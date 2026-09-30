@@ -105,21 +105,29 @@ function AgentPicker({
           title={label}
           className="h-9 min-w-0 flex-1 gap-2 rounded-lg border-slate-200 bg-white px-2.5 font-poppins text-sm font-medium text-slate-800 transition-colors hover:border-[#0F6A59]/40 focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 data-[state=open]:border-[#0F6A59] data-[state=open]:ring-2 data-[state=open]:ring-[#0F6A59]/15 disabled:cursor-wait disabled:opacity-60"
         >
-          <span className="flex min-w-0 items-center gap-2">
+          {/* A div, not a span: the trigger line-clamps its direct span children,
+              which would stack the icon above the name. */}
+          <div className="flex min-w-0 items-center gap-2">
             {saving ? (
               <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-slate-400" />
             ) : (
               <Bot className="h-3.5 w-3.5 flex-shrink-0 text-[#0F6A59]" />
             )}
             <span className="truncate">
-              <SelectValue placeholder="Choose an assistant…" />
+              {/* Name only, so the options' own icon isn't repeated here. */}
+              <SelectValue placeholder="Choose an assistant…">
+                {current ? (known ? agents.find((a) => a.id === current)?.name : 'Unknown assistant') : undefined}
+              </SelectValue>
             </span>
-          </span>
+          </div>
         </SelectTrigger>
         <SelectContent searchable={agents.length > 6}>
           {!known && current && (
             <SelectItem value={current} textValue="Unknown assistant">
-              <span className="text-slate-500">Unknown assistant</span>
+              <span className="flex items-center gap-2 text-slate-500">
+                <Bot className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                Unknown assistant
+              </span>
             </SelectItem>
           )}
           {agents.map((a) => (
@@ -129,8 +137,13 @@ function AgentPicker({
               textValue={a.name}
               disabled={a.is_active === false && a.id !== current}
             >
-              {a.name}
-              {a.is_active === false && <span className="ml-1.5 text-xs text-slate-400">(turned off)</span>}
+              <span className="flex items-center gap-2">
+                <Bot className="h-3.5 w-3.5 flex-shrink-0 text-[#0F6A59]" />
+                <span>
+                  {a.name}
+                  {a.is_active === false && <span className="ml-1.5 text-xs text-slate-400">(turned off)</span>}
+                </span>
+              </span>
             </SelectItem>
           ))}
         </SelectContent>
