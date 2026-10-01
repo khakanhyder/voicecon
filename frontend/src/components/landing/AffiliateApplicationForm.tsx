@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { applyToAffiliateProgram } from '@/lib/affiliateApplication'
 import { cn } from '@/lib/utils'
+import { personNameError, validatePersonName } from '@/lib/validation'
 import { buttonClass } from './primitives'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -48,7 +49,8 @@ export function AffiliateApplicationForm() {
 
   const validate = (): Errors => {
     const next: Errors = {}
-    if (name.trim().length < 2) next.name = 'Enter your name.'
+    const nameProblem = personNameError(name)
+    if (nameProblem) next.name = nameProblem
     if (!EMAIL_RE.test(email.trim())) next.email = 'Enter a valid email address.'
     if (message.trim().length < MESSAGE_MIN) next.message = 'Tell us a little about your audience and how you would promote Voicecon.'
     return next
@@ -65,7 +67,7 @@ export function AffiliateApplicationForm() {
     try {
       setDone(
         await applyToAffiliateProgram({
-          name: name.trim(),
+          name: validatePersonName(name),
           email: email.trim(),
           company: company.trim() || undefined,
           website: website.trim() || undefined,
@@ -99,7 +101,7 @@ export function AffiliateApplicationForm() {
             id="aff-name"
             name="name"
             autoComplete="name"
-            maxLength={255}
+            maxLength={100}
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-invalid={!!errors.name}

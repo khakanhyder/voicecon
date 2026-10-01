@@ -33,7 +33,7 @@ from app.core.security import (
     token_version_matches,
     verify_email_verification_token,
 )
-from app.core.exceptions import credentials_exception, bad_request_exception
+from app.core.exceptions import AccountInactiveError, credentials_exception, bad_request_exception
 from app.models.user import User, Organization, OrganizationMember
 from app.schemas.auth import (
     AffiliateAcceptInviteRequest,
@@ -630,8 +630,12 @@ async def refresh_token(
     result = await db.execute(select(User).where(User.id == subject_id))
     user = result.scalar_one_or_none()
 
-    if not user or not user.is_active:
+    if not user:
         raise credentials_exception()
+    if not user.is_active:
+        # Says why, so the app can tell the person their account was switched
+        # off rather than dropping them on the sign-in page with no reason.
+        raise AccountInactiveError()
 
     # A refresh token outlives an access token many times over, so this is the
     # check that actually makes "sign out everywhere" and "reset my password"

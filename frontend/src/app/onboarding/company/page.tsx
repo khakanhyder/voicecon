@@ -8,7 +8,7 @@ import { ChevronDown } from 'lucide-react'
 import { VoiceconLogo } from '@/lib/icons'
 import { BrandPanel } from '@/components/auth/BrandPanel'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
-import { normalizeWebsiteUrl } from '@/lib/validation'
+import { displayNameError, normalizeWebsiteUrl, validateDisplayName } from '@/lib/validation'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { DEFAULT_PHONE_COUNTRY, phoneError, phoneToE164, type PhoneValue } from '@/lib/phone'
 import {
@@ -129,11 +129,13 @@ export default function CompanyInformationPage() {
     // exist to answer immediately, not to be the gate.
     const found: typeof errors = {}
 
-    const companyName = form.company_name.trim()
-    if (!companyName) {
-      found.company_name = 'Enter your company name'
-    } else if (companyName.length < 2) {
-      found.company_name = 'Company name is too short'
+    // Real names only: "123" or "!!!" is not a company. Digits are fine when a
+    // letter comes with them ("3M", "Studio 54"). Same rule the API applies.
+    let companyName = form.company_name.trim()
+    try {
+      companyName = validateDisplayName(form.company_name, 'company name')
+    } catch (err: any) {
+      found.company_name = err.message
     }
 
     // Optional, but if it is filled in it has to be a website. It is stored on
@@ -146,9 +148,14 @@ export default function CompanyInformationPage() {
       found.company_url = err.message
     }
 
-    const assistantName = form.assistant_name.trim()
-    if (assistantName && assistantName.length < 2) {
-      found.assistant_name = 'Assistant name is too short'
+    // Optional — but when it is filled in it becomes the agent's name.
+    let assistantName = form.assistant_name.trim()
+    if (assistantName) {
+      try {
+        assistantName = validateDisplayName(form.assistant_name, 'assistant name', 50)
+      } catch (err: any) {
+        found.assistant_name = err.message
+      }
     }
 
     const phoneProblem = phoneError(phone)
@@ -203,7 +210,13 @@ export default function CompanyInformationPage() {
                 className={`${inputClass} ${errors.company_name ? errorInputClass : ''}`}
                 placeholder="Acme Inc."
                 value={form.company_name}
+                maxLength={100}
                 onChange={(e) => set('company_name')(e.target.value)}
+                onBlur={() => {
+                  if (form.company_name.trim()) {
+                    setErrors((e) => ({ ...e, company_name: displayNameError(form.company_name, 'company name') }))
+                  }
+                }}
                 disabled={mutation.isPending}
                 {...fieldErrorProps('company_name', errors.company_name)}
               />
@@ -265,7 +278,13 @@ export default function CompanyInformationPage() {
                 className={`${inputClass} ${errors.assistant_name ? errorInputClass : ''}`}
                 placeholder="e.g. Aria, Max, Sales Assistant"
                 value={form.assistant_name}
+                maxLength={50}
                 onChange={(e) => set('assistant_name')(e.target.value)}
+                onBlur={() => {
+                  if (form.assistant_name.trim()) {
+                    setErrors((e) => ({ ...e, assistant_name: displayNameError(form.assistant_name, 'assistant name', 50) }))
+                  }
+                }}
                 disabled={mutation.isPending}
                 {...fieldErrorProps('assistant_name', errors.assistant_name)}
               />

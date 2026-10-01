@@ -26,6 +26,7 @@ import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/l
 import { useConfirm } from '@/hooks/use-confirm';
 import { formatDate as formatDay } from '@/lib/datetime';
 import { PLAN_CARDS_ID, PLANS_HASH, scrollToPlanCards } from '@/lib/billingNav';
+import { BillingOwnerNotice, useBillingAccess } from '@/components/billing/BillingOwnerNotice';
 
 interface SubscriptionPlan {
   id: string;
@@ -162,6 +163,8 @@ export default function BillingPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
+  // Admins see this page (billing:read) but only the owner may change the plan.
+  const { canManage } = useBillingAccess();
 
   const entitlements = useEntitlementStore((s) => s.entitlements);
   const refreshEntitlements = useEntitlementStore((s) => s.refresh);
@@ -449,11 +452,13 @@ export default function BillingPage() {
             <div className="py-8 text-center text-gray-500">
               <p className="mb-4">No active subscription found.</p>
               <p className="mb-4 text-sm">Choose a plan below to get started.</p>
-              <Button onClick={scrollToPlans}>Choose a plan</Button>
+              <Button onClick={scrollToPlans}>{canManage ? 'Choose a plan' : 'View plans'}</Button>
             </div>
           )}
 
-          {subscription && (
+          <BillingOwnerNotice className="mb-4" />
+
+          {subscription && canManage && (
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={scrollToPlans} disabled={actionBusy}>
                 {needsCheckout ? 'Choose a plan' : 'Change Plan'}
@@ -633,6 +638,7 @@ export default function BillingPage() {
 
           {/* Scroll target for every "Choose a plan" button — see lib/billingNav. */}
           <div id={PLAN_CARDS_ID} className="scroll-mt-6" />
+          <BillingOwnerNotice className="mb-5" />
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
               {[1, 2, 3, 4].map((i) => (
@@ -737,7 +743,7 @@ export default function BillingPage() {
                         variant="outline"
                         className="w-full h-[45px] font-poppins text-sm rounded-[8px]"
                         onClick={() => switchPlan(plan.id)}
-                        disabled={actionBusy}
+                        disabled={actionBusy || !canManage}
                       >
                         Keep {plan.name}
                       </Button>
@@ -746,6 +752,15 @@ export default function BillingPage() {
                       !entitlements.is_trial ? (
                       <Button disabled className="w-full h-[45px] font-poppins text-sm rounded-[8px]">
                         Current Plan
+                      </Button>
+                    ) : !canManage ? (
+                      // The API would refuse it (403); say why before a card is typed.
+                      <Button
+                        disabled
+                        variant="outline"
+                        className="w-full h-[45px] font-poppins text-sm rounded-[8px]"
+                      >
+                        Owner only
                       </Button>
                     ) : (
                       <Button
@@ -765,7 +780,7 @@ export default function BillingPage() {
                       </Button>
                     )}
 
-                    {plan.id === subscription?.plan_id && entitlements?.is_trial && (
+                    {plan.id === subscription?.plan_id && entitlements?.is_trial && canManage && (
                       <p className="mt-2 text-center text-[12px] text-black/50 font-poppins">
                         You&apos;re trialling this plan. Subscribe to keep it — trial
                         limits on agents, numbers and team members lift once you do.

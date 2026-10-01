@@ -199,7 +199,7 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
       })
       if (error) throw new Error(error.message || 'Invalid card details')
 
-      return onboardingService.checkout({
+      return billingService.payWithCard(stripe, {
         plan_id: selectedPlan.id,
         payment_method_id: paymentMethod.id,
         billing_period: billingPeriod,

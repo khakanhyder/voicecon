@@ -18,7 +18,8 @@ import { getErrorMessage } from '@/lib/api'
 import { ChangeEmailDialog } from '@/components/settings/ChangeEmailDialog'
 import { DeactivateAccountDialog } from '@/components/settings/DeactivateAccountDialog'
 import { PhoneInput } from '@/components/ui/phone-input'
-import { FieldError } from '@/components/ui/field-error'
+import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
+import { personNameError, validatePersonName } from '@/lib/validation'
 import {
   DEFAULT_PHONE_COUNTRY,
   phoneError,
@@ -54,6 +55,7 @@ export default function ProfileSettingsPage() {
   // The user's own number — not the company's, which lives in the company profile.
   const [phone, setPhone] = useState<PhoneValue>({ country: DEFAULT_PHONE_COUNTRY, national: '' })
   const [phoneProblem, setPhoneProblem] = useState<string | undefined>()
+  const [nameProblem, setNameProblem] = useState<string | undefined>()
 
   // Password change
   const [pw, setPw] = useState({ current_password: '', new_password: '', confirm: '' })
@@ -96,8 +98,16 @@ export default function ProfileSettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // Both are checked and reported together, so fixing one never reveals the
+    // other only on the next click.
+    const nameIssue = personNameError(formData.full_name)
     const problem = phoneError(phone)
+    setNameProblem(nameIssue)
     setPhoneProblem(problem)
+    if (nameIssue) {
+      document.getElementById('fullName')?.focus()
+      return
+    }
     if (problem) {
       document.getElementById('phone')?.focus()
       return
@@ -105,7 +115,7 @@ export default function ProfileSettingsPage() {
     setSaving(true)
     try {
       const updated = await authService.updateProfile({
-        full_name: formData.full_name,
+        full_name: validatePersonName(formData.full_name),
         phone_number: phoneToE164(phone),
         company_name: formData.company_name || null,
         avatar_url: formData.avatar_url || null,
@@ -235,8 +245,16 @@ export default function ProfileSettingsPage() {
               <Input
                 id="fullName"
                 value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
+                onChange={(e) => {
+                  setFormData({ ...formData, full_name: e.target.value })
+                  if (nameProblem) setNameProblem(undefined)
+                }}
+                onBlur={() => setNameProblem(personNameError(formData.full_name))}
+                maxLength={100}
+                autoComplete="name"
+                {...fieldErrorProps('fullName', nameProblem)}
+                className={`w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px] ${nameProblem ? errorInputClass : ''}`} />
+              <FieldError id="fullName-error" message={nameProblem} />
             </div>
 
             <div className="space-y-2">

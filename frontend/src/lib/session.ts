@@ -54,6 +54,37 @@ export const LOGIN_PATH: Record<SessionScope, string> = {
   affiliate: '/affiliate/login',
 }
 
+/**
+ * Why someone was just signed out, carried across the redirect to the sign-in
+ * page so it can be shown there. Without it, a person whose account was
+ * switched off mid-session lands on the sign-in form with no explanation.
+ *
+ * sessionStorage: it belongs to this tab's redirect only, and must not greet
+ * the next person to open the sign-in page on a shared computer.
+ */
+const noticeKey = (scope: SessionScope) => `signed_out_notice:${scope}`
+
+export function setSignedOutNotice(message: string, scope: SessionScope = currentScope()): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem(noticeKey(scope), message)
+  } catch {
+    // Storage unavailable (private mode quota): the sign-out still happens.
+  }
+}
+
+/** Read the notice once; it is cleared so a reload does not repeat it. */
+export function takeSignedOutNotice(scope: SessionScope = currentScope()): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const message = sessionStorage.getItem(noticeKey(scope))
+    if (message) sessionStorage.removeItem(noticeKey(scope))
+    return message
+  } catch {
+    return null
+  }
+}
+
 /** Which session the current page belongs to. */
 export function currentScope(): SessionScope {
   if (typeof window === 'undefined') return 'app'

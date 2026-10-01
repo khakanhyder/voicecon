@@ -16,6 +16,7 @@ from typing import Dict, List, Literal, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
@@ -676,6 +677,9 @@ async def stripe_webhook(
             detail="Failed to process webhook",
         )
 
+    # A payment finished after 3-D Secure whose browser never called back.
+    await adopt_paid_stripe_subscription(db, event)
+
     return {"status": "success"}
 
 
@@ -1010,6 +1014,307 @@ async def start_free_trial(
 STRIPE_LIVE_STATUSES = frozenset({"active", "trialing", "past_due"})
 
 
+def _latest_payment_intent(stripe_subscription):
+    """The PaymentIntent behind a subscription's first invoice, if expanded."""
+    invoice = getattr(stripe_subscription, "latest_invoice", None)
+    if invoice is None or isinstance(invoice, str):
+        return None
+    intent = getattr(invoice, "payment_intent", None)
+    return None if intent is None or isinstance(intent, str) else intent
+
+
+def _stripe_billing_period(stripe_subscription) -> str:
+    """``monthly`` | ``yearly``, read from the price Stripe is charging."""
+    try:
+        interval = stripe_subscription["items"]["data"][0]["price"]["recurring"]["interval"]
+    except (KeyError, IndexError, TypeError):
+        interval = None
+    return "yearly" if interval == "year" else "monthly"
+
+
+def _payment_not_completed(payment_intent) -> HTTPException:
+    """402 for a checkout that took no money, in words the customer can act on."""
+    declined = getattr(getattr(payment_intent, "last_payment_error", None), "message", None)
+    intent_status = getattr(payment_intent, "status", None)
+    if intent_status == "requires_action":
+        reason = "your bank's verification was not completed"
+    elif declined:
+        reason = declined.rstrip(".")
+    else:
+        reason = "the payment could not be completed"
+    return HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=(
+            f"Your card was not charged — {reason}. "
+            "Nothing has changed on your account. Try again or use a different card."
+        ),
+    )
+
+
+async def _discard_unpaid_stripe_subscription(stripe_subscription_id: str, org_id) -> None:
+    """Remove a Stripe subscription that never took a payment. Best effort."""
+    import asyncio
+    import stripe
+
+    try:
+        await asyncio.to_thread(stripe.Subscription.delete, stripe_subscription_id)
+    except Exception as exc:  # pragma: no cover - best effort cleanup
+        logger.warning(
+            f"Could not clean up unpaid Stripe subscription "
+            f"{stripe_subscription_id} for org {org_id}: {exc}"
+        )
+
+
+async def _activate_stripe_subscription(
+    db: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    plan: SubscriptionPlan,
+    stripe_subscription,
+    billing_period: str,
+    actor: Optional[User],
+) -> Subscription:
+    """Record a paid Stripe subscription as this workspace's plan.
+
+    Shared by the three ways a payment can be learned of: straight from
+    checkout, from ``/checkout/confirm`` after 3-D Secure, and from the webhook
+    when the browser never came back. A trialing, grace or expired subscription
+    is converted **in place**; only a workspace with no subscription at all gets
+    a new row. Calling it again for the same Stripe subscription is a no-op, so
+    the confirm call and the webhook cannot both apply it.
+
+    ``actor`` is the person who paid, or None when Stripe told us.
+    """
+    # Locked: /checkout/confirm and the webhook can arrive together.
+    result = await db.execute(
+        select(Subscription)
+        .where(Subscription.organization_id == org_id)
+        .order_by(Subscription.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    existing = result.scalar_one_or_none()
+    live = await _existing_live_subscription(db, org_id)
+    if live is not None:
+        existing = live
+
+    if existing is not None and existing.stripe_subscription_id == stripe_subscription.id:
+        return existing
+
+    # Stripe can still say ``incomplete`` for a moment after the charge went
+    # through; callers only get here once the payment is certain.
+    stripe_status = (
+        stripe_subscription.status
+        if stripe_subscription.status in STRIPE_LIVE_STATUSES
+        else STATUS_ACTIVE
+    )
+    stripe_customer_id = stripe_subscription.customer
+    if not isinstance(stripe_customer_id, str):
+        stripe_customer_id = stripe_customer_id.id
+    now = datetime.utcnow()
+    period_start = utc_from_timestamp(stripe_subscription.current_period_start)
+    period_end = utc_from_timestamp(stripe_subscription.current_period_end)
+    actor_fields = (
+        {"actor_type": events.ACTOR_USER, "actor_id": actor.id}
+        if actor is not None
+        else {"actor_type": events.ACTOR_STRIPE}
+    )
+
+    if existing is not None:
+        # Convert in place: the trial ends here and the paid plan takes over.
+        previous_status = existing.status
+        converting_trial = apply_paid_conversion(
+            existing,
+            plan,
+            stripe_subscription_id=stripe_subscription.id,
+            stripe_customer_id=stripe_customer_id,
+            stripe_status=stripe_status,
+            billing_period=billing_period,
+            period_start=period_start,
+            period_end=period_end,
+            now=now,
+        )
+        subscription = existing
+
+        await events.record_event(
+            db,
+            organization_id=org_id,
+            event_type=events.TRIAL_CONVERTED if converting_trial else events.ACTIVATED,
+            subscription=subscription,
+            from_status=previous_status,
+            to_status=subscription.status,
+            to_plan_id=plan.id,
+            **actor_fields,
+        )
+
+        if converting_trial:
+            grants = await db.execute(
+                select(TrialGrant).where(TrialGrant.organization_id == org_id)
+            )
+            for grant in grants.scalars().all():
+                grant.converted = True
+    else:
+        # First subscription for this workspace.
+        subscription = Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            stripe_subscription_id=stripe_subscription.id,
+            stripe_customer_id=stripe_customer_id,
+            status=stripe_status,
+            source=SOURCE_STRIPE,
+            billing_period=billing_period,
+            current_period_start=period_start,
+            current_period_end=period_end,
+        )
+        db.add(subscription)
+        try:
+            await db.flush()
+        except IntegrityError:
+            # The other witness (confirm call or webhook) inserted it first.
+            await db.rollback()
+            result = await db.execute(
+                select(Subscription).where(
+                    Subscription.stripe_subscription_id == stripe_subscription.id
+                )
+            )
+            winner = result.scalar_one_or_none()
+            if winner is None:
+                raise
+            return winner
+        await events.record_event(
+            db,
+            organization_id=org_id,
+            event_type=events.ACTIVATED,
+            subscription=subscription,
+            to_status=subscription.status,
+            to_plan_id=plan.id,
+            **actor_fields,
+        )
+
+    await _mark_onboarding_done(db, org_id)
+    await db.commit()
+    await db.refresh(subscription)
+    invalidate_entitlements(org_id)
+
+    latest_invoice = getattr(stripe_subscription, "latest_invoice", None)
+    if latest_invoice is not None and not isinstance(latest_invoice, str):
+        stripe_service = await get_stripe_service()
+        await stripe_service.record_affiliate_commission(db, subscription, latest_invoice)
+        await db.commit()
+
+    to_email = actor.email if actor is not None else await _owner_email(db, org_id)
+    if to_email:
+        try:
+            import asyncio
+
+            from app.services.email.service import email_service
+            from app.core.config import settings
+
+            base = (settings.FRONTEND_URL or "").rstrip("/")
+            asyncio.create_task(
+                email_service.send_subscription_confirmation(
+                    to_email=to_email,
+                    plan_name=plan.name,
+                    action_url=f"{base}/dashboard/settings/billing",
+                )
+            )
+        except Exception as exc:
+            logger.error(f"Failed to send subscription confirmation email: {exc}")
+
+    return subscription
+
+
+async def _owner_email(db: AsyncSession, org_id: uuid.UUID) -> Optional[str]:
+    from app.models.user import Organization
+
+    result = await db.execute(
+        select(User.email)
+        .join(Organization, Organization.owner_id == User.id)
+        .where(Organization.id == org_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def adopt_paid_stripe_subscription(db: AsyncSession, event) -> None:
+    """Activate a paid checkout whose browser never reported back.
+
+    After 3-D Secure the browser calls ``/checkout/confirm``. If the tab was
+    closed, the connection dropped or the bank redirected away, the customer
+    has paid and nothing here knows. Stripe's webhook is the second witness:
+    a paid subscription that carries our checkout metadata but matches no row
+    is activated here, exactly as the confirm call would have done.
+
+    Never raises — a problem here must not make Stripe retry the whole event.
+    """
+    import asyncio
+    import stripe
+
+    from app.services.billing.stripe_service import invoice_subscription_id
+
+    try:
+        event_type = event["type"]
+        data = event["data"]["object"]
+        if event_type == "invoice.paid":
+            stripe_id = invoice_subscription_id(data)
+        elif event_type == "customer.subscription.updated":
+            stripe_id = data.get("id")
+        else:
+            return
+        if not stripe_id:
+            return
+
+        known = await db.execute(
+            select(Subscription.id).where(Subscription.stripe_subscription_id == stripe_id)
+        )
+        if known.first() is not None:
+            return
+
+        stripe_subscription = await asyncio.to_thread(
+            stripe.Subscription.retrieve, stripe_id, expand=["latest_invoice.payment_intent"]
+        )
+        metadata = getattr(stripe_subscription, "metadata", None) or {}
+        if stripe_subscription.status != "active":
+            return
+        try:
+            org_id = uuid.UUID(str(metadata.get("organization_id")))
+            plan = await db.get(SubscriptionPlan, uuid.UUID(str(metadata.get("plan_id"))))
+        except (ValueError, TypeError):
+            return
+        if plan is None:
+            return
+
+        # A workspace a provider already bills is not overwritten by a stray
+        # second subscription; that needs a person to look at it.
+        current = await _existing_live_subscription(db, org_id)
+        if (
+            current is not None
+            and current.status in (STATUS_ACTIVE, STATUS_PAST_DUE)
+            and _is_provider_billed(current)
+        ):
+            logger.error(
+                f"Paid Stripe subscription {stripe_id} for org {org_id} matches no row, "
+                f"and the workspace is already billed. Needs a manual look."
+            )
+            return
+
+        await _activate_stripe_subscription(
+            db,
+            org_id=org_id,
+            plan=plan,
+            stripe_subscription=stripe_subscription,
+            billing_period=_stripe_billing_period(stripe_subscription),
+            actor=None,
+        )
+        logger.info(f"Activated Stripe subscription {stripe_id} for org {org_id} from its webhook.")
+        if event_type == "invoice.paid":
+            # The invoice was skipped a moment ago for want of a subscription row.
+            stripe_service = await get_stripe_service()
+            await stripe_service.sync_invoice(db, data["id"])
+    except Exception as exc:
+        await db.rollback()
+        logger.error(f"Could not adopt paid Stripe subscription from webhook: {exc}", exc_info=True)
+
+
 @router.post(
     "/checkout", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED
 )
@@ -1117,126 +1422,127 @@ async def checkout(
         **coupon_params,
     )
 
-    # 4a. Refuse to convert onto a subscription Stripe has not actually started.
-    #     A card needing 3-D Secure comes back ``incomplete``, and that status is
-    #     in neither LIVE_STATUSES nor RUNTIME_STATUSES — writing it onto the row
-    #     would resolve the workspace to EXPIRED entitlements: every feature off,
-    #     every limit zero, read-only. That is strictly worse than the trial the
-    #     customer walked in with, and the trial cannot be started again. So we
-    #     leave their subscription untouched, bin the unpaid Stripe object rather
-    #     than leaving it to linger, and tell them the payment did not go through.
+    # 4a. Never convert onto a subscription Stripe has not actually started.
+    #     ``incomplete`` is in neither LIVE_STATUSES nor RUNTIME_STATUSES —
+    #     writing it onto the row would resolve the workspace to EXPIRED
+    #     entitlements: every feature off, every limit zero, read-only. That is
+    #     strictly worse than the trial the customer walked in with, and the
+    #     trial cannot be started again. So their subscription stays untouched
+    #     until the money has actually moved.
     if stripe_subscription.status not in STRIPE_LIVE_STATUSES:
-        try:
-            await asyncio.to_thread(stripe.Subscription.delete, stripe_subscription.id)
-        except Exception as exc:  # pragma: no cover - best effort cleanup
-            logger.warning(
-                f"Could not clean up unpaid Stripe subscription "
-                f"{stripe_subscription.id} for org {org_id}: {exc}"
+        payment_intent = _latest_payment_intent(stripe_subscription)
+        client_secret = getattr(payment_intent, "client_secret", None)
+        if getattr(payment_intent, "status", None) == "requires_action" and client_secret:
+            # The bank wants the cardholder to approve the payment (3-D Secure).
+            # That is not a failure: hand the browser what it needs to show the
+            # bank's prompt, and activate in /checkout/confirm once it is done.
+            logger.info(
+                f"Checkout for org {org_id} needs cardholder authentication "
+                f"(Stripe subscription {stripe_subscription.id})."
             )
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "requires_action": True,
+                    "client_secret": client_secret,
+                    "stripe_subscription_id": stripe_subscription.id,
+                },
+            )
+        await _discard_unpaid_stripe_subscription(stripe_subscription.id, org_id)
         logger.warning(
             f"Checkout for org {org_id} left Stripe subscription in "
             f"'{stripe_subscription.status}'; subscription unchanged."
         )
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(
-                "Your card was not charged — the payment could not be completed. "
-                "Nothing has changed on your account. Try a different card."
-            ),
-        )
+        raise _payment_not_completed(payment_intent)
 
-    now = datetime.utcnow()
-    period_start = utc_from_timestamp(stripe_subscription.current_period_start)
-    period_end = utc_from_timestamp(stripe_subscription.current_period_end)
+    subscription = await _activate_stripe_subscription(
+        db,
+        org_id=org_id,
+        plan=plan,
+        stripe_subscription=stripe_subscription,
+        billing_period=request.billing_period,
+        actor=current_user,
+    )
+    return _subscription_response(subscription, plan)
 
-    if existing is not None:
-        # 5a. Convert in place: the trial ends here and the paid plan takes over.
-        previous_status = existing.status
-        converting_trial = apply_paid_conversion(
-            existing,
-            plan,
-            stripe_subscription_id=stripe_subscription.id,
-            stripe_customer_id=stripe_customer_id,
-            stripe_status=stripe_subscription.status,
-            billing_period=request.billing_period,
-            period_start=period_start,
-            period_end=period_end,
-            now=now,
-        )
-        subscription = existing
 
-        await events.record_event(
-            db,
-            organization_id=org_id,
-            event_type=events.TRIAL_CONVERTED if converting_trial else events.ACTIVATED,
-            subscription=subscription,
-            from_status=previous_status,
-            to_status=subscription.status,
-            to_plan_id=plan.id,
-            actor_type=events.ACTOR_USER,
-            actor_id=current_user.id,
-        )
+class CheckoutConfirmRequest(BaseModel):
+    """Finish a checkout whose card needed the bank's approval."""
 
-        if converting_trial:
-            grants = await db.execute(
-                select(TrialGrant).where(TrialGrant.organization_id == org_id)
-            )
-            for grant in grants.scalars().all():
-                grant.converted = True
-    else:
-        # 5b. First subscription for this workspace.
-        subscription = Subscription(
-            organization_id=org_id,
-            plan_id=plan.id,
-            stripe_subscription_id=stripe_subscription.id,
-            stripe_customer_id=stripe_customer_id,
-            status=stripe_subscription.status,
-            source=SOURCE_STRIPE,
-            billing_period=request.billing_period,
-            current_period_start=period_start,
-            current_period_end=period_end,
-        )
-        db.add(subscription)
-        await db.flush()
-        await events.record_event(
-            db,
-            organization_id=org_id,
-            event_type=events.ACTIVATED,
-            subscription=subscription,
-            to_status=subscription.status,
-            to_plan_id=plan.id,
-            actor_type=events.ACTOR_USER,
-            actor_id=current_user.id,
-        )
+    stripe_subscription_id: str = Field(..., min_length=4, max_length=255, pattern=r"^sub_")
 
-    await _mark_onboarding_done(db, org_id)
-    await db.commit()
-    await db.refresh(subscription)
-    invalidate_entitlements(org_id)
 
-    latest_invoice = getattr(stripe_subscription, "latest_invoice", None)
-    if latest_invoice is not None and not isinstance(latest_invoice, str):
-        await stripe_service.record_affiliate_commission(db, subscription, latest_invoice)
-        await db.commit()
+@router.post("/checkout/confirm", response_model=SubscriptionResponse)
+async def confirm_checkout(
+    request: CheckoutConfirmRequest,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Second half of a checkout that needed 3-D Secure.
+
+    The browser calls this after the bank's prompt closes, whichever way it
+    went. Nothing the browser says is trusted: the subscription is re-read from
+    Stripe, must belong to this workspace, and is only activated if Stripe says
+    the payment went through. If it did not, the unpaid Stripe subscription is
+    removed so it cannot linger, and the workspace is left exactly as it was.
+    """
+    import asyncio
+    import stripe
+
+    await get_stripe_service()
 
     try:
-        from app.services.email.service import email_service
-        from app.core.config import settings
-
-        base = (settings.FRONTEND_URL or "").rstrip("/")
-        action_url = f"{base}/dashboard/settings/billing"
-
-        import asyncio
-        asyncio.create_task(
-            email_service.send_subscription_confirmation(
-                to_email=current_user.email,
-                plan_name=plan.name,
-                action_url=action_url,
-            )
+        stripe_subscription = await asyncio.to_thread(
+            stripe.Subscription.retrieve,
+            request.stripe_subscription_id,
+            expand=["latest_invoice.payment_intent"],
         )
-    except Exception as exc:
-        logger.error(f"Failed to send subscription confirmation email: {exc}")
+    except stripe.error.InvalidRequestError:
+        stripe_subscription = None
+    metadata = getattr(stripe_subscription, "metadata", None) or {}
+    # 404 for someone else's subscription too: never confirm that an id exists.
+    if stripe_subscription is None or metadata.get("organization_id") != str(org_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkout not found")
 
+    payment_intent = _latest_payment_intent(stripe_subscription)
+    if stripe_subscription.status not in STRIPE_LIVE_STATUSES:
+        # The charge can succeed a moment before Stripe flips the subscription.
+        for _ in range(3):
+            if getattr(payment_intent, "status", None) != "succeeded":
+                break
+            await asyncio.sleep(1)
+            stripe_subscription = await asyncio.to_thread(
+                stripe.Subscription.retrieve,
+                request.stripe_subscription_id,
+                expand=["latest_invoice.payment_intent"],
+            )
+            payment_intent = _latest_payment_intent(stripe_subscription)
+            if stripe_subscription.status in STRIPE_LIVE_STATUSES:
+                break
+
+    paid = getattr(payment_intent, "status", None) == "succeeded"
+    if stripe_subscription.status not in STRIPE_LIVE_STATUSES and not paid:
+        await _discard_unpaid_stripe_subscription(stripe_subscription.id, org_id)
+        raise _payment_not_completed(payment_intent)
+
+    plan = None
+    try:
+        plan = await db.get(SubscriptionPlan, uuid.UUID(str(metadata.get("plan_id"))))
+    except (ValueError, TypeError):
+        pass
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+
+    subscription = await _activate_stripe_subscription(
+        db,
+        org_id=org_id,
+        plan=plan,
+        stripe_subscription=stripe_subscription,
+        billing_period=_stripe_billing_period(stripe_subscription),
+        actor=current_user,
+    )
     return _subscription_response(subscription, plan)
 
 

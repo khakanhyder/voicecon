@@ -47,7 +47,7 @@ test('the company step asks for a contact number and offers no number to buy', a
 
   expect(api.callsOf('POST', '/onboarding/company')[0].body).toMatchObject({
     company_name: 'Acme Inc.',
-    phone_number: '+1 3017981897',
+    phone_number: '+13017981897',
   })
   // No number search, no purchase: the carrier account is never involved.
   expect(api.callsTo('/phone-numbers')).toHaveLength(0)

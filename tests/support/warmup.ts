@@ -44,6 +44,7 @@ const ROUTES = [
   '/dashboard/phone-numbers',
   '/dashboard/integrations/twilio',
   '/dashboard/settings',
+  '/dashboard/settings/profile',
   // The not-found page, which the 404 test relies on.
   '/this-route-does-not-exist',
 ]

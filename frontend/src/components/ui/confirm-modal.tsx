@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { createPortal } from 'react-dom'
+import { ModalOverlay } from '@/components/ui/modal-overlay'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, X } from 'lucide-react'
 
@@ -28,18 +28,13 @@ export function ConfirmModal({
   isDestructive = false,
   isLoading = false,
 }: ConfirmModalProps) {
-  const [mounted, setMounted] = React.useState(false)
+  if (!isOpen) return null
 
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  if (!isOpen || !mounted) return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-      onClick={() => { if (!isLoading) onCancel() }}
+  return (
+    <ModalOverlay
+      onClose={onCancel}
+      busy={isLoading}
+      className="z-[9999] bg-black/40 backdrop-blur-sm"
     >
       <div
         role="dialog"
@@ -47,7 +42,6 @@ export function ConfirmModal({
         aria-labelledby="confirm-modal-title"
         aria-describedby="confirm-modal-description"
         className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           aria-label="Close"
@@ -83,7 +77,6 @@ export function ConfirmModal({
           </Button>
         </div>
       </div>
-    </div>,
-    document.body
+    </ModalOverlay>
   )
 }

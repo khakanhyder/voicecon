@@ -12,6 +12,7 @@ import { clearScope } from '@/lib/session'
 import { PasswordInput } from '@/components/ui/password-input'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { AuthFrame, FormError, FullScreenSpinner } from '@/components/affiliate/AuthFrame'
+import { SignedOutNotice } from '@/components/auth/SignedOutNotice'
 import { inputClass, primaryButtonClass } from '@/components/affiliate/ui'
 
 /** Where to go after signing in: `?redirect=` when it points inside the portal. */
@@ -189,6 +190,7 @@ export default function AffiliateLoginPage() {
           <h1 className="text-2xl font-bold text-slate-900">Partner sign in</h1>
           <p className="mb-6 mt-1 text-sm text-slate-600">Track your referrals, earnings and payouts.</p>
           <FormError message={error} />
+          <SignedOutNotice className="mb-4" />
           <form onSubmit={handleLogin} noValidate className="space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="email" className={labelClass}>

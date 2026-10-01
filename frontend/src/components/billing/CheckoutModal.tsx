@@ -6,7 +6,9 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { toast } from 'sonner'
 import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ModalOverlay } from '@/components/ui/modal-overlay'
 import { apiClient, getErrorMessage } from '@/lib/api'
+import { BillingOwnerNotice, useBillingAccess } from '@/components/billing/BillingOwnerNotice'
 import { API_ENDPOINTS, FREE_TRIAL_DAYS } from '@/lib/constants'
 import { getStripe, isStripeConfigured } from '@/lib/stripe'
 import { billingService, discountedPrice, useBillingConfig, type CouponQuote } from '@/lib/billing'
@@ -59,10 +61,12 @@ interface PayProps {
   onSuccess: () => void
   returnPath?: string
   couponCode?: string
+  /** Shows a payment problem inside the dialog, where it stays readable. */
+  onError: (message: string | null) => void
 }
 
 /** Stripe: the card is collected here. Must render inside <Elements>. */
-function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, onSuccess, couponCode }: PayProps) {
+function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, onSuccess, couponCode, onError }: PayProps) {
   const stripe = useStripe()
   const elements = useElements()
   const refreshConfigOnConflict = useRefreshConfigOnConflict()
@@ -75,20 +79,21 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
     const card = elements.getElement(CardElement)
     if (!card) return
     setSubmitting(true)
+    onError(null)
     try {
       const { error, paymentMethod } = await stripe.createPaymentMethod({ type: 'card', card })
       if (error) throw new Error(error.message || 'Invalid card details')
-      await apiClient.post(API_ENDPOINTS.BILLING_CHECKOUT, {
+      await billingService.payWithCard(stripe, {
         plan_id: plan.id,
         payment_method_id: paymentMethod.id,
         billing_period: billingPeriod,
         coupon_code: couponCode,
       })
-      toast.success('Subscription activated!')
+      toast.success(`You're subscribed to ${plan.name}. The new limits are active now.`)
       onSuccess()
     } catch (err) {
       refreshConfigOnConflict(err)
-      toast.error(getErrorMessage(err))
+      onError(getErrorMessage(err))
     } finally {
       setSubmitting(false)
     }
@@ -99,18 +104,23 @@ function CardPayment({ plan, billingPeriod, price, busy, submitting, setSubmitti
       <div className="rounded-lg border border-gray-300 p-3">
         <CardElement options={{ style: { base: { fontSize: '15px' } } }} />
       </div>
-      <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={pay} disabled={busy}>
+      <Button className="w-full bg-[#106959] text-white hover:bg-[#0c5044]" onClick={pay} disabled={busy}>
         {submitting ? 'Processing…' : `Pay $${price} & Subscribe`}
       </Button>
+      <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500">
+        <Lock className="h-3 w-3" aria-hidden="true" />
+        Card details go straight to Stripe. Your bank may ask you to approve the payment.
+      </p>
     </>
   )
 }
 
 /** Polar: the customer pays on Polar's hosted page and comes back. */
-function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, returnPath, couponCode }: PayProps) {
+function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmitting, returnPath, couponCode, onError }: PayProps) {
   const refreshConfigOnConflict = useRefreshConfigOnConflict()
   const pay = async () => {
     setSubmitting(true)
+    onError(null)
     try {
       await billingService.startHostedCheckout({
         plan_id: plan.id,
@@ -120,7 +130,7 @@ function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmit
       })
     } catch (err) {
       refreshConfigOnConflict(err)
-      toast.error(getErrorMessage(err))
+      onError(getErrorMessage(err))
       setSubmitting(false)
     }
   }
@@ -131,7 +141,7 @@ function HostedPayment({ plan, billingPeriod, price, busy, submitting, setSubmit
         <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
         You&apos;ll pay on our payment partner&apos;s secure checkout page, then come straight back here.
       </p>
-      <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={pay} disabled={busy}>
+      <Button className="w-full bg-[#106959] text-white hover:bg-[#0c5044]" onClick={pay} disabled={busy}>
         {submitting ? 'Opening checkout…' : `Continue to payment · $${price}`}
       </Button>
     </>
@@ -146,6 +156,9 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
   const { data: config, isLoading } = useBillingConfig()
   const [submitting, setSubmitting] = useState(false)
   const [startingTrial, setStartingTrial] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Only the owner may buy; the API would answer 403 after the card was typed.
+  const { canManage } = useBillingAccess()
   // Only offer the trial to a workspace that can still start one; for anyone
   // else (a running, lapsed or used-up trial) the only possible answer is 409.
   const trialAvailable = useEntitlementStore((s) => !!s.entitlements?.trial_available)
@@ -181,6 +194,7 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
 
   const startTrial = async () => {
     setStartingTrial(true)
+    setError(null)
     try {
       // No `trial_days`: the server owns the length and ignores a client one.
       await apiClient.post(API_ENDPOINTS.BILLING_TRIAL, {
@@ -190,7 +204,7 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
       toast.success(`Your ${trialDays}-day free trial has started!`)
       onSuccess()
     } catch (err) {
-      toast.error(getErrorMessage(err))
+      setError(getErrorMessage(err))
     } finally {
       setStartingTrial(false)
     }
@@ -206,10 +220,12 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
     onSuccess,
     returnPath,
     couponCode: coupon?.code ?? undefined,
+    onError: setError,
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    // No backdrop close: a stray click outside would throw away a typed card.
+    <ModalOverlay onClose={onClose} busy={busy} closeOnBackdrop={false} className="bg-black/40">
       <div
         role="dialog"
         aria-modal="true"
@@ -233,13 +249,15 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
             </p>
           </div>
 
-          {configured && !isLoading && (
+          {canManage && configured && !isLoading && (
             <CouponField billingPeriod={billingPeriod} onChange={setCoupon} disabled={busy} />
           )}
 
-          {isLoading ? (
+          {!canManage ? (
+            <BillingOwnerNotice />
+          ) : isLoading ? (
             <div className="flex h-20 items-center justify-center">
-              <div className="h-7 w-7 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+              <div className="h-7 w-7 animate-spin rounded-full border-4 border-gray-200 border-t-[#106959]" />
             </div>
           ) : !configured ? (
             <p className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
@@ -259,18 +277,24 @@ export function CheckoutModal({ plan, billingPeriod: requestedPeriod, onClose, o
             </Elements>
           )}
 
+          {error && (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {error}
+            </p>
+          )}
+
           <div className="flex items-center gap-3">
-            {trialAvailable && (
+            {canManage && trialAvailable && (
               <Button variant="outline" className="flex-1" onClick={startTrial} disabled={busy}>
                 {startingTrial ? 'Starting…' : `Start ${trialDays}-day free trial`}
               </Button>
             )}
-            <Button variant="ghost" className={trialAvailable ? '' : 'ml-auto'} onClick={onClose} disabled={busy}>
-              Cancel
+            <Button variant="ghost" className={canManage && trialAvailable ? '' : 'ml-auto'} onClick={onClose} disabled={busy}>
+              {canManage ? 'Cancel' : 'Close'}
             </Button>
           </div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }

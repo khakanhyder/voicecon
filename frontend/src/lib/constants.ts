@@ -98,6 +98,7 @@ export const API_ENDPOINTS = {
   BILLING_CONFIG: `${API_BASE}/api/v1/billing/config`,
   BILLING_TRIAL: `${API_BASE}/api/v1/billing/trial`,
   BILLING_CHECKOUT: `${API_BASE}/api/v1/billing/checkout`,
+  BILLING_CHECKOUT_CONFIRM: `${API_BASE}/api/v1/billing/checkout/confirm`,
   BILLING_CHECKOUT_SESSION: `${API_BASE}/api/v1/billing/checkout-session`,
   BILLING_CHECKOUT_STATUS: (id: string) => `${API_BASE}/api/v1/billing/checkout-session/${encodeURIComponent(id)}`,
   BILLING_PORTAL: `${API_BASE}/api/v1/billing/portal`,

@@ -8,6 +8,7 @@ import {
   getOrganizationId,
   getRefreshToken,
   setAccessToken,
+  setSignedOutNotice,
 } from './session'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -44,11 +45,54 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+/** Shown on the sign-in page after an account is switched off mid-session. */
+export const ACCOUNT_INACTIVE_MESSAGE =
+  'Your account has been deactivated or deleted. Please contact support if you believe this is a mistake.'
+
+/**
+ * True when the API refused a request because the account behind the session
+ * was disabled or deleted by an admin, or deactivated — as opposed to a token
+ * that merely expired. The server sends `code: "account_inactive"` with a 401.
+ */
+export function isAccountInactive(error: unknown): boolean {
+  const data = (error as { response?: { data?: { code?: unknown } } })?.response?.data
+  return data?.code === 'account_inactive'
+}
+
+let endingSession = false
+
+/**
+ * End this console's session because its account no longer exists for sign-in:
+ * drop the tokens, remember why, and go to the sign-in page. A full page load,
+ * not a router push, so every cached query and store goes with it. Several
+ * requests usually fail together; only the first one redirects.
+ */
+function endSessionForInactiveAccount(): void {
+  if (typeof window === 'undefined' || endingSession) return
+  endingSession = true
+  const scope = currentScope()
+  clearScope(scope)
+  setSignedOutNotice(ACCOUNT_INACTIVE_MESSAGE, scope)
+  if (window.location.pathname !== LOGIN_PATH[scope]) {
+    window.location.href = LOGIN_PATH[scope]
+  } else {
+    endingSession = false
+  }
+}
+
 // Auto-refresh on 401
 apiClient.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as any
+
+    // The account was switched off while this tab was signed in. Refreshing
+    // cannot help — the server refuses that too — so sign out straight away.
+    if (isAccountInactive(error)) {
+      endSessionForInactiveAccount()
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
       try {
@@ -74,7 +118,13 @@ apiClient.interceptors.response.use(
           original.headers.Authorization = `Bearer ${token}`
           return apiClient(original)
         }
-      } catch {
+      } catch (refreshError) {
+        // The access token had simply expired, and the refresh is where the
+        // server said the account is gone: same ending, with the reason.
+        if (isAccountInactive(refreshError)) {
+          endSessionForInactiveAccount()
+          return Promise.reject(refreshError)
+        }
         // Only this console's session is dropped — the other one, if the
         // person has it, is a separate sign-in and none of our business here.
         const scope = currentScope()

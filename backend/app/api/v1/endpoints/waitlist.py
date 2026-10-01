@@ -11,7 +11,9 @@ import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.schemas._types import PersonName
 
 from app.core.config import settings
 
@@ -25,8 +27,13 @@ class WaitlistSignup(BaseModel):
 
     email: EmailStr
     # Optional — captured if the form ever collects a name; harmless when empty.
-    first_name: str | None = Field(default=None, max_length=100)
-    last_name: str | None = Field(default=None, max_length=100)
+    first_name: PersonName | None = None
+    last_name: PersonName | None = None
+
+    @field_validator("first_name", "last_name", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
 
 class WaitlistResponse(BaseModel):

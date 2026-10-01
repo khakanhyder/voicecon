@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user
+from app.schemas._types import PersonName
 from app.database import get_db
 from app.models.affiliate import (
     AFFILIATE_SUSPENDED,
@@ -272,7 +273,7 @@ async def record_click(body: ClickRequest, db: AsyncSession = Depends(get_db)):
 
 
 class ApplicationRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=255)
+    name: PersonName
     email: EmailStr
     company: Optional[str] = Field(None, max_length=255)
     #: Site, channel or profile where they would promote.

@@ -956,29 +956,27 @@ async def stream_workflow_execution(
     """
     await websocket.accept()
 
-    from app.core.security import SCOPE_APP, decode_token, session_scope
+    from app.core.dependencies import user_for_socket_token
+    from app.core.security import SCOPE_APP
     from app.database import AsyncSessionLocal
-    from app.models.user import User
     from app.services.workflows.channels import SimulatedChannel
-
-    payload = decode_token(token)
-    # An admin console session has no business on a customer socket — the
-    # same rule the HTTP endpoints enforce, which these bypass by decoding
-    # the token themselves (a browser WebSocket cannot send headers).
-    if (
-        not payload
-        or payload.get("type") != "access"
-        or session_scope(payload) != SCOPE_APP
-    ):
-        await websocket.close(code=4001)
-        return
 
     try:
         workflow_uuid = uuid.UUID(workflow_id)
-        user_uuid = uuid.UUID(payload.get("sub"))
     except (ValueError, TypeError):
         await websocket.close(code=4003)
         return
+
+    async with AsyncSessionLocal() as db:
+        # The same checks the HTTP endpoints make, which a socket bypasses by
+        # taking its token from the query string: a customer-app token, not
+        # revoked, for an account that is still active. An admin console
+        # session has no business on a customer socket.
+        user = await user_for_socket_token(db, token, SCOPE_APP)
+        if not user:
+            await websocket.close(code=4001)
+            return
+        user_uuid = user.id
 
     async with AsyncSessionLocal() as db:
         # A browser WebSocket can't send X-Organization-Id, so authorize against

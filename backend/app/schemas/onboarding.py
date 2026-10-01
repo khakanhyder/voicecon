@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.time import UTCDatetime
 from app.core.tlds import TLDS
+from app.schemas._types import AssistantName, CompanyName
 from app.schemas._types import PhoneNumberStr
 
 #: A hostname label: alphanumeric, inner hyphens allowed.
@@ -19,34 +20,16 @@ _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 class CompanyProfileRequest(BaseModel):
     """Company Information form payload (Figma "Company Information" screen)."""
 
-    company_name: str = Field(..., min_length=1, max_length=255)
+    company_name: CompanyName
     industry_type: Optional[str] = Field(None, max_length=100)
     company_size: Optional[str] = Field(None, max_length=50)
     company_url: Optional[str] = Field(None, max_length=255)
-    assistant_name: Optional[str] = Field(None, max_length=255)
+    assistant_name: Optional[AssistantName] = None
     preferred_language: str = Field("English", max_length=50)
     assistant_instructions: Optional[str] = None
     #: The company's contact number — a separate thing from the signed-in
     #: user's own phone, which lives on the user record and is never set here.
     phone_number: Optional[PhoneNumberStr] = None
-
-    @field_validator("company_name")
-    @classmethod
-    def _company_name_is_not_blank(cls, value: str) -> str:
-        """
-        Reject a name that is only whitespace.
-
-        `min_length=1` counts characters, so a single space satisfied it. That
-        mattered more than it looks: this endpoint copies the value onto the
-        Organization, so a spacebar in the company field renamed the whole
-        workspace to nothing and left the switcher and page headers blank. The
-        form already trimmed before checking, so only a direct API call — or a
-        pasted value — could reach it.
-        """
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("Company name cannot be blank.")
-        return cleaned
 
     @field_validator(
         "industry_type",

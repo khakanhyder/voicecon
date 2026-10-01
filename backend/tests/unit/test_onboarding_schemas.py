@@ -68,7 +68,7 @@ class TestCompanyUrl:
 
 class TestCompanyName:
     def test_a_blank_name_is_rejected(self):
-        with pytest.raises(ValidationError, match="blank"):
+        with pytest.raises(ValidationError, match="Enter a company name"):
             CompanyProfileRequest(company_name="   ")
 
     def test_a_name_is_trimmed(self):

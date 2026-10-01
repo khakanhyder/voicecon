@@ -12,6 +12,8 @@ API call or a pasted value reached it.
 `min_length` is applied, so blank input is rejected *and* a padded name is
 stored tidy.
 """
+import re
+import unicodedata
 from typing import Annotated
 
 import phonenumbers
@@ -30,31 +32,107 @@ NonBlankText = Annotated[
 ]
 
 
-#: A person's own name, as typed on sign-up.
+#: A person's own name — on sign-up, in the profile, on the affiliate form.
 #:
 #: Required rather than optional: the name is what the account menu, the "signed
 #: in as" line and every invitation email render, so an account without one
-#: shows up as a blank row to its own team-mates. 100 is comfortably inside the
-#: 255-char column — posting 500 characters used to overflow it and surface as
-#: a 500 rather than a validation message.
+#: shows up as a blank row to its own team-mates.
 #:
-#: At least one letter is required somewhere in the value. Without that, "123",
-#: "..." and "--" all satisfy a length check while naming nobody. Beyond that it
-#: is deliberately permissive: names legitimately contain spaces, apostrophes,
-#: hyphens and every alphabet there is, so anything stricter would reject real
-#: people. `str.isalpha` is used rather than a regex character class because it
-#: is Unicode-aware — it accepts a name written in any script.
-def _must_contain_a_letter(value: str) -> str:
-    if not any(ch.isalpha() for ch in value):
-        raise ValueError("Please enter your name.")
-    return value
+#: What counts as a name is decided by `check_person_name`: letters in any
+#: script, spaces, hyphens, apostrophes and periods ("Mary-Jane O'Brien",
+#: "Smith Jr.", "J. R. R. Tolkien", "محمد علي"). The earlier rule only asked for
+#: one letter somewhere, so "a1b!!" and "12345x" were accepted as people. The
+#: same rules are in frontend/src/lib/validation.ts (validatePersonName) and the
+#: two share their test cases, so a form never says yes where the API says no.
+#: `str.isalpha` is used rather than a regex class because it is Unicode-aware.
+PERSON_NAME_MIN = 2
+PERSON_NAME_MAX = 100
+
+#: Punctuation a name may contain, besides letters and spaces.
+_NAME_PUNCT = "-'\u2019."
+_NAME_JOINERS = "-'\u2019"
+#: Zero-width joiner and non-joiner: invisible, but part of how Persian, Hindi
+#: and other scripts spell ordinary names.
+_NAME_JOINING_MARKS = "\u200c\u200d"
 
 
-PersonName = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=2, max_length=100),
-    AfterValidator(_must_contain_a_letter),
-]
+def _is_name_mark(ch: str) -> bool:
+    """Combining marks: the vowel signs and diacritics of many scripts."""
+    return unicodedata.category(ch).startswith("M")
+
+
+def check_person_name(value: str) -> str:
+    """
+    The tidied name, or ValueError with a sentence the person can act on.
+
+    Tidying: surrounding whitespace is removed and runs of spaces become one.
+    """
+    cleaned = " ".join((value or "").split())
+    if not cleaned:
+        raise ValueError("Enter your name.")
+
+    letters = sum(1 for ch in cleaned if ch.isalpha())
+    if any(ch.isdigit() for ch in cleaned):
+        raise ValueError("A name can't contain numbers.")
+    if len(cleaned) > PERSON_NAME_MAX:
+        raise ValueError(f"That name is too long. Use {PERSON_NAME_MAX} characters or fewer.")
+    if letters < PERSON_NAME_MIN:
+        raise ValueError("That name is too short. Enter at least 2 letters.")
+    if any(
+        not (
+            ch.isalpha()
+            or ch == " "
+            or ch in _NAME_PUNCT
+            or ch in _NAME_JOINING_MARKS
+            or _is_name_mark(ch)
+        )
+        for ch in cleaned
+    ):
+        raise ValueError("Use letters, spaces, hyphens and apostrophes only.")
+
+    # Punctuation has to sit inside a name, not around or between words alone.
+    if cleaned[0] in _NAME_PUNCT or cleaned[-1] in _NAME_JOINERS:
+        raise ValueError("That doesn't look like a valid name.")
+    for left, right in zip(cleaned, cleaned[1:]):
+        if left in _NAME_PUNCT and right in _NAME_PUNCT:
+            raise ValueError("That doesn't look like a valid name.")
+        if left == " " and right in _NAME_PUNCT:
+            raise ValueError("That doesn't look like a valid name.")
+    # No name has the same letter four times running ("Aaaaaa", "Zzzzz").
+    if re.search(r"(.)\1{3,}", cleaned):
+        raise ValueError("That doesn't look like a valid name.")
+    return cleaned
+
+
+def _validate_person_name(value: str) -> str:
+    return check_person_name(value)
+
+
+PersonName = Annotated[str, AfterValidator(_validate_person_name)]
+
+
+#: The name of a business or of an assistant — "Acme Inc.", "3M", "Studio 54",
+#: "Aria", "Sales Assistant". Digits and the punctuation businesses use are
+#: fine, but it has to be a *name*: at least one letter and two characters, so
+#: "123" and "!!!" are not accepted, nor are the characters that only appear in
+#: markup or scripts. Mirrors validateDisplayName in frontend/src/lib/validation.ts.
+_DISPLAY_NAME_FORBIDDEN = set('<>{}[]\\|^~`$%*=;"')
+
+
+def check_display_name(value: str, *, label: str = "name", max_length: int = 100) -> str:
+    cleaned = " ".join((value or "").split())
+    if not cleaned:
+        raise ValueError(f"Enter a {label}.")
+    if len(cleaned) > max_length:
+        raise ValueError(f"That {label} is too long. Use {max_length} characters or fewer.")
+    if len(cleaned) < 2:
+        raise ValueError(f"That {label} is too short. Enter at least 2 characters.")
+    if not any(ch.isalpha() for ch in cleaned):
+        raise ValueError(f"The {label} needs at least one letter.")
+    if any(ch in _DISPLAY_NAME_FORBIDDEN or unicodedata.category(ch).startswith("C") for ch in cleaned):
+        raise ValueError(f"That {label} contains characters that aren't allowed.")
+    return cleaned
+
 
 #: A phone number a person typed, validated against the real numbering plans
 #: and stored in E.164 ("+14155550123").
@@ -80,3 +158,16 @@ PhoneNumberStr = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
     AfterValidator(_is_a_real_phone_number),
 ]
+
+
+def _company_name(value: str) -> str:
+    return check_display_name(value, label="company name")
+
+
+def _assistant_name(value: str) -> str:
+    return check_display_name(value, label="assistant name", max_length=50)
+
+
+#: Onboarding's company and assistant names.
+CompanyName = Annotated[str, AfterValidator(_company_name)]
+AssistantName = Annotated[str, AfterValidator(_assistant_name)]

@@ -78,6 +78,36 @@ class QuotaExceededError(VoiceconException):
     pass
 
 
+ACCOUNT_INACTIVE_CODE = "account_inactive"
+ACCOUNT_INACTIVE_MESSAGE = (
+    "Your account has been deactivated or deleted. "
+    "Please contact support if you believe this is a mistake."
+)
+
+
+class AccountInactiveError(HTTPException):
+    """401 for a valid token whose account has since been switched off —
+    disabled or deleted by an admin, or deactivated by its owner.
+
+    A 401 rather than a 403: the session is over, not merely short of a
+    permission, and every client already treats 401 as "sign in again". The
+    ``code`` beside ``detail`` lets the app tell this apart from an expired
+    token, so it can sign the person out at once and say why instead of
+    quietly trying to refresh::
+
+        {"detail": "Your account has been deactivated or deleted. ...",
+         "code": "account_inactive"}
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ACCOUNT_INACTIVE_MESSAGE,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        self.payload = {"detail": ACCOUNT_INACTIVE_MESSAGE, "code": ACCOUNT_INACTIVE_CODE}
+
+
 # HTTP Exception helpers
 def credentials_exception() -> HTTPException:
     return HTTPException(

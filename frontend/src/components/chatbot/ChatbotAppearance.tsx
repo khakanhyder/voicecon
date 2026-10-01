@@ -1,5 +1,6 @@
 'use client'
 
+import { X } from 'lucide-react'
 import type { ChatbotConfig } from '@/lib/chatbots'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -115,9 +116,13 @@ export function ChatbotPreview({ config }: { config: ChatbotConfig }) {
   return (
     <div className="relative h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2f5)]">
       <div className="absolute bottom-16 w-[272px] max-w-[calc(100%-24px)] overflow-hidden rounded-2xl bg-white shadow-xl" style={{ [side]: 12 }}>
-        <div className="px-4 py-3 text-white" style={{ background: accent }}>
-          <p className="text-sm font-semibold">{config.title || 'Chat with us'}</p>
-          {config.subtitle && <p className="text-[11px] opacity-85">{config.subtitle}</p>}
+        <div className="flex items-start gap-2 px-4 py-3 text-white" style={{ background: accent }}>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{config.title || 'Chat with us'}</p>
+            {config.subtitle && <p className="text-[11px] opacity-85">{config.subtitle}</p>}
+          </div>
+          {/* The embedded widget has a close button here; shown so the preview matches. */}
+          <X className="mt-0.5 h-4 w-4 flex-shrink-0 opacity-90" aria-hidden="true" />
         </div>
         <div className="space-y-2 bg-slate-50 p-3">
           <div className="max-w-[85%] rounded-xl rounded-bl-sm border border-slate-100 bg-white px-3 py-2 text-xs text-slate-700">

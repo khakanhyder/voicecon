@@ -1148,27 +1148,16 @@ async def agent_stt_websocket(
     await websocket.accept()
 
     # Authenticate
-    from app.core.security import SCOPE_APP, decode_token, session_scope
+    from app.core.dependencies import user_for_socket_token
+    from app.core.security import SCOPE_APP
     from app.database import AsyncSessionLocal
-    from app.models.user import User
-
-    payload = decode_token(token)
-    # An admin console session has no business on a customer socket — the
-    # same rule the HTTP endpoints enforce, which these bypass by decoding
-    # the token themselves (a browser WebSocket cannot send headers).
-    if (
-        not payload
-        or payload.get("type") != "access"
-        or session_scope(payload) != SCOPE_APP
-    ):
-        await websocket.close(code=4001)
-        return
-
-    user_id = payload.get("sub")
 
     async with AsyncSessionLocal() as db:
-        user_result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
-        user = user_result.scalar_one_or_none()
+        # The same checks the HTTP endpoints make, which a socket bypasses by
+        # taking its token from the query string: a customer-app token, not
+        # revoked, for an account that is still active. An admin console
+        # session has no business on a customer socket.
+        user = await user_for_socket_token(db, token, SCOPE_APP)
         if not user:
             await websocket.close(code=4001)
             return

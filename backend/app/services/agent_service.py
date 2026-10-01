@@ -251,6 +251,72 @@ class AgentService:
     - Configuration validation
     """
 
+    @staticmethod
+    def build_agent(
+        agent_data: AgentCreate,
+        user_id: uuid.UUID,
+        organization_id: uuid.UUID,
+    ) -> Agent:
+        """
+        Turn validated creation data into an unsaved Agent.
+
+        Split out of `create_agent` so a caller that is already inside a
+        transaction (onboarding creates the first agent in the middle of
+        starting a trial) can build the same agent without `create_agent`'s
+        own commit.
+        """
+        agent = Agent(
+            user_id=user_id,
+            organization_id=organization_id,
+            name=agent_data.name,
+            description=agent_data.description,
+            type=agent_data.type,
+            system_prompt=agent_data.system_prompt,
+            first_message=agent_data.first_message,
+            # LLM config
+            llm_provider=agent_data.llm.provider,
+            llm_model=agent_data.llm.model,
+            llm_temperature=agent_data.llm.temperature,
+            llm_max_tokens=agent_data.llm.max_tokens,
+            # Voice config
+            tts_provider=agent_data.voice.provider,
+            tts_voice_id=agent_data.voice.voice_id,
+            tts_speed=agent_data.voice.speed,
+            tts_pitch=agent_data.voice.pitch,
+            # STT config
+            stt_provider=agent_data.stt.provider,
+            stt_language=agent_data.stt.language,
+            stt_model=agent_data.stt.model,
+            stt_keywords=agent_data.stt.keywords,
+            # Conversation settings
+            interrupt_enabled=agent_data.settings.interrupt_enabled,
+            interrupt_sensitivity=agent_data.settings.interrupt_sensitivity,
+            silence_timeout=agent_data.settings.silence_timeout,
+            max_call_duration=agent_data.settings.max_call_duration,
+            end_call_phrases=agent_data.settings.end_call_phrases,
+            # Advanced features
+            sentiment_analysis_enabled=agent_data.advanced.sentiment_analysis_enabled,
+            emotion_detection_enabled=agent_data.advanced.emotion_detection_enabled,
+            background_noise_reduction=agent_data.advanced.background_noise_reduction,
+            knowledge_base_enabled=agent_data.advanced.knowledge_base_enabled,
+            knowledge_base_config=agent_data.advanced.knowledge_base_config,
+            # Metadata
+            tags=agent_data.tags,
+            is_public=agent_data.is_public,
+        )
+
+        # Encrypt API keys if provided
+        if agent_data.llm.api_key:
+            agent.llm_api_key_encrypted = encrypt_value(agent_data.llm.api_key)
+
+        if agent_data.voice.api_key:
+            agent.tts_api_key_encrypted = encrypt_value(agent_data.voice.api_key)
+
+        if agent_data.stt.api_key:
+            agent.stt_api_key_encrypted = encrypt_value(agent_data.stt.api_key)
+
+        return agent
+
     async def create_agent(
         self,
         agent_data: AgentCreate,
@@ -271,56 +337,7 @@ class AgentService:
             Created agent
         """
         try:
-            # Create agent record
-            agent = Agent(
-                user_id=user_id,
-                organization_id=organization_id,
-                name=agent_data.name,
-                description=agent_data.description,
-                type=agent_data.type,
-                system_prompt=agent_data.system_prompt,
-                first_message=agent_data.first_message,
-                # LLM config
-                llm_provider=agent_data.llm.provider,
-                llm_model=agent_data.llm.model,
-                llm_temperature=agent_data.llm.temperature,
-                llm_max_tokens=agent_data.llm.max_tokens,
-                # Voice config
-                tts_provider=agent_data.voice.provider,
-                tts_voice_id=agent_data.voice.voice_id,
-                tts_speed=agent_data.voice.speed,
-                tts_pitch=agent_data.voice.pitch,
-                # STT config
-                stt_provider=agent_data.stt.provider,
-                stt_language=agent_data.stt.language,
-                stt_model=agent_data.stt.model,
-                stt_keywords=agent_data.stt.keywords,
-                # Conversation settings
-                interrupt_enabled=agent_data.settings.interrupt_enabled,
-                interrupt_sensitivity=agent_data.settings.interrupt_sensitivity,
-                silence_timeout=agent_data.settings.silence_timeout,
-                max_call_duration=agent_data.settings.max_call_duration,
-                end_call_phrases=agent_data.settings.end_call_phrases,
-                # Advanced features
-                sentiment_analysis_enabled=agent_data.advanced.sentiment_analysis_enabled,
-                emotion_detection_enabled=agent_data.advanced.emotion_detection_enabled,
-                background_noise_reduction=agent_data.advanced.background_noise_reduction,
-                knowledge_base_enabled=agent_data.advanced.knowledge_base_enabled,
-                knowledge_base_config=agent_data.advanced.knowledge_base_config,
-                # Metadata
-                tags=agent_data.tags,
-                is_public=agent_data.is_public,
-            )
-
-            # Encrypt API keys if provided
-            if agent_data.llm.api_key:
-                agent.llm_api_key_encrypted = encrypt_value(agent_data.llm.api_key)
-
-            if agent_data.voice.api_key:
-                agent.tts_api_key_encrypted = encrypt_value(agent_data.voice.api_key)
-
-            if agent_data.stt.api_key:
-                agent.stt_api_key_encrypted = encrypt_value(agent_data.stt.api_key)
+            agent = self.build_agent(agent_data, user_id, organization_id)
 
             db.add(agent)
             await db.commit()

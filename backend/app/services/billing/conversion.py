@@ -29,9 +29,18 @@ async def mark_onboarding_done(db: AsyncSession, organization_id: uuid.UUID) -> 
     )
     profile = result.scalar_one_or_none()
     if profile:
+        # Called again by every later checkout and webhook retry; only the call
+        # that actually finishes onboarding creates the agent, so deleting it
+        # later is not undone by the next payment.
+        finishing = not profile.onboarding_completed
         profile.onboarding_completed = True
         profile.onboarding_step = "done"
         await db.flush()
+        if finishing:
+            # Imported here: agent_service pulls in most of the app.
+            from app.services.onboarding_agent import create_agent_from_onboarding
+
+            await create_agent_from_onboarding(db, profile)
 
 
 

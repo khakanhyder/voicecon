@@ -1,0 +1,77 @@
+{
+  "_comment": "Shared by frontend/src/lib/validation.test.ts and backend/tests/unit/test_name_validation.py so the form and the API cannot disagree about what a name is.",
+  "person": {
+    "valid": [
+      ["John Smith", "John Smith"],
+      ["  mary   jane  ", "mary jane"],
+      ["Mary-Jane O'Brien", "Mary-Jane O'Brien"],
+      ["O’Connor", "O’Connor"],
+      ["Smith Jr.", "Smith Jr."],
+      ["J. R. R. Tolkien", "J. R. R. Tolkien"],
+      ["Jean-Luc", "Jean-Luc"],
+      ["José Núñez", "José Núñez"],
+      ["Zoë", "Zoë"],
+      ["Ali", "Ali"],
+      ["Li", "Li"],
+      ["محمد علي", "محمد علي"],
+      ["李雷", "李雷"],
+      ["श्रीमती देवी", "श्रीमती देवी"]
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "123",
+      "12345x",
+      "a1b",
+      "John 3rd",
+      "!!!",
+      "--",
+      "'",
+      "...",
+      "A",
+      "x",
+      "J.",
+      "John!",
+      "John@Smith",
+      "John_Smith",
+      "Jo hn#",
+      "<b>hi</b>",
+      "-John",
+      ".John",
+      "John-",
+      "John'",
+      "O''Brien",
+      "Mary - Jane",
+      "Mary -Jane",
+      "Aaaaaa",
+      "Zzzzzzzz Smith"
+    ],
+    "too_long": 101
+  },
+  "display": {
+    "valid": [
+      ["Acme Inc.", "Acme Inc."],
+      ["  Acme   Inc  ", "Acme Inc"],
+      ["3M", "3M"],
+      ["Studio 54", "Studio 54"],
+      ["7-Eleven", "7-Eleven"],
+      ["AT&T", "AT&T"],
+      ["Aria", "Aria"],
+      ["Max 2.0", "Max 2.0"],
+      ["Sales Assistant", "Sales Assistant"],
+      ["Café Rio", "Café Rio"]
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "123",
+      "!!!",
+      "a",
+      "<script>",
+      "Acme {Inc}",
+      "Acme | Co",
+      "Acme = Co",
+      "100%"
+    ]
+  }
+}

@@ -157,14 +157,4 @@ export const onboardingService = {
     })
     return data
   },
-
-  async checkout(params: {
-    plan_id: string
-    payment_method_id: string
-    billing_period: BillingPeriod
-    coupon_code?: string
-  }): Promise<SubscriptionResponse> {
-    const { data } = await apiClient.post('/api/v1/billing/checkout', params)
-    return data
-  },
 }

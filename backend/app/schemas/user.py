@@ -6,7 +6,7 @@ from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 from app.core.passwords import PasswordPolicyError, validate_password
-from app.schemas._types import NonBlankName, PhoneNumberStr
+from app.schemas._types import NonBlankName, PersonName, PhoneNumberStr
 from app.core.time import UTCDatetime
 
 
@@ -32,7 +32,7 @@ class UserUpdate(BaseModel):
     #: Optional, so it may be omitted — but a name that is *sent* must have
     #: something in it. A blank one leaves the account menu and every "signed
     #: in as" line rendering nothing.
-    full_name: Optional[NonBlankName] = None
+    full_name: Optional[PersonName] = None
     company_name: Optional[str] = None
     #: The user's own number. `null` clears it; anything else must be a
     #: real number (see PhoneNumberStr).

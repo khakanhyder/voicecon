@@ -9,6 +9,7 @@ import { authService } from '@/lib/auth'
 import { adminApi } from '@/lib/admin'
 import { getErrorMessage } from '@/lib/api'
 import { useAdminSession } from '@/hooks/useAdminSession'
+import { SignedOutNotice } from '@/components/auth/SignedOutNotice'
 import { PasswordInput } from '@/components/ui/password-input'
 
 /**
@@ -117,6 +118,7 @@ export default function AdminLoginPage() {
           <h1 className="text-xl font-semibold text-slate-900">Sign in</h1>
           <p className="mt-1 text-sm text-slate-500">Restricted to Voicecon platform administrators.</p>
 
+          <SignedOutNotice className="mt-5" />
           <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-sm font-medium text-slate-700">

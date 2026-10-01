@@ -7,6 +7,7 @@
  * webhook. Components ask `/billing/config` rather than assuming either.
  */
 import { useQuery } from '@tanstack/react-query'
+import type { Stripe } from '@stripe/stripe-js'
 import { apiClient } from './api'
 import { API_ENDPOINTS } from './constants'
 
@@ -28,6 +29,45 @@ export const billingService = {
   async getConfig(): Promise<BillingConfig> {
     const { data } = await apiClient.get<BillingConfig>(API_ENDPOINTS.BILLING_CONFIG)
     return data
+  },
+
+  /**
+   * Pay for a plan with a card (Stripe), start to finish. Resolves once the
+   * subscription is active; throws with a customer-readable message if not.
+   *
+   * Every card form goes through here so they all handle the bank's approval
+   * step the same way. Many cards (most European and South Asian ones) need
+   * 3-D Secure: the first call then answers "requires action" instead of
+   * activating, Stripe shows the bank's prompt, and the server is asked to
+   * finish. The server is told how the prompt ended either way — it re-checks
+   * with Stripe and clears up a payment that was not approved.
+   */
+  async payWithCard(
+    stripe: Stripe,
+    params: {
+      plan_id: string
+      payment_method_id: string
+      billing_period: 'monthly' | 'yearly'
+      coupon_code?: string
+    }
+  ): Promise<void> {
+    const { data } = await apiClient.post<{
+      requires_action?: boolean
+      client_secret?: string
+      stripe_subscription_id?: string
+    }>(API_ENDPOINTS.BILLING_CHECKOUT, params)
+    if (!data?.requires_action || !data.client_secret) return
+
+    const { error } = await stripe.confirmCardPayment(data.client_secret)
+    try {
+      await apiClient.post(API_ENDPOINTS.BILLING_CHECKOUT_CONFIRM, {
+        stripe_subscription_id: data.stripe_subscription_id,
+      })
+    } catch (err) {
+      // Stripe's wording for a failed bank check is the more specific one.
+      if (error?.message) throw new Error(error.message)
+      throw err
+    }
   },
 
   /**

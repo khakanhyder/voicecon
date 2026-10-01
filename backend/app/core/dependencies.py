@@ -34,7 +34,7 @@ from app.core.security import (
     session_scope,
     token_version_matches,
 )
-from app.core.exceptions import credentials_exception
+from app.core.exceptions import AccountInactiveError, credentials_exception
 from app.core import permissions as perms
 from app.core.api_keys import API_KEY_HEADER, authenticate_api_key, looks_like_api_key
 from app.core.workspace import (
@@ -107,13 +107,33 @@ async def _user_from_jwt(token: str, db: AsyncSession) -> tuple["User", str]:
     if user is None:
         raise credentials_exception()
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+        # Disabled or deleted by an admin, or deactivated by its owner, since
+        # this token was issued. Checked on every request, so the session ends
+        # the moment the account is switched off, not when the token expires.
+        raise AccountInactiveError()
     if not token_version_matches(payload, user):
         # Signed out everywhere, password changed, or password reset since this
         # token was issued. Indistinguishable from any other invalid credential
         # on purpose — the client's job is to re-authenticate either way.
         raise credentials_exception()
     return user, session_scope(payload)
+
+
+async def user_for_socket_token(db: AsyncSession, token: str, scope: str) -> Optional["User"]:
+    """The user behind a login token presented on a WebSocket, or None.
+
+    A browser WebSocket cannot send headers, so those endpoints take the token
+    as a query parameter and cannot use the HTTP dependencies. They must still
+    apply every rule the HTTP path does — the account is active, the token has
+    not been revoked, and it belongs to this console — which is what this is
+    for. Decoding the token by hand skipped the first two, so a deleted or
+    signed-out user could keep opening sockets until the token expired.
+    """
+    try:
+        user, token_scope = await _user_from_jwt(token, db)
+    except HTTPException:
+        return None
+    return user if token_scope == scope else None
 
 
 def _presented_key(token: Optional[str], x_api_key: Optional[str]) -> Optional[str]:

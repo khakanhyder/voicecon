@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { yearlySavingPercent } from '@/lib/pricing'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { CheckoutModal, type CheckoutPlan } from './CheckoutModal'
+import { BillingOwnerNotice, useBillingAccess } from './BillingOwnerNotice'
 
 interface Plan {
   id: string
@@ -51,6 +52,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
     (s) => s.entitlements?.source === 'stripe' || s.entitlements?.source === 'polar'
   )
   const [switchingId, setSwitchingId] = useState<string | null>(null)
+  const { canManage } = useBillingAccess()
 
   const [plans, setPlans] = useState<Plan[]>([])
   const [loading, setLoading] = useState(true)
@@ -132,6 +134,8 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
           </div>
         </div>
 
+        <BillingOwnerNotice className="mt-6" />
+
         {plans.length > 1 && (
           <div className="mt-6 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             {(['monthly', 'yearly'] as BillingPeriod[]).map((option) => (
@@ -207,12 +211,14 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
                   <button
                     type="button"
                     onClick={() => choosePlan(plan)}
-                    disabled={switchingId !== null}
-                    className="mt-auto pt-4 disabled:opacity-60"
+                    disabled={switchingId !== null || !canManage}
+                    className="mt-auto pt-4 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="flex h-10 w-full items-center justify-center gap-1.5 rounded-[8px] bg-[#106959] text-[14px] font-semibold text-white transition-colors hover:bg-[#0c5044]">
                       {switchingId === plan.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : !canManage ? (
+                        'Owner only'
                       ) : (
                         <>
                           Upgrade

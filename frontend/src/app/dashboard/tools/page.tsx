@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { useConfirm } from '@/hooks/use-confirm'
 import { validateTool, RETIRED_TOOL_TYPES, type ToolErrors } from '@/lib/toolValidation'
+import { ModalOverlay } from '@/components/ui/modal-overlay'
 import { changesExistingData, groupActions, type ActionOperation } from '@/lib/integrationActions'
 import {
   Wrench, Plus, Search, Phone, PhoneForwarded, PhoneOff,
@@ -725,8 +726,9 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col">
+    // No backdrop close: a half-configured tool should not vanish on a stray click.
+    <ModalOverlay onClose={onClose} busy={saving} closeOnBackdrop={false} className="bg-black/50 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-label="Tool" className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-center gap-2">
             <Wrench className="h-5 w-5 text-blue-600" />
@@ -808,7 +810,7 @@ function ToolForm({ initial, initialType, onClose, onSaved }: { initial?: Tool; 
           </div>
         )}
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
 

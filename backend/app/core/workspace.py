@@ -107,6 +107,17 @@ class WorkspaceContext:
                     f"This API key's scopes do not include '{permission}'."
                 )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+        if permission == perms.BILLING_MANAGE:
+            # The commonest way to meet this: an admin pressing Upgrade. Say who
+            # can, rather than naming a role they did not choose.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Only the owner of {self.organization.name} can buy, change "
+                    f"or cancel its plan. Ask them to do it, or switch to a "
+                    f"workspace you own."
+                ),
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(

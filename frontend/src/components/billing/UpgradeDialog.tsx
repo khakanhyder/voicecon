@@ -12,8 +12,11 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, X, ArrowRight } from 'lucide-react'
 
+import { ModalOverlay } from '@/components/ui/modal-overlay'
+
 import { EntitlementErrorBody, PLAN_LABELS } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
+import { BillingOwnerNotice, useBillingAccess } from './BillingOwnerNotice'
 
 function planLabel(slug: string): string {
   return PLAN_LABELS[slug] ?? slug
@@ -49,6 +52,7 @@ export function UpgradeDialog() {
   const router = useRouter()
   const [blocked, setBlocked] = useState<EntitlementErrorBody | null>(null)
   const entitlements = useEntitlementStore((s) => s.entitlements)
+  const { canManage } = useBillingAccess()
 
   useEffect(() => {
     const onBlocked = (event: Event) => {
@@ -78,16 +82,12 @@ export function UpgradeDialog() {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="upgrade-dialog-title"
-      onClick={() => setBlocked(null)}
-    >
+    <ModalOverlay onClose={() => setBlocked(null)}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upgrade-dialog-title"
         className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50">
@@ -134,12 +134,14 @@ export function UpgradeDialog() {
           </p>
         )}
 
+        <BillingOwnerNotice className="mt-4" />
+
         <div className="mt-6 flex gap-3">
           <button
             onClick={goToBilling}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
           >
-            {suggested
+            {suggested && canManage
               ? `${trialOfSuggested ? 'Subscribe to' : 'Upgrade to'} ${planLabel(suggested)}`
               : 'View plans'}
             <ArrowRight className="h-4 w-4" />
@@ -152,6 +154,6 @@ export function UpgradeDialog() {
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }

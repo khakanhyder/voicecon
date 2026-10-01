@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
+import { SignedOutNotice } from '@/components/auth/SignedOutNotice'
 import { Mail } from 'lucide-react'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
@@ -87,6 +88,9 @@ export default function LoginPage() {
         <h1 className="text-[28px] md:text-3xl font-medium md:font-bold text-slate-900">Log in to your account</h1>
         <p className="mt-2 text-base text-[#000000]">Welcome back! Select a method to sign in.</p>
       </div>
+
+      {/* Why they were just signed out, if the server ended the session. */}
+      <SignedOutNotice className="mb-6" />
 
       {/* Social logins */}
       <SocialAuthButtons verb="Login" />

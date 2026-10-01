@@ -23,7 +23,7 @@ from app.middleware.rate_limit import init_rate_limit_middleware
 from app.middleware.security_headers import init_security_headers_middleware
 from app.database import init_db, close_db
 from app.core.entitlement_guard import EntitlementError
-from app.core.exceptions import VoiceconException
+from app.core.exceptions import AccountInactiveError, VoiceconException
 from app.core.public_errors import public_message
 from app.core.time import install_json_encoder
 from app.services.analytics.scheduler import start_scheduler, stop_scheduler
@@ -280,6 +280,13 @@ async def entitlement_exception_handler(request: Request, exc: EntitlementError)
     nested inside it.
     """
     return JSONResponse(status_code=exc.status_code, content=exc.payload)
+
+
+@app.exception_handler(AccountInactiveError)
+async def account_inactive_exception_handler(request: Request, exc: AccountInactiveError):
+    """Render the 401 with its ``code`` at the top level, so the app can sign
+    the person out and explain why (see ``AccountInactiveError``)."""
+    return JSONResponse(status_code=exc.status_code, content=exc.payload, headers=exc.headers)
 
 
 @app.exception_handler(VoiceconException)

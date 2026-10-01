@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Node, Edge } from 'react-flow-renderer';
+import { ModalOverlay } from '@/components/ui/modal-overlay';
 import {
   BookTemplate,
   Phone,
@@ -692,8 +693,13 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-2xl w-[90vw] h-[85vh] max-w-6xl flex flex-col">
+    <ModalOverlay onClose={onClose} className="bg-black/50">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Flow templates"
+        className="bg-white rounded-lg shadow-2xl w-full h-[85vh] max-w-6xl flex flex-col"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
@@ -915,6 +921,6 @@ export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({ onApplyTemplat
           </div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

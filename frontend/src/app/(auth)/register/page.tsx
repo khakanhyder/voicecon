@@ -13,6 +13,7 @@ import { BadgeCheck, Loader2, Mail, Lock, User } from 'lucide-react'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { DEFAULT_PHONE_COUNTRY, phoneError, phoneToE164, type PhoneValue } from '@/lib/phone'
 import { getErrorMessage } from '@/lib/api'
+import { personNameError, validatePersonName } from '@/lib/validation'
 
 export default function RegisterPage() {
   const { register, isRegistering } = useAuth()
@@ -127,13 +128,15 @@ export default function RegisterPage() {
     // Every field is checked, and every failure is reported at once under the
     // field it belongs to. The API enforces all of this again — these checks
     // exist to answer immediately, not to be the gate.
-    const name = formData.full_name.trim()
+    // The same rule the API applies (see validatePersonName): real names only,
+    // so "123" or "!!!" stops here rather than becoming the account's name.
+    let name = formData.full_name.trim()
     const found: typeof errors = {}
 
-    if (!name) {
-      found.full_name = 'Enter your name'
-    } else if (name.length < 2 || ![...name].some((c) => c.toLowerCase() !== c.toUpperCase())) {
-      found.full_name = 'Enter your full name'
+    try {
+      name = validatePersonName(formData.full_name)
+    } catch (err: any) {
+      found.full_name = err.message
     }
 
     // Optional, but a number that is entered has to be a real one.
@@ -221,7 +224,14 @@ export default function RegisterPage() {
                 type="text"
                 value={formData.full_name}
                 onChange={handleChange}
+                // Say so as soon as they leave the field, not only at the end.
+                onBlur={() => {
+                  const problem = formData.full_name.trim() ? personNameError(formData.full_name) : undefined
+                  setErrors((prev) => ({ ...prev, full_name: problem }))
+                }}
                 placeholder="John Doe"
+                maxLength={100}
+                autoComplete="name"
                 required
                 disabled={isRegistering}
                 {...fieldErrorProps('full_name', errors.full_name)}

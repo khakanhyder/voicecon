@@ -725,9 +725,26 @@ _WIDGET_JS = r"""
       "background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;" +
       "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;");
 
-    var header = el("div", "background:" + accent + ";color:#fff;padding:16px 18px;");
-    header.appendChild(el("div", "font-weight:600;font-size:15px;", cfg.title));
-    if (cfg.subtitle) header.appendChild(el("div", "font-size:12px;opacity:.85;margin-top:2px;", cfg.subtitle));
+    var header = el("div", "background:" + accent + ";color:#fff;padding:16px 14px 16px 18px;" +
+      "display:flex;align-items:flex-start;gap:12px;");
+    var heading = el("div", "flex:1;min-width:0;");
+    heading.appendChild(el("div", "font-weight:600;font-size:15px;", cfg.title));
+    if (cfg.subtitle) heading.appendChild(el("div", "font-size:12px;opacity:.85;margin-top:2px;", cfg.subtitle));
+    header.appendChild(heading);
+
+    // Close button. The launcher closes the panel too, but on a phone the
+    // panel can cover it, and people look for an X in the corner first.
+    var closeBtn = el("button", "flex-shrink:0;width:32px;height:32px;margin:-4px 0 0;padding:0;border:none;" +
+      "border-radius:8px;background:transparent;color:#fff;cursor:pointer;display:flex;" +
+      "align-items:center;justify-content:center;transition:background .15s;");
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close chat");
+    closeBtn.title = "Close";
+    closeBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    closeBtn.onmouseenter = function () { closeBtn.style.background = "rgba(255,255,255,.18)"; };
+    closeBtn.onmouseleave = function () { closeBtn.style.background = "transparent"; };
+    header.appendChild(closeBtn);
 
     var body = el("div", "flex:1;overflow-y:auto;padding:16px;background:#f8fafc;display:flex;flex-direction:column;gap:10px;");
 
@@ -807,6 +824,11 @@ _WIDGET_JS = r"""
       }
     }
     launcher.onclick = toggle;
+    // Closing keeps the conversation: opening again shows it where it was left.
+    closeBtn.onclick = function () { if (opened) { toggle(); launcher.focus(); } };
+    panel.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && opened) { toggle(); launcher.focus(); }
+    });
 
     var busy = false;
     function submit() {

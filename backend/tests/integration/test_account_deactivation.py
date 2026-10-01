@@ -496,3 +496,106 @@ class TestPermanentDeletion:
         db_session.expire_all()
         gone = await db_session.get(User, owner_id)
         assert gone.deleted_at is not None and gone.email.endswith("@deleted.invalid")
+
+
+# ---------- A session that is already open when the account is switched off ----------
+@pytest_asyncio.fixture
+async def session_client(db_engine):
+    """Like ``client``, but authenticates for real: requests carry a bearer
+    token and go through the production ``get_current_user``. Only the admin
+    check is stubbed, so the test can act as staff without an admin session."""
+    sessionmaker = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def override_get_db():
+        async with sessionmaker() as session:
+            yield session
+
+    async def _admin(db=Depends(get_db)):
+        return (await db.execute(select(User).where(User.id == _ACTING["id"]))).scalar_one()
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_platform_admin] = _admin
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+def _session(user: User) -> dict:
+    """The tokens a signed-in browser holds for ``user``."""
+    from app.core.security import SCOPE_APP, create_access_token, create_refresh_token
+
+    kw = dict(subject=str(user.id), token_version=user.token_version, scope=SCOPE_APP)
+    return {"access": create_access_token(**kw), "refresh": create_refresh_token(**kw)}
+
+
+def _bearer(session: dict) -> dict:
+    return {"Authorization": f"Bearer {session['access']}"}
+
+
+MESSAGE = (
+    "Your account has been deactivated or deleted. "
+    "Please contact support if you believe this is a mistake."
+)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestAnOpenSessionEndsWithTheAccount:
+    async def _assert_locked_out(self, session_client, session, db_engine):
+        res = await session_client.get("/api/v1/users/me", headers=_bearer(session))
+        assert res.status_code == 401, res.text
+        assert res.json() == {"detail": MESSAGE, "code": "account_inactive"}
+
+        # Any other protected API answers the same way.
+        res = await session_client.get("/api/v1/agents", headers=_bearer(session))
+        assert res.status_code == 401 and res.json()["code"] == "account_inactive"
+
+        # The refresh token cannot mint a way back in.
+        res = await session_client.post("/api/v1/auth/refresh", json={"refresh_token": session["refresh"]})
+        assert res.status_code == 401, res.text
+
+        # Nor can the token open a WebSocket (agent test call, workflow test run).
+        from app.core.dependencies import user_for_socket_token
+        from app.core.security import SCOPE_APP
+
+        async with async_sessionmaker(db_engine)() as db:
+            assert await user_for_socket_token(db, session["access"], SCOPE_APP) is None
+
+    async def test_the_session_works_until_then(self, session_client, owner, db_engine):
+        session = _session(owner)
+        res = await session_client.get("/api/v1/users/me", headers=_bearer(session))
+        assert res.status_code == 200
+        from app.core.dependencies import user_for_socket_token
+        from app.core.security import SCOPE_APP
+
+        async with async_sessionmaker(db_engine)() as db:
+            assert (await user_for_socket_token(db, session["access"], SCOPE_APP)).id == owner.id
+
+    async def test_admin_disables_the_account(self, session_client, owner, admin, db_engine):
+        session = _session(owner)
+        res = await as_user(session_client, admin).patch(
+            f"/api/v1/admin/users/{owner.id}", json={"is_active": False}
+        )
+        assert res.status_code == 200, res.text
+        await self._assert_locked_out(session_client, session, db_engine)
+
+    async def test_admin_deletes_the_account(self, session_client, owner, admin, db_engine):
+        session = _session(owner)
+        res = await as_user(session_client, admin).delete(f"/api/v1/admin/users/{owner.id}")
+        assert res.status_code == 200, res.text
+        await self._assert_locked_out(session_client, session, db_engine)
+
+    async def test_the_owner_deactivates_it_from_another_browser(self, session_client, owner, db_session, db_engine):
+        session = _session(owner)
+        await account_deletion.deactivate_account(db_session, owner)
+        await db_session.commit()
+        await self._assert_locked_out(session_client, session, db_engine)
+
+    async def test_re_enabling_does_not_revive_the_old_session(self, session_client, owner, admin):
+        """Disabling signs the person out for good; they sign in again afterwards."""
+        session = _session(owner)
+        await as_user(session_client, admin).patch(f"/api/v1/admin/users/{owner.id}", json={"is_active": False})
+        await as_user(session_client, admin).patch(f"/api/v1/admin/users/{owner.id}", json={"is_active": True})
+        res = await session_client.get("/api/v1/users/me", headers=_bearer(session))
+        assert res.status_code == 401
+        assert res.json().get("code") != "account_inactive", "an ordinary expired session, not a dead account"
