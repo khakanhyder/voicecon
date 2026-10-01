@@ -14,6 +14,7 @@ import {
   Gauge,
   Hash,
   HeartHandshake,
+  Inbox,
   KeyRound,
   Layers,
   LogOut,
@@ -29,6 +30,7 @@ import {
 } from 'lucide-react'
 import { useAdminSession } from '@/hooks/useAdminSession'
 import { adminApi } from '@/lib/admin'
+import { AdminNotificationBell } from '@/components/admin/AdminNotificationBell'
 import { authService } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -54,6 +56,7 @@ const NAV: { section: string; items: { name: string; href: string; icon: LucideI
     items: [
       // exact: the sub-pages below have their own entries.
       { name: 'Affiliates', href: '/admin/affiliates', icon: HeartHandshake, exact: true },
+      { name: 'Affiliate Requests', href: '/admin/affiliates/requests', icon: Inbox },
       { name: 'Commissions & Payouts', href: '/admin/affiliates/commissions', icon: Coins },
       { name: 'Affiliate Program', href: '/admin/affiliates/program', icon: SlidersHorizontal },
     ],
@@ -96,9 +99,28 @@ function useAdminSignOut() {
   }
 }
 
-function Sidebar({ email, onNavigate }: { email?: string; onNavigate?: () => void }) {
+/** Sidebar entries that show a count of things waiting for staff. */
+const REQUESTS_HREF = '/admin/affiliates/requests'
+
+function Sidebar({
+  email,
+  onNavigate,
+  showBell = false,
+}: {
+  email?: string
+  onNavigate?: () => void
+  /** The desktop sidebar carries the bell; on phones it sits in the top bar instead. */
+  showBell?: boolean
+}) {
   const signOut = useAdminSignOut()
   const pathname = usePathname()
+  const requests = useQuery({
+    queryKey: ['admin', 'affiliate-applications', 'count'],
+    queryFn: adminApi.affiliateApplicationCount,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  const badges: Record<string, number> = { [REQUESTS_HREF]: requests.data?.pending ?? 0 }
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname === href || pathname?.startsWith(href + '/')
 
@@ -112,6 +134,11 @@ function Sidebar({ email, onNavigate }: { email?: string; onNavigate?: () => voi
           <p className="text-sm font-semibold text-white">Voicecon</p>
           <p className="text-[11px] uppercase tracking-wider text-slate-400">Admin Console</p>
         </div>
+        {showBell && (
+          <div className="ml-auto">
+            <AdminNotificationBell />
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
@@ -138,6 +165,14 @@ function Sidebar({ email, onNavigate }: { email?: string; onNavigate?: () => voi
                   >
                     <Icon className={cn('h-4 w-4 flex-shrink-0', active ? 'text-brand-300' : '')} />
                     <span className="truncate">{item.name}</span>
+                    {badges[item.href] > 0 && (
+                      <span
+                        aria-label={`${badges[item.href]} waiting`}
+                        className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold text-white"
+                      >
+                        {badges[item.href] > 99 ? '99+' : badges[item.href]}
+                      </span>
+                    )}
                   </Link>
                 )
               })}
@@ -235,7 +270,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <aside className="hidden w-64 flex-shrink-0 lg:block">
-        <Sidebar email={me.data?.email} />
+        <Sidebar email={me.data?.email} showBell />
       </aside>
 
       {mobileOpen && (
@@ -266,6 +301,9 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <span className="text-sm font-semibold text-slate-900">Admin Console</span>
+          <div className="ml-auto">
+            <AdminNotificationBell align="right" tone="light" />
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto">
           <div className="w-full px-4 py-6 md:px-8 md:py-8">{children}</div>

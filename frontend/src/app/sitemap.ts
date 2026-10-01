@@ -5,7 +5,7 @@ import { SECTION_PATHS } from '@/components/landing/sections'
 const SITE = 'https://voicecon.ai'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const paths = ['/', ...Object.keys(SECTION_PATHS), '/privacy', '/terms']
+  const paths = ['/', ...Object.keys(SECTION_PATHS), '/affiliate-program', '/privacy', '/terms']
   return paths.map((path) => ({
     url: `${SITE}${path === '/' ? '' : path}`,
     changeFrequency: path === '/privacy' || path === '/terms' ? 'yearly' : 'monthly',

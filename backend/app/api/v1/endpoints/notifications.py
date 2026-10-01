@@ -18,11 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
-from app.models.notification import Notification
+from app.models.notification import ADMIN_NOTIFICATION_TYPES, Notification
 from app.models.user import User
 from app.schemas.notification import NotificationResponse, UnreadCountResponse
 
 router = APIRouter()
+
+#: Staff notifications belong to the admin console's bell, not this one.
+_FOR_THE_APP = Notification.type.notin_(ADMIN_NOTIFICATION_TYPES)
 
 
 @router.get("", response_model=List[NotificationResponse])
@@ -33,7 +36,7 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
 ):
     """List the current user's notifications, unread first then newest."""
-    query = select(Notification).where(Notification.user_id == current_user.id)
+    query = select(Notification).where(Notification.user_id == current_user.id, _FOR_THE_APP)
     if unread_only:
         query = query.where(Notification.is_read == False)  # noqa: E712
     query = query.order_by(Notification.is_read.asc(), Notification.created_at.desc()).limit(limit)
@@ -50,7 +53,7 @@ async def unread_count(
     """Number of unread notifications (for the bell badge)."""
     result = await db.execute(
         select(func.count(Notification.id)).where(
-            Notification.user_id == current_user.id, Notification.is_read == False  # noqa: E712
+            Notification.user_id == current_user.id, Notification.is_read == False, _FOR_THE_APP  # noqa: E712
         )
     )
     return UnreadCountResponse(count=result.scalar_one() or 0)
@@ -65,7 +68,7 @@ async def mark_read(
     """Mark a single notification read."""
     result = await db.execute(
         select(Notification).where(
-            Notification.id == notification_id, Notification.user_id == current_user.id
+            Notification.id == notification_id, Notification.user_id == current_user.id, _FOR_THE_APP
         )
     )
     notification = result.scalar_one_or_none()
@@ -86,7 +89,7 @@ async def mark_all_read(
     """Mark all of the current user's notifications read."""
     await db.execute(
         update(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
+        .where(Notification.user_id == current_user.id, Notification.is_read == False, _FOR_THE_APP)  # noqa: E712
         .values(is_read=True)
     )
     await db.commit()

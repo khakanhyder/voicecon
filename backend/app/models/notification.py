@@ -19,6 +19,12 @@ from app.database import Base
 # Notification type constants
 NOTIFY_TEAM_INVITATION = "team_invitation"
 NOTIFY_TEAM_MEMBER_JOINED = "team_member_joined"
+NOTIFY_AFFILIATE_APPLICATION = "affiliate_application"
+
+#: Types written for platform staff. They show in the admin console's bell
+#: (``/admin/notifications``) and never in the customer app's, even when the
+#: admin signs in to the app with the same account.
+ADMIN_NOTIFICATION_TYPES = (NOTIFY_AFFILIATE_APPLICATION,)
 
 
 class Notification(Base):

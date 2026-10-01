@@ -145,6 +145,7 @@ const FOOTER_COLUMNS = [
       { label: 'Integrations catalog', href: '/docs/integrations/catalog' },
       { label: 'API reference', href: ROUTES.api },
       { label: 'Troubleshooting', href: '/docs/troubleshooting' },
+      { label: 'Affiliate Program', href: '/affiliate-program' },
     ],
   },
   {

@@ -245,6 +245,44 @@ class EmailService:
         )
         return await self.send(message)
 
+    async def send_affiliate_application_notice(
+        self,
+        *,
+        to_email: str,
+        applicant_name: str,
+        applicant_email: str,
+        company: Optional[str],
+        website: Optional[str],
+        message: Optional[str],
+        action_url: str,
+    ) -> bool:
+        """Tell a platform admin that someone applied to the affiliate program. Never raises."""
+        brand = settings.APP_NAME
+        bullets = [f"Name: {applicant_name}", f"Email: {applicant_email}"]
+        if company:
+            bullets.append(f"Company: {company}")
+        if website:
+            bullets.append(f"Website or channel: {website}")
+        if message:
+            # The full text is in the console; the email only needs the gist.
+            bullets.append(f"About them: {message[:600]}{'…' if len(message) > 600 else ''}")
+        html, text = render_billing_notice_email(
+            brand=brand,
+            heading="New affiliate request",
+            intro=(
+                f"{applicant_name} applied to join the {brand} affiliate program. "
+                "Review the request in the admin console, then create their affiliate account or reject it."
+            ),
+            bullets=bullets,
+            action_url=action_url,
+            action_label="Review the request",
+            footer=f"You received this because you are a {brand} platform admin.",
+        )
+        message_out = EmailMessage(
+            to=to_email, subject=f"New affiliate request from {applicant_name}", html=html, text=text
+        )
+        return await self.send(message_out)
+
     async def send_subscription_confirmation(
         self,
         *,

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.core.security import (
+    SCOPE_ADMIN,
     SCOPE_AFFILIATE,
     SCOPE_APP,
     create_access_token,
@@ -35,9 +36,11 @@ from app.models.affiliate import (
     PAYOUT_FAILED,
     PAYOUT_PAID,
     Affiliate,
+    AffiliateApplication,
     AffiliateCommission,
     AffiliateReferral,
 )
+from app.models.notification import NOTIFY_AFFILIATE_APPLICATION, Notification
 from app.models.subscription import (
     SOURCE_STRIPE,
     SOURCE_TRIAL,
@@ -47,7 +50,7 @@ from app.models.subscription import (
     SubscriptionPlan,
 )
 from app.models.user import Organization, OrganizationMember, User
-from app.services.affiliates import attribution, commissions, coupons, payouts
+from app.services.affiliates import applications, attribution, commissions, coupons, payouts
 from app.services.affiliates.invites import invite_token
 from app.services.affiliates.program import get_program, unique_coupon_code
 
@@ -624,3 +627,199 @@ async def test_payout_includes_monthly_and_annual_commissions(db, referred_org, 
     payout = await payouts.create_payout(db, affiliate.id, method="manual", actor_id=None, reference="WIRE-3")
     assert payout.amount == Decimal("371.90")  # 357.00 annual + 14.90 monthly
     assert payout.commission_count == 2
+
+
+# ==================== Requests from the public form ====================
+
+APPLY = {
+    "name": "Nora  Newcomer",
+    "email": "Nora@Example.com",
+    "company": "Newcomer Media",
+    "website": "https://newcomer.example.com",
+    "message": "I run a newsletter for dental practice owners and would review Voicecon there.",
+}
+
+
+@pytest_asyncio.fixture
+async def admin(db: AsyncSession) -> User:
+    user = await make_user(db, "staff@example.com", "Staff!2345")
+    user.is_platform_admin = True
+    await db.commit()
+    return user
+
+
+@pytest.fixture
+def sent_mail(monkeypatch):
+    """Capture the admin emails instead of sending them."""
+    from app.services.email.service import email_service
+
+    sent = []
+
+    async def fake_send(message, *, raise_on_error=False):
+        sent.append(message)
+        return True
+
+    monkeypatch.setattr(email_service, "send", fake_send)
+    applications.reset_throttle()
+    yield sent
+    applications.reset_throttle()
+
+
+async def test_application_notifies_every_admin_in_app_and_by_email(http, db, admin, sent_mail):
+    res = await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    assert res.status_code == 200 and res.json()["success"] is True
+
+    row = (await db.execute(select(AffiliateApplication))).scalar_one()
+    assert (row.name, row.email, row.status) == ("Nora Newcomer", "nora@example.com", "pending")
+
+    note = (await db.execute(select(Notification))).scalar_one()
+    assert note.user_id == admin.id and note.type == NOTIFY_AFFILIATE_APPLICATION
+    assert note.data["application_id"] == str(row.id)
+
+    assert [m.to for m in sent_mail] == ["staff@example.com"]
+    assert "Nora Newcomer" in sent_mail[0].subject
+    assert f"/admin/affiliates/requests?focus={row.id}" in sent_mail[0].text
+
+
+async def test_applying_twice_keeps_one_request_and_one_notification(http, db, admin, sent_mail):
+    await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    again = await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "company": "Renamed Media"})
+    assert again.status_code == 200
+
+    rows = (await db.execute(select(AffiliateApplication))).scalars().all()
+    assert len(rows) == 1
+    await db.refresh(rows[0])
+    assert rows[0].company == "Renamed Media"
+    assert len((await db.execute(select(Notification))).scalars().all()) == 1
+    assert len(sent_mail) == 1
+
+
+async def test_application_form_refuses_bots_bad_input_and_floods(http, db, admin, sent_mail):
+    bot = await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "fax": "555-0100"})
+    assert bot.status_code == 200
+    assert (await db.execute(select(AffiliateApplication))).scalars().all() == []
+
+    assert (await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "email": "nope"})).status_code == 422
+    assert (await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "message": "hi"})).status_code == 422
+
+    applications.reset_throttle()
+    codes = [
+        (await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "email": f"a{i}@example.com"})).status_code
+        for i in range(applications.MAX_PER_IP + 1)
+    ]
+    assert codes == [200] * applications.MAX_PER_IP + [429]
+
+
+async def test_admin_bell_is_separate_from_the_app_bell(http, db, admin, sent_mail):
+    await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    console = _bearer(admin, SCOPE_ADMIN)
+    app_session = _bearer(admin, SCOPE_APP)
+
+    assert (await http.get("/api/v1/admin/notifications/unread-count", headers=console)).json() == {"count": 1}
+    listed = (await http.get("/api/v1/admin/notifications", headers=console)).json()
+    assert [n["type"] for n in listed] == [NOTIFY_AFFILIATE_APPLICATION]
+
+    # The same person signed in to the customer app does not see staff notifications.
+    assert (await http.get("/api/v1/notifications/unread-count", headers=app_session)).json() == {"count": 0}
+    assert (await http.get("/api/v1/notifications", headers=app_session)).json() == []
+    refused = await http.post(f"/api/v1/notifications/{listed[0]['id']}/read", headers=app_session)
+    assert refused.status_code == 404
+
+    read = await http.post(f"/api/v1/admin/notifications/{listed[0]['id']}/read", headers=console)
+    assert read.json()["is_read"] is True
+    assert (await http.get("/api/v1/admin/notifications/unread-count", headers=console)).json() == {"count": 0}
+
+
+async def test_admin_creates_an_affiliate_from_a_request(http, db, admin, sent_mail):
+    await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    console = _bearer(admin, SCOPE_ADMIN)
+
+    assert (await http.get("/api/v1/admin/affiliates/applications/count", headers=console)).json() == {"pending": 1}
+    listing = (await http.get("/api/v1/admin/affiliates/applications", headers=console)).json()
+    request_row = listing["items"][0]
+    assert request_row["status"] == "pending" and request_row["existing_affiliate"] is None
+
+    # The normal create call, with the normal terms, plus the request it came from.
+    created = await http.post(
+        "/api/v1/admin/affiliates",
+        headers=console,
+        json={
+            "email": request_row["email"],
+            "name": request_row["name"],
+            "company": request_row["company"],
+            "commission_billing_periods": "both",
+            "commission_percent": 30,
+            "commission_percent_monthly": 10,
+            "discount_percent": 15,
+            "coupon_code": "NORA15",
+            "referral_code": "nora",
+            "send_invite": True,
+            "application_id": request_row["id"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["commission_billing_periods"] == "both"
+    assert (body["commission_percent"], body["commission_percent_monthly"]) == (30.0, 10.0)
+    assert body["referral_code"] == "nora" and body["coupon"]["code"] == "NORA15"
+    assert body["invite_url"]
+
+    detail = (
+        await http.get(f"/api/v1/admin/affiliates/applications/{request_row['id']}", headers=console)
+    ).json()
+    assert detail["status"] == "approved" and detail["affiliate_id"] == body["id"]
+    assert detail["reviewed_by"] == "staff@example.com"
+    assert (await http.get("/api/v1/admin/affiliates/applications/count", headers=console)).json() == {"pending": 0}
+    # Handling the request clears it from the bell.
+    assert (await http.get("/api/v1/admin/notifications/unread-count", headers=console)).json() == {"count": 0}
+
+    # A request can only be turned into an affiliate once.
+    twice = await http.post(
+        "/api/v1/admin/affiliates",
+        headers=console,
+        json={"email": "other@example.com", "name": "Other", "send_invite": False, "application_id": request_row["id"]},
+    )
+    assert twice.status_code == 400
+
+
+async def test_admin_rejects_and_reopens_a_request(http, db, admin, sent_mail):
+    await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    console = _bearer(admin, SCOPE_ADMIN)
+    app_id = (await http.get("/api/v1/admin/affiliates/applications", headers=console)).json()["items"][0]["id"]
+
+    rejected = await http.post(
+        f"/api/v1/admin/affiliates/applications/{app_id}/reject", headers=console, json={"reason": "No audience"}
+    )
+    assert rejected.json()["status"] == "rejected" and rejected.json()["review_note"] == "No audience"
+    assert (await http.get("/api/v1/admin/notifications/unread-count", headers=console)).json() == {"count": 0}
+    again = await http.post(f"/api/v1/admin/affiliates/applications/{app_id}/reject", headers=console, json={})
+    assert again.status_code == 400
+
+    only_rejected = await http.get(
+        "/api/v1/admin/affiliates/applications", headers=console, params={"status": "rejected", "search": "nora"}
+    )
+    assert only_rejected.json()["total"] == 1
+
+    reopened = await http.post(f"/api/v1/admin/affiliates/applications/{app_id}/reopen", headers=console)
+    assert reopened.json()["status"] == "pending" and reopened.json()["review_note"] is None
+
+    # Someone rejected earlier may apply again: that is a new request.
+    await http.post(f"/api/v1/admin/affiliates/applications/{app_id}/reject", headers=console, json={})
+    await http.post("/api/v1/affiliate-public/apply", json=APPLY)
+    assert (await http.get("/api/v1/admin/affiliates/applications", headers=console)).json()["total"] == 2
+
+
+async def test_request_endpoints_are_staff_only(http, db, affiliate, admin, sent_mail):
+    partner = await db.get(User, affiliate.user_id)
+    for headers in ({}, _bearer(partner, SCOPE_APP), _bearer(partner, SCOPE_ADMIN), _bearer(admin, SCOPE_APP)):
+        res = await http.get("/api/v1/admin/affiliates/applications", headers=headers)
+        assert res.status_code in (401, 403)
+        res = await http.get("/api/v1/admin/notifications", headers=headers)
+        assert res.status_code in (401, 403)
+
+
+async def test_request_from_an_existing_affiliate_is_flagged(http, db, affiliate, admin, sent_mail):
+    await http.post("/api/v1/affiliate-public/apply", json={**APPLY, "email": "partner@example.com"})
+    console = _bearer(admin, SCOPE_ADMIN)
+    row = (await http.get("/api/v1/admin/affiliates/applications", headers=console)).json()["items"][0]
+    assert row["existing_affiliate"] == {"id": str(affiliate.id), "name": "Pat Partner"}

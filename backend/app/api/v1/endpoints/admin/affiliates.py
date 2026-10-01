@@ -16,6 +16,8 @@ from app.models.affiliate import (
     AFFILIATE_ACTIVE,
     AFFILIATE_INVITED,
     AFFILIATE_SUSPENDED,
+    APPLICATION_APPROVED,
+    APPLICATION_PENDING,
     COMMISSION_APPROVED,
     COMMISSION_PENDING,
     COMMISSION_REJECTED,
@@ -24,13 +26,14 @@ from app.models.affiliate import (
     DISCOUNT_YEARLY_ONLY,
     KIND_ADJUSTMENT,
     Affiliate,
+    AffiliateApplication,
     AffiliateCommission,
     AffiliatePayout,
     AffiliateReferral,
 )
 from app.models.subscription import SubscriptionPlan
 from app.models.user import Organization, OrganizationMember, User
-from app.services.affiliates import commissions, invites, payouts, views
+from app.services.affiliates import applications, commissions, invites, payouts, views
 from app.services.affiliates.program import (
     coupon_code_problem,
     get_program,
@@ -160,6 +163,9 @@ class AffiliateCreate(AffiliateTerms):
     email: str = Field(..., min_length=3, max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
     send_invite: bool = True
+    #: The request (from the public form) this affiliate is created from. It
+    #: is marked approved and linked in the same transaction.
+    application_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _email_shape(self):
@@ -368,6 +374,14 @@ async def create_affiliate(
     name = body.name.strip()
     program = await get_program(db)
 
+    application = None
+    if body.application_id:
+        application = await db.get(AffiliateApplication, parse_uuid(body.application_id, "affiliate request"))
+        if application is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Affiliate request not found")
+        if application.status != APPLICATION_PENDING:
+            raise _bad(f"This request was already {application.status}.")
+
     referral = normalize_referral_code(body.referral_code) or await unique_referral_code(db, name)
     discount = Decimal(body.discount_percent or 0)
     coupon = normalize_coupon_code(body.coupon_code) or None
@@ -400,6 +414,13 @@ async def create_affiliate(
     await db.flush()
     await db.refresh(affiliate, ["user"])
 
+    if application is not None:
+        application.status = APPLICATION_APPROVED
+        application.affiliate_id = affiliate.id
+        application.reviewed_by = admin.id
+        application.reviewed_at = utcnow()
+        await applications.resolve_notifications(db, application.id)
+
     invite_link = invites.invite_url(affiliate)
     if body.send_invite:
         affiliate.invited_at = utcnow()
@@ -409,7 +430,12 @@ async def create_affiliate(
             f"Created affiliate {name} <{email}> at {float(affiliate.commission_percent):g}% "
             f"({affiliate.commission_billing_periods} payments)"
         ),
-        details={"referral_code": referral, "coupon_code": coupon, "discount_percent": float(discount)},
+        details={
+            "referral_code": referral,
+            "coupon_code": coupon,
+            "discount_percent": float(discount),
+            **({"application_id": str(application.id)} if application is not None else {}),
+        },
         request=request,
     )
     await db.commit()

@@ -73,6 +73,11 @@ EARNS_MONTHLY = "monthly"
 EARNS_BOTH = "both"
 EARNS_CHOICES = (EARNS_YEARLY, EARNS_MONTHLY, EARNS_BOTH)
 
+# ---- Application statuses (requests from the public form) ----
+APPLICATION_PENDING = "pending"    # waiting for staff
+APPLICATION_APPROVED = "approved"  # staff created an affiliate from it
+APPLICATION_REJECTED = "rejected"
+
 
 class AffiliateProgram(Base):
     """Program-wide rules. One row (``id == 1``), created on first read."""
@@ -187,6 +192,45 @@ class Affiliate(Base):
 
     def __repr__(self) -> str:
         return f"<Affiliate {self.referral_code} ({self.status})>"
+
+
+class AffiliateApplication(Base):
+    """A request to join the program, sent from the public form.
+
+    It is only a request: nothing can be earned from it. Staff review it and
+    create the affiliate with the normal form, which links the two.
+    """
+
+    __tablename__ = "affiliate_applications"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Lower-cased. Not unique: someone rejected earlier may apply again.
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    #: Site, channel or profile where they would promote.
+    website: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    #: Their audience and how they plan to promote, in their own words.
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default=APPLICATION_PENDING, nullable=False, index=True)
+
+    #: The affiliate created from this request.
+    affiliate_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("affiliates.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Staff-only: why it was rejected.
+    review_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<AffiliateApplication {self.email} ({self.status})>"
 
 
 class AffiliateClick(Base):

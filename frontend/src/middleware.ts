@@ -23,7 +23,16 @@ const CANONICAL_LANDING_HOST = LANDING_HOSTS[0]
 // '/' is the full marketing site and each of its sections has a clean URL
 // (/pricing, /faq, ...; see SECTION_PATHS) served by app/[section].
 // '/coming-soon' is kept reachable but is no longer the root.
-const MARKETING_PATHS = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
+// '/affiliate-program' is the public request form; the partner portal itself
+// ('/affiliate/...') is an app-host page.
+const MARKETING_PATHS = new Set([
+  '/',
+  '/coming-soon',
+  '/privacy',
+  '/terms',
+  '/affiliate-program',
+  ...Object.keys(SECTION_PATHS),
+])
 
 // Retired hosts that still route to this deployment (the old nip.io domains).
 // They serve the production bundle, whose API rejects their origin, so login

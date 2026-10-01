@@ -565,6 +565,41 @@ export interface AffiliateCreateBody extends AffiliateTermsBody {
   email: string
   name: string
   send_invite: boolean
+  /** The request (from the public form) this affiliate is created from. */
+  application_id?: string
+}
+
+export type AffiliateApplicationStatus = 'pending' | 'approved' | 'rejected'
+
+/** A request to join the program, sent from the public "Affiliate Program" form. */
+export interface AffiliateApplication {
+  id: string
+  name: string
+  email: string
+  company: string | null
+  website: string | null
+  message: string | null
+  status: AffiliateApplicationStatus
+  /** The affiliate created from this request. */
+  affiliate_id: string | null
+  /** Someone with this email is an affiliate already. */
+  existing_affiliate: { id: string; name: string } | null
+  review_note: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+/** A staff notification shown by the admin console's bell. */
+export interface AdminNotification {
+  id: string
+  type: string
+  title: string
+  body: string
+  data: { application_id?: string; href?: string } & Record<string, unknown>
+  is_read: boolean
+  is_actioned: boolean
+  created_at: string
 }
 
 export interface AffiliateUpdateBody extends AffiliateTermsBody {
@@ -703,6 +738,17 @@ export const adminApi = {
     send<AffiliateDetail>('post', `/affiliates/${id}/status`, { status }),
   resendAffiliateInvite: (id: string) =>
     send<{ invite_url: string; invite_sent: boolean }>('post', `/affiliates/${id}/invite`),
+  affiliateApplications: (params: Query) => get<Page<AffiliateApplication>>('/affiliates/applications', params),
+  affiliateApplication: (id: string) => get<AffiliateApplication>(`/affiliates/applications/${id}`),
+  affiliateApplicationCount: () => get<{ pending: number }>('/affiliates/applications/count'),
+  rejectAffiliateApplication: (id: string, reason?: string) =>
+    send<AffiliateApplication>('post', `/affiliates/applications/${id}/reject`, { reason }),
+  reopenAffiliateApplication: (id: string) =>
+    send<AffiliateApplication>('post', `/affiliates/applications/${id}/reopen`),
+  notifications: () => get<AdminNotification[]>('/notifications'),
+  unreadNotificationCount: () => get<{ count: number }>('/notifications/unread-count'),
+  markNotificationRead: (id: string) => send<AdminNotification>('post', `/notifications/${id}/read`),
+  markAllNotificationsRead: () => send<void>('post', '/notifications/read-all'),
   affiliateReferrals: (id: string, params?: Query) => get<Page<AffiliateReferral>>(`/affiliates/${id}/referrals`, params),
   affiliateCommissions: (params: Query) => get<Page<AffiliateCommission>>('/affiliates/commissions', params),
   approveAffiliateCommission: (id: string) =>

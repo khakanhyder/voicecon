@@ -9,7 +9,7 @@ import { SECTION_PATHS } from '@/components/landing/sections'
 import { captureReferral } from '@/lib/referral'
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
-const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', ...Object.keys(SECTION_PATHS)])
+const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', '/affiliate-program', ...Object.keys(SECTION_PATHS)])
 
 // Create a client
 const queryClient = new QueryClient({

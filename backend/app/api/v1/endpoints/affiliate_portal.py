@@ -7,14 +7,15 @@ refuses affiliate sessions everywhere else. Referred customers are shown with
 masked emails: an affiliate sees that someone signed up and paid, not who.
 
 ``public_router`` (``/api/v1/affiliate-public``) counts referral link visits
-from anonymous browsers.
+from anonymous browsers, and takes requests to join the program from the
+public form.
 """
 from __future__ import annotations
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,8 +29,9 @@ from app.models.affiliate import (
     AffiliateReferral,
 )
 from app.models.user import User
-from app.services.affiliates import attribution, commissions, invites, payouts, views
+from app.services.affiliates import applications, attribution, commissions, invites, payouts, views
 from app.services.affiliates.program import get_program, mask_email
+from app.services.auth.verification import normalize_email
 from app.core.time import utc_iso
 
 router = APIRouter()
@@ -267,3 +269,71 @@ async def record_click(body: ClickRequest, db: AsyncSession = Depends(get_db)):
     program = await get_program(db)
     await db.commit()
     return ClickResponse(valid=True, cookie_days=program.cookie_days, kind="referral")
+
+
+class ApplicationRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=255)
+    email: EmailStr
+    company: Optional[str] = Field(None, max_length=255)
+    #: Site, channel or profile where they would promote.
+    website: Optional[str] = Field(None, max_length=500)
+    #: Their audience and how they plan to promote.
+    message: str = Field(..., min_length=10, max_length=3000)
+    #: Honeypot: hidden from people, so only a bot fills it in.
+    fax: Optional[str] = Field(None, max_length=255)
+
+    @field_validator("name", "company", "website", mode="before")
+    @classmethod
+    def _one_line(cls, value):
+        # These end up in an email subject and in table cells.
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def _trimmed(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class ApplicationResponse(BaseModel):
+    success: bool = True
+    message: str
+
+
+_APPLICATION_RECEIVED = "Thanks — your request is in. We review every request and will email you with the next steps."
+
+
+@public_router.post("/apply", response_model=ApplicationResponse)
+async def apply_to_program(
+    body: ApplicationRequest,
+    request: Request,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask to join the affiliate program. Staff review the request in the admin console.
+
+    The answer is the same whether or not this address has applied before or is
+    already an affiliate, so the form cannot be used to find out who is one.
+    """
+    if body.fax:
+        return ApplicationResponse(message=_APPLICATION_RECEIVED)
+    ip = request.client.host if request.client else None
+    if not applications.allow_submission(ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="You've sent several requests already. Please try again in an hour.",
+        )
+    application, created = await applications.submit(
+        db,
+        name=body.name,
+        email=normalize_email(str(body.email)),
+        company=body.company or None,
+        website=body.website or None,
+        message=body.message,
+        ip_address=ip,
+    )
+    admin_emails = await applications.notify_admins(db, application) if created else []
+    await db.commit()
+    if admin_emails:
+        # After the response: the applicant should not wait on the mail server.
+        background.add_task(applications.email_admins, application, admin_emails)
+    return ApplicationResponse(message=_APPLICATION_RECEIVED)

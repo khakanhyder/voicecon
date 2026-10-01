@@ -33,7 +33,7 @@ from app.models.verification import VerificationCode
 from app.models.platform import PlatformSetting, AdminAuditLog
 from app.models.voice import CustomVoice
 from app.models.affiliate import (
-    AffiliateProgram, Affiliate, AffiliateClick, AffiliateReferral,
+    AffiliateProgram, Affiliate, AffiliateApplication, AffiliateClick, AffiliateReferral,
     AffiliateCommission, AffiliatePayout,
 )
 
@@ -51,6 +51,7 @@ __all__ = [
     # Affiliate program
     "AffiliateProgram",
     "Affiliate",
+    "AffiliateApplication",
     "AffiliateClick",
     "AffiliateReferral",
     "AffiliateCommission",

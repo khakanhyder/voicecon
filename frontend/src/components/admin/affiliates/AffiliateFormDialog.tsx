@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import {
   adminApi,
   COMMISSION_PERIOD_LABELS,
+  type AffiliateApplication,
   type AffiliateCreateBody,
   type CommissionBillingPeriods,
   type AffiliateDetail,
@@ -150,12 +151,15 @@ export function AffiliateFormDialog({
   open,
   onClose,
   affiliate,
+  application,
   onCreated,
 }: {
   open: boolean
   onClose: () => void
   /** Present when editing. */
   affiliate?: AffiliateDetail | null
+  /** Present when creating from a request: fills in who applied and marks the request approved. */
+  application?: AffiliateApplication | null
   onCreated?: (created: AffiliateDetail) => void
 }) {
   const qc = useQueryClient()
@@ -164,8 +168,12 @@ export function AffiliateFormDialog({
   const program = useQuery({ queryKey: ['admin', 'affiliate-program'], queryFn: adminApi.affiliateProgram, enabled: open })
 
   useEffect(() => {
-    if (open) setForm(affiliate ? fromAffiliate(affiliate) : EMPTY)
-  }, [open, affiliate])
+    if (!open) return
+    if (affiliate) setForm(fromAffiliate(affiliate))
+    else if (application)
+      setForm({ ...EMPTY, email: application.email, name: application.name, company: application.company ?? '' })
+    else setForm(EMPTY)
+  }, [open, affiliate, application])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -195,12 +203,17 @@ export function AffiliateFormDialog({
         referral_code: form.referralCode.trim() || undefined,
         coupon_code: discount > 0 ? form.couponCode.trim().toUpperCase() || undefined : undefined,
         send_invite: form.sendInvite,
+        application_id: application?.id,
       }
       return adminApi.createAffiliate(body)
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['admin', 'affiliates'] })
       qc.invalidateQueries({ queryKey: ['admin', 'affiliate', result.id] })
+      if (application) {
+        qc.invalidateQueries({ queryKey: ['admin', 'affiliate-applications'] })
+        qc.invalidateQueries({ queryKey: ['admin', 'notifications'] })
+      }
       if (editing) {
         toast.success('Affiliate updated.')
       } else {
@@ -227,11 +240,13 @@ export function AffiliateFormDialog({
       open={open}
       onClose={() => !save.isPending && onClose()}
       wide
-      title={editing ? `Edit ${affiliate?.name}` : 'New affiliate'}
+      title={editing ? `Edit ${affiliate?.name}` : application ? `Create affiliate for ${application.name}` : 'New affiliate'}
       description={
         editing
           ? 'Changes apply to future commissions and checkouts. Earned commissions keep the rate they were earned at.'
-          : 'Creates a portal login for this person (or reuses their existing account) and a referral link.'
+          : application
+            ? 'Set their terms as for any affiliate. Creating the account approves the request, makes their portal login (or reuses their existing account) and a referral link.'
+            : 'Creates a portal login for this person (or reuses their existing account) and a referral link.'
       }
       footer={
         <>
