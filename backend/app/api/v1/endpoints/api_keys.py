@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +85,13 @@ def _validate_expiry(expires_at: datetime | None) -> datetime | None:
     return expires_at
 
 
+def _never_cache(response: Response) -> None:
+    """The body carries the one copy of a secret that will ever leave the
+    server, so no browser, proxy or CDN may keep it."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
 @router.get("/scopes", response_model=List[str])
 async def list_assignable_scopes(
     current_user: User = Depends(get_current_user),
@@ -127,6 +134,7 @@ async def list_api_keys(
 )
 async def create_api_key(
     payload: ApiKeyCreate,
+    response: Response,
     current_user: User = Depends(get_current_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
@@ -150,6 +158,7 @@ async def create_api_key(
     await db.commit()
     await db.refresh(api_key)
 
+    _never_cache(response)
     return ApiKeyCreateResponse(**ApiKeyResponse.model_validate(api_key).model_dump(), key=plain_key)
 
 
@@ -188,12 +197,27 @@ async def update_api_key(
 @router.post("/{key_id}/regenerate", response_model=ApiKeyCreateResponse)
 async def regenerate_api_key(
     key_id: uuid.UUID,
+    response: Response,
     current_user: User = Depends(get_current_user),
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rotate an existing key: the old secret stops working, a new one is returned once."""
+    """Rotate an existing key: the old secret stops working, a new one is returned once.
+
+    The new secret is generated here, returned in this one response, and only
+    its hash is stored — there is no endpoint that can show it again. Someone
+    who loses it regenerates once more.
+    """
     api_key = await _get_owned_key(db, key_id, org_id)
+
+    # The expiry carries over to the new secret, so rotating an expired key
+    # would hand back a secret that is dead on arrival.
+    if api_key.expires_at is not None and api_key.expires_at <= datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This key has expired, so a regenerated key would not work. "
+                   "Create a new key instead.",
+        )
 
     plain_key, key_hash = generate_api_key()
     api_key.key_hash = key_hash
@@ -203,6 +227,7 @@ async def regenerate_api_key(
     await db.commit()
     await db.refresh(api_key)
 
+    _never_cache(response)
     return ApiKeyCreateResponse(**ApiKeyResponse.model_validate(api_key).model_dump(), key=plain_key)
 
 

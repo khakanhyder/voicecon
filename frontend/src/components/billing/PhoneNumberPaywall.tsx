@@ -22,6 +22,7 @@ import { entitlementService } from '@/lib/entitlements'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { yearlySavingPercent } from '@/lib/pricing'
+import { isUpgradeTarget } from '@/lib/planActions'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { CheckoutModal, type CheckoutPlan } from './CheckoutModal'
 import { BillingOwnerNotice, useBillingAccess } from './BillingOwnerNotice'
@@ -51,6 +52,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
   const providerBilled = useEntitlementStore(
     (s) => s.entitlements?.source === 'stripe' || s.entitlements?.source === 'polar'
   )
+  const entitlements = useEntitlementStore((s) => s.entitlements)
   const [switchingId, setSwitchingId] = useState<string | null>(null)
   const { canManage } = useBillingAccess()
 
@@ -58,7 +60,19 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<BillingPeriod>('monthly')
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null)
-  const yearlySaving = yearlySavingPercent(plans)
+  // A paying workspace is only ever offered plans above its own — never the
+  // one it is on, or a cheaper one.
+  const offered = plans.filter((plan) =>
+    isUpgradeTarget({
+      planId: plan.id,
+      planTier: plan.tier,
+      currentPlanId: entitlements?.plan_id,
+      currentTier: entitlements?.plan_tier,
+      isLive: !!entitlements?.is_live,
+      isTrial: !!entitlements?.is_trial,
+    })
+  )
+  const yearlySaving = yearlySavingPercent(offered)
 
   useEffect(() => {
     let cancelled = false
@@ -136,7 +150,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
 
         <BillingOwnerNotice className="mt-6" />
 
-        {plans.length > 1 && (
+        {offered.length > 1 && (
           <div className="mt-6 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             {(['monthly', 'yearly'] as BillingPeriod[]).map((option) => (
               <button
@@ -164,7 +178,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading plans…
           </div>
-        ) : plans.length === 0 ? (
+        ) : offered.length === 0 ? (
           <a
             href="/dashboard/settings/billing"
             className="mt-6 inline-flex h-11 items-center gap-2 rounded-[8px] bg-[#106959] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[#0c5044]"
@@ -174,7 +188,7 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
           </a>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {plans.map((plan) => {
+            {offered.map((plan) => {
               const yearly = period === 'yearly' && plan.price_yearly != null
               const price = yearly ? plan.price_yearly! : plan.price_monthly
               return (

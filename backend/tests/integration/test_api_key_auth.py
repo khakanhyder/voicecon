@@ -85,6 +85,58 @@ async def org_id(db_session, owner) -> uuid.UUID:
     ).scalars().first()
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def subscribed(db_session, org_id):
+    """Put the workspace on a paid plan with API access.
+
+    Without one, the entitlement guard answers every write with 402 before the
+    endpoint runs, so nothing in this file that creates, rotates or edits a key
+    was actually reaching the code it is named after.
+    """
+    from decimal import Decimal
+
+    from app.models.subscription import Subscription, SubscriptionPlan
+    from app.services.billing import catalog
+
+    plan = SubscriptionPlan(
+        slug=f"test-{uuid.uuid4().hex[:8]}",
+        name="Test plan",
+        tier=2,
+        stripe_product_id=f"local_{uuid.uuid4().hex[:8]}",
+        stripe_price_id=f"local_{uuid.uuid4().hex[:8]}",
+        price_monthly=Decimal("99"),
+        currency="usd",
+        included_minutes=0,
+        included_calls=0,
+        max_agents=10,
+        max_phone_numbers=5,
+        max_knowledge_bases=5,
+        overage_rate_per_minute=Decimal("0"),
+        overage_rate_per_call=Decimal("0"),
+        features={},
+        entitlements={
+            "features": {catalog.API_ACCESS: True},
+            "limits": {catalog.LIMIT_API_KEYS: 25, catalog.LIMIT_AGENTS: 10},
+        },
+        trial_days=0,
+        is_trialable=False,
+        is_active=True,
+        is_public=True,
+    )
+    db_session.add(plan)
+    await db_session.flush()
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status="active",
+            current_period_start=datetime.utcnow(),
+            current_period_end=datetime.utcnow() + timedelta(days=30),
+        )
+    )
+    await db_session.commit()
+
+
 @pytest_asyncio.fixture
 async def make_key(db_session, owner, org_id):
     """Mint a real key straight into the DB; returns the plaintext secret."""
@@ -451,3 +503,38 @@ class TestApiKeyManagement:
 
         assert (await client.get(AGENTS, headers=bearer(old))).status_code == 401
         assert (await client.get(AGENTS, headers=bearer(new))).status_code == 200
+
+    async def test_the_regenerated_secret_is_returned_once_and_never_again(self, client, owner, make_key, db_session):
+        """Shown in the regenerate response only: not cacheable, not stored in
+        the clear, and no later request can produce it."""
+        _, api_key = await make_key()
+
+        res = await client.post(f"{API_KEYS}/{api_key.id}/regenerate", headers=jwt_for(owner))
+        assert res.status_code == 200
+        new = res.json()["key"]
+        assert new.startswith("vcon_") and res.json()["key_prefix"] == new[:12]
+        assert res.headers["cache-control"] == "no-store"
+
+        listed = (await client.get(API_KEYS, headers=jwt_for(owner))).json()
+        (row,) = [k for k in listed if k["id"] == str(api_key.id)]
+        assert "key" not in row and "key_hash" not in row
+        assert new not in str(listed)
+
+        await db_session.refresh(api_key)
+        assert new not in (api_key.key_hash, api_key.key_prefix)
+        assert api_key.key_hash != new, "only a hash is stored"
+
+    async def test_regenerating_twice_leaves_only_the_latest_secret_working(self, client, owner, make_key):
+        _, api_key = await make_key()
+        first = (await client.post(f"{API_KEYS}/{api_key.id}/regenerate", headers=jwt_for(owner))).json()["key"]
+        second = (await client.post(f"{API_KEYS}/{api_key.id}/regenerate", headers=jwt_for(owner))).json()["key"]
+        assert first != second
+        assert (await client.get(AGENTS, headers=bearer(first))).status_code == 401
+        assert (await client.get(AGENTS, headers=bearer(second))).status_code == 200
+
+    async def test_an_expired_key_cannot_be_regenerated(self, client, owner, make_key):
+        """The expiry carries over, so the new secret would be dead on arrival."""
+        _, api_key = await make_key(expires_at=datetime.utcnow() - timedelta(days=1))
+        res = await client.post(f"{API_KEYS}/{api_key.id}/regenerate", headers=jwt_for(owner))
+        assert res.status_code == 409
+        assert "expired" in res.json()["detail"]

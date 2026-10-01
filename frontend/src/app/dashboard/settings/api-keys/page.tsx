@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { apiClient, getErrorMessage } from '@/lib/api'
-import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
+import { API_ENDPOINTS } from '@/lib/constants'
+import { ApiKeyRevealDialog, type RevealedKey } from '@/components/settings/ApiKeyRevealDialog'
 import { PERMISSIONS } from '@/lib/workspace'
 import { usePermission } from '@/store/workspaceStore'
 import { useEntitlementStore } from '@/store/entitlementStore'
@@ -77,7 +78,11 @@ export default function APIKeysPage() {
   const apiAccess = !entitlements || hasFeature(FEATURES.API_ACCESS)
   const roomForKey = !entitlements || withinLimit(LIMITS.API_KEYS)
   const [loading, setLoading] = useState(true)
-  const [newKey, setNewKey] = useState('')
+  // The full secret of a key that was just created or regenerated. It lives
+  // here only while the reveal dialog is open, and nowhere else: not in
+  // storage, not in a cache. A reload or closing the dialog leaves just the
+  // masked prefix, and the server cannot produce the secret again.
+  const [revealed, setRevealed] = useState<RevealedKey | null>(null)
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [availableScopes, setAvailableScopes] = useState<string[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -122,17 +127,16 @@ export default function APIKeysPage() {
         expiryDays == null
           ? null
           : new Date(Date.now() + expiryDays * 86_400_000).toISOString().replace('Z', '')
-      const { data } = await apiClient.post<{ key: string }>(API_ENDPOINTS.API_KEYS, {
+      const { data } = await apiClient.post<{ key: string; name: string }>(API_ENDPOINTS.API_KEYS, {
         name: keyName.trim(),
         scopes: selectedScopes,
         expires_at,
       })
-      setNewKey(data.key)
+      setRevealed({ secret: data.key, name: data.name, regenerated: false })
       setKeyName('')
       setSelectedScopes([])
       setExpiryDays(null)
       setShowScopePicker(false)
-      toast.success('API key created')
       await load()
     } catch (err) {
       toast.error(getErrorMessage(err))
@@ -142,19 +146,23 @@ export default function APIKeysPage() {
     }
   }
 
-  const handleRegenerate = async (id: string) => {
+  const handleRegenerate = async (key: ApiKey) => {
     const ok = await confirm({
-      title: 'Regenerate API Key',
-      description: 'Regenerate this key? The current key will stop working immediately.',
-      confirmText: 'Regenerate',
+      title: `Regenerate “${key.name}”?`,
+      description:
+        'The current key stops working immediately, so anything still using it will start failing ' +
+        'until you update it with the new key. You will be shown the new key once, straight after.',
+      confirmText: 'Regenerate key',
+      cancelText: 'Keep current key',
       isDestructive: true,
     })
     if (!ok) return
-    setBusyId(id)
+    setBusyId(key.id)
     try {
-      const { data } = await apiClient.post<{ key: string }>(API_ENDPOINTS.API_KEY_REGENERATE(id))
-      setNewKey(data.key)
-      toast.success('API key regenerated')
+      const { data } = await apiClient.post<{ key: string; name: string }>(
+        API_ENDPOINTS.API_KEY_REGENERATE(key.id),
+      )
+      setRevealed({ secret: data.key, name: data.name, regenerated: true })
       await load()
     } catch (err) {
       toast.error(getErrorMessage(err))
@@ -211,44 +219,8 @@ export default function APIKeysPage() {
     }
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('Copied to clipboard')
-  }
-
   return (
     <div className="space-y-6">
-      {/* New API Key Alert */}
-      {newKey && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-semibold text-primary">New API Key Created</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Make sure to copy your API key now. You won&apos;t be able to see it again!
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setNewKey('')}>
-              ✕
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input value={newKey} readOnly className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
-            <Button onClick={() => copyToClipboard(newKey)}>Copy</Button>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Use it like this:</p>
-            <pre className="overflow-x-auto rounded-[8px] bg-black/85 p-3 text-[12px] leading-relaxed text-white">
-              {`curl ${API_BASE}/api/v1/agents \\
-  -H "Authorization: Bearer ${newKey}"`}
-            </pre>
-            <p className="text-xs text-muted-foreground">
-              An <code>X-API-Key</code> header works too. The key acts only in this workspace.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Create API Key — or why keys can't be created on this plan */}
       {canManage && (!apiAccess || !roomForKey) && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 space-y-2">
@@ -403,7 +375,10 @@ export default function APIKeysPage() {
                       ) : null}
                     </p>
                   )}
-                  <p className="font-mono text-base text-muted-foreground break-all">
+                  <p
+                    className="font-mono text-base text-muted-foreground break-all"
+                    title="Only the start of the key is kept for display. The full key was shown once, when it was created."
+                  >
                     {apiKey.key_prefix}••••••••••••
                   </p>
                   <p className="text-sm text-muted-foreground">
@@ -446,8 +421,11 @@ export default function APIKeysPage() {
                       variant="outline"
                       size="sm"
                       className="flex-1 sm:flex-none justify-center"
-                      disabled={busyId === apiKey.id}
-                      onClick={() => handleRegenerate(apiKey.id)}
+                      // An expired key keeps its expiry, so a regenerated one
+                      // would be dead on arrival; the server refuses it too.
+                      disabled={busyId === apiKey.id || isExpired(apiKey)}
+                      title={isExpired(apiKey) ? 'This key has expired. Create a new key instead.' : undefined}
+                      onClick={() => handleRegenerate(apiKey)}
                     >
                       Regenerate
                     </Button>
@@ -477,9 +455,14 @@ export default function APIKeysPage() {
           <li>Use different keys for development and production environments</li>
           <li>Grant only the scopes an integration actually needs</li>
           <li>Revoke keys immediately if you suspect they&apos;ve been compromised</li>
+          <li>
+            A key is shown in full only once, when it is created or regenerated. If you lose it,
+            regenerate it: the old key stops working and you get a new one
+          </li>
         </ul>
       </div>
       <ConfirmDialog />
+      <ApiKeyRevealDialog revealed={revealed} onDone={() => setRevealed(null)} />
     </div>
   )
 }

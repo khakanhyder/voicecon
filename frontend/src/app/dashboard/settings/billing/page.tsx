@@ -21,6 +21,7 @@ import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutM
 import { entitlementService, FEATURE_LABELS, LIMITS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
+import { planActionFor } from '@/lib/planActions';
 import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/lib/pricing';
 
 import { useConfirm } from '@/hooks/use-confirm';
@@ -659,7 +660,18 @@ export default function BillingPage() {
             <>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
               {visiblePlans
-                .map((plan) => (
+                .map((plan) => {
+                  // One rule for every card, from lib/planActions.
+                  const action = planActionFor({
+                    planId: plan.id,
+                    planTier: plan.tier,
+                    currentPlanId: subscription?.plan_id,
+                    currentTier: entitlements?.plan_tier ?? currentPlan?.tier,
+                    isLive: !!entitlements?.is_live,
+                    isTrial: !!entitlements?.is_trial,
+                    hasScheduledChange: !!subscription?.scheduled_plan_id,
+                  });
+                  return (
                   <div
                     key={plan.id}
                     className={`w-full flex flex-col rounded-[10px] border p-6 transition-all bg-white relative top-0 hover:-top-1 ${
@@ -734,10 +746,7 @@ export default function BillingPage() {
                         ))}
                     </div>
 
-                    {plan.id === subscription?.plan_id &&
-                    entitlements?.is_live &&
-                    !entitlements.is_trial &&
-                    subscription?.scheduled_plan_id ? (
+                    {action === 'keep' ? (
                       // A downgrade is queued: picking the current plan again keeps it.
                       <Button
                         variant="outline"
@@ -747,11 +756,18 @@ export default function BillingPage() {
                       >
                         Keep {plan.name}
                       </Button>
-                    ) : plan.id === subscription?.plan_id &&
-                      entitlements?.is_live &&
-                      !entitlements.is_trial ? (
+                    ) : action === 'current' ? (
                       <Button disabled className="w-full h-[45px] font-poppins text-sm rounded-[8px]">
                         Current Plan
+                      </Button>
+                    ) : action === 'included' ? (
+                      // Below the plan already being paid for: nothing to buy here.
+                      <Button
+                        disabled
+                        variant="outline"
+                        className="w-full h-[45px] font-poppins text-sm rounded-[8px]"
+                      >
+                        Included in your plan
                       </Button>
                     ) : !canManage ? (
                       // The API would refuse it (403); say why before a card is typed.
@@ -768,15 +784,11 @@ export default function BillingPage() {
                         onClick={() => choosePlan(plan)}
                         disabled={actionBusy}
                       >
-                        {needsCheckout
-                          ? entitlements?.is_trial
-                            ? plan.id === subscription?.plan_id
-                              ? `Subscribe to ${plan.name}`
-                              : `Upgrade to ${plan.name}`
-                            : 'Get Started'
-                          : (plan.tier ?? 0) >= (currentPlan?.tier ?? 0)
-                            ? 'Upgrade'
-                            : 'Downgrade'}
+                        {action === 'subscribe'
+                          ? `Subscribe to ${plan.name}`
+                          : action === 'get_started'
+                            ? 'Get Started'
+                            : `Upgrade to ${plan.name}`}
                       </Button>
                     )}
 
@@ -788,7 +800,8 @@ export default function BillingPage() {
                     )}
 
                   </div>
-                ))}
+                  );
+                })}
             </div>
 
             {/* Enterprise is sold by contract, so it has no checkout. */}
