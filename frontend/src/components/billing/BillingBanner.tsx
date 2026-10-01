@@ -12,11 +12,12 @@
  * dismissible; the softer ones can be dismissed for the session.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { AlertTriangle, Clock, Info, X } from 'lucide-react'
 
 import { billingBanner, BannerTone } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
+import { BILLING_PATH, PLANS_HASH, scrollToPlanCards } from '@/lib/billingNav'
 
 const TONES: Record<
   BannerTone,
@@ -46,6 +47,7 @@ const DISMISS_KEY = 'voicecon:dismissed-billing-banner'
 
 export function BillingBanner() {
   const router = useRouter()
+  const pathname = usePathname()
   const entitlements = useEntitlementStore((s) => s.entitlements)
   const [dismissed, setDismissed] = useState<string | null>(null)
 
@@ -84,7 +86,11 @@ export function BillingBanner() {
           <span className="ml-2 opacity-90">{banner.body}</span>
         </p>
         <button
-          onClick={() => router.push('/dashboard/settings/billing')}
+          onClick={() => {
+            // Already on Billing: a push to the same URL would do nothing.
+            if (pathname === BILLING_PATH && scrollToPlanCards()) return
+            router.push(`${BILLING_PATH}${PLANS_HASH}`)
+          }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${tone.button}`}
         >
           {banner.cta}

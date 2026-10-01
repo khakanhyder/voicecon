@@ -155,7 +155,7 @@ export default function ForgotPasswordPage() {
                   setEmail(e.target.value)
                   if (error) setError('')
                 }}
-                placeholder="info@voicecon.com"
+                placeholder="info@example.com"
                 required
                 disabled={isSending}
                 className={`${inputClass} pr-10 ${errors.email ? errorInputClass : ''}`}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
@@ -12,24 +13,47 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/store/authStore'
 import { authService } from '@/lib/auth'
+import { QUERY_KEYS } from '@/lib/constants'
 import { getErrorMessage } from '@/lib/api'
 import { useConfirm } from '@/hooks/use-confirm'
 import { ChangeEmailDialog } from '@/components/settings/ChangeEmailDialog'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { FieldError } from '@/components/ui/field-error'
+import {
+  DEFAULT_PHONE_COUNTRY,
+  phoneError,
+  phoneFromStored,
+  phoneToE164,
+  type PhoneValue,
+} from '@/lib/phone'
 
 export default function ProfileSettingsPage() {
   const router = useRouter()
-  const { user, setUser } = useAuthStore()
+  const { user, setUser: setStoreUser } = useAuthStore()
+  const queryClient = useQueryClient()
+
+  // Every place that shows the signed-in user reads one of two copies: the
+  // store (sidebar) or the cached /users/me query (useAuth, so the top bar).
+  // Writing only the store left the query's copy — fresh for five minutes —
+  // serving the old picture and name until a reload. Write both.
+  const setUser = (u: NonNullable<typeof user>) => {
+    setStoreUser(u)
+    queryClient.setQueryData([QUERY_KEYS.ME], u)
+  }
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
-    phone_number: '',
     company_name: '',
     avatar_url: '',
     bio: '',
   })
+
+  // The user's own number — not the company's, which lives in the company profile.
+  const [phone, setPhone] = useState<PhoneValue>({ country: DEFAULT_PHONE_COUNTRY, national: '' })
+  const [phoneProblem, setPhoneProblem] = useState<string | undefined>()
 
   // Password change
   const [pw, setPw] = useState({ current_password: '', new_password: '', confirm: '' })
@@ -46,11 +70,12 @@ export default function ProfileSettingsPage() {
     setFormData({
       full_name: u.full_name || '',
       email: u.email || '',
-      phone_number: u.phone_number || '',
       company_name: u.company_name || '',
       avatar_url: u.avatar_url || '',
       bio: u.bio || '',
     })
+
+  const hydratePhone = (u: NonNullable<typeof user>) => setPhone(phoneFromStored(u.phone_number))
 
   useEffect(() => {
     let active = true
@@ -60,6 +85,7 @@ export default function ProfileSettingsPage() {
         if (!active) return
         setUser(u)
         hydrate(u)
+        hydratePhone(u)
       })
       .catch((e) => toast.error(getErrorMessage(e)))
       .finally(() => active && setLoading(false))
@@ -71,11 +97,17 @@ export default function ProfileSettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const problem = phoneError(phone)
+    setPhoneProblem(problem)
+    if (problem) {
+      document.getElementById('phone')?.focus()
+      return
+    }
     setSaving(true)
     try {
       const updated = await authService.updateProfile({
         full_name: formData.full_name,
-        phone_number: formData.phone_number || null,
+        phone_number: phoneToE164(phone),
         company_name: formData.company_name || null,
         avatar_url: formData.avatar_url || null,
         bio: formData.bio || null,
@@ -157,7 +189,7 @@ export default function ProfileSettingsPage() {
     try {
       await authService.deleteAccount()
       toast.success('Account deactivated')
-      setUser(null)
+      setStoreUser(null)
       router.push('/login')
     } catch (err) {
       toast.error(getErrorMessage(err))
@@ -243,13 +275,19 @@ export default function ProfileSettingsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="phone" className="text-[14px] font-bold text-[#000000] font-poppins block">Phone Number</Label>
-              <Input
+              <PhoneInput
                 id="phone"
-                type="tel"
-                placeholder="+1 (555) 123-4567"
-                value={formData.phone_number}
-                onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                className="w-full h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px]" />
+                value={phone}
+                onChange={(v) => {
+                  setPhone(v)
+                  setPhoneProblem(undefined)
+                }}
+                disabled={saving}
+                inputClassName="h-[45px] rounded-xl border border-slate-200 outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 bg-white text-[#000000] font-poppins px-3 text-[14px] disabled:opacity-50"
+                error={phoneProblem}
+                placeholder="(555) 123-4567"
+              />
+              <FieldError id="phone-error" message={phoneProblem} />
             </div>
 
             <div className="space-y-2">

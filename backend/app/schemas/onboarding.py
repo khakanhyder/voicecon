@@ -9,11 +9,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.time import UTCDatetime
+from app.core.tlds import TLDS
+from app.schemas._types import PhoneNumberStr
 
 #: A hostname label: alphanumeric, inner hyphens allowed.
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
-#: A public TLD is alphabetic — this is what rules out "acme.123" and bare words.
-_TLD = re.compile(r"^[a-z]{2,}$")
 
 
 class CompanyProfileRequest(BaseModel):
@@ -26,7 +26,9 @@ class CompanyProfileRequest(BaseModel):
     assistant_name: Optional[str] = Field(None, max_length=255)
     preferred_language: str = Field("English", max_length=50)
     assistant_instructions: Optional[str] = None
-    phone_number: Optional[str] = Field(None, max_length=50)
+    #: The company's contact number — a separate thing from the signed-in
+    #: user's own phone, which lives on the user record and is never set here.
+    phone_number: Optional[PhoneNumberStr] = None
 
     @field_validator("company_name")
     @classmethod
@@ -95,7 +97,9 @@ class CompanyProfileRequest(BaseModel):
         if (
             len(labels) < 2
             or not all(_HOST_LABEL.match(label) for label in labels)
-            or not _TLD.match(labels[-1])
+            # The ending has to be a TLD that exists. "Any letters" let
+            # "as.asdfdsf" through, which is a domain nobody can register.
+            or labels[-1] not in TLDS
         ):
             raise ValueError("Enter a valid website, e.g. www.acme.com")
 

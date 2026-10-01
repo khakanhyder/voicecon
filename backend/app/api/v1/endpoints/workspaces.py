@@ -18,6 +18,7 @@ from typing import FrozenSet, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import permissions as perms
@@ -129,6 +130,38 @@ def _slugify(name: str) -> str:
     return f"{base[:40]}-{uuid.uuid4().hex[:8]}"
 
 
+def _name_taken(name: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f'You already have a workspace named "{name.strip()}". Choose a different name.',
+    )
+
+
+async def _assert_name_free(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    name: str,
+    *,
+    exclude_id: Optional[uuid.UUID] = None,
+) -> None:
+    """Refuse a name this owner already uses on another active workspace.
+
+    The rule is per owner, not global: two different people can each have a
+    "Sales" workspace, but one person cannot have two. Case and surrounding
+    space don't make a name different ("sales" is "Sales"), and a deleted
+    (deactivated) workspace no longer holds its name, so it can be reused.
+    """
+    query = select(Organization.id).where(
+        Organization.owner_id == owner_id,
+        Organization.is_active.is_(True),
+        func.lower(func.trim(Organization.name)) == name.strip().lower(),
+    )
+    if exclude_id is not None:
+        query = query.where(Organization.id != exclude_id)
+    if (await db.execute(query.limit(1))).first() is not None:
+        raise _name_taken(name)
+
+
 # ---- Endpoints ----
 @router.get("", response_model=List[WorkspaceSummary])
 async def list_workspaces(
@@ -227,8 +260,19 @@ async def update_current_workspace(
     db: AsyncSession = Depends(get_db),
 ):
     """Rename the current workspace (owner/admin)."""
-    workspace.organization.name = payload.name.strip()
-    await db.commit()
+    name = payload.name.strip()
+    # The uniqueness belongs to the workspace's owner, who is not necessarily
+    # the admin doing the renaming.
+    await _assert_name_free(
+        db, workspace.organization.owner_id, name, exclude_id=workspace.organization.id
+    )
+    workspace.organization.name = name
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two renames racing past the check above: the database index decides.
+        await db.rollback()
+        raise _name_taken(name)
     await db.refresh(workspace.organization)
     return await _detail(
         db, workspace.organization, workspace.membership, workspace.permissions
@@ -243,9 +287,16 @@ async def create_workspace(
 ):
     """Create a new workspace owned by the caller, and switch into it."""
     name = payload.name.strip()
+    await _assert_name_free(db, current_user.id, name)
     organization = Organization(name=name, slug=_slugify(name), owner_id=current_user.id)
     db.add(organization)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # A double-click, or two tabs: both passed the check above and the
+        # unique index on (owner, name) stopped the second.
+        await db.rollback()
+        raise _name_taken(name)
 
     membership = OrganizationMember(
         organization_id=organization.id,

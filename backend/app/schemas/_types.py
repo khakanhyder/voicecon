@@ -14,6 +14,7 @@ stored tidy.
 """
 from typing import Annotated
 
+import phonenumbers
 from pydantic import AfterValidator, StringConstraints
 
 #: A required, human-visible name. Trimmed, and must survive trimming.
@@ -55,28 +56,27 @@ PersonName = Annotated[
     AfterValidator(_must_contain_a_letter),
 ]
 
-#: A phone number, in whatever shape the country picker produced ("+1 555 010
-#: 1234"). Stored as typed, so this only rejects values that cannot be a phone
-#: number at all — letters, or too few digits to dial. Full E.164 parsing needs
-#: a library that knows every national numbering plan; guessing at it here
-#: would reject valid numbers, which is the worse failure for a signup form.
-def _looks_like_a_phone_number(value: str) -> str:
-    """
-    Written as a function rather than a `pattern` so the failure reads as a
-    sentence. Pydantic reports a failed pattern by printing the regex, and
-    "String should match pattern '^\\+?[0-9][0-9\\s().\\-]{5,}$'" is not
-    something to show someone filling in a signup form.
-    """
-    digits = [c for c in value if c.isdigit()]
-    if len(digits) < 7 or len(digits) > 15:
+#: A phone number a person typed, validated against the real numbering plans
+#: and stored in E.164 ("+14155550123").
+#:
+#: The country picker on the forms always sends the calling code, so a number
+#: without a leading "+" is rejected rather than guessed at — guessing a region
+#: is how a UK number ends up filed as a US one. Letters, and numbers that no
+#: country's plan allows, are rejected too; that is what the earlier length-only
+#: check let through. Failures read as a sentence because pydantic would
+#: otherwise print the regex.
+def _is_a_real_phone_number(value: str) -> str:
+    try:
+        parsed = phonenumbers.parse(value, None)
+    except phonenumbers.NumberParseException:
         raise ValueError("Please enter a valid phone number.")
-    if any(c.isalpha() for c in value):
+    if not phonenumbers.is_valid_number(parsed):
         raise ValueError("Please enter a valid phone number.")
-    return value
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
 PhoneNumberStr = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=7, max_length=50),
-    AfterValidator(_looks_like_a_phone_number),
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
+    AfterValidator(_is_a_real_phone_number),
 ]

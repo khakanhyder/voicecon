@@ -638,7 +638,7 @@ async def widget_script(request: Request):
     js = _WIDGET_JS.replace("__API_BASE__", base)
     return Response(
         content=js,
-        media_type="application/javascript",
+        media_type="application/javascript; charset=utf-8",
         headers={"Cache-Control": "public, max-age=300"},
     )
 
@@ -755,6 +755,19 @@ _WIDGET_JS = r"""
     panel.appendChild(header); panel.appendChild(body); panel.appendChild(footer);
     document.body.appendChild(panel); document.body.appendChild(launcher);
 
+    // Keyframes cannot live in a style attribute, so the two animations get one
+    // <style> tag. Names are prefixed so they cannot collide with the host page.
+    // With reduced motion the dots pulse in place instead of bouncing.
+    var css = el("style");
+    css.textContent =
+      "@keyframes voicecon-typing{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-5px);opacity:1}}" +
+      "@keyframes voicecon-pulse{0%,60%,100%{opacity:.3}30%{opacity:1}}" +
+      "@keyframes voicecon-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}" +
+      ".voicecon-msg{animation:voicecon-in .22s ease-out both}" +
+      ".voicecon-dot{animation:voicecon-typing 1.2s ease-in-out infinite}" +
+      "@media (prefers-reduced-motion:reduce){.voicecon-msg{animation:none}.voicecon-dot{animation-name:voicecon-pulse}}";
+    document.head.appendChild(css);
+
     function bubble(role, text) {
       var mine = role === "user";
       var wrap = el("div", "display:flex;" + (mine ? "justify-content:flex-end;" : "justify-content:flex-start;"));
@@ -762,8 +775,27 @@ _WIDGET_JS = r"""
         "max-width:80%;padding:9px 13px;border-radius:14px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;" +
         (mine ? "background:" + accent + ";color:#fff;border-bottom-right-radius:4px;"
               : "background:#fff;color:#0f172a;border:1px solid #eef2f7;border-bottom-left-radius:4px;"), text);
+      wrap.className = "voicecon-msg";
       wrap.appendChild(b); body.appendChild(wrap); body.scrollTop = body.scrollHeight;
       return b;
+    }
+
+    // Three bouncing dots in an assistant bubble while the reply is on its way.
+    // A static "…" looked like a finished (and empty) answer.
+    function typingBubble() {
+      var b = bubble("assistant", "");
+      b.style.padding = "13px 14px";
+      b.style.lineHeight = "0";
+      b.setAttribute("role", "status");
+      b.setAttribute("aria-label", "Typing a reply");
+      for (var i = 0; i < 3; i++) {
+        var dot = el("span", "display:inline-block;width:7px;height:7px;border-radius:50%;background:#94a3b8;" +
+          "margin:0 2px;animation-delay:" + (i * 0.16) + "s;");
+        dot.className = "voicecon-dot";
+        b.appendChild(dot);
+      }
+      body.scrollTop = body.scrollHeight;
+      return b.parentNode;
     }
 
     function toggle() {
@@ -784,7 +816,9 @@ _WIDGET_JS = r"""
       input.style.height = "auto";  // reset the auto-grown height
       bubble("user", text);
       busy = true; send.disabled = true;
-      var typing = bubble("assistant", "…");
+      var typing = typingBubble();
+      // The dots give way to the reply as a fresh bubble, so it animates in.
+      function answer(text) { body.removeChild(typing); bubble("assistant", text); }
 
       fetch(API + "/api/v1/chat/public/" + KEY + "/message", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -795,10 +829,10 @@ _WIDGET_JS = r"""
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          typing.textContent = data.reply || "…";
+          answer(data.reply || "Sorry, I didn't catch that. Could you rephrase?");
           if (data.session_id) { sessionId = data.session_id; localStorage.setItem(LS_SESSION, sessionId); }
         })
-        .catch(function () { typing.textContent = "Sorry, I couldn't reach the server."; })
+        .catch(function () { answer("Sorry, I couldn't reach the server."); })
         .finally(function () { busy = false; send.disabled = false; input.focus(); });
     }
     send.onclick = submit;

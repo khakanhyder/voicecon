@@ -79,7 +79,7 @@ def an_email() -> str:
     return f"user-{uuid.uuid4().hex[:10]}@example.com"
 
 
-async def _signup_payload(client, email: str, password: str = "password123"):
+async def _signup_payload(client, email: str, password: str = "Tr1cky-horse-staple"):
     """Run the verification step and return a ready-to-post register body."""
     sent = await client.post(
         "/api/v1/auth/email/send-code", json={"email": email, "purpose": "signup"}
@@ -160,7 +160,7 @@ class TestSignupVerification:
 
         res = await client.post(
             "/api/v1/auth/register",
-            json={"email": email, "password": "password123", "full_name": "Sneaky"},
+            json={"email": email, "password": "Tr1cky-horse-staple", "full_name": "Sneaky"},
         )
 
         assert res.status_code == 400
@@ -308,7 +308,7 @@ class TestSignupVerification:
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestPasswordReset:
-    async def _registered_user(self, client, password="password123") -> str:
+    async def _registered_user(self, client, password="Tr1cky-horse-staple") -> str:
         email = an_email()
         payload = await _signup_payload(client, email, password)
         assert (await client.post("/api/v1/auth/register", json=payload)).status_code == 201
@@ -468,3 +468,159 @@ class TestPasswordReset:
         await db_session.refresh(user)
         assert user.is_verified is True
         assert user.email_verified_at is not None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestPasswordResetLimits:
+    """
+    Password reset is held to the same limits as sign-up verification.
+
+    Both flows run on the same service, so these are the reset-side twins of the
+    sign-up tests above: a 6-digit code is only safe because wrong guesses,
+    resends and total sends are all capped. Nothing here may be weaker for a
+    reset — a reset code takes over an account.
+    """
+
+    # Not "password123": the sign-up schema now rejects commonly used passwords.
+    PASSWORD = "Tr1cky-horse-staple"
+
+    async def _requested_reset(self, client) -> str:
+        email = an_email()
+        payload = await _signup_payload(client, email, self.PASSWORD)
+        assert (await client.post("/api/v1/auth/register", json=payload)).status_code == 201
+        SENT.clear()
+        sent = await client.post("/api/v1/auth/password/forgot", json={"email": email})
+        assert sent.status_code == 200, sent.text
+        return email
+
+    def _reset(self, client, email, code, password="new-password-2"):
+        return client.post(
+            "/api/v1/auth/password/reset",
+            json={"email": email, "code": code, "new_password": password},
+        )
+
+    def _wrong_code(self) -> str:
+        return "111111" if last_code() != "111111" else "222222"
+
+    async def test_each_wrong_guess_is_counted_and_reports_attempts_left(
+        self, client, db_session
+    ):
+        email = await self._requested_reset(client)
+
+        res = await self._reset(client, email, self._wrong_code())
+
+        assert res.status_code == 400
+        assert f"{verification_service.MAX_ATTEMPTS - 1} attempts left" in res.json()["detail"]
+        row = (
+            await db_session.execute(
+                select(VerificationCode).where(
+                    VerificationCode.email == email,
+                    VerificationCode.purpose == "password_reset",
+                )
+            )
+        ).scalar_one()
+        assert row.attempts == 1
+        assert row.consumed_at is None
+
+    async def test_the_last_wrong_guess_says_to_request_a_new_code(self, client):
+        email = await self._requested_reset(client)
+        wrong = self._wrong_code()
+
+        for _ in range(verification_service.MAX_ATTEMPTS - 1):
+            await self._reset(client, email, wrong)
+        last = await self._reset(client, email, wrong)
+
+        assert last.status_code == 400
+        assert "request a new code" in last.json()["detail"].lower()
+
+    async def test_code_dies_after_too_many_wrong_guesses(self, client):
+        """Even the correct code is refused once the guesses are spent."""
+        email = await self._requested_reset(client)
+        real_code = last_code()
+        wrong = self._wrong_code()
+
+        for _ in range(verification_service.MAX_ATTEMPTS):
+            await self._reset(client, email, wrong)
+
+        res = await self._reset(client, email, real_code, "attacker-pass-9")
+        assert res.status_code == 400
+
+        # The account was never touched.
+        login = await client.post(
+            "/api/v1/auth/login", json={"email": email, "password": self.PASSWORD}
+        )
+        assert login.status_code == 200
+
+    async def test_a_fresh_code_works_after_the_old_one_was_burned(self, client, monkeypatch):
+        """The lockout is per code, so the owner can always recover."""
+        email = await self._requested_reset(client)
+        wrong = self._wrong_code()
+        for _ in range(verification_service.MAX_ATTEMPTS):
+            await self._reset(client, email, wrong)
+
+        # Skip the resend cooldown the way real time would.
+        monkeypatch.setattr(verification_service, "RESEND_COOLDOWN_SECONDS", 0)
+        resent = await client.post("/api/v1/auth/password/forgot", json={"email": email})
+        assert resent.status_code == 200
+
+        res = await self._reset(client, email, last_code())
+        assert res.status_code == 200, res.text
+
+    async def test_an_expired_reset_code_is_refused(self, client, db_session):
+        email = await self._requested_reset(client)
+        row = (
+            await db_session.execute(
+                select(VerificationCode).where(
+                    VerificationCode.email == email,
+                    VerificationCode.purpose == "password_reset",
+                )
+            )
+        ).scalar_one()
+        row.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        await db_session.commit()
+
+        res = await self._reset(client, email, last_code())
+
+        assert res.status_code == 400
+        assert "expired" in res.json()["detail"].lower()
+
+    async def test_requesting_another_code_inside_the_cooldown_is_rate_limited(self, client):
+        """Otherwise 'Send a new code' floods an inbox."""
+        email = await self._requested_reset(client)
+
+        res = await client.post("/api/v1/auth/password/forgot", json={"email": email})
+
+        assert res.status_code == 429
+        assert res.headers.get("Retry-After")
+        assert len(SENT) == 1
+
+    async def test_the_hourly_send_cap_applies_to_reset_codes(
+        self, client, db_session, monkeypatch
+    ):
+        monkeypatch.setattr(verification_service, "RESEND_COOLDOWN_SECONDS", 0)
+        email = await self._requested_reset(client)
+
+        statuses = [
+            (await client.post("/api/v1/auth/password/forgot", json={"email": email})).status_code
+            for _ in range(verification_service.MAX_SENDS_PER_HOUR)
+        ]
+
+        # One send was already made by _requested_reset; the cap lands on the last.
+        assert statuses[:-1] == [200] * (verification_service.MAX_SENDS_PER_HOUR - 1)
+        assert statuses[-1] == 429
+        assert len(SENT) == verification_service.MAX_SENDS_PER_HOUR
+
+    async def test_the_attempt_limit_is_per_address(self, client):
+        """Burning one account's code must not lock anyone else out."""
+        victim = await self._requested_reset(client)
+        victim_code = last_code()
+        other = await self._requested_reset(client)
+        other_code = last_code()
+        wrong = "111111" if "111111" not in (victim_code, other_code) else "222222"
+
+        for _ in range(verification_service.MAX_ATTEMPTS):
+            await self._reset(client, victim, wrong)
+
+        assert (await self._reset(client, victim, victim_code)).status_code == 400
+        assert (await self._reset(client, other, other_code)).status_code == 200

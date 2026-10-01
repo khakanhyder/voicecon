@@ -120,15 +120,30 @@ class TestPersonName:
 @pytest.mark.unit
 class TestPhoneNumber:
     @pytest.mark.parametrize(
-        "number",
-        ["+1 555 010 1234", "+44 20 7946 0958", "(555) 010-1234", "555.010.1234"],
+        "number, stored",
+        [
+            ("+1 415 555 2671", "+14155552671"),
+            ("+44 20 7946 0958", "+442079460958"),
+            ("+92 300 1234567", "+923001234567"),
+            ("+1 (415) 555-2671", "+14155552671"),
+        ],
     )
-    def test_numbers_in_the_shapes_a_country_picker_produces_are_accepted(self, number):
-        assert Phone(value=number).value == number
+    def test_numbers_in_the_shapes_a_country_picker_produces_are_accepted(self, number, stored):
+        assert Phone(value=number).value == stored
 
-    def test_the_number_is_stored_as_typed(self):
-        """No E.164 normalisation here — guessing at it rejects valid numbers."""
-        assert Phone(value="+1 (555) 010-1234").value == "+1 (555) 010-1234"
+    def test_the_number_is_stored_as_e164(self):
+        """Parsed with a real numbering-plan library, so what is stored is dialable."""
+        assert Phone(value="+1 (415) 555-2671").value == "+14155552671"
+
+    @pytest.mark.parametrize("number", ["3001234567", "(415) 555-2671"])
+    def test_a_number_without_a_country_code_is_refused(self, number):
+        """The region is never guessed — a UK number must not be filed as a US one."""
+        with pytest.raises(ValidationError):
+            Phone(value=number)
+
+    def test_a_number_no_country_can_have_is_refused(self):
+        with pytest.raises(ValidationError):
+            Phone(value="+1 555 010 1234")
 
     def test_too_few_digits_is_refused(self):
         with pytest.raises(ValidationError):

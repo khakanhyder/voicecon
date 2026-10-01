@@ -11,11 +11,15 @@ number and nothing more.
 import logging
 import uuid
 
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import permissions as perms
+from app.core.domains import domain_exists
 from app.core.dependencies import (
     get_current_active_user,
     get_current_org_id,
@@ -95,6 +99,25 @@ async def save_company_profile(
     )
     profile = result.scalar_one_or_none()
 
+    # The schema has already checked the website is well-formed and ends in a
+    # real TLD; this checks the domain itself is registered ("asdfqwe.com" is
+    # not). Skipped when the website is unchanged, so a domain that has since
+    # lapsed does not block editing the rest of the profile. Raised as a
+    # validation error so the form shows it under the field like any other.
+    if payload.company_url and payload.company_url != (profile.company_url if profile else None):
+        host = urlparse(payload.company_url).hostname or ""
+        if not await domain_exists(host):
+            raise RequestValidationError(
+                [
+                    {
+                        "type": "value_error",
+                        "loc": ("body", "company_url"),
+                        "msg": "We couldn't find that website. Check the address and try again.",
+                        "input": payload.company_url,
+                    }
+                ]
+            )
+
     if profile is None:
         profile = CompanyProfile(
             organization_id=org_id,
@@ -124,8 +147,9 @@ async def save_company_profile(
         organization.name = payload.company_name
 
     current_user.company_name = payload.company_name
-    if payload.phone_number:
-        current_user.phone_number = payload.phone_number
+    # The phone number is deliberately NOT copied onto the user: it is the
+    # company's number, and the user's personal one is set at sign-up / in
+    # Settings → Profile.
 
     await db.commit()
     await db.refresh(profile)

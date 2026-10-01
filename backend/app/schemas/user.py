@@ -6,7 +6,7 @@ from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, model_validator
 from app.core.passwords import PasswordPolicyError, validate_password
-from app.schemas._types import NonBlankName
+from app.schemas._types import NonBlankName, PhoneNumberStr
 from app.core.time import UTCDatetime
 
 
@@ -34,7 +34,9 @@ class UserUpdate(BaseModel):
     #: in as" line rendering nothing.
     full_name: Optional[NonBlankName] = None
     company_name: Optional[str] = None
-    phone_number: Optional[str] = None
+    #: The user's own number. `null` clears it; anything else must be a
+    #: real number (see PhoneNumberStr).
+    phone_number: Optional[PhoneNumberStr] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
     timezone: Optional[str] = None

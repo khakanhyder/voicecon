@@ -91,3 +91,4 @@ croniter>=2.0.0
 pypdf==6.14.2
 python-docx==1.2.0
 openpyxl==3.1.5
+phonenumbers==9.0.40

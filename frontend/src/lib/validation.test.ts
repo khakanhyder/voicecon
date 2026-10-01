@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPlausiblePhoneNumber, normalizeWebsiteUrl } from './validation'
+import { normalizeWebsiteUrl } from './validation'
 
 describe('normalizeWebsiteUrl', () => {
   it('treats empty input as "not provided"', () => {
@@ -33,21 +33,21 @@ describe('normalizeWebsiteUrl', () => {
     expect(() => normalizeWebsiteUrl('acme .com')).toThrow(/without spaces/)
   })
 
+  it('rejects an ending that is not a real top-level domain', () => {
+    // Reported from onboarding: this saved as a company website.
+    expect(() => normalizeWebsiteUrl('as.asdfdsf')).toThrow(/valid website/)
+    expect(() => normalizeWebsiteUrl('https://www.acme.comm')).toThrow(/valid website/)
+    expect(() => normalizeWebsiteUrl('acme.local')).toThrow(/valid website/)
+  })
+
+  it('accepts newer and country-code endings', () => {
+    expect(normalizeWebsiteUrl('voicecon.ai')).toBe('https://voicecon.ai')
+    expect(normalizeWebsiteUrl('acme.com.pk')).toBe('https://acme.com.pk')
+    expect(normalizeWebsiteUrl('acme.technology')).toBe('https://acme.technology')
+  })
+
   it('refuses any scheme that is not http(s)', () => {
     expect(() => normalizeWebsiteUrl('javascript://acme.com')).toThrow(/http/)
     expect(() => normalizeWebsiteUrl('ftp://acme.com')).toThrow(/http/)
-  })
-})
-
-describe('isPlausiblePhoneNumber', () => {
-  it('accepts formatted real numbers', () => {
-    expect(isPlausiblePhoneNumber('(301) 798 1897')).toBe(true)
-    expect(isPlausiblePhoneNumber('301-798-1897')).toBe(true)
-  })
-
-  it('rejects lengths no subscriber number has', () => {
-    expect(isPlausiblePhoneNumber('123')).toBe(false)
-    expect(isPlausiblePhoneNumber('12345678901234567')).toBe(false)
-    expect(isPlausiblePhoneNumber('abc')).toBe(false)
   })
 })

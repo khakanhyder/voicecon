@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -8,7 +8,9 @@ import { ChevronDown } from 'lucide-react'
 import { VoiceconLogo } from '@/lib/icons'
 import { BrandPanel } from '@/components/auth/BrandPanel'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
-import { isPlausiblePhoneNumber, normalizeWebsiteUrl } from '@/lib/validation'
+import { normalizeWebsiteUrl } from '@/lib/validation'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { DEFAULT_PHONE_COUNTRY, phoneError, phoneToE164, type PhoneValue } from '@/lib/phone'
 import {
   COMPANY_SIZES,
   INDUSTRY_TYPES,
@@ -17,15 +19,6 @@ import {
   type CompanyProfilePayload,
 } from '@/lib/onboarding'
 import { getErrorMessage } from '@/lib/api'
-
-const COUNTRY_CODES = [
-  { code: '+1', flag: '🇺🇸' },
-  { code: '+44', flag: '🇬🇧' },
-  { code: '+91', flag: '🇮🇳' },
-  { code: '+92', flag: '🇵🇰' },
-  { code: '+61', flag: '🇦🇺' },
-  { code: '+971', flag: '🇦🇪' },
-]
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50'
@@ -71,13 +64,16 @@ export default function CompanyInformationPage() {
     assistant_name: '',
     preferred_language: 'English',
     assistant_instructions: '',
-    phone_number: '',
   })
-  const [dialCode, setDialCode] = useState('+1')
+  // The company's contact number. Kept apart from `form` because it is two
+  // pieces (country + digits) and is sent as one E.164 value.
+  const [phone, setPhone] = useState<PhoneValue>({ country: DEFAULT_PHONE_COUNTRY, national: '' })
   // Per-field messages, rendered under the field they belong to. A toast was
   // wrong for this: it names a field the user then has to go find, it covers
   // the form while they look, and it can only ever report one problem.
-  const [errors, setErrors] = useState<Partial<Record<keyof typeof form, string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<keyof typeof form | 'phone_number', string>>>({})
+
+  const focusAfterSave = useRef<string | null>(null)
 
   const set = (key: keyof typeof form) => (value: string) => {
     setForm((f) => ({ ...f, [key]: value }))
@@ -93,9 +89,37 @@ export default function CompanyInformationPage() {
       router.push('/onboarding/pricing')
     },
     onError: (err: any) => {
+      // The API checks things the browser cannot — whether the website's
+      // domain is actually registered, for one. Those come back naming the
+      // field, so they go under it like the checks made here, not in a toast.
+      const details = err?.response?.data?.details
+      const fromApi: typeof errors = {}
+      if (Array.isArray(details)) {
+        for (const d of details) {
+          const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null
+          if (typeof field === 'string' && field in form && typeof d?.msg === 'string') {
+            fromApi[field as keyof typeof form] ??= d.msg.replace(/^Value error,\s*/, '')
+          }
+        }
+      }
+      const fields = Object.keys(fromApi)
+      if (fields.length) {
+        setErrors(fromApi)
+        focusAfterSave.current = fields[0]
+        return
+      }
       toast.error(getErrorMessage(err, 'Could not save company details'))
     },
   })
+
+  // The inputs are disabled while the save is in flight, and a disabled input
+  // cannot take focus, so a field the API rejected is focused once they are
+  // enabled again rather than from inside onError.
+  useEffect(() => {
+    if (mutation.isPending || !focusAfterSave.current) return
+    document.getElementById(focusAfterSave.current)?.focus()
+    focusAfterSave.current = null
+  }, [mutation.isPending])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,9 +151,8 @@ export default function CompanyInformationPage() {
       found.assistant_name = 'Assistant name is too short'
     }
 
-    if (form.phone_number.trim() && !isPlausiblePhoneNumber(form.phone_number)) {
-      found.phone_number = 'Enter a valid phone number'
-    }
+    const phoneProblem = phoneError(phone)
+    if (phoneProblem) found.phone_number = phoneProblem
 
     setErrors(found)
     const firstInvalid = (
@@ -151,9 +174,7 @@ export default function CompanyInformationPage() {
       company_name: companyName,
       company_url: companyUrl ?? undefined,
       assistant_name: assistantName || undefined,
-      phone_number: form.phone_number.trim()
-        ? `${dialCode} ${form.phone_number.trim()}`
-        : undefined,
+      phone_number: phoneToE164(phone) ?? undefined,
     })
   }
 
@@ -280,40 +301,23 @@ export default function CompanyInformationPage() {
             <div className="h-px flex-1 bg-slate-200" />
           </div>
 
-          {/* A contact number only. Numbers for the assistant are bought on the
+          {/* The company's contact number only (the user's own number is set at sign-up). Numbers for the assistant are bought on the
               Phone Numbers page, once the workspace has a plan. */}
           <div>
             <label className={labelClass} htmlFor="phone_number">
               Phone Number<span className="text-slate-400"> (Optional)</span>
             </label>
-            <div className="flex gap-2">
-              <div className="relative">
-                <select
-                  value={dialCode}
-                  onChange={(e) => setDialCode(e.target.value)}
-                  disabled={mutation.isPending}
-                  aria-label="Country code"
-                  className={`${inputClass} appearance-none pr-7`}
-                >
-                  {COUNTRY_CODES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <input
-                id="phone_number"
-                type="tel"
-                inputMode="tel"
-                className={`${inputClass} flex-1 ${errors.phone_number ? errorInputClass : ''}`}
-                placeholder="(301) 798 1897"
-                value={form.phone_number}
-                onChange={(e) => set('phone_number')(e.target.value)}
-                disabled={mutation.isPending}
-                {...fieldErrorProps('phone_number', errors.phone_number)}
-              />
-            </div>
+            <PhoneInput
+              id="phone_number"
+              value={phone}
+              onChange={(v) => {
+                setPhone(v)
+                if (errors.phone_number) setErrors((e) => ({ ...e, phone_number: undefined }))
+              }}
+              disabled={mutation.isPending}
+              inputClassName={inputClass}
+              error={errors.phone_number}
+            />
             <FieldError id="phone_number-error" message={errors.phone_number} />
           </div>
 

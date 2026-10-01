@@ -53,3 +53,62 @@ test('the company step asks for a contact number and offers no number to buy', a
   expect(api.callsTo('/phone-numbers')).toHaveLength(0)
   expect(api.callsTo('/onboarding/phone-number')).toHaveLength(0)
 })
+
+/**
+ * The website is optional, but what is typed has to be a real one. "as.asdfdsf"
+ * used to save: it has a dot and ends in letters, which was all that was asked.
+ * The form now knows which endings exist; whether the domain itself is
+ * registered needs a DNS lookup, so that answer comes from the API and is shown
+ * in the same place.
+ */
+test('the company website has to be a real domain', async ({ page, api }) => {
+  await api.on(ROUTES.me, { body: TEST_USER })
+  await api.on('**/api/v1/onboarding/status', {
+    body: {
+      onboarding_completed: false,
+      step: 'company',
+      has_company_profile: false,
+      has_subscription: false,
+      company: null,
+    },
+  })
+  await api.on(
+    '**/api/v1/onboarding/company',
+    {
+      status: 422,
+      body: {
+        error: 'ValidationError',
+        message: 'Request validation failed',
+        details: [
+          {
+            type: 'value_error',
+            loc: ['body', 'company_url'],
+            msg: "We couldn't find that website. Check the address and try again.",
+          },
+        ],
+      },
+    },
+    { method: 'POST' },
+  )
+
+  await signIn(page)
+  await page.goto('/onboarding/company')
+  await expect(page.getByRole('heading', { name: 'Company Information' })).toBeVisible({ timeout: 30_000 })
+
+  const website = page.getByLabel(/Company URL/)
+  await page.getByLabel('Company Name').fill('Acme Inc.')
+
+  // An ending that is not a TLD is caught in the browser: nothing is sent.
+  await website.fill('as.asdfdsf')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByText('Enter a valid website, e.g. www.acme.com')).toBeVisible()
+  expect(api.callsOf('POST', '/onboarding/company')).toHaveLength(0)
+
+  // A well-formed domain nobody has registered is refused by the API, and the
+  // reason lands under the field rather than in a toast.
+  await website.fill('asdfqwe-not-registered.com')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByText("We couldn't find that website. Check the address and try again.")).toBeVisible()
+  await expect(website).toBeFocused()
+  await expect(page).toHaveURL(/\/onboarding\/company/)
+})

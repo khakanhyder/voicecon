@@ -4,7 +4,7 @@ User, Organization, and Authentication models.
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, ForeignKey, JSON, Uuid
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, ForeignKey, JSON, Uuid, text
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.database import Base
@@ -146,6 +146,20 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # One person cannot own two active workspaces with the same name. Not a
+    # global rule: another owner may use the same name. Case-insensitive, and a
+    # deactivated (deleted) workspace frees its name. See migration 0034.
+    __table_args__ = (
+        Index(
+            "uq_organizations_owner_name_active",
+            "owner_id",
+            text("lower(trim(name))"),
+            unique=True,
+            postgresql_where=text("is_active"),
+            sqlite_where=text("is_active"),
+        ),
     )
 
     # Relationships

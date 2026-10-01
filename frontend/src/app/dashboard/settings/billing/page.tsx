@@ -10,6 +10,7 @@ import {
   XCircle,
   Clock,
   Phone,
+  Mail,
   ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,13 +18,14 @@ import { Button } from '@/components/ui/button';
 import { apiClient, getErrorMessage } from '@/lib/api';
 import { API_ENDPOINTS } from '@/lib/constants';
 import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutModal';
-import { entitlementService, FEATURE_LABELS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
+import { entitlementService, FEATURE_LABELS, LIMITS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
 import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/lib/pricing';
 
 import { useConfirm } from '@/hooks/use-confirm';
 import { formatDate as formatDay } from '@/lib/datetime';
+import { PLAN_CARDS_ID, PLANS_HASH, scrollToPlanCards } from '@/lib/billingNav';
 
 interface SubscriptionPlan {
   id: string;
@@ -163,6 +165,8 @@ export default function BillingPage() {
 
   const entitlements = useEntitlementStore((s) => s.entitlements);
   const refreshEntitlements = useEntitlementStore((s) => s.refresh);
+  // -1 is unlimited and 0 is "not on this plan"; neither has a bar to show.
+  const emailCap = entitlements?.limits?.[LIMITS.EMAILS] ?? 0;
 
   const fetchAll = async () => {
     setLoading(true);
@@ -292,8 +296,17 @@ export default function BillingPage() {
     });
   };
 
-  const scrollToPlans = () =>
-    document.getElementById('available-plans')?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToPlans = () => {
+    scrollToPlanCards();
+  };
+
+  // Arriving with #plans (from the "Choose a plan" banner elsewhere): wait for
+  // the data so the cards exist and the layout has settled, then scroll to them.
+  useEffect(() => {
+    if (loading || window.location.hash !== PLANS_HASH) return;
+    const id = requestAnimationFrame(scrollToPlanCards);
+    return () => cancelAnimationFrame(id);
+  }, [loading]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -435,7 +448,8 @@ export default function BillingPage() {
           ) : (
             <div className="py-8 text-center text-gray-500">
               <p className="mb-4">No active subscription found.</p>
-              <p className="text-sm">Choose a plan below to get started.</p>
+              <p className="mb-4 text-sm">Choose a plan below to get started.</p>
+              <Button onClick={scrollToPlans}>Choose a plan</Button>
             </div>
           )}
 
@@ -507,7 +521,9 @@ export default function BillingPage() {
         {/* Usage This Period */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="mb-6">
-            <h2 className="text-[20px] font-bold font-poppins text-[#000000]">Usage This Period</h2>
+            <h2 className="text-[20px] font-bold font-poppins text-[#000000]">
+              {entitlements?.is_trial ? 'Trial Usage' : 'Usage This Period'}
+            </h2>
             <p className="text-[14px] font-poppins text-black/60 mt-1">
               {usage && usage.minutes_included >= 0
                 ? usage.overage_allowed
@@ -530,7 +546,7 @@ export default function BillingPage() {
               ))}
             </div>
           ) : usage ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className={`grid grid-cols-1 gap-6 ${emailCap > 0 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
               <UsageTile
                 icon={<Clock className="w-5 h-5 text-[#106959]" />}
                 label="Call Minutes"
@@ -546,6 +562,17 @@ export default function BillingPage() {
                 unit="calls"
                 note="Calls aren't limited — plans are metered in minutes"
               />
+              {/* Only when the plan caps emails: an unlimited or absent allowance
+                  has nothing to fill. This used to sit in the sidebar. */}
+              {emailCap > 0 && (
+                <UsageTile
+                  icon={<Mail className="w-5 h-5 text-[#106959]" />}
+                  label="Emails"
+                  used={entitlements?.usage?.[LIMITS.EMAILS] ?? 0}
+                  included={emailCap}
+                  unit="emails"
+                />
+              )}
             </div>
           ) : (
             <p className="text-gray-500 text-sm">No usage data available.</p>
@@ -604,6 +631,8 @@ export default function BillingPage() {
             </div>
           </div>
 
+          {/* Scroll target for every "Choose a plan" button — see lib/billingNav. */}
+          <div id={PLAN_CARDS_ID} className="scroll-mt-6" />
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
               {[1, 2, 3, 4].map((i) => (

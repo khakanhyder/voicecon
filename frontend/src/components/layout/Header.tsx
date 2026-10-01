@@ -1,5 +1,6 @@
 'use client'
 
+import { UserAvatar } from '@/components/ui/user-avatar'
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
@@ -155,12 +156,12 @@ export function Header({ onMenuClick }: HeaderProps) {
 
           {/* User */}
           <div className="flex h-10 items-center gap-2.5 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-1 transition-colors hover:bg-white xl:pr-4">
-            <div
+            <UserAvatar
+              src={user?.avatar_url}
+              name={user?.full_name}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
               style={{ background: 'linear-gradient(135deg, #0F6A59 0%, #1fa183 100%)' }}
-            >
-              {user?.full_name ? user.full_name[0].toUpperCase() : 'U'}
-            </div>
+            />
             <div className="hidden xl:block">
               <p className="text-sm font-medium leading-none text-slate-900">{user?.full_name || 'User'}</p>
               <p className="mt-1 max-w-32 truncate text-xs leading-none text-slate-500">{user?.email}</p>

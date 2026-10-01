@@ -7,6 +7,8 @@
  * worse than one that says so while the cursor is still in the field.
  */
 
+import { TLDS } from './tlds'
+
 /** A hostname label: alphanumeric, inner hyphens allowed. */
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
@@ -16,8 +18,10 @@ const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
  * Accepts what people actually type — `acme.com`, `www.acme.com`,
  * `https://acme.com/careers` — and returns it with a scheme attached so the
  * stored value is a link that works when clicked. Rejects a bare word with no
- * dot (`dcsdcs`), anything with whitespace, and any scheme other than http(s)
- * so a stored `javascript:` URL can never be rendered as an href.
+ * dot (`dcsdcs`), an ending that is not a real top-level domain
+ * (`as.asdfdsf`), anything with whitespace, and any scheme other than http(s)
+ * so a stored `javascript:` URL can never be rendered as an href. Whether the
+ * domain is actually registered is the API's check: it needs a DNS lookup.
  *
  * @returns the normalized URL, or `null` when the input is empty/whitespace.
  * @throws Error with a message written for the user when the input is invalid.
@@ -43,7 +47,8 @@ export function normalizeWebsiteUrl(raw: string): string | null {
   }
 
   // `new URL()` is lenient by design — it happily parses "https://dcsdcs" as a
-  // host. A real public website has at least one dot and an alphabetic TLD.
+  // host. A real public website has at least one dot and ends in a TLD that
+  // exists; "any letters" accepted endings nobody can register.
   const host = url.hostname.toLowerCase()
   const labels = host.split('.')
   const tld = labels[labels.length - 1]
@@ -51,7 +56,7 @@ export function normalizeWebsiteUrl(raw: string): string | null {
   const looksLikeADomain =
     labels.length >= 2 &&
     labels.every((label) => HOST_LABEL.test(label)) &&
-    /^[a-z]{2,}$/.test(tld)
+    TLDS.has(tld)
 
   if (!looksLikeADomain) {
     throw new Error('Enter a valid website, e.g. www.acme.com')
@@ -62,17 +67,4 @@ export function normalizeWebsiteUrl(raw: string): string | null {
   return url.pathname === '/' && !url.search && !url.hash
     ? `${url.protocol}//${host}`
     : url.toString()
-}
-
-/**
- * Check a phone number the user typed by hand.
- *
- * Deliberately loose: formatting varies by country and the dial code is picked
- * from a separate select, so this only rejects lengths no real subscriber
- * number has. Numbers bought through the carrier search skip this — they
- * arrive already in E.164.
- */
-export function isPlausiblePhoneNumber(raw: string): boolean {
-  const digits = raw.replace(/\D/g, '')
-  return digits.length >= 7 && digits.length <= 15
 }

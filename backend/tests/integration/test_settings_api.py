@@ -147,13 +147,13 @@ class TestProfile:
     async def test_update_profile(self, client, owner):
         res = await as_user(client, owner).patch(
             "/api/v1/users/me",
-            json={"full_name": "Renamed", "bio": "hi there", "phone_number": "+123"},
+            json={"full_name": "Renamed", "bio": "hi there", "phone_number": "+14155552671"},
         )
         assert res.status_code == 200
         body = res.json()
         assert body["full_name"] == "Renamed"
         assert body["bio"] == "hi there"
-        assert body["phone_number"] == "+123"
+        assert body["phone_number"] == "+14155552671"
 
     async def test_change_password_wrong_current(self, client, owner):
         res = await as_user(client, owner).post(

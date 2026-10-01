@@ -9,17 +9,10 @@ import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { OtpInput } from '@/components/auth/OtpInput'
 import { FieldError, errorInputClass, fieldErrorProps } from '@/components/ui/field-error'
 import { PasswordInput } from '@/components/ui/password-input'
-import { BadgeCheck, Loader2, Mail, Lock, Phone, User } from 'lucide-react'
+import { BadgeCheck, Loader2, Mail, Lock, User } from 'lucide-react'
+import { PhoneInput } from '@/components/ui/phone-input'
+import { DEFAULT_PHONE_COUNTRY, phoneError, phoneToE164, type PhoneValue } from '@/lib/phone'
 import { getErrorMessage } from '@/lib/api'
-
-const COUNTRY_CODES = [
-  { code: '+1', flag: '🇺🇸' },
-  { code: '+44', flag: '🇬🇧' },
-  { code: '+91', flag: '🇮🇳' },
-  { code: '+92', flag: '🇵🇰' },
-  { code: '+61', flag: '🇦🇺' },
-  { code: '+971', flag: '🇦🇪' },
-]
 
 export default function RegisterPage() {
   const { register, isRegistering } = useAuth()
@@ -28,15 +21,15 @@ export default function RegisterPage() {
     password: '',
     confirmPassword: '',
     full_name: '',
-    phone: '',
   })
-  const [dialCode, setDialCode] = useState('+1')
+  const [phone, setPhone] = useState<PhoneValue>({ country: DEFAULT_PHONE_COUNTRY, national: '' })
   const [error, setError] = useState('')
   //: Per-field messages, shown under the field they belong to. The form-level
   //: `error` above stays for things that belong to the form as a whole (a
   //: rejected verification code, a server refusal).
   const [errors, setErrors] = useState<{
     full_name?: string
+    phone?: string
     password?: string
     confirmPassword?: string
   }>({})
@@ -143,6 +136,10 @@ export default function RegisterPage() {
       found.full_name = 'Enter your full name'
     }
 
+    // Optional, but a number that is entered has to be a real one.
+    const phoneProblem = phoneError(phone)
+    if (phoneProblem) found.phone = phoneProblem
+
     if (!formData.password) {
       found.password = 'Choose a password'
     } else if (formData.password.length < 8) {
@@ -156,7 +153,7 @@ export default function RegisterPage() {
     }
 
     setErrors(found)
-    const firstInvalid = (['full_name', 'password', 'confirmPassword'] as const).find(
+    const firstInvalid = (['full_name', 'phone', 'password', 'confirmPassword'] as const).find(
       (field) => found[field],
     )
     if (firstInvalid) {
@@ -167,7 +164,8 @@ export default function RegisterPage() {
       email: formData.email.trim(),
       password: formData.password,
       full_name: name,
-      phone_number: formData.phone ? `${dialCode} ${formData.phone}`.trim() : undefined,
+      // The person's own number — it goes on their user profile only.
+      phone_number: phoneToE164(phone) ?? undefined,
       email_verification_token: verificationToken,
     })
   }
@@ -244,7 +242,7 @@ export default function RegisterPage() {
                   type="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="info@voicecon.com"
+                  placeholder="info@example.com"
                   required
                   disabled={isRegistering || emailIsVerified}
                   className={`${inputClass} pr-10`}
@@ -323,38 +321,20 @@ export default function RegisterPage() {
         {/* Phone number */}
         <div className="space-y-1.5">
           <label htmlFor="phone" className="block text-base font-semibold text-slate-800">
-            Phone Number
+            Phone Number <span className="font-normal text-slate-400">(Optional)</span>
           </label>
-          <div className="flex gap-2">
-            <div className="relative">
-              <select
-                value={dialCode}
-                onChange={(e) => setDialCode(e.target.value)}
-                disabled={isRegistering}
-                aria-label="Country code"
-                className="h-full appearance-none rounded-lg border border-slate-300 bg-white py-2.5 pl-3 pr-7 text-base text-slate-900 outline-none transition-all focus:border-[#243275] focus:ring-3 focus:ring-[#243275]/15"
-              >
-                {COUNTRY_CODES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.flag} {c.code}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="relative flex-1">
-              <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                id="phone"
-                name="phone"
-                type="tel"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="(301) 798 1897"
-                disabled={isRegistering}
-                className={`${inputClass} pl-10`}
-              />
-            </div>
-          </div>
+          <PhoneInput
+            id="phone"
+            value={phone}
+            onChange={(v) => {
+              setPhone(v)
+              if (errors.phone) setErrors((e) => ({ ...e, phone: undefined }))
+            }}
+            disabled={isRegistering}
+            inputClassName={inputClass}
+            error={errors.phone}
+          />
+          <FieldError id="phone-error" message={errors.phone} />
         </div>
 
         {/* Password + Confirm */}

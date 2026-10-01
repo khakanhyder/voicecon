@@ -654,3 +654,82 @@ class TestInvitationJourney:
 
         current = await as_user(client, team["outsider"]).get("/api/v1/workspaces/current")
         assert current.json()["name"] == "Side Project"
+
+
+# ---------- Workspace names ----------
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestWorkspaceNames:
+    """One owner cannot hold two active workspaces with the same name.
+
+    Not a global rule: the same name is fine for a different owner.
+    """
+
+    async def _create(self, client, name):
+        return await client.post("/api/v1/workspaces", json={"name": name})
+
+    async def test_the_same_owner_cannot_reuse_a_name(self, client, team):
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Sales")).status_code == 201
+
+        again = await self._create(client, "Sales")
+
+        assert again.status_code == 409
+        assert "already have a workspace named" in again.json()["detail"]
+
+    async def test_case_and_spacing_do_not_make_a_name_different(self, client, team):
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Sales")).status_code == 201
+
+        assert (await self._create(client, "  sALES ")).status_code == 409
+
+    async def test_another_owner_can_use_the_same_name_once(self, client, team):
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Sales")).status_code == 201
+
+        as_user(client, team["outsider"])
+        assert (await self._create(client, "Sales")).status_code == 201
+        assert (await self._create(client, "Sales")).status_code == 409
+
+    async def test_a_name_held_by_someone_elses_workspace_is_free(self, client, team):
+        # "Rival" is owned by the outsider; the owner has no workspace of that name.
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Rival")).status_code == 201
+
+    async def test_a_deleted_workspace_gives_its_name_back(self, client, db_session, team):
+        as_user(client, team["owner"])
+        created = await self._create(client, "Sales")
+        assert created.status_code == 201
+
+        org = (
+            await db_session.execute(
+                select(Organization).where(Organization.id == uuid.UUID(created.json()["id"]))
+            )
+        ).scalar_one()
+        org.is_active = False
+        await db_session.commit()
+
+        assert (await self._create(client, "Sales")).status_code == 201
+
+    async def test_renaming_onto_an_existing_name_is_refused(self, client, team):
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Sales")).status_code == 201
+
+        # Acme is the owner's other workspace; renaming it to "sales" would collide.
+        as_user(client, team["owner"], team["acme"])
+        clash = await client.patch("/api/v1/workspaces/current", json={"name": "sales"})
+        assert clash.status_code == 409
+
+        # Renaming to its own name (a no-op, or a recase) is not a clash.
+        same = await client.patch("/api/v1/workspaces/current", json={"name": "ACME"})
+        assert same.status_code == 200
+        assert same.json()["name"] == "ACME"
+
+    async def test_an_admin_renaming_is_checked_against_the_owners_names(self, client, team):
+        as_user(client, team["owner"])
+        assert (await self._create(client, "Sales")).status_code == 201
+
+        # The admin has no "Sales" of their own, but the workspace's owner does.
+        as_user(client, team["admin"], team["acme"])
+        clash = await client.patch("/api/v1/workspaces/current", json={"name": "Sales"})
+        assert clash.status_code == 409
