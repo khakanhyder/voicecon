@@ -1130,6 +1130,13 @@ async def agent_stt_websocket(
     Real-time Deepgram STT WebSocket proxy.
     Client sends raw audio bytes (WebM/Opus); server forwards to Deepgram and returns
     transcript events as JSON. Auth via 'token' query param (browser WS can't set headers).
+
+    End-of-speech events carry the same turn-taking verdicts a phone call
+    acts on (app.services.voice.turn_taking): `hold_ms`, how much longer to
+    wait before answering, and `backchannel`, a listening noise that is not a
+    turn. The client reports each line the agent speaks as a text frame
+    ({"type": "agent_said", "text": ...}) so the wait can depend on what was
+    just asked.
     """
     await websocket.accept()
 
@@ -1187,6 +1194,19 @@ async def agent_stt_websocket(
 
     from app.core.config import settings
     from app.services.voice.stt_service import deepgram_keyword_params, deepgram_turn_params
+    from app.services.voice.turn_taking import extra_wait_seconds, is_backchannel
+
+    # What the caller has said since they last stopped, and the agent's last line.
+    heard_parts: list[str] = []
+    agent_said = {"text": ""}
+
+    def end_of_speech_verdict() -> dict:
+        heard = " ".join(heard_parts).strip()
+        heard_parts.clear()
+        return {
+            "hold_ms": int(extra_wait_seconds(heard, agent_said["text"], stt_language) * 1000),
+            "backchannel": is_backchannel(heard),
+        }
 
     if not getattr(settings, "DEEPGRAM_API_KEY", None):
         logger.error("Test console STT unavailable: DEEPGRAM_API_KEY is not configured")
@@ -1219,9 +1239,21 @@ async def agent_stt_websocket(
 
                 async def relay_client_to_deepgram():
                     try:
-                        async for data in websocket.iter_bytes():
-                            if not dg_ws.closed:
-                                await dg_ws.send_bytes(data)
+                        while True:
+                            message = await websocket.receive()
+                            if message.get("type") == "websocket.disconnect":
+                                break
+                            data = message.get("bytes")
+                            if data is not None:
+                                if not dg_ws.closed:
+                                    await dg_ws.send_bytes(data)
+                                continue
+                            try:
+                                note = json.loads(message.get("text") or "{}")
+                            except ValueError:
+                                continue
+                            if isinstance(note, dict) and note.get("type") == "agent_said":
+                                agent_said["text"] = str(note.get("text") or "")[:2000]
                     except WebSocketDisconnect:
                         pass
                     except Exception:
@@ -1249,15 +1281,22 @@ async def agent_stt_websocket(
                                     # "final" segment. Dropping it here dropped
                                     # the end-of-turn signal itself, so the
                                     # caller's turn never committed.
+                                    if transcript and is_final:
+                                        heard_parts.append(transcript)
                                     if transcript or is_final or speech_final:
-                                        await websocket.send_json({
+                                        event = {
                                             "type": "transcript",
                                             "text": transcript,
                                             "is_final": is_final,
                                             "speech_final": speech_final,
-                                        })
+                                        }
+                                        if speech_final:
+                                            event.update(end_of_speech_verdict())
+                                        await websocket.send_json(event)
                                 elif msg_type == "UtteranceEnd":
-                                    await websocket.send_json({"type": "utterance_end"})
+                                    await websocket.send_json(
+                                        {"type": "utterance_end", **end_of_speech_verdict()}
+                                    )
                             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                                 break
                     except Exception:

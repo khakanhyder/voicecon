@@ -692,12 +692,10 @@ async def handle_inbound_call(
 
         logger.info(f"WebSocket URL: {websocket_url}")
 
-        # "connecting you with X" only makes sense to someone who dialled us.
-        # On an outbound call the agent's own first_message does the greeting.
-        twiml = build_twiml_for_websocket(
-            websocket_url=websocket_url,
-            agent_name=agent.name if call.direction == "inbound" else None,
-        )
+        # No carrier-voiced "connecting you with X" first: the agent opens
+        # every call with its own first message, so the caller heard two
+        # greetings in two different voices.
+        twiml = build_twiml_for_websocket(websocket_url=websocket_url)
 
         logger.info(f"Generated TwiML for call: {call_sid}")
 
@@ -1084,10 +1082,8 @@ async def handle_telnyx_inbound_call(
         )
 
         return Response(
-            content=build_stream_response(
-                websocket_url,
-                agent.name if call.direction == "inbound" else None,
-            ),
+            # As on Twilio: the agent's own first message is the greeting.
+            content=build_stream_response(websocket_url),
             media_type="application/xml",
         )
 

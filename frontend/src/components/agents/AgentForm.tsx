@@ -226,7 +226,8 @@ const HELP = {
     'say a few words, so a cough or an "mm-hm" does not interrupt.',
   silenceTimeout:
     'How long the caller must be quiet before their turn is treated as finished and the agent replies. ' +
-    'Shorter feels snappier; longer lets people pause mid-sentence or between the digits of a phone number.',
+    'Shorter feels snappier; longer lets people pause mid-sentence. The agent waits up to 1.5 seconds more ' +
+    'on its own when a sentence trails off or the caller is part-way through a number.',
   maxCallDuration:
     'The agent says goodbye and ends the call when it reaches this length, so a stuck or forgotten call ' +
     'cannot run on.',

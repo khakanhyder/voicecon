@@ -102,7 +102,23 @@ export function CallTestPanel({
   const maxDurRef         = useRef(1800)
   const idleTimeoutRef    = useRef(8000)
   const streamRef         = useRef<MediaStream | null>(null)
-  const audioQueueRef     = useRef<{ audio_base64: string; format: string }[]>([])
+  const audioQueueRef     = useRef<{ audio_base64: string; format: string; text: string }[]>([])
+  // One reply at a time. Bumped whenever a reply is started or cancelled, so
+  // a /respond stream that is no longer the current one cannot speak.
+  const respGenRef        = useRef(0)
+  // The current /respond stream is still delivering sentences.
+  const streamOpenRef     = useRef(false)
+  // Whether any of the current reply has been played, and which sentences.
+  const replyAudibleRef   = useRef(false)
+  const replyHeardRef     = useRef<string[]>([])
+  // The caller's words the current reply is answering.
+  const lastUserRef       = useRef('')
+  // Extra wait before answering a sentence that trails off (set by the relay).
+  const holdTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The caller finished speaking while the agent was busy: answered next.
+  const heardWaitingRef   = useRef(false)
+  // finalBufRef as it stood when the caller last stopped speaking.
+  const bufAtPauseRef     = useRef('')
   const currentAudioRef   = useRef<HTMLAudioElement | null>(null)
   const abortCtrlRef      = useRef<AbortController | null>(null)
   const drainResolveRef   = useRef<(() => void) | null>(null)
@@ -153,6 +169,11 @@ export function CallTestPanel({
   const addMessage = (role: 'user' | 'agent', text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), role, text, timestamp: new Date() }])
     historyRef.current.push({ role, text })
+    // The relay waits longer for an answer to "what's your number?" than to
+    // a yes/no question, so it needs the agent's last line.
+    if (role === 'agent' && dgWsRef.current?.readyState === WebSocket.OPEN) {
+      try { dgWsRef.current.send(JSON.stringify({ type: 'agent_said', text })) } catch {}
+    }
   }
 
 
@@ -160,6 +181,9 @@ export function CallTestPanel({
     isActiveRef.current = false
     if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null }
     if (maxTimerRef.current)  { clearTimeout(maxTimerRef.current);  maxTimerRef.current = null }
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
+    respGenRef.current++
+    streamOpenRef.current = false
     if (recognitionRef.current)  { try { recognitionRef.current.stop() } catch {} }
     if (dgWsRef.current)         { try { dgWsRef.current.close() } catch {}; dgWsRef.current = null }
     if (mediaRecRef.current)     { try { mediaRecRef.current.stop() } catch {}; mediaRecRef.current = null }
@@ -225,6 +249,8 @@ export function CallTestPanel({
         const url   = URL.createObjectURL(new Blob([buf], { type: mime }))
         const audio = new Audio(url)
         currentAudioRef.current = audio
+        replyAudibleRef.current = true
+        replyHeardRef.current.push(item.text)
         await new Promise<void>(resolve => {
           const done = () => { drainResolveRef.current = null; resolve() }
           drainResolveRef.current = done
@@ -237,7 +263,9 @@ export function CallTestPanel({
     drainResolveRef.current = null
     isPlayingRef.current = false
     currentAudioRef.current = null
-    if (myGen === drainGenRef.current && isActiveRef.current
+    // Not while the reply is still arriving: the gap before its next sentence
+    // is the agent mid-reply, not the caller's turn.
+    if (myGen === drainGenRef.current && isActiveRef.current && !streamOpenRef.current
         && callStateRef.current !== 'ended' && callStateRef.current !== 'processing') {
       setCallState('listening')
       callStateRef.current = 'listening'
@@ -256,10 +284,18 @@ export function CallTestPanel({
 
   const streamResponse = useCallback(async (userText: string) => {
     if (!isActiveRef.current) return
+    // A request still in flight is dropped before the next one starts. Two
+    // used to run side by side, and the caller heard both replies.
+    if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }
+    const gen = ++respGenRef.current
+    const stale = () => gen !== respGenRef.current
     setCallState('processing')
     callStateRef.current = 'processing'
     setAgentText('')
     stopAudioNow()
+    replyAudibleRef.current = false
+    replyHeardRef.current   = []
+    streamOpenRef.current   = true
     const token = getAccessToken() || ''
     try {
       const ctrl = new AbortController()
@@ -270,13 +306,16 @@ export function CallTestPanel({
         body: JSON.stringify({ message: userText, history: historyRef.current.slice(-HISTORY_SENT) }),
         signal: ctrl.signal,
       })
+      if (stale()) return
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
       setCallState('speaking')
+      callStateRef.current = 'speaking'
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
       let fullText = '', buffer = '', shouldEnd = false
       while (true) {
         const { done, value } = await reader.read()
+        if (stale()) { reader.cancel().catch(() => {}); return }
         if (done) break
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -291,7 +330,7 @@ export function CallTestPanel({
               fullText += (fullText ? ' ' : '') + ev.text
               setAgentText(fullText)
               if (ev.audio_base64) {
-                audioQueueRef.current.push({ audio_base64: ev.audio_base64, format: ev.audio_format || 'mp3' })
+                audioQueueRef.current.push({ audio_base64: ev.audio_base64, format: ev.audio_format || 'mp3', text: ev.text })
                 drainQueue()
               }
             } else if (ev.type === 'tool_result') {
@@ -312,6 +351,8 @@ export function CallTestPanel({
           } catch {}
         }
       }
+      streamOpenRef.current = false
+      if (abortCtrlRef.current === ctrl) abortCtrlRef.current = null
       if (fullText.trim()) addMessage('agent', fullText.trim())
       setAgentText('')
       if (shouldEnd) {
@@ -329,21 +370,87 @@ export function CallTestPanel({
         setTimeout(() => startSpeechRef.current(), 150)
       }
     } catch (e: any) {
+      if (stale()) return
+      streamOpenRef.current = false
       if (e?.name === 'AbortError') return
       toast.error(getErrorMessage(e, 'The agent couldn’t respond just now. Please try again.'))
       if (isActiveRef.current) { setCallState('listening'); callStateRef.current = 'listening'; setTimeout(() => startSpeechRef.current(), 150) }
     }
   }, [drainQueue, stopAudioNow, agentId])
 
+  const agentBusy = () => callStateRef.current === 'speaking' || callStateRef.current === 'processing'
+
   const sendHeardTurn = () => {
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
     const heard = finalBufRef.current.trim()
-    if (!heard || callStateRef.current === 'processing') return
+    if (!heard) return
+    // The agent is mid-reply and was not interrupted: answer this once it
+    // has finished, rather than starting a second reply over the first.
+    if (agentBusy()) { heardWaitingRef.current = true; return }
+    heardWaitingRef.current = false
     finalBufRef.current = ''
+    bufAtPauseRef.current = ''
+    lastUserRef.current = heard
     callStateRef.current = 'processing'
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
     setLiveText('')
     addMessage('user', heard)
     streamRespRef.current(heard)
+  }
+
+  /** The caller has stopped speaking. `holdMs` is how much longer to wait
+   *  when the sentence trails off; `backchannel` marks an "mm-hm". Both come
+   *  from the relay, which applies the same rules as a phone call. */
+  const endOfSpeech = (holdMs = 0, backchannel = false) => {
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
+    if (backchannel && agentBusy()) {
+      // A listening noise over the agent is not a turn.
+      finalBufRef.current = bufAtPauseRef.current
+      setLiveText('')
+      return
+    }
+    bufAtPauseRef.current = finalBufRef.current
+    if (holdMs > 0 && !agentBusy()) holdTimerRef.current = setTimeout(sendHeardTurn, holdMs)
+    else sendHeardTurn()
+  }
+
+  /** Stop the reply in flight. With nothing of it heard yet the caller had
+   *  only paused, so their words go back to be answered with what they say
+   *  next (`merge`). Otherwise it is an interruption, and the conversation
+   *  keeps only the part of the reply that was played. */
+  const cancelReply = (merge: boolean) => {
+    respGenRef.current++
+    streamOpenRef.current = false
+    if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }
+    const heard = replyHeardRef.current.join(' ').trim()
+    stopAudioNow()
+    setAgentText('')
+    const last = historyRef.current[historyRef.current.length - 1]
+    if (merge) {
+      if (last?.role === 'user' && last.text === lastUserRef.current) {
+        historyRef.current.pop()
+        setMessages(prev => {
+          const i = prev.map(m => m.role === 'user' && m.text === last.text).lastIndexOf(true)
+          return i < 0 ? prev : prev.filter((_, j) => j !== i)
+        })
+        finalBufRef.current = `${last.text} ${finalBufRef.current}`.trim()
+      }
+    } else if (heard) {
+      addMessage('agent', `${heard}…`)
+    }
+    replyAudibleRef.current = false
+    replyHeardRef.current   = []
+    setCallState('listening')
+    callStateRef.current = 'listening'
+  }
+
+  /** The caller is speaking (interim transcripts included). */
+  const onCallerSpeech = (heardSoFar: string) => {
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
+    heardWaitingRef.current = false
+    if (!agentBusy()) return
+    if (!replyAudibleRef.current) cancelReply(true)
+    else if (interruptRef.current && wordCount(heardSoFar) >= interruptWordsRef.current) cancelReply(false)
   }
 
   const startDeepgramSession = useCallback(() => {
@@ -372,7 +479,7 @@ export function CallTestPanel({
             setSttMode('deepgram'); setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current()
           } catch { ws.close(); dgAvailRef.current = false; setSttMode('webspeech'); startWebSpeechRef.current() }
         } else if (ev.type === 'transcript') {
-          const { text, is_final, speech_final } = ev
+          const { text, is_final, speech_final, hold_ms, backchannel } = ev
           // The message that carries speech_final often has an empty
           // transcript (the words already arrived in an earlier "final"
           // segment) — returning early here used to eat the commit signal
@@ -381,16 +488,16 @@ export function CallTestPanel({
           if (text?.trim()) {
             resetIdleRef.current()
             if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
+            // Words since the caller last paused: what counts towards
+            // interrupting, not a sentence still waiting to be answered.
+            onCallerSpeech(`${finalBufRef.current} ${is_final ? '' : text}`.slice(bufAtPauseRef.current.length))
             setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
-            const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
-            const heardSoFar = `${finalBufRef.current} ${text}`
-            if (agentBusy && interruptRef.current && wordCount(heardSoFar) >= interruptWordsRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
           }
-          if (speech_final) sendHeardTurn()
+          if (speech_final) endOfSpeech(hold_ms, backchannel)
         } else if (ev.type === 'utterance_end') {
           // Deepgram's fallback end-of-turn, for when noise kept speech_final
           // from ever arriving.
-          sendHeardTurn()
+          endOfSpeech(ev.hold_ms, ev.backchannel)
         } else if (ev.type === 'error') {
           // Deepgram unusable (bad/missing key). Don't retry it — onclose would loop forever.
           dgAvailRef.current = false
@@ -432,9 +539,14 @@ export function CallTestPanel({
       }
       setLiveText(interim || final)
       if ((interim || final).trim()) resetIdleRef.current()
-      const agentBusy = callStateRef.current === 'speaking' || callStateRef.current === 'processing'
-      if (agentBusy && interruptRef.current && wordCount(interim || final) >= interruptWordsRef.current) { stopAudioNow(); if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }; setCallState('listening'); callStateRef.current = 'listening' }
-      if (final.trim()) { intentStopRef.current = true; callStateRef.current = 'processing'; r.stop(); setLiveText(''); addMessage('user', final.trim()); streamRespRef.current(final.trim()) }
+      if ((interim || final).trim()) onCallerSpeech(interim || final)
+      if (final.trim() && !agentBusy()) {
+        // Includes the words of a reply cancelled before it was heard.
+        const said = `${finalBufRef.current} ${final}`.trim()
+        finalBufRef.current = ''
+        lastUserRef.current = said
+        intentStopRef.current = true; callStateRef.current = 'processing'; r.stop(); setLiveText(''); addMessage('user', said); streamRespRef.current(said)
+      }
     }
     r.onerror = (e: any) => { if (e.error === 'no-speech' && isActiveRef.current && !intentStopRef.current) startWebSpeechRef.current() }
     r.onend   = () => { if (intentStopRef.current) { intentStopRef.current = false; return }; if (isActiveRef.current && callStateRef.current === 'listening') setTimeout(() => startSpeechRef.current(), 150) }
@@ -444,7 +556,10 @@ export function CallTestPanel({
   const startListening = useCallback(() => {
     if (!isActiveRef.current) return
     if (textOnlyRef.current) { setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current(); return }
-    if (dgWsRef.current?.readyState === WebSocket.OPEN) { setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current() }
+    if (dgWsRef.current?.readyState === WebSocket.OPEN) {
+      setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current()
+      if (heardWaitingRef.current) sendHeardTurn()
+    }
     else if (dgAvailRef.current) startDgRef.current()
     else startWebSpeechRef.current()
   }, [])
@@ -465,6 +580,7 @@ export function CallTestPanel({
       for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
       const audio = new Audio(URL.createObjectURL(new Blob([buf], { type: mime })))
       currentAudioRef.current = audio
+      replyAudibleRef.current = true
       await audio.play()
       await new Promise<void>(r2 => { audio.onended = () => r2() })
     } catch {}
@@ -476,6 +592,8 @@ export function CallTestPanel({
     setMessages([]); setAgentText(''); setLiveText(''); setElapsed(0); setSttMode('none')
     historyRef.current  = []
     finalBufRef.current = ''
+    bufAtPauseRef.current   = ''
+    heardWaitingRef.current = false
     isActiveRef.current = true
     dgAvailRef.current  = true
     textOnlyRef.current = false

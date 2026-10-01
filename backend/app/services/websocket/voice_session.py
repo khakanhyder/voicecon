@@ -8,7 +8,9 @@ import asyncio
 import json
 import base64
 import audioop
-from typing import Optional, Dict, Any
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
 
@@ -19,6 +21,12 @@ from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
+from app.services.voice.turn_taking import (
+    extra_wait_seconds,
+    is_backchannel,
+    is_echo,
+    pop_sentences,
+)
 from app.services.voice.llm_service import get_llm_service, ConversationContext
 from app.services.voice.providers.base import ChatMessage
 from app.services.workflows.channels import VoiceChannel
@@ -38,6 +46,24 @@ logger = logging.getLogger(__name__)
 #: a second unanswered stretch ends the call.
 SILENCE_CHECK_IN_SECONDS = 15.0
 
+#: How long after the agent stops being audible its own words can still come
+#: back as speakerphone echo (line delay plus transcription lag).
+ECHO_TAIL_SECONDS = 1.0
+
+#: How far back in the agent's speech an echo is looked for, in words.
+ECHO_WINDOW_WORDS = 30
+
+#: After a draft reply is discarded, how long past the caller's usual pause to
+#: wait for the rest of their sentence before answering what there is.
+CARRY_FLUSH_SECONDS = 2.5
+
+#: Slack on top of the estimated playback time before giving up on Twilio's
+#: "finished playing" mark.
+PLAYBACK_GRACE_SECONDS = 1.5
+
+#: Spoken when the model returns nothing, so the caller is not left in silence.
+NO_REPLY_MESSAGE = "I'm sorry, I didn't catch that. Could you say it again?"
+
 
 class SessionState(str, Enum):
     """Voice session states."""
@@ -48,6 +74,40 @@ class SessionState(str, Enum):
     SPEAKING = "speaking"
     ENDED = "ended"
     ERROR = "error"
+
+
+@dataclass
+class _Segment:
+    """One piece of agent speech and when the caller hears it (loop time)."""
+    text: str
+    start: float
+    end: float
+
+
+@dataclass
+class _Turn:
+    """
+    One reply to the caller, from end of speech to end of playback.
+
+    A turn is a draft until it is `committed` — the moment it first speaks or
+    runs a tool. Until then the caller carrying on talking simply discards it,
+    and their words are answered together as one turn.
+    """
+    gen: int
+    text: str
+    #: Loop time before which the turn may think but not act.
+    hold_until: float
+    committed: bool = False
+    reply_started: bool = False
+    interrupted: bool = False
+    tools_ran: bool = False
+    #: LLM text not yet cut into sentences.
+    buffer: str = ""
+    #: Every sentence of the reply, spoken or not.
+    reply: List[str] = field(default_factory=list)
+    segments: List[_Segment] = field(default_factory=list)
+    #: What the caller actually heard, set when they interrupt.
+    heard: Optional[str] = None
 
 
 class VoiceSession:
@@ -118,15 +178,6 @@ class VoiceSession:
         # Transcript entries
         self.transcript_entries: list[TranscriptEntry] = []
 
-        # Audio buffering
-        self.audio_buffer = bytearray()
-        self.buffer_lock = asyncio.Lock()
-
-        # Processing flags
-        self.is_processing = False
-        self.current_utterance = ""
-        self.transcription_complete = asyncio.Event()
-
         # Deepgram streaming STT (persistent connection for the call)
         self._dg_http: Optional[aiohttp.ClientSession] = None
         self._dg_ws = None
@@ -156,14 +207,36 @@ class VoiceSession:
 
         # Barge-in. Audio is streamed to Twilio faster than real time, so it
         # keeps playing from Twilio's buffer after _speak_response returns:
-        # `_playing` stays true until Twilio echoes the "speech_end" mark back.
+        # `_playing` stays true until Twilio has echoed back the mark that
+        # follows every piece of speech still in that buffer.
         # `_interrupted` stops the frame loop when the caller talks over it.
         self._playing = False
         self._interrupted = False
+        self._mark_seq = 0
+        self._pending_marks: set[str] = set()
+        # Loop time at which everything sent so far will have been played.
+        self._playback_cursor = 0.0
+        # What the agent said most recently, to recognise its own echo.
+        self._recent_speech: deque[_Segment] = deque(maxlen=6)
+        self._echo_hits = 0
+        # The agent's last full line, which decides how patiently to wait
+        # for the answer (a phone number takes longer than a yes).
+        self._last_agent_text = ""
 
         # Utterances that finished while a turn was in flight, answered as one
         # turn as soon as it ends.
         self._pending_utterances: list[str] = []
+
+        # The turn being answered. Bumping `_turn_gen` discards it while it
+        # is still a draft; its words wait in `_carry` to be answered
+        # together with whatever the caller says next.
+        self._turn: Optional[_Turn] = None
+        self._turn_gen = 0
+        self._carry = ""
+        self._carry_timer: Optional[asyncio.Task] = None
+        # Loop time the caller last stopped speaking.
+        self._last_eos = 0.0
+        self._tasks: set[asyncio.Task] = set()
 
         # Set while a workflow `ask` step is waiting on the caller's next
         # utterance; the transcript handler resolves it instead of running a
@@ -293,7 +366,10 @@ class VoiceSession:
                 self.agent.first_message
                 or f"Hello! This is {self.agent.name}. How can I help you today?"
             )
-            await self._send_welcome_message(welcome_message)
+            # As a task: awaited here it held up this receive loop, so nothing
+            # the caller said during the greeting reached Deepgram until the
+            # greeting had been sent.
+            self._spawn(self._greet(welcome_message))
 
         self._last_activity = datetime.utcnow()
         if self._silence_task is None:
@@ -380,43 +456,11 @@ class VoiceSession:
             self._dg_ws = None
 
     async def _deepgram_receiver(self) -> None:
-        """
-        Read transcripts from Deepgram and trigger a conversation turn when the
-        caller finishes an utterance. Interim results accumulate; a final result
-        with speech_final (or an UtteranceEnd) closes the turn.
-        """
+        """Read Deepgram's messages for the length of the call."""
         try:
             async for msg in self._dg_ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    msg_type = data.get("type")
-
-                    if msg_type == "Results":
-                        alts = data.get("channel", {}).get("alternatives", [{}])
-                        transcript = alts[0].get("transcript", "") if alts else ""
-                        is_final = data.get("is_final", False)
-                        speech_final = data.get("speech_final", False)
-
-                        if transcript and self._should_barge_in(transcript):
-                            await self._barge_in()
-
-                        if transcript and is_final:
-                            self._utterance_parts.append(transcript)
-                            self.metrics["transcriptions"] += 1
-
-                        if speech_final and self._utterance_parts:
-                            utterance = " ".join(self._utterance_parts).strip()
-                            self._utterance_parts = []
-                            if utterance:
-                                asyncio.create_task(self._handle_caller_utterance(utterance))
-
-                    elif msg_type == "UtteranceEnd":
-                        if self._utterance_parts:
-                            utterance = " ".join(self._utterance_parts).strip()
-                            self._utterance_parts = []
-                            if utterance:
-                                asyncio.create_task(self._handle_caller_utterance(utterance))
-
+                    await self._on_deepgram_message(json.loads(msg.data))
                 elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                     break
 
@@ -424,6 +468,125 @@ class VoiceSession:
             raise
         except Exception as e:
             logger.error(f"Deepgram receiver error: {e}", exc_info=True)
+
+    async def _on_deepgram_message(self, data: dict) -> None:
+        """
+        Act on one transcript message. Final results accumulate; speech_final
+        (or an UtteranceEnd) closes the caller's turn. Every result with words
+        in it, interim included, counts as the caller speaking.
+        """
+        msg_type = data.get("type")
+
+        if msg_type == "Results":
+            alts = data.get("channel", {}).get("alternatives", [{}])
+            transcript = alts[0].get("transcript", "") if alts else ""
+            is_final = data.get("is_final", False)
+            speech_final = data.get("speech_final", False)
+
+            if transcript and self._is_own_echo(transcript):
+                # The agent's voice coming back down the line: not the
+                # caller, so it neither interrupts nor becomes a turn.
+                if is_final:
+                    self._echo_hits += 1
+            elif transcript:
+                await self._on_caller_speech(transcript)
+                if is_final:
+                    self._utterance_parts.append(transcript)
+                    self.metrics["transcriptions"] += 1
+
+            if speech_final:
+                self._end_of_speech()
+
+        elif msg_type == "UtteranceEnd":
+            self._end_of_speech()
+
+    def _spawn(self, coro) -> asyncio.Task:
+        """Run a coroutine in the background, keeping a reference so it is
+        not garbage-collected mid-flight and its failure is logged."""
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+
+        def _done(t: asyncio.Task) -> None:
+            self._tasks.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                logger.error(f"Voice session task failed: {t.exception()}", exc_info=t.exception())
+
+        task.add_done_callback(_done)
+        return task
+
+    def _audible(self) -> bool:
+        """Whether the caller can hear the agent right now. The playback
+        estimate backs up Twilio's marks, so a mark that never comes back
+        cannot leave the agent "speaking" for the rest of the call."""
+        if not self._playing:
+            return False
+        return asyncio.get_running_loop().time() < self._playback_cursor + PLAYBACK_GRACE_SECONDS
+
+    def _is_own_echo(self, transcript: str) -> bool:
+        """The agent's own words picked up by the caller's microphone (a
+        speakerphone), rather than the caller speaking. Only what has just
+        been played can echo — not words the agent has yet to say."""
+        now = asyncio.get_running_loop().time()
+        played: List[str] = []
+        for seg in self._recent_speech:
+            if seg.end + ECHO_TAIL_SECONDS <= now or now <= seg.start:
+                continue
+            words = seg.text.split()
+            if now < seg.end and seg.end > seg.start:
+                # A few words of slack: the timeline is an estimate.
+                words = words[: int(len(words) * (now - seg.start) / (seg.end - seg.start)) + 3]
+            played.extend(words)
+        return bool(played) and is_echo(transcript, " ".join(played[-ECHO_WINDOW_WORDS:]))
+
+    async def _on_caller_speech(self, transcript: str) -> None:
+        """
+        The caller is talking (any transcript with words, interim included).
+
+        If the reply in flight is still a draft, drop it: they had only
+        paused, and the rest of the sentence belongs to the same turn. If the
+        agent is already audible, this is an interruption instead.
+        """
+        self._last_activity = datetime.utcnow()
+        self._silence_checkins = 0
+
+        turn = self._turn
+        if turn is not None and not turn.committed and turn.gen == self._turn_gen:
+            self._turn_gen += 1
+            self._carry = turn.text
+            logger.info(f"Caller carried on speaking; reply discarded: call_id={self.call_id}")
+        elif self._should_barge_in(transcript):
+            await self._barge_in()
+
+        if self._carry:
+            self._restart_carry_timer()
+
+    def _restart_carry_timer(self) -> None:
+        """Answer a discarded turn's words even if nothing follows them — the
+        sound that discarded it may have been a cough Deepgram never turns
+        into a final transcript."""
+        if self._carry_timer is not None:
+            self._carry_timer.cancel()
+        wait = max(int(self.agent.silence_timeout or 1000), 300) / 1000 + CARRY_FLUSH_SECONDS
+
+        async def _flush() -> None:
+            await asyncio.sleep(wait)
+            self._carry_timer = None
+            self._end_of_speech()
+
+        self._carry_timer = asyncio.create_task(_flush())
+
+    def _end_of_speech(self) -> None:
+        """The caller has stopped: hand everything they said to a turn."""
+        utterance = " ".join([self._carry] + self._utterance_parts).strip()
+        if not utterance:
+            return
+        self._carry = ""
+        self._utterance_parts = []
+        if self._carry_timer is not None and self._carry_timer is not asyncio.current_task():
+            self._carry_timer.cancel()
+        self._carry_timer = None
+        self._last_eos = asyncio.get_running_loop().time()
+        self._spawn(self._handle_caller_utterance(utterance))
 
     async def _handle_caller_utterance(self, utterance: str) -> None:
         """
@@ -439,15 +602,17 @@ class VoiceSession:
             await self._log_transcript_entry("user", utterance)
             return
 
-        if self._turn_lock.locked():
-            # A turn is already in flight (typically: the caller barged in).
-            # Queue it for the turn holder to answer next, rather than
-            # interleaving two responses. It used to go back into the
-            # Deepgram buffer, where it sat until the caller spoke again.
-            self._pending_utterances.append(utterance)
+        # "Mm-hm" while the agent is talking is listening, not a turn;
+        # answering it made the agent stop and start over.
+        if self._audible() and is_backchannel(utterance):
+            logger.info(f"Ignored a listening noise over the agent: {utterance!r}")
             return
+
+        # Whoever holds the lock (a turn, the greeting, a check-in) finishes
+        # first; then everything said meanwhile is answered as one turn,
+        # rather than interleaving two responses.
+        self._pending_utterances.append(utterance)
         async with self._turn_lock:
-            await self._process_utterance(utterance)
             while self._pending_utterances and self.state != SessionState.ENDED:
                 queued = " ".join(self._pending_utterances).strip()
                 self._pending_utterances = []
@@ -459,23 +624,48 @@ class VoiceSession:
         on and enough words said to clear the agent's Interrupt Sensitivity."""
         if not self.agent.interrupt_enabled or self._interrupted:
             return False
-        if not (self._playing or self.state == SessionState.SPEAKING):
+        if not (self._audible() or self.state == SessionState.SPEAKING):
             return False
         heard = " ".join(self._utterance_parts + [transcript])
         return len(heard.split()) >= self._interrupt_min_words()
 
     def _interrupt_min_words(self) -> int:
         """1 word at full sensitivity, 3 at zero — so a cough or an "mm-hm"
-        doesn't cut the agent off. Same rule as the browser test panel."""
+        doesn't cut the agent off. Same rule as the browser test panel. One
+        more word is needed on a line that has been echoing the agent back."""
         raw = self.agent.interrupt_sensitivity
         sensitivity = float(raw) if raw is not None else 0.5
-        return max(1, round(3 - 2 * sensitivity))
+        words = max(1, round(3 - 2 * sensitivity))
+        return words + 1 if self._echo_hits >= 2 else words
+
+    @staticmethod
+    def _heard_text(segments: List[_Segment], now: float) -> str:
+        """The part of a reply that had been played by `now`."""
+        parts = []
+        for seg in segments:
+            if now >= seg.end:
+                parts.append(seg.text)
+                continue
+            if now > seg.start and seg.end > seg.start:
+                words = seg.text.split()
+                kept = int(len(words) * (now - seg.start) / (seg.end - seg.start))
+                if kept:
+                    parts.append(" ".join(words[:kept]) + "…")
+            break
+        return " ".join(parts)
 
     async def _barge_in(self) -> None:
         """Stop the agent mid-sentence: end the frame loop and have Twilio
         drop the audio it has already buffered."""
+        now = asyncio.get_running_loop().time()
+        turn = self._turn
+        if turn is not None and turn.reply_started and not turn.interrupted:
+            turn.interrupted = True
+            turn.heard = self._heard_text(turn.segments, now)
         self._interrupted = True
         self._playing = False
+        self._pending_marks.clear()
+        self._playback_cursor = now
         if self.stream_sid:
             try:
                 await self.connection_manager.send_json(
@@ -484,6 +674,32 @@ class VoiceSession:
             except Exception as e:
                 logger.error(f"Failed to clear Twilio audio on barge-in: {e}")
         logger.info(f"Caller barged in: call_id={self.call_id}")
+
+    async def _wait_playback(self) -> None:
+        """
+        Wait until the caller has heard everything sent so far, or cut it off.
+
+        Audio is sent faster than it plays, so "sent" is not "heard". Whatever
+        must follow the words — a hang-up, a transfer, the next turn — waits
+        here, or it lands on top of them.
+        """
+        loop = asyncio.get_running_loop()
+        while (
+            self._pending_marks
+            and self.state != SessionState.ENDED
+            and loop.time() < self._playback_cursor + PLAYBACK_GRACE_SECONDS
+        ):
+            await asyncio.sleep(0.05)
+        self._pending_marks.clear()
+        self._playing = False
+        self._last_activity = datetime.utcnow()
+
+    async def _greet(self, text: str) -> None:
+        """Speak the opening line as a turn of its own, so a reply cannot
+        start on top of it."""
+        async with self._turn_lock:
+            await self._send_welcome_message(text)
+            await self._wait_playback()
 
     async def _handle_stop(self, message: dict) -> None:
         """
@@ -498,7 +714,9 @@ class VoiceSession:
         await self._stop_call_timers()
 
     async def _stop_call_timers(self) -> None:
-        for attr in ("_silence_task", "_max_duration_task"):
+        # Discard any reply still being drafted.
+        self._turn_gen += 1
+        for attr in ("_silence_task", "_max_duration_task", "_carry_timer"):
             task = getattr(self, attr)
             if task is not None and task is not asyncio.current_task():
                 task.cancel()
@@ -528,6 +746,7 @@ class VoiceSession:
                 await self._speak_response(
                     "We've reached the time limit for this call. Thank you for calling, goodbye."
                 )
+                await self._wait_playback()
                 await self.end_call()
             finally:
                 if acquired:
@@ -553,24 +772,37 @@ class VoiceSession:
                 if self.state == SessionState.ENDED:
                     break
                 # A turn is in flight (caller or agent talking) — not silence.
-                if self._playing or self.state in (SessionState.PROCESSING, SessionState.SPEAKING):
+                # The caller counts as talking from their first word, not
+                # only once they finish: a long answer used to be cut into
+                # with "Are you still there?".
+                if (
+                    self._audible()
+                    or self._turn_lock.locked()
+                    or self._utterance_parts
+                    or self._carry
+                    or self.state in (SessionState.PROCESSING, SessionState.SPEAKING)
+                ):
                     continue
 
                 idle_seconds = (datetime.utcnow() - self._last_activity).total_seconds()
                 if idle_seconds < interval:
-                    self._silence_checkins = 0
                     continue
 
-                if self._silence_checkins == 0:
-                    self._silence_checkins = 1
-                    await self._speak_response("Are you still there?")
-                    self._last_activity = datetime.utcnow()
-                    continue
+                # Under the turn lock, like every other line the agent speaks:
+                # a reply starting at the same moment would otherwise be mixed
+                # into this one frame by frame.
+                async with self._turn_lock:
+                    if self._silence_checkins == 0:
+                        self._silence_checkins = 1
+                        await self._speak_response("Are you still there?")
+                        await self._wait_playback()
+                        continue
 
-                # Second consecutive silent check-in: nobody's on the line.
-                await self._speak_response("I haven't heard from you, so I'll end the call here. Take care!")
-                await self.end_call()
-                break
+                    # Second consecutive silent check-in: nobody's on the line.
+                    await self._speak_response("I haven't heard from you, so I'll end the call here. Take care!")
+                    await self._wait_playback()
+                    await self.end_call()
+                    break
 
         except asyncio.CancelledError:
             raise
@@ -612,120 +844,48 @@ class VoiceSession:
 
         logger.debug(f"Mark event: {mark_name}")
 
-        # Can be used to detect when agent finished speaking
-        if mark_name == "speech_end":
-            self._playing = False
-            self._last_activity = datetime.utcnow()
-            if self.state == SessionState.SPEAKING:
-                self.state = SessionState.LISTENING
-
-    async def _process_audio_chunk(self) -> None:
-        """Process buffered audio for transcription."""
-        if self.is_processing:
-            return
-
-        self.is_processing = True
-        self.state = SessionState.LISTENING
-
-        try:
-            # Get audio from buffer
-            async with self.buffer_lock:
-                audio_data = bytes(self.audio_buffer)
-                self.audio_buffer.clear()
-
-            if len(audio_data) < 160:
-                return
-
-            # Transcribe audio with STT
-            # Note: Deepgram supports mulaw format directly
-            transcription = await self._transcribe_audio(audio_data)
-
-            if transcription and transcription.strip():
-                logger.info(f"Transcription: {transcription}")
-                self.metrics["transcriptions"] += 1
-
-                # Add to current utterance
-                self.current_utterance += " " + transcription
-
-                # Check if utterance is complete (simple approach: wait for pause)
-                # In production, use VAD (Voice Activity Detection)
-                if self._is_utterance_complete(transcription):
-                    await self._process_utterance(self.current_utterance.strip())
-                    self.current_utterance = ""
-
-        except Exception as e:
-            logger.error(f"Error processing audio chunk: {e}", exc_info=True)
-
-        finally:
-            self.is_processing = False
-
-    async def _transcribe_audio(self, audio_data: bytes) -> Optional[str]:
-        """
-        Transcribe audio using STT service.
-
-        Args:
-            audio_data: Raw audio bytes (mulaw, 8kHz)
-
-        Returns:
-            Transcription text or None
-        """
-        try:
-            # For Deepgram, we can use streaming or batch
-            # For low latency, use streaming mode
-            provider = self.agent.stt_provider or "deepgram"
-            model = self.agent.stt_model or "nova-2"
-
-            # TODO: Implement proper streaming STT
-            # For now, use batch transcription
-            # result = await self.stt_service.transcribe_stream(
-            #     audio_stream=audio_data,
-            #     provider=provider,
-            #     model=model,
-            # )
-
-            # Placeholder: return None for now
-            # In production, implement proper streaming
-            return None
-
-        except Exception as e:
-            logger.error(f"Error transcribing audio: {e}")
-            return None
-
-    def _is_utterance_complete(self, transcription: str) -> bool:
-        """
-        Check if utterance is complete.
-
-        Simple heuristic: check for sentence-ending punctuation.
-
-        Args:
-            transcription: Transcription text
-
-        Returns:
-            True if utterance appears complete
-        """
-        if not transcription:
-            return False
-
-        # Check for ending punctuation
-        endings = ['.', '?', '!']
-        return any(transcription.strip().endswith(end) for end in endings)
+        # Each piece of speech is followed by its own mark. The agent stops
+        # being audible when the last one outstanding comes back — one shared
+        # name let the greeting's mark end a reply that was still playing.
+        # Marks for audio a barge-in cleared are no longer pending: ignored.
+        if mark_name in self._pending_marks:
+            self._pending_marks.discard(mark_name)
+            if not self._pending_marks:
+                self._playing = False
+                self._last_activity = datetime.utcnow()
 
     async def _process_utterance(self, utterance: str) -> None:
         """
-        Process complete user utterance with LLM and respond.
+        Answer one complete caller utterance: think, speak, then act.
+
+        The reply is drafted straight away but stays a draft until its hold
+        expires (see extra_wait_seconds). If the caller carries on speaking
+        before then, the draft is discarded without a trace and their words
+        come back merged into the next utterance.
 
         Args:
             utterance: Complete user utterance
         """
+        self._turn_gen += 1
+        turn = _Turn(
+            gen=self._turn_gen,
+            text=utterance,
+            hold_until=self._last_eos + extra_wait_seconds(
+                utterance, self._last_agent_text, self.agent.stt_language or "en"
+            ),
+        )
+        self._turn = turn
         self.state = SessionState.PROCESSING
         self._last_activity = datetime.utcnow()
         self._silence_checkins = 0
+        history = self.conversation.snapshot()
+        user_entry = None
 
         try:
             logger.info(f"Processing utterance: {utterance}")
 
             # Log user transcript
-            await self._log_transcript_entry("user", utterance)
+            user_entry = await self._log_transcript_entry("user", utterance)
 
             # Pull anything relevant from the agent's knowledge base(s) and give
             # it to the model as context for THIS turn, so answers are grounded
@@ -743,45 +903,150 @@ class VoiceSession:
             # Add user message to conversation
             self.conversation.add_message("user", utterance)
 
-            # Generate response with LLM
-            response = await self._generate_llm_response()
+            # Generate the response, speaking each sentence as it is written
+            response = await self._generate_llm_response(turn)
 
-            if response:
-                logger.info(f"LLM response: {response}")
-                self.metrics["llm_responses"] += 1
+            # A fixed line handed back whole rather than streamed.
+            if not self._stale(turn) and not turn.reply and (response or "").strip():
+                await self._voice(turn, response, final=True)
 
-                # Log assistant transcript
-                await self._log_transcript_entry("assistant", response)
+            if not turn.reply and not self._stale(turn):
+                # The model failed or returned nothing. Say so rather than
+                # leaving the caller in silence until the idle check-in.
+                logger.warning(f"No reply generated for utterance: call_id={self.call_id}")
+                if await self._commit(turn):
+                    await self._log_transcript_entry("assistant", NO_REPLY_MESSAGE)
+                    await self._speak_response(NO_REPLY_MESSAGE)
+                    await self._wait_playback()
+                    return
 
-                # Add assistant response to conversation
-                self.conversation.add_message("assistant", response)
+            if self._stale(turn):
+                # The caller had not finished. Forget this turn happened.
+                self.conversation.restore(history)
+                if user_entry in self.transcript_entries:
+                    self.transcript_entries.remove(user_entry)
+                return
 
-                # Update call costs
-                await self._update_call_costs()
+            self.metrics["llm_responses"] += 1
 
-                # Synthesize and send audio
-                await self._speak_response(response)
-                self._last_activity = datetime.utcnow()
+            # Update call costs
+            await self._update_call_costs()
 
-                # Now that the confirmation has been spoken, run any deferred
-                # call-control action (transfer/hang_up/dtmf/voicemail).
-                await self._run_pending_telephony()
+            # Everything below belongs after the words, not on top of them.
+            await self._wait_playback()
+            await self._record_reply(turn)
 
-                # The agent used one of the configured end-call phrases —
-                # mirrors the browser test console's phrase match (see
-                # agents.py's /respond endpoint), which real calls never had.
-                end_call_phrases = self.agent.end_call_phrases or []
-                if end_call_phrases and any(p.lower() in response.lower() for p in end_call_phrases):
-                    await self.end_call()
+            if turn.interrupted:
+                # The caller cut the reply off, so they did not agree to
+                # whatever it was announcing.
+                self._pending_telephony = None
+                return
+
+            # Now that the confirmation has been heard, run any deferred
+            # call-control action (transfer/hang_up/dtmf/voicemail).
+            await self._run_pending_telephony()
+
+            # The agent used one of the configured end-call phrases —
+            # mirrors the browser test console's phrase match (see
+            # agents.py's /respond endpoint), which real calls never had.
+            reply = " ".join(turn.reply)
+            end_call_phrases = self.agent.end_call_phrases or []
+            if end_call_phrases and any(p.lower() in reply.lower() for p in end_call_phrases):
+                await self.end_call()
 
         except Exception as e:
             logger.error(f"Error processing utterance: {e}", exc_info=True)
             error_msg = "I'm sorry, I didn't quite catch that. Could you repeat?"
             await self._log_transcript_entry("assistant", error_msg)
             await self._speak_response(error_msg)
+            await self._wait_playback()
 
         finally:
-            self.state = SessionState.LISTENING
+            if self._turn is turn:
+                self._turn = None
+            if self.state != SessionState.ENDED:
+                self.state = SessionState.LISTENING
+
+    def _stale(self, turn: _Turn) -> bool:
+        """A draft the caller talked past, or one the call ended under."""
+        if self.state == SessionState.ENDED:
+            return True
+        return not turn.committed and turn.gen != self._turn_gen
+
+    async def _commit(self, turn: _Turn) -> bool:
+        """
+        Make the turn real, once its hold has run out. Returns False if the
+        caller resumed first — the turn must then do nothing audible and run
+        no tool.
+        """
+        if turn.committed:
+            return True
+        loop = asyncio.get_running_loop()
+        while True:
+            if self._stale(turn):
+                return False
+            remaining = turn.hold_until - loop.time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(remaining, 0.05))
+        turn.committed = True
+        return True
+
+    async def _voice(self, turn: _Turn, chunk: str, final: bool = False) -> bool:
+        """
+        Feed streamed LLM text to the caller, sentence by sentence.
+
+        Returns False when generation should stop: the turn was discarded, or
+        the caller interrupted. After a tool has run the text is still
+        collected (unspoken) so the conversation remembers what the tool did.
+        """
+        if self._stale(turn):
+            return False
+        turn.buffer += chunk
+        sentences, turn.buffer = pop_sentences(turn.buffer, final)
+        for sentence in sentences:
+            sentence = strip_for_speech(sentence)
+            if not sentence:
+                continue
+            if not await self._commit(turn):
+                return False
+            turn.reply_started = True
+            turn.reply.append(sentence)
+            if not turn.interrupted:
+                await self._speak_response(sentence, turn=turn)
+        return turn.tools_ran or not turn.interrupted
+
+    async def _record_reply(self, turn: _Turn) -> None:
+        """
+        Put the finished reply into the conversation and the transcript — as
+        the caller heard it. A reply they cut off is recorded only up to that
+        point, or the model goes on as if it had been heard in full.
+        """
+        full = " ".join(turn.reply).strip()
+        if not turn.interrupted:
+            self.conversation.add_message("assistant", full)
+            await self._log_transcript_entry("assistant", full)
+            self._last_agent_text = full
+            return
+
+        heard = (turn.heard or "").strip()
+        if turn.tools_ran:
+            # What the tool did (a booking, a lookup) must not be forgotten,
+            # so the whole reply stays, with a note on how much got through.
+            self.conversation.add_message("assistant", full)
+            note = (
+                f'The caller interrupted and only heard this much of your last reply: "{heard}".'
+                if heard else
+                "The caller interrupted before hearing any of your last reply."
+            )
+            if self._pending_telephony:
+                note += " The transfer or hang-up you announced has not happened."
+            self.conversation.add_message("system", note)
+        elif heard:
+            self.conversation.add_message("assistant", heard)
+        if heard:
+            await self._log_transcript_entry("assistant", heard)
+        self._last_agent_text = heard or full
 
     async def _get_kb_context(self, query: str) -> Optional[str]:
         """
@@ -841,9 +1106,13 @@ class VoiceSession:
             logger.error(f"Knowledge base lookup failed: {e}", exc_info=True)
             return None
 
-    async def _generate_llm_response(self) -> Optional[str]:
+    async def _generate_llm_response(self, turn: Optional[_Turn] = None) -> Optional[str]:
         """
         Generate response using LLM with function calling support.
+
+        Args:
+            turn: The live turn. When given, each sentence is spoken as soon
+                as it is written instead of after the whole reply.
 
         Returns:
             LLM response text
@@ -885,26 +1154,46 @@ class VoiceSession:
                 # OpenAI-only, so an agent on Claude could not use any of
                 # its tools during a real phone call.
                 response_text = await self._generate_with_functions(
-                    messages, provider, model, temperature, functions, max_tokens
+                    messages, provider, model, temperature, functions, max_tokens,
+                    turn=turn,
                 )
             else:
                 # Standard streaming response
                 response_chunks = []
-                async for chunk in self.llm_service.chat_stream(
+                stream = self.llm_service.chat_stream(
                     messages=messages,
                     provider=provider,
                     model=model,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                ):
-                    response_chunks.append(chunk)
+                )
+                try:
+                    async for chunk in stream:
+                        response_chunks.append(chunk)
+                        if turn is not None and not await self._voice(turn, chunk):
+                            break
+                finally:
+                    await self._close_stream(stream)
                 response_text = "".join(response_chunks)
+                if turn is not None:
+                    await self._voice(turn, "", final=True)
 
             return response_text
 
         except Exception as e:
             logger.error(f"Error generating LLM response: {e}")
             return None
+
+    @staticmethod
+    async def _close_stream(stream) -> None:
+        """Close an LLM stream that was left early, so its HTTP response is
+        released now rather than whenever the generator is collected."""
+        aclose = getattr(stream, "aclose", None)
+        if aclose is not None:
+            try:
+                await aclose()
+            except Exception:
+                pass
 
     async def _generate_with_functions(
         self,
@@ -914,6 +1203,7 @@ class VoiceSession:
         temperature: float,
         functions: list,
         max_tokens: int = 400,
+        turn: Optional[_Turn] = None,
     ) -> str:
         """
         Generate LLM response with function calling support.
@@ -924,6 +1214,7 @@ class VoiceSession:
             model: Model name
             temperature: Temperature
             functions: Function definitions
+            turn: The live turn, if the reply is to be spoken as it streams
 
         Returns:
             Final response text after function execution
@@ -936,23 +1227,46 @@ class VoiceSession:
             response_chunks = []
             function_call = None
 
-            async for chunk in self.llm_service.chat_stream(
+            stopped = False
+            stream = self.llm_service.chat_stream(
                 messages=messages,
                 provider=provider,
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 functions=functions,
-            ):
-                # Check if this is a function call
-                if isinstance(chunk, dict) and "function_call" in chunk:
-                    function_call = chunk["function_call"]
-                else:
-                    response_chunks.append(chunk)
+            )
+            try:
+                async for chunk in stream:
+                    # Check if this is a function call
+                    if isinstance(chunk, dict) and "function_call" in chunk:
+                        function_call = chunk["function_call"]
+                    else:
+                        response_chunks.append(chunk)
+                        if turn is not None and not await self._voice(turn, chunk):
+                            stopped = True
+                            break
+            finally:
+                await self._close_stream(stream)
+
+            said = "".join(response_chunks)
+            if stopped:
+                return said
+            # Speak whatever is left: the end of the answer, or a lead-in
+            # ("Let me check that for you") ahead of a tool.
+            if turn is not None and not await self._voice(turn, "", final=True):
+                return said
 
             # If no function call, return response
             if not function_call:
-                return "".join(response_chunks)
+                return said
+
+            # A tool acts on the world, so it never runs for a draft: wait out
+            # the hold, and stop here if the caller carried on speaking.
+            if turn is not None:
+                if not await self._commit(turn):
+                    return said
+                turn.tools_ran = True
 
             # Execute function
             function_name = function_call.get("name")
@@ -984,8 +1298,9 @@ class VoiceSession:
 
             elif matched_tool:
                 # A workflow can take seconds. Say something first so the
-                # caller isn't sitting in silence while it runs.
-                if matched_tool.tool_type == "workflow":
+                # caller isn't sitting in silence while it runs — unless the
+                # model has just said its own lead-in.
+                if matched_tool.tool_type == "workflow" and not (turn is not None and said.strip()):
                     await self._speak_filler(matched_tool)
 
                 result = await self.function_executor.execute_global_tool(
@@ -1010,7 +1325,9 @@ class VoiceSession:
                     formatted_result = f"Tool {matched_tool.name} failed: {result.get('error', 'unknown error')}"
 
             else:
-                return f"I tried to use a capability called {function_name}, but it's not configured."
+                return await self._fixed_line(
+                    turn, f"I tried to use a capability called {function_name}, but it's not configured."
+                )
 
             # Record the exchange as ChatMessage objects. `messages` is a
             # List[ChatMessage] — appending raw dicts here raised AttributeError
@@ -1021,7 +1338,9 @@ class VoiceSession:
             messages.append(
                 ChatMessage(
                     role="assistant",
-                    content=None,
+                    # A lead-in the caller heard stays on the record, so the
+                    # model does not say it again with the answer.
+                    content=(said.strip() or None) if turn is not None else None,
                     function_call={
                         "name": function_name,
                         "arguments": function_call.get("arguments", "{}"),
@@ -1041,7 +1360,16 @@ class VoiceSession:
             # Continue loop to let LLM generate final response with function result
 
         # Max function calls reached
-        return "I apologize, but I'm having trouble completing that request."
+        return await self._fixed_line(
+            turn, "I apologize, but I'm having trouble completing that request."
+        )
+
+    async def _fixed_line(self, turn: Optional[_Turn], text: str) -> str:
+        """A line the session writes itself rather than the model: spoken
+        like any other part of a live turn's reply."""
+        if turn is not None:
+            await self._voice(turn, text, final=True)
+        return text
 
     async def _speak_filler(self, tool) -> None:
         """
@@ -1191,16 +1519,40 @@ class VoiceSession:
             self._tts_key_resolved = True
         return self._tts_key
 
-    async def _speak_response(self, text: str) -> None:
+    async def _speak_response(self, text: str, turn: Optional[_Turn] = None) -> None:
         """
         Synthesize speech and send to caller.
 
         Args:
             text: Text to speak
+            turn: The turn this is part of the reply to, if any — so an
+                interruption can tell how much of the reply was heard
         """
         self.state = SessionState.SPEAKING
         self._interrupted = False
         text = strip_for_speech(text)
+
+        # Where this lands on the caller's timeline: after whatever is still
+        # queued at Twilio. `segment.end` advances with every frame sent.
+        loop = asyncio.get_running_loop()
+        start = max(loop.time(), self._playback_cursor)
+        segment = _Segment(text=text, start=start, end=start)
+        self._recent_speech.append(segment)
+        if turn is not None:
+            turn.segments.append(segment)
+        # Registered before any audio goes out, so an earlier mark coming
+        # back cannot mark the agent silent while this is being sent.
+        self._mark_seq += 1
+        mark = f"speech-{self._mark_seq}"
+        self._pending_marks.add(mark)
+
+        async def send_frame(data: bytes) -> None:
+            if segment.end == segment.start:
+                # First audio: synthesis took a moment to start.
+                segment.start = segment.end = max(loop.time(), segment.start)
+            await self._send_audio_to_twilio(data)
+            segment.end += len(data) / 8000
+            self._playback_cursor = segment.end
 
         try:
             provider = self.agent.tts_provider or "elevenlabs"
@@ -1233,7 +1585,7 @@ class VoiceSession:
                     continue
                 frame.extend(mulaw)
                 while len(frame) >= 160 and not self._interrupted:
-                    await self._send_audio_to_twilio(bytes(frame[:160]))
+                    await send_frame(bytes(frame[:160]))
                     del frame[:160]
                     chunk_count += 1
 
@@ -1244,12 +1596,14 @@ class VoiceSession:
                 return
 
             if frame:
-                await self._send_audio_to_twilio(bytes(frame))
+                await send_frame(bytes(frame))
                 chunk_count += 1
 
             # Mark end of speech; Twilio echoes it back when playback reaches
             # it, which is when the agent actually stops being audible.
-            await self._send_mark("speech_end")
+            if chunk_count:
+                await self._send_mark(mark)
+                mark = None
 
             logger.info(f"Sent audio response: {chunk_count} frames")
 
@@ -1257,6 +1611,12 @@ class VoiceSession:
             logger.error(f"Error speaking response: {e}", exc_info=True)
 
         finally:
+            # No mark went out (cut off, or synthesis failed), so none will
+            # come back for it.
+            if mark is not None:
+                self._pending_marks.discard(mark)
+                if not self._pending_marks:
+                    self._playing = False
             self.state = SessionState.LISTENING
 
     def _to_twilio_mulaw(self, audio_data: bytes, provider: str) -> bytes:
@@ -1334,6 +1694,7 @@ class VoiceSession:
 
             # Add to conversation history
             self.conversation.add_message("assistant", text)
+            self._last_agent_text = text
 
             # Synthesize and send
             await self._speak_response(text)
@@ -1370,13 +1731,16 @@ class VoiceSession:
         except Exception as e:
             logger.error(f"Error updating call costs: {e}")
 
-    async def _log_transcript_entry(self, speaker: str, text: str) -> None:
+    async def _log_transcript_entry(self, speaker: str, text: str) -> TranscriptEntry:
         """
         Log transcript entry.
 
         Args:
             speaker: Speaker ("user" or "assistant")
             text: Text content
+
+        Returns:
+            The entry added to the call's transcript
         """
         entry = TranscriptEntry(
             speaker=speaker,
@@ -1401,6 +1765,7 @@ class VoiceSession:
 
         self.db.add(call_log)
         await self.db.commit()
+        return entry
 
     async def cleanup(self) -> None:
         """Clean up session resources."""

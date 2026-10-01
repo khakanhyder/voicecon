@@ -99,6 +99,15 @@ class ConversationContext:
 
         return messages
 
+    def snapshot(self) -> List[ChatMessage]:
+        """The history as it stands, to put back with restore()."""
+        return list(self._messages)
+
+    def restore(self, snapshot: List[ChatMessage]):
+        """Put the history back to an earlier snapshot()."""
+        self._messages.clear()
+        self._messages.extend(snapshot)
+
     def clear(self):
         """Clear conversation history (keeps system prompt)."""
         self._messages.clear()
