@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api'
+import { formatDuration } from '@/lib/duration'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Phone, PhoneIncoming, PhoneOutgoing, ArrowUpRight } from 'lucide-react'
@@ -87,7 +88,7 @@ export function AgentCallsTab({ agentId }: { agentId: string }) {
           </div>
           {calls.map(call => {
             const dur = call.duration_seconds
-            const durStr = !dur ? '—' : dur < 60 ? `${dur}s` : `${Math.floor(dur/60)}m ${dur%60}s`
+            const durStr = formatDuration(dur)
             return (
               <Link href={`/dashboard/calls/${call.id}`} key={call.id}>
                 <div className="flex flex-col md:grid md:grid-cols-[2rem_1fr_6rem_5rem_6rem_3rem] gap-2 md:gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group cursor-pointer">

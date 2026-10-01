@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { apiClient, getErrorMessage } from '@/lib/api'
+import { formatDuration } from '@/lib/duration'
 import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { IntegrationChanges } from '@/components/calls/IntegrationChanges'
@@ -111,10 +112,7 @@ function statusLabel(status: string) {
   return status.replace(/[_-]/g, ' ')
 }
 
-function fmtDur(s: number | null) {
-  if (!s) return '—'
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
-}
+const fmtDur = formatDuration
 
 function fmtDate(d: string | null) {
   if (!d) return '—'

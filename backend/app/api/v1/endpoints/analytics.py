@@ -177,7 +177,9 @@ async def get_call_metrics(
         negative_sentiment = sum(m.negative_sentiment_count for m in metrics)
         neutral_sentiment = sum(m.neutral_sentiment_count for m in metrics)
 
-        avg_duration = float(total_duration / total_calls) if total_calls > 0 else None
+        # One decimal is all a duration in seconds can honestly claim; the raw
+        # quotient (141.176470588235304) was reaching the screen and API clients.
+        avg_duration = round(float(total_duration / total_calls), 1) if total_calls > 0 else None
         avg_cost = float(total_cost / total_calls) if total_calls > 0 else None
         success_rate = float((completed_calls / total_calls) * 100) if total_calls > 0 else None
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
+import { formatDuration } from '@/lib/duration'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { RelativeTime } from '@/components/ui/relative-time'
@@ -25,13 +26,6 @@ interface Call {
   agent_name?: string | null
   sentiment_label?: string
   call_metadata?: Record<string, any>
-}
-
-function formatDuration(seconds: number | null) {
-  if (!seconds) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
 export default function CallsPage() {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { apiClient, getErrorMessage } from '@/lib/api'
+import { formatDuration } from '@/lib/duration'
 import {
   Phone, Clock, DollarSign, TrendingUp, TrendingDown,
   Users, Zap, RefreshCw, Download, Activity,
@@ -87,13 +88,9 @@ function fmtCost(n: number | null | undefined) {
   return `$${n.toFixed(2)}`
 }
 
-function fmtDuration(seconds: number | null | undefined) {
-  if (!seconds) return '0s'
-  if (seconds < 60) return `${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return s > 0 ? `${m}m ${s}s` : `${m}m`
-}
+// These are aggregates, where "nothing yet" reads better as 0s than as a dash.
+const fmtDuration = (seconds: number | null | undefined) =>
+  formatDuration(seconds, { empty: '0s', zeroIsEmpty: false })
 
 function fmtPct(n: number | null | undefined) {
   if (n == null) return '—'

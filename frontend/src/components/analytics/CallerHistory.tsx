@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api'
+import { formatDuration } from '@/lib/duration'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { RelativeTime } from '@/components/ui/relative-time'
 import {
@@ -42,12 +43,7 @@ const statusConfig: Record<string, { color: string; bg: string }> = {
   initiated: { color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' },
 }
 
-function fmtDuration(seconds: number | null) {
-  if (!seconds) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return m > 0 ? `${m}m ${s}s` : `${s}s`
-}
+const fmtDuration = formatDuration
 
 function SentimentIcon({ score }: { score: number | null }) {
   if (score == null) return <Meh className="h-3.5 w-3.5 text-slate-300" />

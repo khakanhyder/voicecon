@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { parseApiDate } from '@/lib/datetime'
+import { formatDuration as formatCallDuration } from '@/lib/duration'
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -43,10 +44,7 @@ export function formatDate(value: string | null | undefined, withTime = false): 
 }
 
 export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return m ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`
+  return formatCallDuration(seconds, { zeroIsEmpty: false })
 }
 
 export function formatNumber(n: number | null | undefined): string {
