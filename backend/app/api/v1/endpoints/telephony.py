@@ -238,6 +238,27 @@ def normalize_call_status(call_status: Optional[str]) -> Optional[str]:
     return _PROVIDER_CALL_STATUS.get(key, key)
 
 
+#: How far along a call is. Carrier callbacks are separate HTTP requests and can
+#: arrive out of order, or after the media stream has already marked the call
+#: live, so a status is only ever applied if it does not move the call back.
+_STATUS_RANK = {"initiated": 0, "ringing": 1, "in_progress": 2}
+_FINISHED_RANK = 3
+
+
+def advance_call_status(call: Call, canonical_status: Optional[str]) -> None:
+    """Apply a carrier-reported status, unless it would move the call backwards.
+
+    A late ``ringing`` used to overwrite ``in_progress`` (so a live call stopped
+    counting as active) and could even reopen a call that had completed.
+    """
+    if not canonical_status:
+        return
+    current = _STATUS_RANK.get(call.status or "", _FINISHED_RANK if call.status else -1)
+    incoming = _STATUS_RANK.get(canonical_status, _FINISHED_RANK)
+    if incoming >= current:
+        call.status = canonical_status
+
+
 def _apply_telephony_cost(call: Call) -> None:
     """
     Price the carrier leg from the billable duration and refresh the total.
@@ -545,8 +566,7 @@ async def _resolve_call_record(
         # arrive before the dial response was committed.
         if call_sid and not existing.provider_call_sid:
             existing.provider_call_sid = call_sid
-        if call_status:
-            existing.status = normalize_call_status(call_status) or existing.status
+        advance_call_status(existing, normalize_call_status(call_status))
         if not existing.started_at:
             existing.started_at = existing.created_at or datetime.utcnow()
         await db.commit()
@@ -768,8 +788,7 @@ async def handle_call_status(
             call.provider_call_sid = call_sid
 
         canonical_status = normalize_call_status(call_status)
-        if canonical_status:
-            call.status = canonical_status
+        advance_call_status(call, canonical_status)
 
         _apply_call_timing(call, canonical_status, call_duration)
         _record_status_metadata(call, call_status)
@@ -1136,8 +1155,7 @@ async def handle_telnyx_call_status(
             call.provider_call_sid = call_sid
 
         canonical_status = normalize_call_status(call_status)
-        if canonical_status:
-            call.status = canonical_status
+        advance_call_status(call, canonical_status)
 
         _apply_call_timing(call, canonical_status, call_duration)
         _record_status_metadata(call, call_status)

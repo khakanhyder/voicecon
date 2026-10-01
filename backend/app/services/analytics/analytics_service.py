@@ -2,7 +2,7 @@
 Analytics aggregation and metrics calculation service.
 """
 import uuid
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from sqlalchemy import select, func, and_, or_, desc, case
@@ -17,6 +17,7 @@ from app.models.call import Call, CallLog
 from app.models.agent import Agent
 from app.models.integration import Workflow, WorkflowExecution
 from app.core.time import utc_iso
+from app.services.billing.entitlements import ACTIVE_CALL_WINDOW
 
 
 # The trend columns are Numeric(5, 2). Going from 1 call to 11 is +1000%,
@@ -29,6 +30,31 @@ def _percent_change(current, previous) -> Decimal:
     change = (Decimal(str(current)) - Decimal(str(previous))) / Decimal(str(previous)) * 100
     change = max(-_MAX_PERCENT_CHANGE, min(_MAX_PERCENT_CHANGE, change))
     return change.quantize(Decimal("0.01"))
+
+
+async def count_active_calls(
+    db: AsyncSession, organization_id: uuid.UUID, now: Optional[datetime] = None
+) -> int:
+    """Calls in this workspace that are live right now: connected, not ended,
+    and recent.
+
+    Read from the database, so it is the same number on every server process
+    and after a restart. The window keeps a call whose final callback never
+    arrived from counting as live forever (the concurrent-call limit uses the
+    same rule).
+    """
+    now = now or datetime.utcnow()
+    result = await db.execute(
+        select(func.count(Call.id)).where(
+            and_(
+                Call.organization_id == organization_id,
+                Call.status == 'in_progress',
+                Call.ended_at.is_(None),
+                Call.created_at >= now - ACTIVE_CALL_WINDOW,
+            )
+        )
+    )
+    return int(result.scalar() or 0)
 
 
 class AnalyticsService:
@@ -711,15 +737,7 @@ class AnalyticsService:
             metrics = RealTimeMetrics(organization_id=organization_id)
             self.db.add(metrics)
 
-        # Count active calls
-        active_calls_query = select(func.count(Call.id)).where(
-            and_(
-                Call.organization_id == organization_id,
-                Call.status == 'in_progress'
-            )
-        )
-        active_calls = await self.db.execute(active_calls_query)
-        metrics.current_active_calls = active_calls.scalar() or 0
+        metrics.current_active_calls = await count_active_calls(self.db, organization_id, now)
 
         # Calls today
         calls_today_query = select(func.count(Call.id)).where(
@@ -802,6 +820,11 @@ class AnalyticsService:
                 metrics.system_health = 'healthy'
         else:
             metrics.system_health = 'healthy'
+
+        # Stamp every refresh. The column's onupdate only fires when some other
+        # value changed, so a quiet workspace showed "Updated 9m ago" on numbers
+        # that had in fact just been recomputed.
+        metrics.last_updated = datetime.now(timezone.utc)  # the column is timestamptz
 
         # Get recent calls
         recent_calls_query = select(

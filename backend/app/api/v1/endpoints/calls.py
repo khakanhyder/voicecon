@@ -351,8 +351,12 @@ async def get_call_stats(
     )
     total_cost = cost_result.scalar() or 0
 
-    call_manager = get_call_manager()
-    active_calls = await call_manager.get_active_calls_count()
+    # From the database, scoped to this workspace. The in-memory call manager
+    # counted every tenant's calls on one server process, and the phone path
+    # does not register with it at all, so "Active Now" was always 0.
+    from app.services.analytics.analytics_service import count_active_calls
+
+    active_calls = await count_active_calls(db, org_id)
 
     return {
         "total_calls": total_calls,

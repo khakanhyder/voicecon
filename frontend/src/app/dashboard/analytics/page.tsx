@@ -78,6 +78,9 @@ interface RealtimeMetrics {
 }
 
 // ---- Helpers ----
+/** How often the Real-time Metrics card and the status strip refresh. */
+const LIVE_POLL_MS = 5_000
+
 function fmt(n: number | null | undefined, decimals = 0) {
   if (n == null) return '—'
   return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
@@ -182,6 +185,32 @@ export default function AnalyticsPage() {
     return () => clearInterval(id)
   }, [fetchAll])
 
+  // The live numbers on their own, much faster: a call that starts should show
+  // up while it is still ringing in your ear, and a one-minute refresh could
+  // miss a short call altogether. Only this one light request is repeated, only
+  // while the tab is visible, and a failed poll is skipped silently — the full
+  // refresh above is what reports errors.
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const { data } = await apiClient.get<RealtimeMetrics>('/api/v1/analytics/realtime')
+        if (!cancelled) setRealtime(data)
+      } catch {
+        // Keep showing the last good numbers.
+      }
+    }
+    const id = setInterval(poll, LIVE_POLL_MS)
+    // Coming back to the tab should not wait for the next tick.
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', poll)
+    }
+  }, [])
+
   const handleExport = () => {
     if (!callMetrics) return
     exportDashboardSummary({
@@ -268,7 +297,7 @@ export default function AnalyticsPage() {
             <HealthBadge health={dashboard?.realtime.system_health ?? 'unknown'} />
           </div>
           <div className="flex flex-wrap items-center gap-6 text-sm text-slate-600">
-            <span>Active calls: <strong className="text-slate-900">{dashboard?.realtime.active_calls ?? 0}</strong></span>
+            <span>Active calls: <strong className="text-slate-900">{realtime?.current_active_calls ?? dashboard?.realtime.active_calls ?? 0}</strong></span>
             <span>Calls/hour: <strong className="text-slate-900">{realtime?.calls_last_hour ?? 0}</strong></span>
             <span>Active agents: <strong className="text-slate-900">{realtime?.active_agents ?? 0}</strong></span>
             <span>Error rate: <strong className="text-slate-900">{fmtPct(realtime?.error_rate_last_hour ?? 0)}</strong></span>

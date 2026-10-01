@@ -405,10 +405,21 @@ class VoiceSession:
             f"call_sid={self.call_sid}, call_id={self.call_id}"
         )
 
-        # Update call record
+        # Update call record. The media stream starting *is* the call being
+        # answered: audio is flowing and the agent is about to speak. Carriers
+        # do not reliably say so — Twilio sends an inbound number no "answered"
+        # callback at all, only the final one — so an inbound call sat at
+        # "ringing" for its whole length and never counted as an active call.
         if self.call_sid:
             self.call.provider_call_sid = self.call_sid
-            await self.db.commit()
+        now = datetime.utcnow()
+        if self.call.status in (None, "initiated", "ringing"):
+            self.call.status = "in_progress"
+        if not self.call.started_at:
+            self.call.started_at = self.call.created_at or now
+        if not self.call.answered_at:
+            self.call.answered_at = now
+        await self.db.commit()
 
         # Open the Deepgram STT stream now that the media stream is live, then
         # greet the caller. Both are deferred here (not in start()) because they
