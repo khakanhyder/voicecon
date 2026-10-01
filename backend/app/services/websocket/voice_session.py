@@ -57,6 +57,14 @@ ECHO_WINDOW_WORDS = 30
 #: wait for the rest of their sentence before answering what there is.
 CARRY_FLUSH_SECONDS = 2.5
 
+#: After pausing for a sound from the caller, how long to wait for words
+#: before deciding it was not an interruption and carrying on.
+PAUSE_CONFIRM_SECONDS = 1.2
+
+#: Pauses that turn out to be nothing (line noise, echo) before the agent
+#: stops pausing on sound alone for the rest of the call.
+MAX_FALSE_PAUSES = 2
+
 #: Slack on top of the estimated playback time before giving up on Twilio's
 #: "finished playing" mark.
 PLAYBACK_GRACE_SECONDS = 1.5
@@ -78,10 +86,44 @@ class SessionState(str, Enum):
 
 @dataclass
 class _Segment:
-    """One piece of agent speech and when the caller hears it (loop time)."""
+    """
+    One piece of agent speech: its audio, and where the caller is in it.
+
+    The audio is kept so that playback can be paused when the caller makes a
+    sound and picked up from the same point if it was not an interruption.
+    `base` is the byte offset playback last (re)started from, `start` the
+    loop time it did so (None while stopped), `sent` how far the carrier has
+    been given.
+    """
     text: str
-    start: float
-    end: float
+    audio: bytearray = field(default_factory=bytearray)
+    sent: int = 0
+    base: int = 0
+    start: Optional[float] = None
+    stopped_at: float = 0.0
+    #: Cut off for good by an interruption; never resumed.
+    dropped: bool = False
+
+    def played_bytes(self, now: float) -> int:
+        if self.start is None:
+            return self.base
+        elapsed = int(max(now - self.start, 0.0) * 8000)
+        return self.base + min(elapsed, self.sent - self.base)
+
+    def end(self) -> float:
+        """Loop time at which what has been sent finishes (or was stopped)."""
+        if self.start is None:
+            return self.stopped_at
+        return self.start + (self.sent - self.base) / 8000
+
+    def played_words(self, now: float, slack: int = 0) -> List[str]:
+        words = self.text.split()
+        if not self.audio:
+            return []
+        played = self.played_bytes(now)
+        if played >= len(self.audio):
+            return words
+        return words[: int(len(words) * played / len(self.audio)) + slack]
 
 
 @dataclass
@@ -218,6 +260,16 @@ class VoiceSession:
         self._playback_cursor = 0.0
         # What the agent said most recently, to recognise its own echo.
         self._recent_speech: deque[_Segment] = deque(maxlen=6)
+        # One writer to the carrier at a time: a resume must not interleave
+        # with a sentence still being synthesized.
+        self._audio_lock = asyncio.Lock()
+        # Paused: the caller made a sound over the agent. Audio is kept, not
+        # sent, until it proves to be an interruption (dropped) or not
+        # (resumed from where it stopped).
+        self._held = False
+        self._held_timer: Optional[asyncio.Task] = None
+        self._held_heard_words = False
+        self._false_pauses = 0
         self._echo_hits = 0
         # The agent's last full line, which decides how patiently to wait
         # for the answer (a phone number takes longer than a yes).
@@ -432,6 +484,9 @@ class VoiceSession:
             "&channels=1"
             "&interim_results=true"
             "&punctuate=true"
+            # SpeechStarted: the caller's voice is reported a fraction of a
+            # second in, long before the first words are transcribed.
+            "&vad_events=true"
             # The agent's Silence Timeout: how long the caller must pause
             # before their turn ends. Was a fixed 300ms that ignored it.
             f"{deepgram_turn_params(self.agent.silence_timeout)}"
@@ -486,6 +541,7 @@ class VoiceSession:
             if transcript and self._is_own_echo(transcript):
                 # The agent's voice coming back down the line: not the
                 # caller, so it neither interrupts nor becomes a turn.
+                logger.info(f"Treated as the agent's own echo: {transcript!r}: call_id={self.call_id}")
                 if is_final:
                     self._echo_hits += 1
             elif transcript:
@@ -499,6 +555,9 @@ class VoiceSession:
 
         elif msg_type == "UtteranceEnd":
             self._end_of_speech()
+
+        elif msg_type == "SpeechStarted":
+            await self._on_speech_started()
 
     def _spawn(self, coro) -> asyncio.Task:
         """Run a coroutine in the background, keeping a reference so it is
@@ -515,12 +574,15 @@ class VoiceSession:
         return task
 
     def _audible(self) -> bool:
-        """Whether the caller can hear the agent right now. The playback
-        estimate backs up Twilio's marks, so a mark that never comes back
-        cannot leave the agent "speaking" for the rest of the call."""
-        if not self._playing:
-            return False
-        return asyncio.get_running_loop().time() < self._playback_cursor + PLAYBACK_GRACE_SECONDS
+        """Whether the caller can hear the agent right now.
+
+        Judged first by how much audio has been sent: 8,000 bytes is one
+        second, whatever the carrier does with marks. A mark still
+        outstanding extends that a little, for audio delayed on the way."""
+        now = asyncio.get_running_loop().time()
+        if now < self._playback_cursor:
+            return True
+        return self._playing and now < self._playback_cursor + PLAYBACK_GRACE_SECONDS
 
     def _is_own_echo(self, transcript: str) -> bool:
         """The agent's own words picked up by the caller's microphone (a
@@ -529,14 +591,111 @@ class VoiceSession:
         now = asyncio.get_running_loop().time()
         played: List[str] = []
         for seg in self._recent_speech:
-            if seg.end + ECHO_TAIL_SECONDS <= now or now <= seg.start:
+            if seg.end() + ECHO_TAIL_SECONDS <= now:
                 continue
-            words = seg.text.split()
-            if now < seg.end and seg.end > seg.start:
-                # A few words of slack: the timeline is an estimate.
-                words = words[: int(len(words) * (now - seg.start) / (seg.end - seg.start)) + 3]
-            played.extend(words)
+            # A few words of slack: the timeline is an estimate.
+            played.extend(seg.played_words(now, slack=3))
         return bool(played) and is_echo(transcript, " ".join(played[-ECHO_WINDOW_WORDS:]))
+
+    async def _on_speech_started(self) -> None:
+        """
+        Deepgram heard a voice begin — a fraction of a second in, well before
+        any words. If the agent is talking, stop talking at once and listen.
+
+        Whether it was an interruption is decided by the words that follow:
+        enough of them and the rest of the reply is dropped; a cough, an
+        "mm-hm" or nothing at all and the agent carries on from where it
+        stopped. Waiting for the words before stopping left the agent
+        talking over the caller for one to two seconds.
+        """
+        if not self.agent.interrupt_enabled or self._held:
+            return
+        if self._false_pauses >= MAX_FALSE_PAUSES or not self._audible():
+            return
+        await self._stop_audio(drop=False)
+        self._held_heard_words = False
+        self._restart_held_timer()
+        logger.info(f"Caller made a sound; agent paused: call_id={self.call_id}")
+
+    def _restart_held_timer(self) -> None:
+        if self._held_timer is not None:
+            self._held_timer.cancel()
+
+        async def _expire() -> None:
+            await asyncio.sleep(PAUSE_CONFIRM_SECONDS)
+            self._held_timer = None
+            await self._resume_playback()
+
+        self._held_timer = asyncio.create_task(_expire())
+
+    async def _stop_audio(self, drop: bool) -> None:
+        """
+        Silence the agent now: note how far each piece of speech had played,
+        and have the carrier discard what it has buffered.
+
+        Args:
+            drop: The rest is abandoned (an interruption). Otherwise it is
+                held, to be resumed by _resume_playback.
+        """
+        async with self._audio_lock:
+            now = asyncio.get_running_loop().time()
+            for seg in self._recent_speech:
+                if seg.dropped:
+                    continue
+                played = seg.played_bytes(now) // 160 * 160
+                if played >= len(seg.audio) and seg.start is not None and seg.end() <= now:
+                    continue  # already heard in full
+                seg.base = seg.sent = played
+                seg.start = None
+                seg.stopped_at = now
+                seg.dropped = drop
+            self._held = not drop
+            self._playing = False
+            self._pending_marks.clear()
+            self._playback_cursor = now
+            if self.stream_sid:
+                try:
+                    await self.connection_manager.send_json(
+                        self.call_id, {"event": "clear", "streamSid": self.stream_sid}
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to clear carrier audio: {e}")
+
+    async def _resume_playback(self) -> None:
+        """Carry on from where the agent paused: the sound was not an
+        interruption."""
+        if self._held_timer is not None and self._held_timer is not asyncio.current_task():
+            self._held_timer.cancel()
+        self._held_timer = None
+        async with self._audio_lock:
+            if not self._held:
+                return
+            self._held = False
+            if not self._held_heard_words:
+                # Nothing was said: noise or echo. A line that keeps doing
+                # this would make the agent stutter, so stop pausing on it.
+                self._false_pauses += 1
+            loop = asyncio.get_running_loop()
+            resent = 0
+            for seg in self._recent_speech:
+                if seg.dropped or seg.sent >= len(seg.audio):
+                    continue
+                seg.start = max(loop.time(), self._playback_cursor)
+                rest = bytes(seg.audio[seg.sent:])
+                for i in range(0, len(rest), 1600):
+                    await self._send_audio_to_twilio(rest[i:i + 1600])
+                seg.sent = len(seg.audio)
+                resent += len(rest)
+                self._playback_cursor = seg.end()
+            if resent:
+                self._mark_seq += 1
+                mark = f"speech-{self._mark_seq}"
+                self._pending_marks.add(mark)
+                self._playing = True
+                await self._send_mark(mark)
+        logger.info(
+            f"Not an interruption; agent resumed ({resent / 8000:.1f}s left): call_id={self.call_id}"
+        )
 
     async def _on_caller_speech(self, transcript: str) -> None:
         """
@@ -556,6 +715,24 @@ class VoiceSession:
             logger.info(f"Caller carried on speaking; reply discarded: call_id={self.call_id}")
         elif self._should_barge_in(transcript):
             await self._barge_in()
+        elif self._held:
+            self._held_heard_words = True
+            if is_backchannel(" ".join(self._utterance_parts + [transcript])):
+                # "Mm-hm": they are listening, not interrupting. Carry on.
+                await self._resume_playback()
+            else:
+                # Words, but not yet enough to count: keep listening.
+                self._restart_held_timer()
+        elif self._audible():
+            # Heard over the agent but not acted on. Logged because "the
+            # agent would not stop" is otherwise impossible to diagnose.
+            heard = " ".join(self._utterance_parts + [transcript])
+            logger.info(
+                f"Caller spoke over the agent without interrupting: {heard!r} "
+                f"({len(heard.split())} words, {self._interrupt_min_words()} needed, "
+                f"interruptions {'on' if self.agent.interrupt_enabled else 'OFF'}): "
+                f"call_id={self.call_id}"
+            )
 
         if self._carry:
             self._restart_carry_timer()
@@ -577,6 +754,9 @@ class VoiceSession:
 
     def _end_of_speech(self) -> None:
         """The caller has stopped: hand everything they said to a turn."""
+        if self._held:
+            # They finished without saying enough to interrupt.
+            self._spawn(self._resume_playback())
         utterance = " ".join([self._carry] + self._utterance_parts).strip()
         if not utterance:
             return
@@ -604,7 +784,7 @@ class VoiceSession:
 
         # "Mm-hm" while the agent is talking is listening, not a turn;
         # answering it made the agent stop and start over.
-        if self._audible() and is_backchannel(utterance):
+        if (self._audible() or self._held) and is_backchannel(utterance):
             logger.info(f"Ignored a listening noise over the agent: {utterance!r}")
             return
 
@@ -624,7 +804,7 @@ class VoiceSession:
         on and enough words said to clear the agent's Interrupt Sensitivity."""
         if not self.agent.interrupt_enabled or self._interrupted:
             return False
-        if not (self._audible() or self.state == SessionState.SPEAKING):
+        if not (self._audible() or self._held or self.state == SessionState.SPEAKING):
             return False
         heard = " ".join(self._utterance_parts + [transcript])
         return len(heard.split()) >= self._interrupt_min_words()
@@ -643,36 +823,29 @@ class VoiceSession:
         """The part of a reply that had been played by `now`."""
         parts = []
         for seg in segments:
-            if now >= seg.end:
+            words = seg.played_words(now)
+            if len(words) == len(seg.text.split()) and seg.audio:
                 parts.append(seg.text)
                 continue
-            if now > seg.start and seg.end > seg.start:
-                words = seg.text.split()
-                kept = int(len(words) * (now - seg.start) / (seg.end - seg.start))
-                if kept:
-                    parts.append(" ".join(words[:kept]) + "…")
+            if words:
+                parts.append(" ".join(words) + "…")
             break
         return " ".join(parts)
 
     async def _barge_in(self) -> None:
-        """Stop the agent mid-sentence: end the frame loop and have Twilio
-        drop the audio it has already buffered."""
+        """The caller is interrupting: drop the rest of what the agent was
+        saying — already paused if their voice was heard starting, otherwise
+        stopped here."""
         now = asyncio.get_running_loop().time()
         turn = self._turn
         if turn is not None and turn.reply_started and not turn.interrupted:
             turn.interrupted = True
             turn.heard = self._heard_text(turn.segments, now)
         self._interrupted = True
-        self._playing = False
-        self._pending_marks.clear()
-        self._playback_cursor = now
-        if self.stream_sid:
-            try:
-                await self.connection_manager.send_json(
-                    self.call_id, {"event": "clear", "streamSid": self.stream_sid}
-                )
-            except Exception as e:
-                logger.error(f"Failed to clear Twilio audio on barge-in: {e}")
+        if self._held_timer is not None:
+            self._held_timer.cancel()
+            self._held_timer = None
+        await self._stop_audio(drop=True)
         logger.info(f"Caller barged in: call_id={self.call_id}")
 
     async def _wait_playback(self) -> None:
@@ -684,11 +857,20 @@ class VoiceSession:
         here, or it lands on top of them.
         """
         loop = asyncio.get_running_loop()
-        while (
-            self._pending_marks
-            and self.state != SessionState.ENDED
-            and loop.time() < self._playback_cursor + PLAYBACK_GRACE_SECONDS
-        ):
+        while self.state != SessionState.ENDED:
+            now = loop.time()
+            if self._held:
+                # Paused for the caller: the rest may yet be played.
+                await asyncio.sleep(0.05)
+                continue
+            # Done once the audio sent has had time to play and its marks are
+            # back — or are overdue. Not on the marks alone: one that comes
+            # back early must not end the wait while the agent is audible.
+            if now >= self._playback_cursor and (
+                not self._pending_marks
+                or now >= self._playback_cursor + PLAYBACK_GRACE_SECONDS
+            ):
+                break
             await asyncio.sleep(0.05)
         self._pending_marks.clear()
         self._playing = False
@@ -716,7 +898,7 @@ class VoiceSession:
     async def _stop_call_timers(self) -> None:
         # Discard any reply still being drafted.
         self._turn_gen += 1
-        for attr in ("_silence_task", "_max_duration_task", "_carry_timer"):
+        for attr in ("_silence_task", "_max_duration_task", "_carry_timer", "_held_timer"):
             task = getattr(self, attr)
             if task is not None and task is not asyncio.current_task():
                 task.cancel()
@@ -842,7 +1024,11 @@ class VoiceSession:
         mark_data = message.get("mark", {})
         mark_name = mark_data.get("name")
 
-        logger.debug(f"Mark event: {mark_name}")
+        left = self._playback_cursor - asyncio.get_running_loop().time()
+        logger.info(
+            f"Playback mark {mark_name} returned, about {max(left, 0):.1f}s of audio "
+            f"still to play: call_id={self.call_id}"
+        )
 
         # Each piece of speech is followed by its own mark. The agent stops
         # being audible when the last one outstanding comes back — one shared
@@ -1532,27 +1718,28 @@ class VoiceSession:
         self._interrupted = False
         text = strip_for_speech(text)
 
-        # Where this lands on the caller's timeline: after whatever is still
-        # queued at Twilio. `segment.end` advances with every frame sent.
-        loop = asyncio.get_running_loop()
-        start = max(loop.time(), self._playback_cursor)
-        segment = _Segment(text=text, start=start, end=start)
+        segment = _Segment(text=text)
         self._recent_speech.append(segment)
         if turn is not None:
             turn.segments.append(segment)
         # Registered before any audio goes out, so an earlier mark coming
         # back cannot mark the agent silent while this is being sent.
+        loop = asyncio.get_running_loop()
         self._mark_seq += 1
         mark = f"speech-{self._mark_seq}"
         self._pending_marks.add(mark)
 
         async def send_frame(data: bytes) -> None:
-            if segment.end == segment.start:
-                # First audio: synthesis took a moment to start.
-                segment.start = segment.end = max(loop.time(), segment.start)
-            await self._send_audio_to_twilio(data)
-            segment.end += len(data) / 8000
-            self._playback_cursor = segment.end
+            async with self._audio_lock:
+                segment.audio.extend(data)
+                if self._held or segment.dropped:
+                    return  # kept for a resume, or abandoned
+                if segment.start is None:
+                    # After whatever is still queued at the carrier.
+                    segment.start = max(loop.time(), self._playback_cursor)
+                await self._send_audio_to_twilio(data)
+                segment.sent += len(data)
+                self._playback_cursor = segment.end()
 
         try:
             provider = self.agent.tts_provider or "elevenlabs"
@@ -1601,7 +1788,7 @@ class VoiceSession:
 
             # Mark end of speech; Twilio echoes it back when playback reaches
             # it, which is when the agent actually stops being audible.
-            if chunk_count:
+            if chunk_count and not self._held and not segment.dropped:
                 await self._send_mark(mark)
                 mark = None
 

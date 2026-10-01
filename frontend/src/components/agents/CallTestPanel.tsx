@@ -51,6 +51,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 // forgot the caller's name and the day it had just offered.
 const HISTORY_SENT = 40
 const MIN_CHECK_IN_MS = 15000
+// After pausing for a sound from the caller, how long to wait for words before
+// carrying on; and how many pauses for nothing (noise) before no longer pausing
+// on sound alone. Same values as voice_session.py.
+const PAUSE_CONFIRM_MS = 1200
+const MAX_FALSE_PAUSES = 2
 
 const formatTime = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
 
@@ -119,6 +124,12 @@ export function CallTestPanel({
   const heardWaitingRef   = useRef(false)
   // finalBufRef as it stood when the caller last stopped speaking.
   const bufAtPauseRef     = useRef('')
+  // The agent's audio is paused because the caller made a sound. Words decide
+  // whether it was an interruption (reply dropped) or not (audio resumes).
+  const pausedRef         = useRef(false)
+  const pauseTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pauseHeardRef     = useRef(false)
+  const falsePausesRef    = useRef(0)
   const currentAudioRef   = useRef<HTMLAudioElement | null>(null)
   const abortCtrlRef      = useRef<AbortController | null>(null)
   const drainResolveRef   = useRef<(() => void) | null>(null)
@@ -216,6 +227,8 @@ export function CallTestPanel({
   }
 
   const stopAudioNow = useCallback(() => {
+    if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null }
+    pausedRef.current = false
     if (drainResolveRef.current) { drainResolveRef.current(); drainResolveRef.current = null }
     drainGenRef.current++
     if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current = null }
@@ -403,6 +416,8 @@ export function CallTestPanel({
    *  from the relay, which applies the same rules as a phone call. */
   const endOfSpeech = (holdMs = 0, backchannel = false) => {
     if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
+    // They finished without saying enough to interrupt.
+    resumeReply()
     if (backchannel && agentBusy()) {
       // A listening noise over the agent is not a turn.
       finalBufRef.current = bufAtPauseRef.current
@@ -444,13 +459,50 @@ export function CallTestPanel({
     callStateRef.current = 'listening'
   }
 
+  /** Carry on from where the agent paused: the sound was not an interruption. */
+  const resumeReply = () => {
+    if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null }
+    if (!pausedRef.current) return
+    pausedRef.current = false
+    // Nothing was said: noise. A microphone that keeps doing this would make
+    // the agent stutter, so stop pausing on it.
+    if (!pauseHeardRef.current) falsePausesRef.current++
+    currentAudioRef.current?.play().catch(() => {})
+  }
+
+  /** The caller's voice has started — before any words are transcribed. Stop
+   *  talking at once and listen; waiting for the words left the agent talking
+   *  over the caller for a second or two. */
+  const pauseReply = () => {
+    if (!interruptRef.current || pausedRef.current || falsePausesRef.current >= MAX_FALSE_PAUSES) return
+    if (!agentBusy() || !replyAudibleRef.current || !currentAudioRef.current) return
+    pausedRef.current = true
+    pauseHeardRef.current = false
+    currentAudioRef.current.pause()
+    pauseTimerRef.current = setTimeout(resumeReply, PAUSE_CONFIRM_MS)
+  }
+
   /** The caller is speaking (interim transcripts included). */
-  const onCallerSpeech = (heardSoFar: string) => {
+  const onCallerSpeech = (heardSoFar: string, backchannelSoFar = false) => {
     if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
     heardWaitingRef.current = false
     if (!agentBusy()) return
     if (!replyAudibleRef.current) cancelReply(true)
     else if (interruptRef.current && wordCount(heardSoFar) >= interruptWordsRef.current) cancelReply(false)
+    else if (pausedRef.current) {
+      pauseHeardRef.current = true
+      // "Mm-hm" is listening, not interrupting: carry on. Anything else is
+      // words, but not yet enough to count: keep listening.
+      if (backchannelSoFar) resumeReply()
+      else {
+        if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+        pauseTimerRef.current = setTimeout(resumeReply, PAUSE_CONFIRM_MS)
+      }
+    }
+    // Heard over the agent but not acted on: "the agent would not stop" is
+    // otherwise impossible to tell apart from words that never arrived.
+    else console.info('[test call] heard over the agent, not interrupting:', heardSoFar.trim(),
+      { words: wordCount(heardSoFar), needed: interruptWordsRef.current, interruptions: interruptRef.current })
   }
 
   const startDeepgramSession = useCallback(() => {
@@ -490,10 +542,12 @@ export function CallTestPanel({
             if (is_final) finalBufRef.current = `${finalBufRef.current} ${text}`.trim()
             // Words since the caller last paused: what counts towards
             // interrupting, not a sentence still waiting to be answered.
-            onCallerSpeech(`${finalBufRef.current} ${is_final ? '' : text}`.slice(bufAtPauseRef.current.length))
+            onCallerSpeech(`${finalBufRef.current} ${is_final ? '' : text}`.slice(bufAtPauseRef.current.length), !!ev.backchannel_so_far)
             setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
           }
           if (speech_final) endOfSpeech(hold_ms, backchannel)
+        } else if (ev.type === 'speech_started') {
+          pauseReply()
         } else if (ev.type === 'utterance_end') {
           // Deepgram's fallback end-of-turn, for when noise kept speech_final
           // from ever arriving.
@@ -594,6 +648,7 @@ export function CallTestPanel({
     finalBufRef.current = ''
     bufAtPauseRef.current   = ''
     heardWaitingRef.current = false
+    falsePausesRef.current  = 0
     isActiveRef.current = true
     dgAvailRef.current  = true
     textOnlyRef.current = false

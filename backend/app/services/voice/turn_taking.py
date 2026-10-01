@@ -38,7 +38,7 @@ _NUMBER_WORDS = {
 # Sounds a listener makes while the other side talks. Deliberately narrow:
 # "okay" and "yeah" are often real answers, so they are not here.
 _BACKCHANNEL = {
-    "mm", "mmm", "mhm", "mmhm", "mmhmm", "mm-hm", "mm-hmm", "hmm", "hm", "uh", "huh", "uh-huh",
+    "mm", "mmm", "mhm", "mhmm", "mmhm", "mmhmm", "mm-hm", "mm-hmm", "hmm", "hm", "uh", "huh", "uh-huh",
     "um", "ah", "oh", "hello", "hi", "hey",
 }
 # The agent just asked for something people say slowly, in groups.
@@ -129,7 +129,10 @@ def is_echo(heard: str, agent_text: str) -> bool:
     Whether what was heard is the agent's own voice coming back (a caller on
     speakerphone), judged by how many of the words the agent is saying.
 
-    One word is never called echo: it is too easily a real "yes".
+    One word is never called echo: it is too easily a real "yes". And two
+    or more words the agent did not say mean the caller is in there too —
+    on an echoing line their interruption arrives mixed in with the agent's
+    words, and must still count as an interruption.
     """
     heard_words = _words(heard)
     if len(heard_words) < 2:
@@ -138,6 +141,8 @@ def is_echo(heard: str, agent_text: str) -> bool:
     if not agent_words:
         return False
     matched = sum(1 for w in heard_words if w in agent_words)
+    if len(heard_words) - matched >= 2:
+        return False
     return matched / len(heard_words) >= 0.75
 
 

@@ -191,7 +191,7 @@ async def settle(session, timeout=5.0):
     deadline = loop.time() + timeout
     while loop.time() < deadline:
         await asyncio.sleep(0.02)
-        busy = session._tasks or session._turn_lock.locked() or session._playing
+        busy = session._tasks or session._turn_lock.locked() or session._audible()
         if not busy and not session._carry and session._carry_timer is None:
             return
     raise AssertionError("the session never went quiet")
@@ -366,6 +366,124 @@ async def test_the_agents_own_echo_neither_interrupts_nor_becomes_a_turn(monkeyp
     assert session._echo_hits == 1
 
 
+SPEECH_STARTED = {"type": "SpeechStarted"}
+
+
+async def test_the_agent_stops_as_soon_as_the_callers_voice_is_heard(monkeypatch):
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(SPEECH_STARTED)
+
+    # Silent at once — before a single word has been transcribed.
+    assert twilio.cleared == 1 and not session._audible()
+
+    await asyncio.sleep(0.2)
+    await caller_says(session, "Yes, book it for Tuesday.")
+    await settle(session)
+
+    # The rest of the old reply was never played, and the new request was
+    # answered knowing only what had been heard.
+    remembered = assistant_messages(session)
+    assert remembered[0] != LONG_REPLY and LONG_REPLY.startswith(remembered[0].rstrip("…"))
+    assert session.llm_service.asked == ["What do you have this week?", "Yes, book it for Tuesday."]
+
+
+async def test_a_sound_that_is_not_an_interruption_only_pauses_the_agent(monkeypatch):
+    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.2)
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, end_call_phrases=["goodbye"])
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(SPEECH_STARTED)  # a cough: no words follow
+    await settle(session)
+
+    # It picked up where it stopped, without synthesizing anything again,
+    # and the whole reply was heard: remembered in full, and acted on.
+    assert twilio.cleared == 1
+    assert len(session.tts_service.spoken) == 3
+    assert assistant_messages(session) == [LONG_REPLY]
+    assert len(session.ended) == 1
+    words = len(LONG_REPLY.split())
+    assert loop.time() - started >= words * BYTES_PER_WORD / 8000 + 0.2
+    assert session._false_pauses == 1
+
+
+async def test_a_line_that_keeps_triggering_pauses_stops_being_paused_for(monkeypatch):
+    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.1)
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
+
+    await caller_says(session, "What do you have this week?")
+    for _ in range(4):
+        await asyncio.sleep(0.3)
+        await session._on_deepgram_message(SPEECH_STARTED)
+    await settle(session)
+
+    assert twilio.cleared == 2  # twice, then no more
+    assert assistant_messages(session) == [LONG_REPLY]
+
+
+async def test_mm_hm_pauses_then_resumes_and_is_not_answered(monkeypatch):
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, interrupt_sensitivity=0.0)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.6)
+    await session._on_deepgram_message(SPEECH_STARTED)
+    await asyncio.sleep(0.1)
+    assert not session._audible()
+    await session._on_deepgram_message(results("Mhmm."))
+    # Carried on at the first sign it was only a listening noise.
+    assert session._audible()
+    await session._on_deepgram_message(results("Mhmm.", is_final=True, speech_final=True))
+    await settle(session)
+
+    assert assistant_messages(session) == [LONG_REPLY]
+    assert session.llm_service.asked == ["What do you have this week?"]
+    assert session._false_pauses == 0  # they did say something
+
+
+async def test_an_interruption_mixed_with_echo_still_interrupts(monkeypatch):
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    # An echoing line: the caller's words arrive in among the agent's.
+    await session._on_deepgram_message(results("options for you this week yes book it for Tuesday"))
+    await asyncio.sleep(0.1)
+
+    assert twilio.cleared == 1
+
+
+async def test_marks_that_come_back_early_do_not_end_the_agents_turn(monkeypatch):
+    # A carrier that answers every mark at once, long before the audio ends.
+    session, twilio = make_session(
+        monkeypatch, lambda m: LONG_REPLY, end_call_phrases=["goodbye"],
+    )
+    real_send = twilio.send_json
+
+    async def eager_marks(call_id, message):
+        await real_send(call_id, message)
+        if message["event"] == "mark":
+            twilio._pending.pop(message["mark"]["name"]).cancel()
+            twilio._echo(message["mark"]["name"])
+
+    twilio.send_json = eager_marks
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(1.0)
+    # Still audible and still interruptible; the call has not been ended
+    # on top of the reply.
+    assert session._audible() and session.ended == []
+    await session._on_deepgram_message(results("no wait hold on"))
+    await asyncio.sleep(0.1)
+
+    assert twilio.cleared == 1
+    assert session.ended == []
+
+
 async def test_speech_during_the_greeting_waits_for_it_rather_than_overlapping(monkeypatch):
     session, twilio = make_session(
         monkeypatch, lambda m: "Sure, I can help.",
@@ -422,6 +540,8 @@ async def test_echo_needs_most_of_the_words_to_be_the_agents():
     assert turn_taking.is_echo("we have a few options", agent)
     assert not turn_taking.is_echo("Tuesday please", agent)
     assert not turn_taking.is_echo("options", agent)  # one word is never echo
+    # The caller talking over the echo is not echo.
+    assert not turn_taking.is_echo("a few options for you yes book it", agent)
 
 
 async def test_only_listening_noises_are_backchannel():

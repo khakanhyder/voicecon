@@ -1132,7 +1132,8 @@ async def agent_stt_websocket(
     transcript events as JSON. Auth via 'token' query param (browser WS can't set headers).
 
     End-of-speech events carry the same turn-taking verdicts a phone call
-    acts on (app.services.voice.turn_taking): `hold_ms`, how much longer to
+    acts on (app.services.voice.turn_taking): `speech_started`, the caller's
+    voice beginning, which pauses the agent before any words exist; `hold_ms`, how much longer to
     wait before answering, and `backchannel`, a listening noise that is not a
     turn. The client reports each line the agent speaks as a text frame
     ({"type": "agent_said", "text": ...}) so the wait can depend on what was
@@ -1219,6 +1220,11 @@ async def agent_stt_websocket(
         f"?model={stt_model}"
         f"&language={stt_language}"
         f"&interim_results=true"
+        # As on a phone call: the end-of-turn rules read a full stop as a
+        # finished sentence, and without it waited longer after every turn.
+        f"&punctuate=true"
+        # SpeechStarted: the caller's voice, reported before any words.
+        f"&vad_events=true"
         f"&smart_format=false"
         f"&no_delay=true"
         # Digits come back as digits ("0300 1234567"), which the agent can count.
@@ -1292,11 +1298,18 @@ async def agent_stt_websocket(
                                         }
                                         if speech_final:
                                             event.update(end_of_speech_verdict())
+                                        else:
+                                            # Only an "mm-hm" so far: the
+                                            # agent need not stay paused.
+                                            said = heard_parts + ([] if is_final else [transcript])
+                                            event["backchannel_so_far"] = is_backchannel(" ".join(said))
                                         await websocket.send_json(event)
                                 elif msg_type == "UtteranceEnd":
                                     await websocket.send_json(
                                         {"type": "utterance_end", **end_of_speech_verdict()}
                                     )
+                                elif msg_type == "SpeechStarted":
+                                    await websocket.send_json({"type": "speech_started"})
                             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
                                 break
                     except Exception:
