@@ -176,12 +176,21 @@ class TestProfile:
         )
         assert res.status_code == 422
 
-    async def test_delete_account_deactivates(self, client, owner, db_session):
-        res = await as_user(client, owner).delete("/api/v1/users/me")
-        assert res.status_code == 204
+    async def test_deactivating_needs_the_password_first(self, client, owner, db_session):
+        """The full flow is covered in test_account_deactivation.py."""
+        terms = await as_user(client, owner).post(
+            "/api/v1/users/me/deactivation/verify", json={"password": "password123"}
+        )
+        assert terms.status_code == 200
+        res = await as_user(client, owner).post(
+            "/api/v1/users/me/deactivate",
+            json={"deactivation_token": terms.json()["deactivation_token"]},
+        )
+        assert res.status_code == 200
         await db_session.refresh(owner)
         assert owner.is_active is False
-        assert owner.deleted_at is not None
+        assert owner.deactivated_at is not None
+        assert owner.deleted_at is None
 
 
 # ---------- API keys ----------

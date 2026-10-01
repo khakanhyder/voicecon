@@ -49,7 +49,7 @@ demoting yourself.
 | API Keys & Providers | Choose the payment provider (Stripe or Polar). Set or rotate provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs, Twilio, Stripe, Polar, email, S3, Google/Apple sign-in, integration OAuth apps), rate limits and public URLs. Each provider has a **Test connection** button |
 | Plans & Pricing | Edit prices, trial length, features, limits and pricing-page copy |
 | Organizations | Search every workspace. Suspend or reactivate it, extend a trial, give a plan for free, set per-organization feature and limit overrides, reset usage |
-| Users | Verify, disable, sign out everywhere, clear a login lockout, grant or revoke admin |
+| Users | Verify, disable, sign out everywhere, clear a login lockout, grant or revoke admin. Reactivate an account its owner deactivated, or delete one permanently |
 | Billing | Work the payment-failure queue, read the subscription ledger, run the reconciler on demand |
 | Calls / Phone Numbers | Look at any tenant's calls, transcripts, recordings and numbers, for support |
 | Integrations & Workflows | Find expired or failing connections and failed workflow runs |
@@ -145,6 +145,58 @@ value straight away, and a restart does not reset it. Trials that have already
 started keep their end date; use **Extend trial** on an organization to change
 one. Marketing copy on the landing page and in the terms still says 30 days and
 has to be edited by hand.
+
+## Deactivated accounts: recovery and permanent deletion
+
+A customer deactivates their own account from **Settings → Profile**. They have
+to enter their password first (a Google/Apple account gets an emailed code
+instead) and then accept a screen that says when the account will be deleted.
+
+| State | How it gets there | What happens next |
+|---|---|---|
+| **Deactivated** | The customer deactivates their account | Cannot sign in. Owned workspaces are switched off and their subscriptions cancelled. Nothing is erased. Permanently deleted on the scheduled date |
+| **Disabled** | An admin presses **Disable** | Cannot sign in. Workspaces unaffected. Stays that way until an admin presses **Enable**; never deleted automatically |
+| **Deleted** | The scheduled date passes, or an admin presses **Delete** | Irreversible. Hidden from the console |
+
+**Finding them.** Users → filter **Deactivated (awaiting deletion)**. The list
+is sorted soonest-deletion first and shows each account's deletion date.
+
+**Reactivating.** Open the user → **Reactivate account**. The customer can sign
+in again, the scheduled deletion is cancelled, and the workspaces that were
+switched off with the account come back as they were. Two things do not come
+back by themselves:
+
+- The subscription. It was cancelled at deactivation, so the workspace is
+  read-only until the owner picks a plan again. A trial that was cut short is
+  not resumed; use **Extend trial** on the organization if you want to give
+  the days back.
+- Voicecon phone numbers that were already released. A switched-off workspace
+  is not paying, so its numbers are held and then released after the number
+  grace period (14 days by default), which is shorter than the recovery period.
+
+The customer is emailed when the account is deactivated, reactivated, and
+permanently deleted.
+
+**The recovery period.** API Keys & Providers → **Account deletion** → *Days
+before a deactivated account is permanently deleted* (default 30, minimum 1).
+The deletion date is fixed at the moment of deactivation, because that is the
+date the customer was shown and emailed. Changing the setting therefore affects
+accounts deactivated from then on, not ones already waiting. The privacy policy
+and terms state 30 days and have to be edited by hand if you change it.
+
+**What permanent deletion erases.** The sweep runs every 15 minutes with the
+billing reconciler and writes a `user.purge` row to the audit log. It erases
+the person's email, name, phone, bio, picture, password, Google/Apple link, API
+keys, notifications, their membership of other people's workspaces, and the
+third-party credentials stored in the workspaces they owned. The email address
+is then free: signing up with it again creates a brand-new account with no link
+to the old one.
+
+**What it keeps.** The user row stays as an anonymous tombstone
+(`deleted-…@deleted.invalid`), and the content of the workspaces they owned
+(agents, calls, recordings, knowledge-base documents) stays in the database,
+switched off and unreachable, along with invoices and the billing ledger. The
+original email address is kept in the audit log entry only.
 
 ## Phone numbers nobody is paying for
 

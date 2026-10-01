@@ -87,6 +87,20 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    # Account lifecycle. Three states beyond "active":
+    #
+    #   disabled     is_active False, nothing else set — an admin switched the
+    #                account off. Never deleted automatically.
+    #   deactivated  ``deactivated_at`` set — the customer closed their own
+    #                account. Recoverable by support until
+    #                ``deletion_scheduled_at``, then permanently deleted.
+    #   deleted      ``deleted_at`` set — permanently deleted. The row remains
+    #                as an anonymous tombstone (see services/account_deletion)
+    #                and the email address is free to register again.
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deletion_scheduled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
@@ -138,6 +152,11 @@ class Organization(Base):
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Set when this workspace was switched off because its owner deactivated
+    # their account, as opposed to being deleted on its own. It is how
+    # reactivating the account knows which workspaces to bring back.
+    owner_deactivated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Settings (JSONB for flexibility)
     settings: Mapped[dict] = mapped_column(JSON, default=dict)

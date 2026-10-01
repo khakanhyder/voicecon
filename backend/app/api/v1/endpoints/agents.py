@@ -41,6 +41,7 @@ from app.services.voice.llm_service import get_llm_service, ChatMessage, cap_str
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
+from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.core.time import UTCDatetime, utc_iso
 
@@ -675,6 +676,8 @@ async def agent_respond(
                 "Speak naturally and conversationally."
             )
             system_text += VOICE_RULES
+            # Today's date and timezone: without it "next Friday" is a guess.
+            system_text += await current_time_note(db, agent)
             # The agent's attached knowledge bases, searched with this turn's
             # words. This endpoint used to skip them entirely, so a test call
             # could only answer from the prompt: a fee that lived only in the
@@ -714,8 +717,11 @@ async def agent_respond(
                     messages.append(ChatMessage(role="system", content=note))
                     continue
                 role = "assistant" if raw_role in ("agent", "assistant") else "user"
-                messages.append(ChatMessage(role=role, content=text))
-            messages.append(ChatMessage(role="user", content=request.message))
+                messages.append(ChatMessage(
+                    role=role,
+                    content=normalize_spoken_emails(text) if role == "user" else text,
+                ))
+            messages.append(ChatMessage(role="user", content=normalize_spoken_emails(request.message)))
 
             full_response = ""
             sentence_buffer = ""

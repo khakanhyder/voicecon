@@ -38,6 +38,11 @@ def reconcile_subscriptions_task():
             # admin dashboard, not just the worker's environment.
             await refresh_quietly(db)
             report = await reconcile_subscriptions(db)
+            # Same beat as the in-process scheduler: delete deactivated
+            # accounts whose recovery period is over.
+            from app.services.account_deletion import purge_due_accounts
+
+            await purge_due_accounts(db)
             return str(report)
 
     result = _run(run())

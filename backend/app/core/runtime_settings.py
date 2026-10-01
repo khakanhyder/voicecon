@@ -81,6 +81,8 @@ class SettingSpec:
     #: Provider id understood by ``services/admin/provider_checks``.
     test: Optional[str] = None
     placeholder: str = ""
+    #: Smallest value an ``int`` setting accepts.
+    minimum: int = 0
 
     @property
     def is_secret(self) -> bool:
@@ -110,6 +112,7 @@ GROUPS: Tuple[SettingGroup, ...] = (
     SettingGroup("storage", "File storage (S3)", "Recordings, avatars and knowledge-base uploads.", "database", "storage"),
     SettingGroup("social_login", "Sign-in providers", "Google and Apple sign-in. The Google app is also used for Calendar, Sheets and Drive.", "key"),
     SettingGroup("integration_apps", "Integration OAuth apps", "Client credentials for the integrations customers connect with one click.", "plug"),
+    SettingGroup("accounts", "Account deletion", "What happens after a customer deactivates their own account.", "shield"),
     SettingGroup("security", "Security & limits", "Sign-up verification and API rate limits. Applied on the next request.", "shield"),
     SettingGroup("urls", "Public URLs", "Addresses Twilio and emails use to reach this deployment. A wrong value breaks inbound calls and email links.", "globe"),
 )
@@ -181,6 +184,8 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("MONDAY_CLIENT_ID", "Monday.com client ID", "integration_apps"),
     _S("MONDAY_CLIENT_SECRET", "Monday.com client secret", "integration_apps", "secret"),
     _S("TRELLO_API_KEY", "Trello API key", "integration_apps", "secret"),
+    # Account deletion
+    _S("ACCOUNT_DELETION_RETENTION_DAYS", "Days before a deactivated account is permanently deleted", "accounts", "int", "How long a customer-deactivated account is kept so support can reactivate it. Applies to accounts deactivated from now on; accounts already deactivated keep the deletion date they were given.", minimum=1),
     # Security & limits
     _S("REQUIRE_EMAIL_VERIFICATION", "Require email verification at sign-up", "security", "bool", "Turning this off lets anyone register an address they do not own."),
     _S("RATE_LIMIT_ENABLED", "Rate limiting enabled", "security", "bool"),
@@ -248,6 +253,8 @@ def normalise(spec: SettingSpec, raw: Any) -> str:
             raise InvalidSettingValue("Must be a whole number.")
         if number < 0:
             raise InvalidSettingValue("Must not be negative.")
+        if number < spec.minimum:
+            raise InvalidSettingValue(f"Must be at least {spec.minimum}.")
         return str(number)
 
     if spec.kind == "choice":

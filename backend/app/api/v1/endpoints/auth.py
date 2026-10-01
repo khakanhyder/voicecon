@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.services.account_deletion import inactive_account_message
 from app.database import get_db
 from app.core.config import settings
 from app.core.dependencies import get_current_user
@@ -432,9 +433,11 @@ async def _authenticate_password(db: AsyncSession, credentials: LoginRequest) ->
 
     # Check if user is active
     if not user.is_active:
+        # Said only after the password checked out, so it tells nobody but
+        # the account holder what state the account is in.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
+            detail=inactive_account_message(user),
         )
 
     # A correct password clears the record, so someone who mistypes twice and

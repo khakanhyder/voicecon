@@ -2,11 +2,11 @@
 User profile endpoints — the "Settings → Profile" surface.
 
 Covers the current user's own account: read/update profile, change email
-(verified by a code sent to the new address), change password, and delete
-(deactivate) the account. Organization-scoped concerns (team,
+(verified by a code sent to the new address), change password, and deactivate
+the account. Organization-scoped concerns (team,
 API keys) live in their own routers.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +21,12 @@ from app.core.dependencies import get_current_user
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
+    create_account_deactivation_token,
     create_refresh_token,
     decode_token,
     get_password_hash,
     session_scope,
+    verify_account_deactivation_token,
     verify_password,
     SCOPE_APP,
 )
@@ -33,6 +35,10 @@ from app.models.user import User, Organization
 from app.models.subscription import Subscription
 from app.schemas.auth import LoginResponse, SendEmailCodeResponse
 from app.schemas.user import (
+    DeactivationConfirm,
+    DeactivationResult,
+    DeactivationTerms,
+    DeactivationVerify,
     EmailChangeConfirm,
     EmailChangeRequest,
     PasswordChange,
@@ -42,6 +48,7 @@ from app.schemas.user import (
 from app.services.auth import login_throttle
 from app.services.auth.verification import (
     CODE_TTL_MINUTES,
+    PURPOSE_ACCOUNT_DEACTIVATION,
     PURPOSE_EMAIL_CHANGE,
     RateLimited,
     VerificationError,
@@ -50,7 +57,7 @@ from app.services.auth.verification import (
     normalize_email,
 )
 from app.services.email.service import email_service
-from app.services.account_deletion import deactivate_owned_workspaces
+from app.services.account_deletion import deactivate_account, retention_days, support_email
 from app.services.billing import StripeService
 from app.services.storage import (
     MAX_AVATAR_BYTES,
@@ -360,31 +367,195 @@ async def change_my_password(
     await db.commit()
 
 
-@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_my_account(
+# ---------------------------------------------------------------------------
+# Deactivating the account
+#
+# Three steps, and nothing happens to the account until the last one:
+#   1. /me/deactivation/code     (accounts with no password only) emails a code.
+#   2. /me/deactivation/verify   checks the password, or that code, and returns
+#                                the terms plus a short-lived token.
+#   3. /me/deactivate            takes that token and deactivates.
+#
+# The token is what ties step 3 to step 2: the confirmation cannot be sent by a
+# client that skipped the identity check. The account is then recoverable by
+# support until its deletion date (see services/account_deletion).
+# ---------------------------------------------------------------------------
+
+def _deactivation_throttle_key(user: User) -> str:
+    """Separate from the sign-in lockout: mistyping here must not lock the
+    person out of signing in, and vice versa."""
+    return f"deactivate:{user.id}"
+
+
+def _refuse_platform_admin(user: User) -> None:
+    """A staff account is never swept up by the automatic deletion, so it must
+    not be able to enter the state that leads there."""
+    if user.is_platform_admin:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Platform admin accounts cannot be deactivated here. "
+                   "Ask another admin to revoke admin access first.",
+        )
+
+
+def _deactivation_terms(user: User) -> DeactivationTerms:
+    days = retention_days()
+    return DeactivationTerms(
+        deactivation_token=create_account_deactivation_token(str(user.id), user.token_version),
+        retention_days=days,
+        deletion_date=datetime.utcnow() + timedelta(days=days),
+        support_email=support_email(),
+    )
+
+
+@router.post("/me/deactivation/code", response_model=SendEmailCodeResponse)
+async def send_deactivation_code(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deactivate (soft-delete) the current user's account.
+    """Email a confirmation code to an account that has no password to ask for
+    (one that signs in with Google or Apple)."""
+    _refuse_api_key(request)
+    if current_user.hashed_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter your password to continue.",
+        )
 
-    We deactivate rather than hard-delete so historical calls/agents remain
-    attributable and the action is reversible by support. The user can no longer
-    authenticate once ``is_active`` is False.
-    
-    This also bumps the token version to immediately invalidate any outstanding sessions,
-    and deactivates any organizations where the user is the owner, canceling any active 
-    subscriptions on those organizations to prevent further billing.
+    try:
+        code, _ = await issue_code(
+            db, current_user.email, PURPOSE_ACCOUNT_DEACTIVATION, subject=str(current_user.id)
+        )
+    except RateLimited as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.public_message,
+            headers={"Retry-After": str(e.retry_after_seconds)},
+        )
+    except VerificationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.public_message)
+
+    sent = await email_service.send_verification_code(
+        to_email=current_user.email,
+        code=code,
+        expires_minutes=CODE_TTL_MINUTES,
+        purpose="account_deactivation",
+        recipient_name=current_user.full_name,
+    )
+    if not sent and email_service.delivery_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't send the confirmation email. Please try again.",
+        )
+
+    expose = settings.DEBUG and not email_service.delivery_enabled
+    return SendEmailCodeResponse(
+        message=f"We sent a code to {current_user.email}.",
+        expires_in_minutes=CODE_TTL_MINUTES,
+        debug_code=code if expose else None,
+    )
+
+
+@router.post("/me/deactivation/verify", response_model=DeactivationTerms)
+async def verify_deactivation(
+    payload: DeactivationVerify,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check it is really the account holder, and return what they are agreeing to.
+
+    Changes nothing on the account. Someone at an unlocked laptop must not be
+    able to close an account, so a signed-in session alone is not enough.
     """
+    _refuse_api_key(request)
+    _refuse_platform_admin(current_user)
+
+    if current_user.hashed_password:
+        key = _deactivation_throttle_key(current_user)
+        locked_for = login_throttle.seconds_until_unlocked(key)
+        if locked_for:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many incorrect attempts. Please try again shortly.",
+                headers={"Retry-After": str(locked_for)},
+            )
+        if not payload.password or not verify_password(
+            payload.password, current_user.hashed_password
+        ):
+            login_throttle.record_failure(key)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your password is incorrect.",
+            )
+        login_throttle.clear(key)
+    else:
+        if not payload.code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Enter the code we emailed you.",
+            )
+        try:
+            await confirm_code(
+                db,
+                current_user.email,
+                PURPOSE_ACCOUNT_DEACTIVATION,
+                payload.code,
+                subject=str(current_user.id),
+            )
+        except VerificationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.public_message)
+
+    return _deactivation_terms(current_user)
+
+
+@router.post("/me/deactivate", response_model=DeactivationResult)
+async def deactivate_my_account(
+    payload: DeactivationConfirm,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate the account, after the terms from ``/me/deactivation/verify``
+    have been shown and accepted.
+
+    Nothing is erased. The account is signed out everywhere and cannot sign in,
+    the workspaces it owns are switched off and their subscriptions cancelled,
+    and it is permanently deleted on the returned date unless support
+    reactivates it first.
+    """
+    _refuse_api_key(request)
+    if not verify_account_deactivation_token(
+        payload.deactivation_token, str(current_user.id), current_user.token_version
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That confirmation has expired. Please verify it's you again.",
+        )
+    _refuse_platform_admin(current_user)
+
     now = datetime.utcnow()
-    current_user.is_active = False
-    current_user.deleted_at = now
-    
-    # Invalidate all existing tokens immediately
-    current_user.token_version = (current_user.token_version or 0) + 1
-
-    await deactivate_owned_workspaces(db, current_user, now)
-
+    email = current_user.email
+    name = current_user.full_name
+    days = retention_days()
+    scheduled = await deactivate_account(db, current_user, now)
     await db.commit()
+
+    # After the commit and never fatal: the account is deactivated either way.
+    try:
+        await email_service.send_account_deactivated(
+            to_email=email, deletion_date=scheduled, retention_days=days, recipient_name=name
+        )
+    except Exception:
+        logger.exception("Could not send the deactivation notice to user %s", current_user.id)
+
+    return DeactivationResult(
+        deactivated_at=now,
+        deletion_date=scheduled,
+        retention_days=days,
+        support_email=support_email(),
+    )
 
 
 @router.post("/me/avatar", response_model=UserResponse)

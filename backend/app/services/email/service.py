@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.services.email.base import EmailMessage, EmailProvider
 from app.services.email.providers import ConsoleProvider, SMTPProvider, SendGridProvider
 from app.services.email.templates import (
+    render_account_notice_email,
     render_billing_notice_email,
     render_email_changed_notice,
     render_invitation_email,
@@ -183,6 +184,109 @@ class EmailService:
             to=to_email, to_name=recipient_name, subject=subject, html=html, text=text
         )
         return await self.send(message)
+
+    async def _send_account_notice(
+        self,
+        *,
+        to_email: str,
+        recipient_name: Optional[str],
+        subject: str,
+        heading: str,
+        paragraphs: list[str],
+        support_line: str = "",
+    ) -> bool:
+        """Never raises: these confirm something that has already happened."""
+        html, text = render_account_notice_email(
+            brand=settings.APP_NAME,
+            heading=heading,
+            paragraphs=paragraphs,
+            support_email=settings.EMAIL_REPLY_TO or "support@voicecon.ai",
+            support_line=support_line,
+        )
+        message = EmailMessage(
+            to=to_email, to_name=recipient_name, subject=subject, html=html, text=text
+        )
+        return await self.send(message)
+
+    async def send_account_deactivated(
+        self,
+        *,
+        to_email: str,
+        deletion_date: datetime,
+        retention_days: int,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        """Confirm a deactivation and say when the account is deleted for good.
+
+        Also how the owner finds out about a deactivation they did not make.
+        """
+        brand = settings.APP_NAME
+        when = f"{deletion_date.strftime('%B')} {deletion_date.day}, {deletion_date.year}"
+        greeting = f"Hi {recipient_name}, your" if recipient_name else "Your"
+        return await self._send_account_notice(
+            to_email=to_email,
+            recipient_name=recipient_name,
+            subject=f"Your {brand} account has been deactivated",
+            heading="Your account has been deactivated",
+            paragraphs=[
+                f"{greeting} {brand} account has been deactivated. You have been signed out "
+                "and can no longer sign in. Your workspaces are switched off and any "
+                "subscription on them has been cancelled.",
+                f"Your account and its data will be permanently deleted on {when} "
+                f"({retention_days} days from now). After that it cannot be recovered.",
+                "Our support team reactivates accounts within 2 business days. If you did not "
+                "deactivate your account, contact us straight away.",
+            ],
+            support_line="To reactivate your account before then, contact us at",
+        )
+
+    async def send_account_reactivated(
+        self,
+        *,
+        to_email: str,
+        login_url: str,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        """Tell the owner their account is back and how to get in."""
+        brand = settings.APP_NAME
+        greeting = f"Hi {recipient_name}, your" if recipient_name else "Your"
+        return await self._send_account_notice(
+            to_email=to_email,
+            recipient_name=recipient_name,
+            subject=f"Your {brand} account has been reactivated",
+            heading="Your account has been reactivated",
+            paragraphs=[
+                f"{greeting} {brand} account is active again and is no longer scheduled "
+                "for deletion. Your workspaces and everything in them are as you left them.",
+                f"Sign in at {login_url} with the same email and password (or Google/Apple) "
+                "as before.",
+                "Your subscription was cancelled when the account was deactivated, so choose "
+                "a plan under Settings, then Billing, to switch your agents back on.",
+            ],
+            support_line="Questions? Contact us at",
+        )
+
+    async def send_account_deleted(
+        self,
+        *,
+        to_email: str,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        """Final confirmation, sent to the address just before we forget it."""
+        brand = settings.APP_NAME
+        greeting = f"Hi {recipient_name}, your" if recipient_name else "Your"
+        return await self._send_account_notice(
+            to_email=to_email,
+            recipient_name=recipient_name,
+            subject=f"Your {brand} account has been permanently deleted",
+            heading="Your account has been permanently deleted",
+            paragraphs=[
+                f"{greeting} {brand} account was deactivated and its recovery period has "
+                "ended, so the account has now been permanently deleted. It cannot be restored.",
+                f"This email address is free to use again: you are welcome to create a new "
+                f"{brand} account with it at any time.",
+            ],
+        )
 
     async def send_billing_notice(
         self,

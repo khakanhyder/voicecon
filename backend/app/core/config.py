@@ -268,6 +268,12 @@ class Settings(BaseSettings):
         default=True, description="Require an emailed code before an account is created"
     )
 
+    # Days a self-deactivated account is kept before it is permanently deleted.
+    # During this window support can reactivate it from the admin console. The
+    # date is fixed when the account is deactivated, so changing this affects
+    # only accounts deactivated afterwards.
+    ACCOUNT_DELETION_RETENTION_DAYS: int = 30
+
     @property
     def smtp_configured(self) -> bool:
         """SMTP is usable when at least a host is set."""

@@ -203,7 +203,7 @@ data flows on trigger.
 | Notifications | `GET /notifications`, `/unread-count`, `POST /{id}/read`, `/read-all` | ✅ 2026-08-03 |
 | Chat widget | `GET /chat/public/{key}/config`, `POST /chat/public/{key}/message`, `GET /chat/widget.js` | ✅ 2026-08-03 |
 | API keys | `GET /api-keys/scopes`, `POST/GET /api-keys`, `PATCH /{id}`, `POST /{id}/regenerate`, `DELETE /{id}` | ✅ 2026-08-03 |
-| User settings | `GET/PATCH /users/me`, `POST /users/me/change-password`, `DELETE /users/me` | ✅ 2026-08-03 |
+| User settings | `GET/PATCH /users/me`, `POST /users/me/change-password`, `POST /users/me/deactivation/verify` → `POST /users/me/deactivate` | ✅ 2026-08-03 |
 
 🔁 [test_chat_widget.py](../backend/tests/unit/test_chat_widget.py), [test_settings_api.py](../backend/tests/integration/test_settings_api.py)
 

@@ -85,6 +85,17 @@ class BillingScheduler:
                 break
             except Exception as exc:
                 logger.error(f"Affiliate commission maturing failed: {exc}", exc_info=True)
+            # Deactivated accounts whose recovery period has run out are
+            # permanently deleted on the same beat.
+            try:
+                from app.services.account_deletion import purge_due_accounts
+
+                async with get_db_session() as db:
+                    await purge_due_accounts(db)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(f"Deactivated-account deletion sweep failed: {exc}", exc_info=True)
             try:
                 await asyncio.sleep(RECONCILE_INTERVAL_SECONDS)
             except asyncio.CancelledError:

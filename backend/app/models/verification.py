@@ -1,13 +1,15 @@
 """
 One-time codes emailed to a user to prove they control an address.
 
-Used by three flows:
+Used by four flows:
 
 - ``email_verification`` — proving the address at sign-up, before the account
   exists (so the row is keyed by email, not by user id).
 - ``password_reset`` — proving the address before setting a new password.
 - ``email_change`` — proving a signed-in user controls the *new* address
   before their account moves to it. The code is also bound to that user.
+- ``account_deactivation`` — confirming a deactivation on an account with no
+  password, sent to the account's own address and bound to that user.
 
 Only the HMAC of the code is stored, so a database leak does not hand out
 working codes. Rows are single-use (``consumed_at``), expire, and count failed
@@ -26,6 +28,9 @@ from app.database import Base
 PURPOSE_EMAIL_VERIFICATION = "email_verification"
 PURPOSE_PASSWORD_RESET = "password_reset"
 PURPOSE_EMAIL_CHANGE = "email_change"
+#: Proving it is really the account holder before a deactivation, for accounts
+#: that sign in with Google or Apple and so have no password to ask for.
+PURPOSE_ACCOUNT_DEACTIVATION = "account_deactivation"
 
 
 class VerificationCode(Base):

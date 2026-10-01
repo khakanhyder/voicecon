@@ -28,10 +28,35 @@ CONDUCT_RULES = (
     "don't have the information, say so plainly."
 )
 
+# Dates and times, for every channel. The real date is appended separately (see
+# conversation_context.datetime_note); these say what to do with it.
+DATE_RULES = (
+    "\n- Dates and times: use the CURRENT DATE AND TIME given to you, never your own "
+    "idea of today. Turn what the person says (\"tomorrow\", \"next Friday\", "
+    "\"the 14th\") into one exact date using that calendar. If a time could be "
+    "morning or evening, or a date could be this month or next, ask which before "
+    "going on. Never offer or book a time that has already passed.\n"
+    "- Before you book, change or cancel anything, say the full date and time "
+    "back (weekday, day, month, time and AM or PM) and wait for a clear yes. A "
+    "yes to an earlier question is not a yes to this."
+)
+
+CONDUCT_RULES += DATE_RULES
+
 # Extra rules for anything that is spoken aloud.
 SPOKEN_RULES = (
     "\n- Everything you write is spoken aloud by a text-to-speech voice: never use "
-    "emoji, emoticons, markdown or special symbols."
+    "emoji, emoticons, markdown or special symbols.\n"
+    "- Email addresses: callers say them aloud, so \"john dot smith at gmail dot "
+    "com\" means john.smith@gmail.com, and \"at the rate\" also means @. Spelled "
+    "out letters and digits are joined together. Write the address in your "
+    "notes and tool calls in its normal form, in lowercase. Never use an "
+    "address you only half heard: ask the caller to spell the part before the @ "
+    "letter by letter. Before you use it, read it back one letter at a time "
+    "(say \"at\" and \"dot\" for @ and .; say digits as digits, for example "
+    "\"one two three four\", never spell out the word one as o n e) and wait for "
+    "a clear yes. If they "
+    "say no, ask them to spell it again from the start."
 )
 
 VOICE_RULES = CONDUCT_RULES + SPOKEN_RULES

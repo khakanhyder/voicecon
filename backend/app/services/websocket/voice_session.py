@@ -21,6 +21,7 @@ from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
+from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
 from app.services.voice.turn_taking import (
     extra_wait_seconds,
     is_backchannel,
@@ -327,6 +328,8 @@ class VoiceSession:
 
             # Create conversation context
             system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
+            # The agent is otherwise never told today's date.
+            system_prompt += await current_time_note(self.db, self.agent)
             end_call_phrases = list(self.agent.end_call_phrases or [])
             if end_call_phrases:
                 phrases_str = ", ".join(f'"{p}"' for p in end_call_phrases)
@@ -1087,7 +1090,7 @@ class VoiceSession:
                 )
 
             # Add user message to conversation
-            self.conversation.add_message("user", utterance)
+            self.conversation.add_message("user", normalize_spoken_emails(utterance))
 
             # Generate the response, speaking each sentence as it is written
             response = await self._generate_llm_response(turn)

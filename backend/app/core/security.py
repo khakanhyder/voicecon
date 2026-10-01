@@ -255,6 +255,39 @@ def verify_email_verification_token(token: str, email: str) -> bool:
     return payload.get("sub") == email.strip().lower()
 
 
+#: How long a verified "yes, it is me" stays good for the confirmation step.
+ACCOUNT_DEACTIVATION_TOKEN_MINUTES = 10
+
+
+def create_account_deactivation_token(user_id: str, token_version: int) -> str:
+    """
+    Proof that the account holder just re-entered their password (or the code
+    emailed to them) in order to deactivate the account.
+
+    Handed to the client after that check and handed back with the final
+    confirmation, so the confirmation cannot be sent without the check. Bound
+    to the user and their current token version, so it dies with the session.
+    """
+    return jwt.encode(
+        {
+            "exp": datetime.utcnow() + timedelta(minutes=ACCOUNT_DEACTIVATION_TOKEN_MINUTES),
+            "sub": str(user_id),
+            "tv": int(token_version or 0),
+            "type": "account_deactivation",
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+
+def verify_account_deactivation_token(token: str, user_id: str, token_version: int) -> bool:
+    """True when `token` is a live deactivation proof for this user."""
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "account_deactivation":
+        return False
+    return payload.get("sub") == str(user_id) and payload.get("tv") == int(token_version or 0)
+
+
 def generate_api_key() -> tuple[str, str]:
     """
     Generate an API key and its hash.

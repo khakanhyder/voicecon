@@ -1,22 +1,31 @@
 """Cross-tenant user management."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.admin import audit, require_platform_admin
 from app.database import get_db
 from app.models.user import Organization, OrganizationMember, User
-from app.services.account_deletion import deactivate_owned_workspaces
+from app.core.config import settings
+from app.services.account_deletion import (
+    account_status,
+    purge_account,
+    reactivate_account,
+    retention_days,
+)
+from app.services.email.service import email_service
 from app.services.auth import login_throttle
 
 from ._common import PageParams, iso, like, paginated, parse_uuid, utcnow
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _user_view(user: User, orgs: int = 0) -> dict:
@@ -26,6 +35,11 @@ def _user_view(user: User, orgs: int = 0) -> dict:
         "full_name": user.full_name,
         "auth_provider": user.auth_provider,
         "is_active": user.is_active,
+        #: active | disabled (by an admin) | deactivated (by the customer,
+        #: recoverable until deletion_scheduled_at).
+        "status": account_status(user),
+        "deactivated_at": iso(user.deactivated_at),
+        "deletion_scheduled_at": iso(user.deletion_scheduled_at),
         "is_verified": user.is_verified,
         "is_platform_admin": user.is_platform_admin,
         "organizations": orgs,
@@ -46,12 +60,13 @@ async def _user_or_404(db: AsyncSession, user_id: str) -> User:
 @router.get("/users")
 async def list_users(
     search: Optional[str] = Query(None, max_length=200),
-    filter: Optional[str] = Query(None, pattern="^(active|disabled|unverified|admins)$"),
+    filter: Optional[str] = Query(None, pattern="^(active|disabled|deactivated|unverified|admins)$"),
     params: PageParams = Depends(),
     db: AsyncSession = Depends(get_db),
     _admin=Depends(require_platform_admin),
 ):
-    # Deleted accounts are tombstoned (see delete_user) and stay out of the list.
+    # Permanently deleted accounts are anonymous tombstones and stay out of the
+    # list. Deactivated ones are still recoverable, so they are shown.
     query = select(User).where(User.deleted_at.is_(None))
     if search:
         term = like(search.strip())
@@ -59,15 +74,20 @@ async def list_users(
     if filter == "active":
         query = query.where(User.is_active.is_(True))
     elif filter == "disabled":
-        query = query.where(User.is_active.is_(False))
+        query = query.where(User.is_active.is_(False), User.deactivated_at.is_(None))
+    elif filter == "deactivated":
+        query = query.where(User.deactivated_at.is_not(None))
     elif filter == "unverified":
         query = query.where(User.is_verified.is_(False))
     elif filter == "admins":
         query = query.where(User.is_platform_admin.is_(True))
 
     total = int((await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0)
+    # Soonest deletion first when looking at deactivated accounts: those are the
+    # ones a support request is racing against.
+    order = User.deletion_scheduled_at.asc() if filter == "deactivated" else User.created_at.desc()
     users = (
-        await db.execute(query.order_by(User.created_at.desc()).offset(params.offset).limit(params.page_size))
+        await db.execute(query.order_by(order).offset(params.offset).limit(params.page_size))
     ).scalars().all()
 
     counts = {}
@@ -82,7 +102,9 @@ async def list_users(
                 )
             ).all()
         }
-    return paginated([_user_view(u, counts.get(u.id, 0)) for u in users], total, params)
+    page = paginated([_user_view(u, counts.get(u.id, 0)) for u in users], total, params)
+    page["retention_days"] = retention_days()
+    return page
 
 
 @router.get("/users/{user_id}")
@@ -155,6 +177,11 @@ async def update_user(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one platform admin must remain.")
 
     before = {k: getattr(user, k) for k in changes}
+    reactivated = None
+    if changes.get("is_active") is True and user.deactivated_at is not None:
+        # Enabling an account its owner deactivated is a reactivation: it also
+        # clears the scheduled deletion and brings the workspaces back.
+        reactivated = await _reactivate(db, user)
     for key, value in changes.items():
         setattr(user, key, value)
     if changes.get("is_verified") and not user.email_verified_at:
@@ -175,7 +202,64 @@ async def update_user(
           details={"before": before, "after": changes, "reason": body.reason}, request=request)
     await db.commit()
     await db.refresh(user)
+    if reactivated is not None:
+        await _notify_reactivated(user)
     return _user_view(user)
+
+
+async def _reactivate(db: AsyncSession, user: User) -> dict:
+    return await reactivate_account(db, user, utcnow())
+
+
+async def _notify_reactivated(user: User) -> None:
+    """Never fatal: the account is back whether or not the email goes out."""
+    try:
+        await email_service.send_account_reactivated(
+            to_email=user.email,
+            login_url=f"{(settings.FRONTEND_URL or '').rstrip('/')}/login",
+            recipient_name=user.full_name,
+        )
+    except Exception:
+        logger.exception("Could not send the reactivation notice to user %s", user.id)
+
+
+@router.post("/users/{user_id}/reactivate")
+async def reactivate_user(
+    user_id: str,
+    request: Request,
+    reason: Optional[str] = Query(None, max_length=500),
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Bring back an account its owner deactivated, before it is deleted.
+
+    The account can sign in again, the scheduled deletion is cancelled, and the
+    workspaces that were switched off with it are switched back on. Billing is
+    not restored: the subscription was cancelled, so the owner chooses a plan.
+    """
+    user = await _user_or_404(db, user_id)
+    if user.deactivated_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This account is not deactivated.",
+        )
+
+    deactivated_at = user.deactivated_at
+    scheduled = user.deletion_scheduled_at
+    result = await _reactivate(db, user)
+    audit(db, admin, "user.reactivate", target_type="user", target_id=user.id,
+          summary=f"Reactivated {user.email}",
+          details={
+              "deactivated_at": iso(deactivated_at),
+              "deletion_was_scheduled_for": iso(scheduled),
+              **result,
+              "reason": reason,
+          },
+          request=request)
+    await db.commit()
+    await db.refresh(user)
+    await _notify_reactivated(user)
+    return {**_user_view(user), **result}
 
 
 @router.post("/users/{user_id}/sign-out")
@@ -219,13 +303,14 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
     admin=Depends(require_platform_admin),
 ):
-    """Delete an account.
+    """Permanently delete an account, now.
 
-    A soft delete, like self-service deletion: the row stays so calls, agents
-    and invoices remain attributable. The account is signed out and disabled,
-    every workspace it owns is deactivated with its billing cancelled, and it
-    leaves the workspaces it only belonged to. The email and social-login ids
-    are released so the person can sign up again from scratch.
+    The same deletion a deactivated account gets when its recovery period runs
+    out (``services/account_deletion.purge_account``), without the wait: the
+    person is signed out, everything that identifies them is erased, their
+    workspaces are switched off with billing cancelled, and the email is
+    released so it can register again as a new account. The row stays as an
+    anonymous tombstone so calls and invoices remain attributable.
     """
     user = await _user_or_404(db, user_id)
     if user.id == admin.id:
@@ -236,37 +321,12 @@ async def delete_user(
             detail="Revoke platform admin access before deleting this account.",
         )
 
-    now = utcnow()
-    original_email = user.email
-    owned = await deactivate_owned_workspaces(db, user, now)
-    owned_ids = [org.id for org in owned]
-
-    # Leave other people's workspaces so the account stops showing in their team.
-    leave = delete(OrganizationMember).where(OrganizationMember.user_id == user.id)
-    if owned_ids:
-        leave = leave.where(OrganizationMember.organization_id.not_in(owned_ids))
-    left = await db.execute(leave)
-
-    user.is_active = False
-    user.deleted_at = now
-    user.token_version = (user.token_version or 0) + 1
-    user.active_organization_id = None
-    # Free the unique email and the social ids; the original stays in the audit log.
-    user.email = f"deleted-{user.id.hex}@deleted.invalid"
-    user.google_id = None
-    user.apple_id = None
-    user.hashed_password = None
-    login_throttle.clear(original_email)
+    was_deactivated = user.deactivated_at is not None
+    summary = await purge_account(db, user, utcnow())
 
     audit(db, admin, "user.delete", target_type="user", target_id=user.id,
-          summary=f"Deleted {original_email}",
-          details={
-              "email": original_email,
-              "full_name": user.full_name,
-              "workspaces_deactivated": [str(i) for i in owned_ids],
-              "memberships_removed": left.rowcount or 0,
-              "reason": reason,
-          },
+          summary=f"Deleted {summary['email']}",
+          details={**summary, "was_deactivated": was_deactivated, "reason": reason},
           request=request)
     await db.commit()
-    return {"ok": True, "workspaces_deactivated": len(owned_ids)}
+    return {"ok": True, "workspaces_deactivated": len(summary["workspaces_deactivated"])}

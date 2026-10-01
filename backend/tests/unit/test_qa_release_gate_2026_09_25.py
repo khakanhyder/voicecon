@@ -294,3 +294,36 @@ async def test_emoji_never_reach_tts_or_the_transcript(monkeypatch):
     assert done["type"] == "done"
     assert "😄" not in done["full_text"]
     assert "Nice try I can't share that." in done["full_text"]
+
+
+@pytest.mark.asyncio
+async def test_respond_tells_the_agent_the_date_and_hands_it_a_written_email(monkeypatch):
+    """
+    The test panel path: the model is given today's date, and an address the
+    caller spelled out reaches it already written (earlier turns included).
+    """
+    seen = {}
+
+    class _LLM:
+        async def chat_stream(self, messages, **_kwargs):
+            seen["messages"] = messages
+            yield "Thanks, let me read that back."
+
+    _patch(monkeypatch, _LLM(), None, [])
+    agent = _agent()
+    response = await agent_respond(
+        agent.id,
+        RespondRequest(
+            message="it's sam dot lee at gmail dot com",
+            history=[{"role": "user", "text": "or maybe pat at the rate acme dot com"}],
+        ),
+        current_user=object(), org_id=uuid.uuid4(), db=_RequestDB(agent),
+    )
+    [chunk async for chunk in response.body_iterator]
+
+    system = seen["messages"][0].content
+    assert "CURRENT DATE AND TIME" in system
+    assert "read it back one letter at a time" in system
+
+    user_turns = [m.content for m in seen["messages"] if m.role == "user"]
+    assert user_turns == ["or maybe pat@acme.com", "it's sam.lee@gmail.com"]

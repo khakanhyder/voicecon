@@ -17,6 +17,7 @@ from app.models.agent import Agent
 from app.services.function_executor import get_function_executor, sanitize_function_name
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.services.voice.guardrails import CONDUCT_RULES
+from app.services.voice.conversation_context import current_time_note
 from app.services.voice.llm_service import get_llm_service, trim_to_tokens
 from app.services.voice.providers.base import ChatMessage
 
@@ -137,6 +138,7 @@ class AgentChatService:
         """Assemble system prompt (+ KB context) + history + the new message."""
         system_text = agent.system_prompt or "You are a helpful assistant."
         system_text += TEXT_CHANNEL_GUIDANCE + CONDUCT_RULES
+        system_text += await current_time_note(self.db, agent)
 
         kb_context = await self._knowledge_context(agent, user_message)
         if kb_context:

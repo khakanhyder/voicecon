@@ -101,6 +101,21 @@ EMAIL_CHANGED_BODY = """
 </p>
 """
 
+ACCOUNT_NOTICE_BODY = """
+<h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ heading }}</h1>
+{% for paragraph in paragraphs %}
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 16px;">
+  {{ paragraph }}
+</p>
+{% endfor %}
+{% if support_line %}
+<p style="color:#334155;font-size:15px;line-height:1.6;margin:0;">
+  {{ support_line }}
+  <a href="mailto:{{ support_email }}" style="color:#0F6A59;">{{ support_email }}</a>.
+</p>
+{% endif %}
+"""
+
 BILLING_NOTICE_BODY = """
 <h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 12px;">{{ heading }}</h1>
 <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 20px;">
@@ -149,6 +164,7 @@ _env = Environment(
             "verification_code": VERIFICATION_CODE_BODY,
             "billing_notice": BILLING_NOTICE_BODY,
             "email_changed": EMAIL_CHANGED_BODY,
+            "account_notice": ACCOUNT_NOTICE_BODY,
             "member_joined": MEMBER_JOINED_BODY,
         }
     ),
@@ -176,7 +192,8 @@ def render_verification_code_email(
     """
     Return (html, text, subject) for a one-time code email.
 
-    `purpose` is "signup", "password_reset" or "email_change"; it only changes
+    `purpose` is "signup", "password_reset", "email_change" or
+    "account_deactivation"; it only changes
     the wording, so the emails stay visually identical and unmistakably from the same
     product.
     """
@@ -208,6 +225,17 @@ def render_verification_code_email(
         disclaimer = (
             "If you didn't ask to change your email address, you can ignore "
             "this email — nothing on the account changes without this code."
+        )
+    elif purpose == "account_deactivation":
+        subject = f"Confirm deactivating your {brand} account"
+        heading = "Confirm it's you"
+        intro = opening(
+            f"Enter the code below to continue deactivating your {brand} account."
+        )
+        code_label = "Confirmation code"
+        disclaimer = (
+            "If you didn't ask to deactivate your account, you can ignore this "
+            "email — nothing happens to the account without this code."
         )
     else:
         subject = f"Your {brand} verification code"
@@ -281,6 +309,33 @@ def render_email_changed_notice(
         f"account. Contact us straight away at {support_email}.\n"
     )
     return html, text, subject
+
+
+def render_account_notice_email(
+    *,
+    brand: str,
+    heading: str,
+    paragraphs: list[str],
+    support_email: str,
+    support_line: str = "",
+) -> tuple[str, str]:
+    """Return (html, text) for an account lifecycle notice: deactivated,
+    reactivated or permanently deleted.
+
+    ``support_line`` is the sentence that ends with the support address, for
+    example "To reactivate your account, contact us at".
+    """
+    body = _env.get_template("account_notice").render(
+        heading=heading,
+        paragraphs=paragraphs,
+        support_line=support_line,
+        support_email=support_email,
+    )
+    html = _wrap(body, footer=f"This is an automated message about your {brand} account.", brand=brand)
+    text = f"{heading}\n\n" + "\n\n".join(paragraphs) + "\n"
+    if support_line:
+        text += f"\n{support_line} {support_email}.\n"
+    return html, text
 
 
 def render_billing_notice_email(

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import UserFacingError
 from app.models.verification import (
+    PURPOSE_ACCOUNT_DEACTIVATION,
     PURPOSE_EMAIL_CHANGE,
     PURPOSE_EMAIL_VERIFICATION,
     PURPOSE_PASSWORD_RESET,
@@ -42,6 +43,7 @@ RESEND_COOLDOWN_SECONDS = 60
 MAX_SENDS_PER_HOUR = 5
 
 __all__ = [
+    "PURPOSE_ACCOUNT_DEACTIVATION",
     "PURPOSE_EMAIL_CHANGE",
     "PURPOSE_EMAIL_VERIFICATION",
     "PURPOSE_PASSWORD_RESET",

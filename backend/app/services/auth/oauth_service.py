@@ -248,7 +248,9 @@ class OAuthService:
 
     async def _touch_login(self, db: AsyncSession, user: User, profile: OAuthProfile) -> User:
         if not user.is_active:
-            raise OAuthError("This account has been deactivated.")
+            from app.services.account_deletion import inactive_account_message
+
+            raise OAuthError(inactive_account_message(user))
         # Ensure the provider link is set (covers the match-by-subject path too).
         self._set_provider_id(user, profile)
         user.last_login_at = datetime.utcnow()

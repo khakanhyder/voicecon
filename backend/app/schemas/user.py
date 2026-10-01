@@ -82,6 +82,37 @@ class EmailChangeConfirm(BaseModel):
     code: str = Field(..., min_length=4, max_length=12)
 
 
+class DeactivationVerify(BaseModel):
+    """Prove it is the account holder before the deactivation is confirmed.
+
+    An account with a password sends ``password``; one that only signs in with
+    Google or Apple sends the ``code`` emailed to it.
+    """
+    password: Optional[str] = Field(None, max_length=256)
+    code: Optional[str] = Field(None, min_length=4, max_length=12)
+
+
+class DeactivationTerms(BaseModel):
+    """What the account holder is shown, and must accept, before deactivating."""
+    #: Hand back with the confirmation. Short-lived.
+    deactivation_token: str
+    retention_days: int
+    #: When the account would be permanently deleted if deactivated now.
+    deletion_date: UTCDatetime
+    support_email: str
+
+
+class DeactivationConfirm(BaseModel):
+    deactivation_token: str
+
+
+class DeactivationResult(BaseModel):
+    deactivated_at: UTCDatetime
+    deletion_date: UTCDatetime
+    retention_days: int
+    support_email: str
+
+
 class UserInDB(UserBase):
     """User schema as stored in database."""
     model_config = ConfigDict(from_attributes=True)
