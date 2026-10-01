@@ -24,7 +24,11 @@ from app.core.entitlement_guard import require_entitlement
 from app.core.workspace import WorkspaceContext
 from app.services.billing import catalog
 from app.models.user import User, OrganizationMember
-from app.models.knowledge_base import KnowledgeBase as KnowledgeBaseModel, Document as DocumentModel
+from app.models.knowledge_base import (
+    KnowledgeBase as KnowledgeBaseModel,
+    Document as DocumentModel,
+    DocumentFile as DocumentFileModel,
+)
 from app.services.knowledge_base import RAGService
 from app.core.config import settings
 from app.schemas._types import NonBlankName
@@ -117,6 +121,26 @@ class SearchResponse(BaseModel):
     total_results: int
 
 
+class SheetPreview(BaseModel):
+    name: str
+    rows: List[List[str]]
+    truncated: bool = False
+
+
+class DocumentPreview(BaseModel):
+    # pdf | docx | sheet | markdown | json | text. For pdf and docx the viewer
+    # renders the bytes from /download; the other kinds are carried inline.
+    kind: str
+    filename: str
+    content_type: str
+    # False for pasted text and for files uploaded before originals were kept:
+    # the preview is then the extracted text, and so is the download.
+    original_available: bool
+    text: Optional[str] = None
+    text_truncated: bool = False
+    sheets: Optional[List[SheetPreview]] = None
+
+
 def _extract_pdf_text(content: bytes) -> str:
     """Extract text from a PDF. Image-only (scanned) PDFs yield nothing."""
     try:
@@ -197,6 +221,142 @@ def _extract_xlsx_text(content: bytes) -> str:
     except Exception as e:
         logger.warning(f"XLSX extraction failed: {e}")
         raise HTTPException(status_code=400, detail="Could not read this spreadsheet. It may be damaged — try saving it again as .xlsx.")
+
+
+# Preview / original-file handling
+
+#: Content type by extension. The browser's own guess is not used: it sends
+#: "" or application/octet-stream for .md and .csv on some systems, and the
+#: preview (and the downloaded file's type) must not depend on the uploader's OS.
+_FILE_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".json": "application/json",
+    ".csv": "text/csv; charset=utf-8",
+}
+
+#: Preview kind by extension. pdf/docx/sheet need the original bytes; the text
+#: kinds render the same from the original or from the extracted text.
+_PREVIEW_KINDS = {
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".xlsx": "sheet",
+    ".csv": "sheet",
+    ".md": "markdown",
+    ".json": "json",
+    ".txt": "text",
+}
+
+# Caps on what the preview sends to the browser. Downloads are never capped.
+PREVIEW_MAX_TEXT_CHARS = 1_000_000
+PREVIEW_MAX_SHEETS = 20
+PREVIEW_MAX_ROWS = 500
+PREVIEW_MAX_COLS = 50
+
+
+def _extension(filename: str) -> str:
+    name = (filename or "").lower()
+    dot = name.rfind(".")
+    return name[dot:] if dot != -1 else ""
+
+
+def _content_disposition(disposition: str, filename: str) -> str:
+    """Header value that survives quotes and non-ASCII names (RFC 6266 / 5987)."""
+    from urllib.parse import quote
+
+    fallback = "".join(
+        c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename
+    ) or "document"
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes").replace(" 00:00", "")
+    return str(value)
+
+
+def _trim_rows(rows: List[List[str]]) -> List[List[str]]:
+    """Drop trailing empty rows and columns — spreadsheets often carry formatting far past the data."""
+    while rows and not any(c.strip() for c in rows[-1]):
+        rows.pop()
+    width = max((i + 1 for r in rows for i, c in enumerate(r) if c.strip()), default=0)
+    return [r[:width] + [""] * (width - len(r[:width])) for r in rows]
+
+
+def _xlsx_sheets(content: bytes) -> List["SheetPreview"]:
+    import io
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    try:
+        sheets = []
+        for ws in wb.worksheets[:PREVIEW_MAX_SHEETS]:
+            rows: List[List[str]] = []
+            truncated = False
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i >= PREVIEW_MAX_ROWS:
+                    truncated = True
+                    break
+                if len(row) > PREVIEW_MAX_COLS:
+                    truncated = True
+                rows.append([_cell_text(v) for v in row[:PREVIEW_MAX_COLS]])
+            sheets.append(SheetPreview(name=ws.title, rows=_trim_rows(rows), truncated=truncated))
+        return sheets
+    finally:
+        wb.close()
+
+
+def _csv_sheet(text: str, name: str) -> "SheetPreview":
+    import csv
+    import io
+
+    rows: List[List[str]] = []
+    truncated = False
+    for i, row in enumerate(csv.reader(io.StringIO(text))):
+        if i >= PREVIEW_MAX_ROWS:
+            truncated = True
+            break
+        if len(row) > PREVIEW_MAX_COLS:
+            truncated = True
+        rows.append(row[:PREVIEW_MAX_COLS])
+    return SheetPreview(name=name, rows=_trim_rows(rows), truncated=truncated)
+
+
+#: Plain-text uploads store their decoded content unchanged as the extracted
+#: text, so for these the text *is* the original even with no document_files
+#: row (uploads made before that table existed).
+_TEXT_UPLOAD_TYPES = {".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8",
+                      ".json": "application/json", ".csv": "text/csv; charset=utf-8"}
+
+
+def _text_upload_type(doc: DocumentModel) -> Optional[str]:
+    if doc.source_type != "file":
+        return None
+    return _TEXT_UPLOAD_TYPES.get(_extension(doc.title))
+
+
+async def _get_owned_document(db: AsyncSession, doc_id: uuid.UUID, org_id: uuid.UUID) -> DocumentModel:
+    doc = (await db.execute(select(DocumentModel).where(DocumentModel.id == doc_id))).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    kb = (await db.execute(
+        select(KnowledgeBaseModel.id).where(
+            KnowledgeBaseModel.id == doc.knowledge_base_id,
+            KnowledgeBaseModel.organization_id == org_id,
+        )
+    )).scalar_one_or_none()
+    if not kb:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return doc
 
 
 # Helper function to get RAG service
@@ -518,8 +678,33 @@ async def upload_document(
             file_type=file.content_type,
             file_size=len(content)
         )
+        # Built before the commit below, which may expire doc's attributes.
+        response = DocumentResponse(**doc.__dict__)
 
-        return DocumentResponse(**doc.__dict__)
+        # Keep the original for preview and download. add_document returns
+        # the existing row for a duplicate upload, which may predate this
+        # table — so fill in a missing original rather than assume a new doc.
+        # A failure here costs only the original-format preview (the document
+        # still answers questions), so it must not fail the upload.
+        try:
+            has_file = (await db.execute(
+                select(DocumentFileModel.document_id).where(DocumentFileModel.document_id == response.id)
+            )).scalar_one_or_none()
+            if not has_file:
+                db.add(DocumentFileModel(
+                    document_id=response.id,
+                    filename=file.filename or response.title,
+                    content_type=_FILE_CONTENT_TYPES.get(
+                        _extension(file.filename or ""), "application/octet-stream"
+                    ),
+                    data=content,
+                ))
+                await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Could not keep original file for document {response.id}: {e}", exc_info=True)
+
+        return response
 
     except HTTPException:
         # The format, empty-text and unreadable-file answers above are already
@@ -575,40 +760,135 @@ async def download_document(
     org_id: uuid.UUID = Depends(get_current_org_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Download the text content of a document."""
-    from sqlalchemy import select
-    from fastapi.responses import PlainTextResponse
-    from app.models.knowledge_base import Document as DocumentModel
+    """
+    Download a document as it was uploaded — same bytes, same format.
 
-    doc_result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == doc_id)
-    )
-    doc = doc_result.scalar_one_or_none()
+    Pasted text, and files uploaded before originals were kept, have only the
+    extracted text, which is served as a .txt as it always was. The preview
+    fetches this endpoint too, for the formats it renders from the bytes.
+    """
+    from fastapi.responses import Response
 
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = await _get_owned_document(db, doc_id, org_id)
+    original = (await db.execute(
+        select(DocumentFileModel).where(DocumentFileModel.document_id == doc.id)
+    )).scalar_one_or_none()
 
-    # Verify kb ownership
-    kb_result = await db.execute(
-        select(KnowledgeBaseModel).where(
-            KnowledgeBaseModel.id == doc.knowledge_base_id,
-            KnowledgeBaseModel.organization_id == org_id
+    if original:
+        return Response(
+            content=original.data,
+            media_type=original.content_type,
+            headers={
+                "Content-Disposition": _content_disposition("attachment", original.filename),
+                "X-Content-Type-Options": "nosniff",
+            },
         )
-    )
-    kb = kb_result.scalar_one_or_none()
 
-    if not kb:
-        raise HTTPException(status_code=403, detail="Access denied")
-        
+    media_type = _text_upload_type(doc)
     filename = doc.title
-    if not filename.lower().endswith(".txt"):
-        filename += ".txt"
-        
-    headers = {
-        'Content-Disposition': f'attachment; filename="{filename}"'
-    }
+    if media_type is None:
+        media_type = "text/plain; charset=utf-8"
+        if not filename.lower().endswith(".txt"):
+            filename += ".txt"
+    return Response(
+        content=doc.content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": _content_disposition("attachment", filename),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
-    return PlainTextResponse(content=doc.content, headers=headers)
+
+@router.get("/documents/{doc_id}/preview", response_model=DocumentPreview)
+async def preview_document(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_active_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Describe how to show a document in the viewer.
+
+    Text-like kinds (markdown, json, text) and spreadsheets are returned
+    inline, capped for the browser's sake. PDF and Word previews need the
+    original bytes, which the viewer fetches from /download.
+    """
+    doc = await _get_owned_document(db, doc_id, org_id)
+    # Metadata only: loading a 50 MB PDF here just to learn it is a PDF would
+    # double the work of every preview.
+    meta = (await db.execute(
+        select(DocumentFileModel.filename, DocumentFileModel.content_type)
+        .where(DocumentFileModel.document_id == doc.id)
+    )).first()
+
+    filename = meta.filename if meta else doc.title
+    ext = _extension(filename)
+    kind = _PREVIEW_KINDS.get(ext, "text")
+    original_available = meta is not None or _text_upload_type(doc) is not None
+
+    def extracted_text() -> DocumentPreview:
+        text = doc.content or ""
+        return DocumentPreview(
+            kind="text",
+            filename=filename,
+            content_type="text/plain; charset=utf-8",
+            original_available=original_available,
+            text=text[:PREVIEW_MAX_TEXT_CHARS],
+            text_truncated=len(text) > PREVIEW_MAX_TEXT_CHARS,
+        )
+
+    if kind in ("pdf", "docx"):
+        if meta is None:
+            return extracted_text()
+        return DocumentPreview(
+            kind=kind, filename=filename, content_type=meta.content_type, original_available=True,
+        )
+
+    # Text kinds and CSV read the same from the original or the extracted
+    # text (upload stores those decoded as-is). xlsx needs the original.
+    data: Optional[bytes] = None
+    if meta is not None:
+        data = (await db.execute(
+            select(DocumentFileModel.data).where(DocumentFileModel.document_id == doc.id)
+        )).scalar_one()
+
+    content_type = meta.content_type if meta else (_text_upload_type(doc) or "text/plain; charset=utf-8")
+
+    if kind == "sheet":
+        try:
+            if ext == ".xlsx":
+                if data is None:
+                    return extracted_text()
+                sheets = _xlsx_sheets(data)
+            else:
+                text = data.decode("utf-8") if data is not None else doc.content
+                sheets = [_csv_sheet(text, filename)]
+        except Exception as e:
+            logger.warning(f"Spreadsheet preview failed for document {doc.id}: {e}")
+            return extracted_text()
+        return DocumentPreview(
+            kind="sheet", filename=filename, content_type=content_type,
+            original_available=original_available, sheets=sheets,
+        )
+
+    if data is not None:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = doc.content or ""
+    else:
+        text = doc.content or ""
+
+    return DocumentPreview(
+        kind=kind,
+        filename=filename,
+        content_type=content_type,
+        original_available=original_available,
+        text=text[:PREVIEW_MAX_TEXT_CHARS],
+        text_truncated=len(text) > PREVIEW_MAX_TEXT_CHARS,
+    )
+
 
 @router.delete("/documents/{doc_id}", status_code=204)
 async def delete_document(

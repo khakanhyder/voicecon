@@ -214,6 +214,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Lets the dashboard save a knowledge-base download under its real name.
+    expose_headers=["Content-Disposition"],
 )
 
 # GZip Middleware for response compression

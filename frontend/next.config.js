@@ -79,7 +79,9 @@ const nextConfig = {
               // Google Analytics (gtag.js) loads from googletagmanager.com; its hits go
               // out over connect-src/img-src https:, which already allow them.
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com https://www.googletagmanager.com",
-              "frame-src https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",
+              // blob: is the knowledge-base PDF preview, which hands the fetched
+              // file to the browser's own PDF viewer in an iframe.
+              "frame-src blob: https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data: https:",

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Search, Trash2, Upload, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Eye, FileText, Search, Trash2, Upload, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,7 +12,8 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { useConfirm } from '@/hooks/use-confirm'
-import { getAccessToken } from '@/lib/session'
+import { fetchDocumentFile, saveBlob } from '@/lib/knowledge-files'
+import { DocumentPreviewModal, type PreviewTarget } from '@/components/knowledge/DocumentPreviewModal'
 
 interface KnowledgeBase {
   id: string
@@ -77,6 +78,10 @@ export default function KnowledgeBaseDetailPage() {
   const [answer, setAnswer] = useState<AskResult | null>(null)
   const [isSearching, setIsSearching] = useState(false)
   const [showSources, setShowSources] = useState(false)
+
+  const [previewDoc, setPreviewDoc] = useState<PreviewTarget | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const closePreview = useCallback(() => setPreviewDoc(null), [])
 
   const fetchDocs = useCallback(async () => {
     try {
@@ -157,24 +162,17 @@ export default function KnowledgeBaseDetailPage() {
   }
 
 
-  const handleDownload = async (docId: string, title: string) => {
+  // Saves the file as the server sends it: the original upload in its own
+  // format and name, or the extracted text as .txt when no original exists.
+  const handleDownload = async (target: PreviewTarget) => {
+    setDownloadingId(target.id)
     try {
-      const url = API_ENDPOINTS.KNOWLEDGE_DOCUMENT_DOWNLOAD(docId);
-      const token = getAccessToken();
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw new Error('Download failed');
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      const dlName = title.toLowerCase().endsWith('.txt') ? title : `${title}.txt`;
-      a.download = dlName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      const { blob, filename } = await fetchDocumentFile(target.id, target.title)
+      saveBlob(blob, filename)
     } catch (error) {
-      toast.error('Failed to download document');
+      toast.error('Failed to download document')
+    } finally {
+      setDownloadingId(null)
     }
   }
 
@@ -381,8 +379,20 @@ export default function KnowledgeBaseDetailPage() {
                   })()}
                 </div>
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0 w-full sm:w-auto">
-                  <Button onClick={() => handleDownload(d.id, d.title)} className="flex-1 sm:flex-none bg-[#106959] hover:opacity-90 text-white rounded-[8px] font-poppins font-medium h-[40px] px-6">
-                    Download
+                  <Button
+                    variant="outline"
+                    onClick={() => setPreviewDoc(d)}
+                    className="flex-1 sm:flex-none border border-[#106959] text-[#106959] bg-white hover:bg-[#106959]/5 rounded-[8px] font-poppins font-medium h-[40px] px-6"
+                  >
+                    <Eye className="h-4 w-4 mr-2" />
+                    Preview
+                  </Button>
+                  <Button
+                    onClick={() => handleDownload(d)}
+                    disabled={downloadingId === d.id}
+                    className="flex-1 sm:flex-none bg-[#106959] hover:opacity-90 text-white rounded-[8px] font-poppins font-medium h-[40px] px-6"
+                  >
+                    {downloadingId === d.id ? 'Downloading…' : 'Download'}
                   </Button>
                   <Button onClick={() => handleDeleteDoc(d)} className="flex-1 sm:flex-none bg-[#FF0000] hover:bg-red-700 text-white rounded-[8px] font-poppins font-medium h-[40px] px-6">
                     Delete
@@ -457,6 +467,12 @@ export default function KnowledgeBaseDetailPage() {
         )}
       </div>
       <ConfirmDialog />
+      <DocumentPreviewModal
+        doc={previewDoc}
+        onClose={closePreview}
+        onDownload={handleDownload}
+        isDownloading={previewDoc !== null && downloadingId === previewDoc.id}
+      />
     </div>
   )
 }

@@ -14,7 +14,7 @@ from app.models.analytics import (
     DailySummary, RealTimeMetrics, MetricsCache
 )
 from app.models.knowledge_base import (
-    KnowledgeBase, Document, DocumentChunk,
+    KnowledgeBase, Document, DocumentChunk, DocumentFile,
     AgentKnowledgeBase, SearchQuery
 )
 from app.models.subscription import (
@@ -90,6 +90,7 @@ __all__ = [
     "KnowledgeBase",
     "Document",
     "DocumentChunk",
+    "DocumentFile",
     "AgentKnowledgeBase",
     "SearchQuery",
     # Subscription models

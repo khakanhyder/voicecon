@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional, List
 import uuid
 
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean, JSON, Float, Index, Uuid
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean, JSON, Float, Index, Uuid, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -101,6 +101,30 @@ class Document(Base):
         Index('idx_doc_hash', 'content_hash'),
         Index('idx_doc_status', 'processing_status'),
     )
+
+
+class DocumentFile(Base):
+    """
+    The file exactly as it was uploaded, kept so it can be previewed and
+    downloaded in its own format. ``Document.content`` is only the extracted
+    text the agent searches.
+
+    A table of its own, not a column on ``documents``: every document listing
+    and RAG lookup loads ``Document`` rows, and none of them should drag up to
+    50 MB of bytes along. Stored in Postgres rather than under ``uploads/``,
+    because that directory is served publicly at ``/uploads/*`` and these are
+    private customer documents. Documents added before this table existed, and
+    pasted text, have no row here.
+    """
+    __tablename__ = "document_files"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class DocumentChunk(Base):
