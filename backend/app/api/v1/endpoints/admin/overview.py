@@ -113,6 +113,7 @@ async def overview(
     orgs_suspended = await _scalar(db, select(func.count(Organization.id)).where(Organization.is_active.is_(False)))
     agents_total = await _scalar(db, select(func.count(Agent.id)).where(Agent.deleted_at.is_(None)))
     numbers_active = await _scalar(db, select(func.count(PhoneNumber.id)).where(PhoneNumber.status == "active"))
+    numbers_on_hold = await _scalar(db, select(func.count(PhoneNumber.id)).where(PhoneNumber.status == "suspended"))
     calls_24h = await _scalar(db, select(func.count(Call.id)).where(Call.created_at >= day_ago))
     calls_30d = await _scalar(db, select(func.count(Call.id)).where(Call.created_at >= month_ago))
     failed_calls_24h = await _scalar(
@@ -190,6 +191,7 @@ async def overview(
             "organizations_suspended": orgs_suspended,
             "agents_total": agents_total,
             "phone_numbers_active": numbers_active,
+            "phone_numbers_on_hold": numbers_on_hold,
             "calls_24h": calls_24h,
             "calls_30d": calls_30d,
             "failed_calls_24h": failed_calls_24h,

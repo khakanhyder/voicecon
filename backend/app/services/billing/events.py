@@ -38,6 +38,18 @@ PLAN_CHANGED = "plan_changed"
 PLAN_CHANGE_SCHEDULED = "plan_change_scheduled"
 NOTICE_SENT = "notice_sent"
 
+# Phone numbers on Voicecon's own carrier account. They sit in this ledger
+# because each one is a recurring cost tied to the subscription: buying is
+# counted against the daily purchase caps from these rows, and a number held
+# back or released when a workspace stops paying is part of "why is this
+# account in this state?". See ``services/telephony/number_guard`` and
+# ``number_reclaim``.
+NUMBER_PURCHASED = "number_purchased"
+NUMBER_SUSPENDED = "number_suspended"
+NUMBER_RESTORED = "number_restored"
+NUMBER_RELEASED = "number_released"
+NUMBER_CAP_REACHED = "number_cap_reached"
+
 # ---- Actors ----
 ACTOR_USER = "user"
 ACTOR_SYSTEM = "system"

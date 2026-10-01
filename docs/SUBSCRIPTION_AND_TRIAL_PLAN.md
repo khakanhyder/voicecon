@@ -539,9 +539,10 @@ exposure under GDPR/CCPA and reads as hostage-taking.
 
 - **No overage on trial. Ever.** At 60 minutes the runtime stops. A trial with
   metered overage and no card on file is an unbounded liability.
-- Trial phone numbers come from the shared Voicecon Twilio pool and are released
-  at grace end. Today `POST /onboarding/phone-number` buys a real number with no
-  subscription check at all — that is a live cost and fraud surface.
+- A trial cannot buy a phone number, and onboarding does not offer one: the
+  `POST /onboarding/phone-number` route was removed (1 Oct 2026). Numbers are
+  bought on the Phone Numbers page, on a paid plan. See "Phone numbers nobody
+  is paying for" in `ADMIN_CONSOLE.md` for what happens when a plan ends.
 - Outbound calls on trial restricted to numbers verified by the trial user (a
   standard anti-fraud measure; Twilio does the same for its own trials).
 - Watermark: a short "powered by Voicecon" on transcripts/exports. Cheap

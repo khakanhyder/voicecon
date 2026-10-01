@@ -113,6 +113,14 @@ class Settings(BaseSettings):
     # reconstruct the exact signed URL behind a TLS-terminating proxy.
     TWILIO_PUBLIC_BASE_URL: Optional[str] = None
 
+    # Voicecon numbers (bought on the platform carrier account above)
+    # Most numbers the whole platform may buy on our account in any 24 hours.
+    # A ceiling on what a bug or a stolen card can cost us; 0 pauses buying.
+    VOICECON_NUMBER_DAILY_PURCHASE_CAP: int = 25
+    # Days a Voicecon number is held after its workspace stops paying, before
+    # it is released at the carrier. 0 keeps numbers until an operator acts.
+    VOICECON_NUMBER_RELEASE_GRACE_DAYS: int = 14
+
     # Stripe (Payments)
     STRIPE_API_KEY: Optional[str] = None  # legacy alias for STRIPE_SECRET_KEY
     STRIPE_SECRET_KEY: Optional[str] = None

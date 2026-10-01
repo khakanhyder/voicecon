@@ -69,6 +69,7 @@ export interface Overview {
     organizations_suspended: number
     agents_total: number
     phone_numbers_active: number
+    phone_numbers_on_hold: number
     calls_24h: number
     calls_30d: number
     failed_calls_24h: number
@@ -355,9 +356,24 @@ export interface NumberRow {
   provider: string
   provider_sid: string | null
   bring_your_own: boolean
+  /** On Voicecon's own carrier account, so the console can release it. */
+  voicecon: boolean
   status: string
   monthly_cost: number | null
   created_at: string
+  /** Set while the number is on hold for a workspace that stopped paying. */
+  suspended_at: string | null
+  release_after: string | null
+  /** Why the last automatic release attempt failed, if one did. */
+  release_error: string | null
+}
+
+export interface NumberSummary {
+  on_hold: number
+  /** 0 means numbers are never released automatically. */
+  release_grace_days: number
+  purchases_24h: number
+  daily_purchase_cap: number
 }
 
 export interface ConnectionRow {
@@ -666,7 +682,11 @@ export const adminApi = {
 
   calls: (params: Query) => get<Page<CallRow>>('/calls', params),
   call: (id: string) => get<CallDetail>(`/calls/${id}`),
-  phoneNumbers: (params: Query) => get<Page<NumberRow>>('/phone-numbers', params),
+  phoneNumbers: (params: Query) => get<Page<NumberRow> & { summary: NumberSummary }>('/phone-numbers', params),
+  releasePhoneNumber: (id: string) =>
+    send<{ released: boolean; phone_number: string }>('post', `/phone-numbers/${id}/release`),
+  holdPhoneNumber: (id: string, days: number) =>
+    send<{ phone_number: string; release_after: string }>('post', `/phone-numbers/${id}/hold`, { days }),
   connections: (params: Query) => get<Page<ConnectionRow>>('/integrations/connections', params),
   workflowRuns: (params: Query) => get<Page<WorkflowRunRow>>('/workflows/runs', params),
 

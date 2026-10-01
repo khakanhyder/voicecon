@@ -23,6 +23,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { FEATURES } from '@/lib/entitlements'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { useConfirm } from '@/hooks/use-confirm'
+import { formatDate } from '@/lib/datetime'
 import { appDisplayName } from '@/lib/appNames'
 import {
   type NumberSource, type OwnProvider, type PhoneNumber, type PurchaseOptions,
@@ -37,7 +38,11 @@ const statusStyle: Record<string, string> = {
   active: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
   inactive: 'bg-slate-100 text-slate-600 ring-slate-500/15',
   pending: 'bg-amber-50 text-amber-700 ring-amber-600/15',
+  suspended: 'bg-amber-50 text-amber-700 ring-amber-600/15',
 }
+
+/** What the status pill says. "Suspended" is our word, not the customer's. */
+const statusLabel = (status: string) => (status === 'suspended' ? 'On hold' : status)
 
 /**
  * Opens the purchase dialog for `?tab=search` — a deep link from elsewhere in
@@ -592,6 +597,18 @@ export default function PhoneNumbersPage() {
                             ? `Your ${appDisplayName(num.provider)} account`
                             : 'Voicecon number'}
                         </p>
+                        {num.status === 'suspended' && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Not taking calls: your workspace has no active plan.{' '}
+                            {num.release_after
+                              ? `It will be released on ${formatDate(num.release_after, { month: 'long' })}. `
+                              : ''}
+                            <Link href="/dashboard/settings/billing" className="font-medium underline">
+                              Choose a plan
+                            </Link>{' '}
+                            to keep it.
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -619,7 +636,7 @@ export default function PhoneNumbersPage() {
 
                     <div className="hidden md:block">
                       <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${statusStyle[num.status] || statusStyle.inactive}`}>
-                        {num.status}
+                        {statusLabel(num.status)}
                       </span>
                     </div>
 
@@ -629,7 +646,7 @@ export default function PhoneNumbersPage() {
 
                     <div className="flex items-center justify-end gap-2">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ring-1 ring-inset md:hidden ${statusStyle[num.status] || statusStyle.inactive}`}>
-                        {num.status}
+                        {statusLabel(num.status)}
                       </span>
                       <button
                         onClick={() => releaseNumber(num)}

@@ -581,7 +581,6 @@ class TestPhoneNumberPurchaseGate:
 
     PURCHASE_ROUTES = {
         "/api/v1/phone-numbers/provision",
-        "/api/v1/onboarding/phone-number",
         "/api/v1/calls/phone-numbers",
     }
 

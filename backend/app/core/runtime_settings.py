@@ -130,6 +130,8 @@ SPECS: Tuple[SettingSpec, ...] = (
     _S("TWILIO_AUTH_TOKEN", "Auth token", "twilio", "secret"),
     _S("TWILIO_PHONE_NUMBER", "Default phone number", "twilio", placeholder="+15551234567"),
     _S("TWILIO_VALIDATE_WEBHOOKS", "Verify webhook signatures", "twilio", "bool", "Reject inbound Twilio webhooks without a valid signature. Keep on in production."),
+    _S("VOICECON_NUMBER_DAILY_PURCHASE_CAP", "Number purchases per day (whole platform)", "twilio", "int", "Most Voicecon numbers all customers together may buy on this account in 24 hours. Admins are emailed when it is reached. 0 pauses buying."),
+    _S("VOICECON_NUMBER_RELEASE_GRACE_DAYS", "Days before an unpaid number is released", "twilio", "int", "How long a Voicecon number is held after its workspace stops paying. The owner is emailed first. 0 never releases automatically."),
     # Payments
     _S("PAYMENT_PROVIDER", "Active provider", "payments", "choice", "stripe: card form inside the app. polar: Polar-hosted checkout, no Stripe keys needed.", choices=("stripe", "polar")),
     _S("POLAR_ACCESS_TOKEN", "Organization access token", "polar", "secret", "Scopes: checkouts:write, subscriptions:read, subscriptions:write, customer_sessions:write, products:read, products:write, orders:read.", placeholder="polar_oat_..."),

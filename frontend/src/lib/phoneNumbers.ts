@@ -29,6 +29,11 @@ export interface PhoneNumber {
   created_at: string
   /** Brought in from the user's own account; removing it only disconnects it. */
   imported?: boolean
+  /**
+   * Set when `status` is 'suspended': the workspace has no active plan, and the
+   * number is released on this date unless it subscribes again.
+   */
+  release_after?: string | null
 }
 
 /** A number already on one of the workspace's own carrier accounts. */

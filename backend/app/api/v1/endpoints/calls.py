@@ -403,6 +403,12 @@ async def create_phone_number(
             detail="Phone number already registered",
         )
 
+    # Counted again under the workspace lock, so two requests arriving
+    # together cannot both take the last slot.
+    from app.services.telephony import number_guard
+
+    await number_guard.hold_number_slot(db, org_id)
+
     phone_number = PhoneNumber(
         user_id=current_user.id,
         organization_id=org_id,

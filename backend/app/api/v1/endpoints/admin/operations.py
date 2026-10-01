@@ -8,12 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.admin import require_platform_admin
+from pydantic import BaseModel, Field
+
+from app.core.admin import audit, require_platform_admin
+from app.core.config import settings
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.call import Call, PhoneNumber
 from app.models.integration import IntegrationConnection, IntegrationConnector, Workflow, WorkflowExecution
 from app.models.user import Organization
+from app.services.billing import events
+from app.services.telephony import number_guard, number_reclaim
 
 from ._common import PageParams, iso, like, num, paginated, parse_uuid, utcnow
 
@@ -157,24 +162,124 @@ async def list_phone_numbers(
     rows = (
         await db.execute(query.order_by(PhoneNumber.created_at.desc()).offset(params.offset).limit(params.page_size))
     ).all()
-    items = [
-        {
-            "id": str(n.id),
-            "phone_number": n.phone_number,
-            "organization_id": str(n.organization_id),
-            "organization_name": org_name,
-            "organization_active": org_active,
-            "agent_name": agent_name,
-            "provider": n.provider,
-            "provider_sid": n.provider_sid,
-            "bring_your_own": n.integration_connection_id is not None,
-            "status": n.status,
-            "monthly_cost": num(n.monthly_cost),
-            "created_at": iso(n.created_at),
-        }
-        for n, org_name, org_active, agent_name in rows
-    ]
-    return paginated(items, total, params)
+    items = [_number_row(n, org_name, org_active, agent_name) for n, org_name, org_active, agent_name in rows]
+
+    now = utcnow()
+    held = int(
+        (
+            await db.execute(
+                select(func.count(PhoneNumber.id)).where(
+                    PhoneNumber.status == number_reclaim.STATUS_SUSPENDED
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    return {
+        **paginated(items, total, params),
+        # What the page needs to explain itself: how many numbers we are
+        # paying for with nobody paying us, and how close buying is to the cap.
+        "summary": {
+            "on_hold": held,
+            "release_grace_days": number_reclaim.grace_days(),
+            "purchases_24h": await number_guard.purchases_since(db, now - number_guard.PURCHASE_WINDOW),
+            "daily_purchase_cap": max(0, int(settings.VOICECON_NUMBER_DAILY_PURCHASE_CAP)),
+        },
+    }
+
+
+def _number_row(n: PhoneNumber, org_name, org_active, agent_name) -> dict:
+    state = number_reclaim.reclaim_state(n) if n.status == number_reclaim.STATUS_SUSPENDED else {}
+    return {
+        "id": str(n.id),
+        "phone_number": n.phone_number,
+        "organization_id": str(n.organization_id),
+        "organization_name": org_name,
+        "organization_active": org_active,
+        "agent_name": agent_name,
+        "provider": n.provider,
+        "provider_sid": n.provider_sid,
+        "bring_your_own": n.integration_connection_id is not None,
+        # On Voicecon's own carrier account, so ours to release.
+        "voicecon": number_reclaim.is_reclaimable(n),
+        "status": n.status,
+        "monthly_cost": num(n.monthly_cost),
+        "created_at": iso(n.created_at),
+        # Set while a number is on hold for a workspace that stopped paying.
+        "suspended_at": iso(number_reclaim.suspended_at(n)) if state else None,
+        "release_after": iso(number_reclaim.release_after(n)) if state else None,
+        "release_error": state.get("last_error"),
+    }
+
+
+async def _voicecon_number(db: AsyncSession, number_id: str) -> PhoneNumber:
+    number = await db.get(PhoneNumber, parse_uuid(number_id, "phone number"))
+    if number is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phone number not found")
+    if not number_reclaim.is_reclaimable(number):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This number is on the customer's own provider account. Only they can release it.",
+        )
+    return number
+
+
+@router.post("/phone-numbers/{number_id}/release")
+async def release_phone_number(
+    number_id: str,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Release a Voicecon number at the carrier now. Cannot be undone."""
+    number = await _voicecon_number(db, number_id)
+    phone_number, organization_id, was = number.phone_number, number.organization_id, number.status
+
+    released = await number_reclaim.release_to_carrier(
+        db, number, reason="released_by_admin", actor_type=events.ACTOR_ADMIN, actor_id=admin.id
+    )
+    if not released:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The carrier did not release this number. It is still on the account; try again shortly.",
+        )
+    audit(
+        db, admin, "phone_number.release", target_type="organization", target_id=organization_id,
+        summary=f"Released {phone_number}", details={"phone_number": phone_number, "status": was},
+    )
+    await db.commit()
+    return {"released": True, "phone_number": phone_number}
+
+
+class HoldRequest(BaseModel):
+    days: int = Field(..., ge=1, le=365, description="Days from now to keep the number before releasing it")
+
+
+@router.post("/phone-numbers/{number_id}/hold")
+async def extend_phone_number_hold(
+    number_id: str,
+    body: HoldRequest,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Push back the release date of a number on hold."""
+    number = await _voicecon_number(db, number_id)
+    if number.status != number_reclaim.STATUS_SUSPENDED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Only a number on hold has a release date."
+        )
+    now = utcnow()
+    state = number_reclaim.reclaim_state(number)
+    state.setdefault("suspended_at", now.isoformat())
+    state["release_after"] = (now + timedelta(days=body.days)).isoformat()
+    state["reminded"] = False
+    number.provider_metadata = {**(number.provider_metadata or {}), number_reclaim.RECLAIM_KEY: state}
+    audit(
+        db, admin, "phone_number.hold", target_type="organization", target_id=number.organization_id,
+        summary=f"Kept {number.phone_number} for {body.days} more days",
+        details={"phone_number": number.phone_number, "release_after": state["release_after"]},
+    )
+    await db.commit()
+    return {"phone_number": number.phone_number, "release_after": iso(number_reclaim.release_after(number))}
 
 
 @router.get("/integrations/connections")

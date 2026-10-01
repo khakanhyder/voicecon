@@ -125,40 +125,6 @@ export function onboardingRedirectPath(
 
 export type BillingPeriod = 'monthly' | 'yearly'
 
-/** A carrier account numbers can be bought on during onboarding. */
-export interface TelephonyProvider {
-  slug: string
-  name: string
-  source: 'integration' | 'platform'
-  connection_id: string | null
-  connection_name: string | null
-  is_default?: boolean
-}
-
-export interface AvailableNumber {
-  phone_number: string
-  friendly_name: string
-  provider: string
-  locality: string | null
-  region: string | null
-  capabilities: Record<string, boolean>
-  monthly_cost: number | null
-  setup_cost: number | null
-  currency: string | null
-}
-
-export interface ClaimedNumber {
-  phone_number_id: string
-  phone_number: string
-  provider: string
-  /** 'voicecon' for a Voicecon number, 'own' for the workspace's own provider. */
-  source: 'voicecon' | 'own'
-  account_name: string
-  agent_id: string
-  agent_name: string
-  agent_created: boolean
-}
-
 export const onboardingService = {
   async getStatus(): Promise<OnboardingStatus> {
     const { data } = await apiClient.get('/api/v1/onboarding/status')
@@ -167,52 +133,6 @@ export const onboardingService = {
 
   async saveCompany(payload: CompanyProfilePayload) {
     const { data } = await apiClient.post('/api/v1/onboarding/company', payload)
-    return data
-  },
-
-  /**
-   * Accounts this user can buy a number on. Empty means neither Voicecon's
-   * shared Twilio nor a carrier of their own is available, so the onboarding
-   * screen falls back to typing a contact number.
-   */
-  async getPhoneProviders(): Promise<TelephonyProvider[]> {
-    const { data } = await apiClient.get('/api/v1/phone-numbers/providers')
-    return Array.isArray(data) ? data : []
-  },
-
-  async searchPhoneNumbers(params: {
-    country_code: string
-    area_code?: string
-    provider?: string
-    connection_id?: string | null
-    limit?: number
-  }): Promise<AvailableNumber[]> {
-    const query = new URLSearchParams({
-      country_code: params.country_code,
-      limit: String(params.limit ?? 6),
-    })
-    if (params.area_code) query.set('area_code', params.area_code)
-    if (params.provider) query.set('provider', params.provider)
-    if (params.connection_id) query.set('connection_id', params.connection_id)
-
-    const { data } = await apiClient.get(`/api/v1/phone-numbers/search?${query}`)
-    return Array.isArray(data) ? data : []
-  },
-
-  /** Buys the number and attaches it to the assistant being described. */
-  async claimPhoneNumber(payload: {
-    /** 'voicecon' buys a Voicecon number; the carrier behind it is never shown. */
-    source?: 'voicecon' | 'own'
-    phone_number: string
-    provider?: string
-    connection_id?: string | null
-    country_code?: string
-    area_code?: string
-    monthly_cost?: number | null
-    assistant_name?: string
-    assistant_instructions?: string
-  }): Promise<ClaimedNumber> {
-    const { data } = await apiClient.post('/api/v1/onboarding/phone-number', payload)
     return data
   },
 

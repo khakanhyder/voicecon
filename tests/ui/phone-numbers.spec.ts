@@ -93,3 +93,41 @@ test('connecting a provider from Integrations stays on Integrations', async ({ p
   await expect(page.getByRole('heading', { name: 'Connection successful!' })).toBeVisible()
   await expect(page).toHaveURL(/\/dashboard\/integrations\/twilio$/)
 })
+
+test('a number held for a workspace without a plan says when it will be released', async ({ page, api }) => {
+  await api.on(ROUTES.phoneNumberPurchaseOptions, { body: purchaseOptions(false) })
+  await enterDashboard(page, api, '/dashboard/phone-numbers')
+  // After the app shell, which stubs an empty list: the latest stub wins.
+  await api.on(ROUTES.phoneNumbers, {
+    body: [
+      {
+        id: 'num-1',
+        phone_number: '+14155550101',
+        country_code: 'US',
+        area_code: '415',
+        provider: 'voicecon',
+        provider_sid: null,
+        source: 'voicecon',
+        agent_id: null,
+        capabilities: { voice: true },
+        status: 'suspended',
+        monthly_cost: 1.15,
+        created_at: '2026-09-01T10:00:00+00:00',
+        imported: false,
+        release_after: '2026-10-15T12:00:00+00:00',
+      },
+    ],
+  })
+  await page.reload()
+
+  const row = page.getByRole('listitem').filter({ hasText: '555-0101' })
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  // Our word for the state is "suspended"; the customer's is "on hold".
+  await expect(row.getByText('On hold').first()).toBeVisible()
+  await expect(row.getByText('suspended', { exact: true })).toHaveCount(0)
+  await expect(row.getByText(/released on October 15, 2026/)).toBeVisible()
+  await expect(row.getByRole('link', { name: 'Choose a plan' })).toHaveAttribute(
+    'href',
+    '/dashboard/settings/billing',
+  )
+})

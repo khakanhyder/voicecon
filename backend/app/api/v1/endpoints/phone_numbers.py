@@ -36,6 +36,7 @@ from app.models.call import PhoneNumber
 from app.services.billing import catalog
 from app.models.agent import Agent
 from app.models.user import User
+from app.services.telephony import number_guard, number_reclaim
 from app.services.telephony.number_provisioning import (
     NumberNotRecordedError,
     webhook_base_url,
@@ -138,6 +139,14 @@ class PhoneNumberResponse(BaseModel):
         description=(
             "Brought in from the user's own account rather than bought through "
             "Voicecon. Removing it only disconnects it; the number stays on their account."
+        ),
+    )
+    release_after: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set on a number with status 'suspended': the workspace has no "
+            "active plan, and the number is released on this date unless it "
+            "subscribes again."
         ),
     )
 
@@ -252,6 +261,11 @@ def _to_response(phone_number: PhoneNumber) -> PhoneNumberResponse:
         created_at=utc_iso(phone_number.created_at),
         source=SOURCE_VOICECON if voicecon else SOURCE_OWN,
         imported=_is_imported(phone_number),
+        release_after=(
+            utc_iso(number_reclaim.release_after(phone_number))
+            if phone_number.status == number_reclaim.STATUS_SUSPENDED
+            else None
+        ),
     ), voicecon=voicecon))
 
 
@@ -396,6 +410,10 @@ async def import_own_number(
                 else "That number is already connected to another Voicecon workspace."
             ),
         )
+
+    # Checked again under the workspace lock, before the carrier is touched,
+    # so two imports arriving together cannot both take the last slot.
+    await number_guard.hold_number_slot(db, org_id)
 
     try:
         _, connection_id = await resolve_account(
@@ -659,6 +677,13 @@ async def list_phone_numbers(
         result = await db.execute(query.order_by(PhoneNumber.created_at.desc()))
         phone_numbers = result.scalars().all()
 
+        # A workspace that has just subscribed again gets its held numbers
+        # back here, rather than waiting for the next billing sweep.
+        if any(n.status == number_reclaim.STATUS_SUSPENDED for n in phone_numbers):
+            if await number_reclaim.restore_numbers(db, org_id):
+                result = await db.execute(query.order_by(PhoneNumber.created_at.desc()))
+                phone_numbers = result.scalars().all()
+
         return [_to_response(pn) for pn in phone_numbers]
 
     except Exception as e:
@@ -788,8 +813,19 @@ async def update_phone_number(
                 f"{previous_agent_id} to {update_request.agent_id}"
             )
 
-        # Update status
-        if update_request.status is not None:
+        # Update status: a number can be switched off and on, nothing else.
+        if update_request.status is not None and update_request.status != phone_number.status:
+            if update_request.status not in ("active", "inactive"):
+                raise HTTPException(
+                    status_code=400, detail="A number can only be switched on or off."
+                )
+            if phone_number.status == number_reclaim.STATUS_SUSPENDED:
+                # Held because nobody is paying for it; it comes back through
+                # the plan, not by being switched on.
+                raise HTTPException(
+                    status_code=400,
+                    detail="This number is on hold. Your current plan has no room for it.",
+                )
             phone_number.status = update_request.status
 
         await db.commit()

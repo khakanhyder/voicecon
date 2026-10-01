@@ -120,7 +120,26 @@ async def reconcile_subscriptions(db: AsyncSession, *, now: Optional[datetime] =
     await db.commit()
     if report.changed or report.notices_sent:
         logger.info(f"Subscription reconcile: {report}")
+
+    await _reclaim_numbers(db, now)
     return report
+
+
+async def _reclaim_numbers(db: AsyncSession, now: datetime) -> None:
+    """Hold, and later release, Voicecon numbers nobody is paying for.
+
+    Runs after the transitions above are committed and decides from the
+    resulting state, so it covers every way a subscription can end — including
+    the ones that never pass through this module, such as a provider webhook.
+    Its own failures never undo a reconcile pass.
+    """
+    try:
+        from app.services.telephony.number_reclaim import reclaim_numbers
+
+        await reclaim_numbers(db, now=now)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.error(f"Voicecon number reclaim failed: {exc}", exc_info=True)
 
 
 # ---- Transitions ----
@@ -201,7 +220,6 @@ async def _end_grace_periods(db: AsyncSession, now: datetime, report: ReconcileR
         report.grace_to_expired += 1
 
         await _pause_scheduled_workflows(db, subscription.organization_id)
-        await _release_pooled_numbers(db, subscription)
 
         await _notify(
             db,
@@ -594,52 +612,6 @@ async def _pause_scheduled_workflows(
                 )
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Could not pause workflows for org {organization_id}: {exc}")
-
-
-async def _release_pooled_numbers(db: AsyncSession, subscription: Subscription) -> None:
-    """Give back phone numbers we provided, once grace has run out.
-
-    Only numbers bought on Voicecon's own carrier account are released — a
-    number on the customer's own Twilio is theirs and is never touched.
-    """
-    try:
-        from app.models.call import PhoneNumber
-
-        result = await db.execute(
-            select(PhoneNumber).where(
-                PhoneNumber.organization_id == subscription.organization_id
-            )
-        )
-        numbers = result.scalars().all()
-        if not numbers:
-            return
-
-        # No carrier integration of their own → the number sits on Voicecon's
-        # shared account and is ours to reclaim.
-        pooled = [
-            n
-            for n in numbers
-            if n.integration_connection_id is None and n.status == "active"
-        ]
-        if pooled:
-            logger.info(
-                "Subscription %s expired: %d platform-provided number(s) are "
-                "eligible for release for org %s",
-                subscription.id,
-                len(pooled),
-                subscription.organization_id,
-            )
-            # Deliberately not deleting the carrier resource here. Releasing a
-            # number is irreversible — the customer cannot get that number back
-            # if they upgrade an hour later — so it stays flagged for an
-            # operator to action rather than being destroyed by a background
-            # job. The number is unusable meanwhile: runtime is already off.
-            for number in pooled:
-                number.status = "suspended"
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            f"Could not evaluate pooled numbers for subscription {subscription.id}: {exc}"
-        )
 
 
 # ---- Period counter reset ----

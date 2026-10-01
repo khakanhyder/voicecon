@@ -146,6 +146,49 @@ started keep their end date; use **Extend trial** on an organization to change
 one. Marketing copy on the landing page and in the terms still says 30 days and
 has to be edited by hand.
 
+## Phone numbers nobody is paying for
+
+A Voicecon number (one bought on the platform phone account) is billed to us
+every month until it is released. Three things keep that bounded. Numbers on a
+customer's own Twilio or Telnyx account are never affected by any of them.
+
+**Numbers are held, then released, when a workspace stops paying.** Every 15
+minutes the billing sweep looks at each workspace that has a Voicecon number.
+If the workspace has no live subscription, or has been suspended:
+
+1. The number goes **On hold**: it stops taking calls and the owners are
+   emailed the date it will be released.
+2. Three days before that date they are reminded.
+3. On the date the number is released at the carrier and removed. This cannot
+   be undone; the same number cannot be bought back.
+
+If the workspace subscribes again first, its numbers switch back on, as far as
+the new plan has room. The wait is **Days before an unpaid number is released**
+under API Keys & Providers → Twilio (default 14). Set it to 0 to hold numbers
+without ever releasing them automatically.
+
+On **Phone Numbers**, filter by *On hold* to see them. Each row has **Keep**
+(push the release date 14 days out from today) and **Release** (release now).
+
+The first sweep after this ships puts every unpaid Voicecon number on hold and
+emails its owner. A workspace that should keep its number without paying — a
+demo, an internal account — needs a plan granted from its organization page
+before then.
+
+**Number buying has a daily ceiling.** **Number purchases per day (whole
+platform)**, in the same settings group (default 25), is the most Voicecon
+numbers all customers together may buy in 24 hours. When it is reached,
+customers are told Voicecon numbers are unavailable and every platform admin is
+emailed, once a day. Setting it to 0 pauses buying. Separately, one workspace
+cannot buy more Voicecon numbers in a day than its plan lets it hold (minimum
+2), which stops a buy-release-buy loop. The Phone Numbers page shows how much
+of the platform ceiling is used.
+
+**The plan allowance holds under load.** Two purchases sent at the same moment
+are handled one after the other, so a workspace cannot end up over its plan's
+number allowance. A number that is switched off or on hold still counts
+towards it.
+
 ## Billing actions: how each one behaves
 
 - **Extend trial** adds days to the trial end. If the trial has already

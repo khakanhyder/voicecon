@@ -1259,122 +1259,21 @@ class TestConnectingACarrier:
         assert "Authorization" not in carrier_auth_probe["headers"]
 
 
-# ---------- onboarding: claiming a number before you have an agent ----------
+# ---------- onboarding never buys a number ----------
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-class TestOnboardingClaim:
-    """
-    The company step of onboarding can buy a number on the shared Twilio.
+class TestOnboardingDoesNotSellNumbers:
+    """Numbers are bought on the Phone Numbers page, behind a paid plan."""
 
-    A number is only reachable through an agent, and a user in onboarding has
-    none yet — so the assistant they are describing on screen is created and the
-    number is pointed at it.
-    """
-
-    async def test_claim_buys_on_the_shared_account_and_creates_the_assistant(
-        self, client, owner, platform_twilio, db_session
-    ):
-        res = await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number",
-            json={
-                "phone_number": "+14155550100",
-                "country_code": "US",
-                "area_code": "415",
-                "assistant_name": "Aria",
-                "assistant_instructions": "Answer calls and book appointments.",
-            },
-        )
-        assert res.status_code == 200, res.text
-        body = res.json()
-
-        assert body["phone_number"] == "+14155550100"
-        # A Voicecon number: the carrier behind it is not named.
-        assert body["source"] == "voicecon"
-        assert body["provider"] == "voicecon"
-        assert body["account_name"] == "Voicecon"
-        assert body["agent_name"] == "Aria"
-        assert body["agent_created"] is True
-
-        bought = calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]
-        assert "AC_platform_sid" in bought["path"]
-        # The number answers as that assistant from the first call.
-        assert bought["form"]["VoiceUrl"].endswith(
-            f"/api/v1/telephony/twilio/voice/{body['agent_id']}"
-        )
-
-        row = (
-            await db_session.execute(
-                select(PhoneNumber).where(PhoneNumber.phone_number == "+14155550100")
-            )
-        ).scalar_one()
-        assert row.agent_id == uuid.UUID(body["agent_id"])
-        assert row.provider_metadata["credential_source"] == "platform"
-        assert row.user_id == owner.id
-
-    async def test_claim_uses_the_users_own_twilio_when_connected(
-        self, client, owner, twilio_connected, platform_twilio
-    ):
+    async def test_the_claim_route_is_gone(self, client, owner, platform_twilio):
         res = await as_user(client, owner).post(
             "/api/v1/onboarding/phone-number",
             json={"phone_number": "+14155550100", "assistant_name": "Aria"},
         )
-        assert res.status_code == 200, res.text
-        assert res.json()["source"] == "own"
-        assert res.json()["provider"] == "twilio"
-        assert "ACfakesid" in calls_for("twilio", "POST", "IncomingPhoneNumbers")[0]["path"]
-
-    async def test_claim_reuses_an_existing_agent(
-        self, client, owner, agent, platform_twilio
-    ):
-        """Re-running onboarding must not accumulate duplicate assistants."""
-        res = await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number",
-            json={"phone_number": "+14155550100", "assistant_name": "Ignored"},
-        )
-        assert res.status_code == 200, res.text
-        body = res.json()
-
-        assert body["agent_id"] == str(agent.id)
-        assert body["agent_created"] is False
-
-    async def test_claim_is_refused_when_no_account_is_available(self, client, owner):
-        """Nothing configured, nothing connected — say so instead of failing oddly."""
-        res = await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number",
-            json={"phone_number": "+14155550100"},
-        )
-        assert res.status_code == 400
-        assert "Integrations" in res.json()["detail"]
+        assert res.status_code in (404, 405)
         assert not calls_for("twilio", "POST")
-
-    async def test_claimed_number_shows_up_on_the_phone_numbers_page(
-        self, client, owner, platform_twilio
-    ):
-        await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number",
-            json={"phone_number": "+14155550100", "assistant_name": "Aria"},
-        )
-
-        listed = await as_user(client, owner).get("/api/v1/phone-numbers")
-        assert listed.status_code == 200
-        assert [n["phone_number"] for n in listed.json()] == ["+14155550100"]
-
-    async def test_claiming_a_number_twice_is_refused(
-        self, client, owner, platform_twilio
-    ):
-        payload = {"phone_number": "+14155550100", "assistant_name": "Aria"}
-        first = await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number", json=payload
-        )
-        assert first.status_code == 200
-
-        second = await as_user(client, owner).post(
-            "/api/v1/onboarding/phone-number", json=payload
-        )
-        assert second.status_code == 400
-        assert "already in use" in second.json()["detail"]
 
 
 # ---------- numbers already on the user's own account ----------
@@ -1801,3 +1700,641 @@ class TestOwnTelnyxNumbers:
             )
         ).scalar_one()
         assert "original_connection_id" not in row.provider_metadata
+
+
+# ---------- guards on getting a number: one at a time, and daily caps ----------
+
+
+async def _limit_numbers(db_session, user: User, limit: int) -> None:
+    """Give the user's workspace a plan allowance of ``limit`` phone numbers."""
+    from app.models.subscription import OrganizationEntitlementOverride
+    from app.services.billing.entitlements import get_entitlement_service
+
+    db_session.add(
+        OrganizationEntitlementOverride(
+            organization_id=await _org_id_of(db_session, user),
+            overrides={"limits": {"phone_numbers": limit}},
+        )
+    )
+    await db_session.commit()
+    get_entitlement_service().invalidate_all()
+
+
+async def _buy_voicecon(client, user: User, agent: Agent, number: str):
+    return await as_user(client, user).post(
+        "/api/v1/phone-numbers/provision",
+        json={"phone_number": number, "agent_id": str(agent.id), "source": "voicecon"},
+    )
+
+
+async def _agent_for(db_session, user: User) -> Agent:
+    agent = Agent(
+        user_id=user.id,
+        organization_id=await _org_id_of(db_session, user),
+        name="Other Bot",
+        system_prompt="You are helpful.",
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    return agent
+
+
+@pytest.fixture
+def sent_mail(monkeypatch):
+    """Every billing notice the app tried to send."""
+    from app.services.email.service import email_service
+
+    sent: list = []
+
+    async def record(**kwargs):
+        sent.append(kwargs)
+        return True
+
+    monkeypatch.setattr(email_service, "send_billing_notice", record)
+    return sent
+
+
+def _purchases() -> list:
+    return calls_for("twilio", "POST", "IncomingPhoneNumbers.json")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestPurchaseGuards:
+    """A number costs money the moment it exists, so the plan allowance has to
+    hold under concurrency and the platform account has a daily ceiling."""
+
+    async def test_two_purchases_at_once_cannot_both_take_the_last_slot(
+        self, client, owner, agent, platform_twilio, db_session, monkeypatch
+    ):
+        import asyncio
+
+        await _limit_numbers(db_session, owner, 1)
+
+        # A carrier that takes a moment, so both requests are in flight together.
+        instant = NumberProvider._request
+
+        async def slow(self, method, path, **kwargs):
+            if method == "POST" and path.endswith("IncomingPhoneNumbers.json"):
+                await asyncio.sleep(0.3)
+            return await instant(self, method, path, **kwargs)
+
+        monkeypatch.setattr(NumberProvider, "_request", slow)
+
+        first, second = await asyncio.gather(
+            _buy_voicecon(client, owner, agent, "+14155550101"),
+            _buy_voicecon(client, owner, agent, "+14155550102"),
+        )
+
+        assert sorted([first.status_code, second.status_code]) == [201, 402]
+        assert len(_purchases()) == 1, "the carrier was asked for two numbers"
+        rows = (await db_session.execute(select(PhoneNumber))).scalars().all()
+        assert len(rows) == 1
+
+    async def test_switching_a_number_off_does_not_free_its_slot(
+        self, client, owner, agent, platform_twilio, db_session
+    ):
+        await _limit_numbers(db_session, owner, 1)
+        bought = await _buy_voicecon(client, owner, agent, "+14155550101")
+        assert bought.status_code == 201, bought.text
+
+        off = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{bought.json()['id']}", json={"status": "inactive"}
+        )
+        assert off.status_code == 200, off.text
+
+        again = await _buy_voicecon(client, owner, agent, "+14155550102")
+        assert again.status_code == 402
+        assert len(_purchases()) == 1
+
+    async def test_a_number_cannot_be_given_a_made_up_status(
+        self, client, owner, agent, platform_twilio
+    ):
+        bought = await _buy_voicecon(client, owner, agent, "+14155550101")
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{bought.json()['id']}", json={"status": "released"}
+        )
+        assert res.status_code == 400
+
+    async def test_buying_and_releasing_in_a_loop_runs_into_the_daily_limit(
+        self, client, owner, agent, platform_twilio, db_session
+    ):
+        """Each purchase is a month's rent at the carrier even if the number is
+        released a minute later, so released numbers still count for the day."""
+        await _limit_numbers(db_session, owner, 1)
+
+        for number in ("+14155550101", "+14155550102"):
+            bought = await _buy_voicecon(client, owner, agent, number)
+            assert bought.status_code == 201, bought.text
+            gone = await as_user(client, owner).delete(
+                f"/api/v1/phone-numbers/{bought.json()['id']}"
+            )
+            assert gone.status_code == 204
+
+        third = await _buy_voicecon(client, owner, agent, "+14155550103")
+        assert third.status_code == 429
+        assert "today's limit" in third.json()["detail"]
+        assert len(_purchases()) == 2
+
+    async def test_the_platform_daily_cap_stops_everyone_and_tells_the_admins(
+        self, client, owner, other_user, agent, platform_twilio, db_session, monkeypatch, sent_mail
+    ):
+        import asyncio
+
+        from app.models.subscription import SubscriptionEvent
+
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_DAILY_PURCHASE_CAP", 1)
+        admin = User(
+            email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("password123"),
+            full_name="Admin",
+            is_active=True,
+            is_platform_admin=True,
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        other_agent = await _agent_for(db_session, other_user)
+
+        first = await _buy_voicecon(client, owner, agent, "+14155550101")
+        assert first.status_code == 201, first.text
+
+        second = await _buy_voicecon(client, other_user, other_agent, "+14155550102")
+        assert second.status_code == 503
+        assert "Twilio" not in second.json()["detail"]
+        assert len(_purchases()) == 1
+
+        await asyncio.sleep(0.1)  # the alert email is sent in the background
+        alerts = (
+            await db_session.execute(
+                select(SubscriptionEvent).where(SubscriptionEvent.event_type == "number_cap_reached")
+            )
+        ).scalars().all()
+        assert len(alerts) == 1, "the admins are told once a day, not once per refusal"
+        assert [m["to_email"] for m in sent_mail] == [admin.email]
+
+    async def test_the_cap_does_not_apply_to_a_customers_own_provider(
+        self, client, owner, agent, twilio_connected, platform_twilio, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_DAILY_PURCHASE_CAP", 0)
+
+        ours = await _buy_voicecon(client, owner, agent, "+14155550101")
+        assert ours.status_code == 503
+        assert not _purchases()
+
+        theirs = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": "+14155550102",
+                "agent_id": str(agent.id),
+                "source": "own",
+                "connection_id": str(twilio_connected.id),
+            },
+        )
+        assert theirs.status_code == 201, theirs.text
+        assert "ACfakesid" in _purchases()[0]["path"]
+
+
+# ---------- taking back numbers nobody is paying for ----------
+
+
+async def _set_subscription(db_session, user: User, status: str) -> None:
+    from app.models.subscription import Subscription
+    from app.services.billing.entitlements import get_entitlement_service
+
+    subscription = (
+        await db_session.execute(
+            select(Subscription).where(
+                Subscription.organization_id == await _org_id_of(db_session, user)
+            )
+        )
+    ).scalar_one()
+    subscription.status = status
+    await db_session.commit()
+    get_entitlement_service().invalidate_all()
+
+
+async def _sweep(db_engine, now):
+    """One reclaim pass on a session of its own, as the scheduler runs it."""
+    from app.services.telephony.number_reclaim import reclaim_numbers
+
+    async with async_sessionmaker(db_engine, expire_on_commit=False)() as session:
+        return await reclaim_numbers(session, now=now)
+
+
+async def _number(db_engine, phone_number: str):
+    async with async_sessionmaker(db_engine, expire_on_commit=False)() as session:
+        return (
+            await session.execute(
+                select(PhoneNumber).where(PhoneNumber.phone_number == phone_number)
+            )
+        ).scalar_one_or_none()
+
+
+def _releases() -> list:
+    return calls_for("twilio", "DELETE", "IncomingPhoneNumbers")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestNumberReclaim:
+    """A Voicecon number is held when its workspace stops paying, released
+    after the grace period, and handed back if the workspace returns first."""
+
+    NUMBER = "+14155550101"
+
+    @pytest.fixture(autouse=True)
+    def _grace(self, monkeypatch):
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_RELEASE_GRACE_DAYS", 14)
+
+    async def _lapsed(self, client, owner, agent, db_session):
+        bought = await _buy_voicecon(client, owner, agent, self.NUMBER)
+        assert bought.status_code == 201, bought.text
+        await _set_subscription(db_session, owner, "expired")
+        return bought.json()
+
+    async def test_a_paying_workspace_is_left_alone(
+        self, client, owner, agent, platform_twilio, db_engine, sent_mail
+    ):
+        from datetime import datetime
+
+        await _buy_voicecon(client, owner, agent, self.NUMBER)
+        report = await _sweep(db_engine, datetime.utcnow())
+
+        assert report.changed == 0
+        assert (await _number(db_engine, self.NUMBER)).status == "active"
+        assert not sent_mail and not _releases()
+
+    async def test_a_lapsed_workspace_has_its_number_held_and_is_told_the_date(
+        self, client, owner, agent, platform_twilio, db_session, db_engine, sent_mail
+    ):
+        from datetime import datetime, timedelta
+
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime(2026, 10, 1, 12, 0)
+
+        report = await _sweep(db_engine, now)
+        assert report.suspended == 1
+
+        row = await _number(db_engine, self.NUMBER)
+        assert row.status == "suspended"
+        assert row.provider_metadata["reclaim"]["release_after"] == (now + timedelta(days=14)).isoformat()
+        # Held, not released: the customer can still come back for it.
+        assert not _releases()
+
+        assert len(sent_mail) == 1
+        assert sent_mail[0]["to_email"] == owner.email
+        assert "15 October 2026" in sent_mail[0]["subject"]
+        assert self.NUMBER in sent_mail[0]["intro"]
+        assert "Twilio" not in str(sent_mail[0])
+
+        # Running again changes nothing and sends nothing.
+        again = await _sweep(db_engine, now + timedelta(hours=1))
+        assert again.changed == 0
+        assert len(sent_mail) == 1
+
+        listed = await as_user(client, owner).get("/api/v1/phone-numbers")
+        assert listed.json()[0]["status"] == "suspended"
+        assert listed.json()[0]["release_after"].startswith("2026-10-15T12:00:00")
+
+    async def test_reminded_once_then_released_on_the_date(
+        self, client, owner, agent, platform_twilio, db_session, db_engine, sent_mail
+    ):
+        from datetime import datetime, timedelta
+
+        from app.models.subscription import SubscriptionEvent
+
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime(2026, 10, 1, 12, 0)
+        await _sweep(db_engine, now)
+
+        early = await _sweep(db_engine, now + timedelta(days=5))
+        assert early.changed == 0
+
+        reminder = await _sweep(db_engine, now + timedelta(days=12))
+        assert reminder.reminded == 1
+        assert (await _sweep(db_engine, now + timedelta(days=13))).reminded == 0
+        assert len(sent_mail) == 2
+        assert sent_mail[1]["subject"].startswith("Last reminder")
+        assert not _releases()
+
+        released = await _sweep(db_engine, now + timedelta(days=14, minutes=1))
+        assert released.released == 1
+        assert len(_releases()) == 1
+        assert "AC_platform_sid" in _releases()[0]["path"]
+        assert await _number(db_engine, self.NUMBER) is None
+        assert len(sent_mail) == 3
+        assert "released" in sent_mail[2]["subject"]
+
+        event = (
+            await db_session.execute(
+                select(SubscriptionEvent).where(SubscriptionEvent.event_type == "number_released")
+            )
+        ).scalar_one()
+        assert event.payload == {"phone_number": self.NUMBER, "reason": "subscription_ended"}
+
+        # Nothing left to do.
+        assert (await _sweep(db_engine, now + timedelta(days=20))).changed == 0
+
+    async def test_subscribing_again_gets_the_number_back_straight_away(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from datetime import datetime
+
+        await self._lapsed(client, owner, agent, db_session)
+        await _sweep(db_engine, datetime.utcnow())
+        assert (await _number(db_engine, self.NUMBER)).status == "suspended"
+
+        await _set_subscription(db_session, owner, "active")
+        listed = await as_user(client, owner).get("/api/v1/phone-numbers")
+
+        assert listed.status_code == 200
+        assert listed.json()[0]["status"] == "active"
+        assert listed.json()[0]["release_after"] is None
+        row = await _number(db_engine, self.NUMBER)
+        assert row.status == "active"
+        assert "reclaim" not in row.provider_metadata
+        # Still knows which account it lives on.
+        assert row.provider_metadata["credential_source"] == "platform"
+        assert not _releases()
+
+    async def test_the_sweep_also_restores_a_returning_workspace(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from datetime import datetime, timedelta
+
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime.utcnow()
+        await _sweep(db_engine, now)
+        await _set_subscription(db_session, owner, "active")
+
+        # Well past the release date: paying again is what counts.
+        report = await _sweep(db_engine, now + timedelta(days=30))
+        assert report.restored == 1 and report.released == 0
+        assert (await _number(db_engine, self.NUMBER)).status == "active"
+        assert not _releases()
+
+    async def test_only_as_many_come_back_as_the_new_plan_has_room_for(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from datetime import datetime
+
+        await _buy_voicecon(client, owner, agent, "+14155550101")
+        await _buy_voicecon(client, owner, agent, "+14155550102")
+        await _set_subscription(db_session, owner, "expired")
+        await _sweep(db_engine, datetime.utcnow())
+
+        await _set_subscription(db_session, owner, "active")
+        await _limit_numbers(db_session, owner, 1)
+        await as_user(client, owner).get("/api/v1/phone-numbers")
+
+        assert (await _number(db_engine, "+14155550101")).status == "active"
+        held = await _number(db_engine, "+14155550102")
+        assert held.status == "suspended"
+        assert held.provider_metadata["reclaim"]["release_after"]
+
+        # And it cannot simply be switched back on.
+        res = await as_user(client, owner).patch(
+            f"/api/v1/phone-numbers/{held.id}", json={"status": "active"}
+        )
+        assert res.status_code == 400
+
+    async def test_a_number_on_the_customers_own_account_is_never_touched(
+        self, client, owner, agent, twilio_connected, platform_twilio, db_session, db_engine, sent_mail
+    ):
+        from datetime import datetime, timedelta
+
+        bought = await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": self.NUMBER,
+                "agent_id": str(agent.id),
+                "source": "own",
+                "connection_id": str(twilio_connected.id),
+            },
+        )
+        assert bought.status_code == 201, bought.text
+        await _set_subscription(db_session, owner, "expired")
+
+        now = datetime.utcnow()
+        await _sweep(db_engine, now)
+        report = await _sweep(db_engine, now + timedelta(days=60))
+
+        assert report.changed == 0
+        assert (await _number(db_engine, self.NUMBER)).status == "active"
+        assert not _releases() and not sent_mail
+
+    async def test_a_carrier_failure_keeps_the_number_and_tries_again(
+        self, client, owner, agent, platform_twilio, db_session, db_engine, monkeypatch, sent_mail
+    ):
+        from datetime import datetime, timedelta
+
+        from app.services.telephony.providers import NumberProviderError
+
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime.utcnow()
+        await _sweep(db_engine, now)
+
+        working = NumberProvider._request
+
+        async def down(self, method, path, **kwargs):
+            if method == "DELETE":
+                raise NumberProviderError("carrier is down", status_code=503)
+            return await working(self, method, path, **kwargs)
+
+        monkeypatch.setattr(NumberProvider, "_request", down)
+        failed = await _sweep(db_engine, now + timedelta(days=15))
+        assert failed.released == 0 and failed.failed == 1
+        row = await _number(db_engine, self.NUMBER)
+        assert row.status == "suspended"
+        assert row.provider_metadata["reclaim"]["attempts"] == 1
+        assert not any("released" in m["subject"] and "will be" not in m["subject"] for m in sent_mail)
+
+        monkeypatch.setattr(NumberProvider, "_request", working)
+        retried = await _sweep(db_engine, now + timedelta(days=15, minutes=15))
+        assert retried.released == 1
+        assert await _number(db_engine, self.NUMBER) is None
+
+    async def test_a_number_already_gone_at_the_carrier_is_cleared(
+        self, client, owner, agent, platform_twilio, db_session, db_engine, monkeypatch
+    ):
+        from datetime import datetime, timedelta
+
+        from app.services.telephony.providers import NumberProviderError
+
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime.utcnow()
+        await _sweep(db_engine, now)
+
+        working = NumberProvider._request
+
+        async def missing(self, method, path, **kwargs):
+            if method == "DELETE":
+                raise NumberProviderError("not found", status_code=404)
+            return await working(self, method, path, **kwargs)
+
+        monkeypatch.setattr(NumberProvider, "_request", missing)
+        report = await _sweep(db_engine, now + timedelta(days=15))
+        assert report.released == 1
+        assert await _number(db_engine, self.NUMBER) is None
+
+    async def test_with_no_grace_period_numbers_are_held_but_never_released(
+        self, client, owner, agent, platform_twilio, db_session, db_engine, monkeypatch, sent_mail
+    ):
+        from datetime import datetime, timedelta
+
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_RELEASE_GRACE_DAYS", 0)
+        await self._lapsed(client, owner, agent, db_session)
+        now = datetime.utcnow()
+
+        await _sweep(db_engine, now)
+        await _sweep(db_engine, now + timedelta(days=90))
+
+        row = await _number(db_engine, self.NUMBER)
+        assert row.status == "suspended"
+        assert row.provider_metadata["reclaim"]["release_after"] is None
+        assert not _releases()
+        assert len(sent_mail) == 1 and "released" not in sent_mail[0]["subject"]
+
+    async def test_a_suspended_workspace_is_treated_as_not_paying(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from datetime import datetime
+
+        await _buy_voicecon(client, owner, agent, self.NUMBER)
+        org = await db_session.get(Organization, await _org_id_of(db_session, owner))
+        org.is_active = False
+        await db_session.commit()
+
+        report = await _sweep(db_engine, datetime.utcnow())
+        assert report.suspended == 1
+
+    async def test_the_reconciler_runs_the_sweep(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from app.services.billing.reconciler import reconcile_subscriptions
+
+        await self._lapsed(client, owner, agent, db_session)
+        async with async_sessionmaker(db_engine, expire_on_commit=False)() as session:
+            await reconcile_subscriptions(session)
+
+        assert (await _number(db_engine, self.NUMBER)).status == "suspended"
+
+
+@pytest_asyncio.fixture
+async def platform_admin(db_session) -> User:
+    user = User(
+        email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=get_password_hash("password123"),
+        full_name="Admin",
+        is_active=True,
+        is_platform_admin=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestAdminNumberControls:
+    """What an operator sees and can do about numbers nobody is paying for."""
+
+    NUMBER = "+14155550101"
+
+    async def _held(self, client, owner, agent, db_session, db_engine, now):
+        await _buy_voicecon(client, owner, agent, self.NUMBER)
+        await _set_subscription(db_session, owner, "expired")
+        await _sweep(db_engine, now)
+
+    async def test_the_list_shows_what_is_on_hold_and_how_close_the_cap_is(
+        self, client, owner, agent, platform_twilio, platform_admin, db_session, db_engine, monkeypatch
+    ):
+        from datetime import datetime
+
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_DAILY_PURCHASE_CAP", 25)
+        monkeypatch.setattr(settings, "VOICECON_NUMBER_RELEASE_GRACE_DAYS", 14)
+        await self._held(client, owner, agent, db_session, db_engine, datetime(2026, 10, 1, 12, 0))
+
+        res = await as_user(client, platform_admin).get(
+            "/api/v1/admin/phone-numbers", params={"status": "suspended"}
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["summary"] == {
+            "on_hold": 1,
+            "release_grace_days": 14,
+            "purchases_24h": 1,
+            "daily_purchase_cap": 25,
+        }
+        row = body["items"][0]
+        assert row["phone_number"] == self.NUMBER
+        assert row["voicecon"] is True
+        assert row["release_after"].startswith("2026-10-15T12:00:00")
+
+    async def test_a_customer_cannot_use_the_admin_controls(
+        self, client, owner, agent, platform_twilio, db_session, db_engine
+    ):
+        from datetime import datetime
+
+        await self._held(client, owner, agent, db_session, db_engine, datetime.utcnow())
+        row = await _number(db_engine, self.NUMBER)
+
+        res = await as_user(client, owner).post(f"/api/v1/admin/phone-numbers/{row.id}/release")
+        assert res.status_code in (401, 403)
+        assert not _releases()
+
+    async def test_release_now_gives_the_number_back_to_the_carrier(
+        self, client, owner, agent, platform_twilio, platform_admin, db_session, db_engine
+    ):
+        from datetime import datetime
+
+        await self._held(client, owner, agent, db_session, db_engine, datetime.utcnow())
+        row = await _number(db_engine, self.NUMBER)
+
+        res = await as_user(client, platform_admin).post(
+            f"/api/v1/admin/phone-numbers/{row.id}/release"
+        )
+        assert res.status_code == 200, res.text
+        assert len(_releases()) == 1
+        assert await _number(db_engine, self.NUMBER) is None
+
+    async def test_keep_pushes_the_release_date_back(
+        self, client, owner, agent, platform_twilio, platform_admin, db_session, db_engine
+    ):
+        from datetime import datetime, timedelta
+
+        now = datetime.utcnow()
+        await self._held(client, owner, agent, db_session, db_engine, now - timedelta(days=13))
+        row = await _number(db_engine, self.NUMBER)
+
+        res = await as_user(client, platform_admin).post(
+            f"/api/v1/admin/phone-numbers/{row.id}/hold", json={"days": 14}
+        )
+        assert res.status_code == 200, res.text
+
+        # Past the original date, still inside the extension: not released.
+        report = await _sweep(db_engine, now + timedelta(days=5))
+        assert report.released == 0
+        assert (await _number(db_engine, self.NUMBER)).status == "suspended"
+
+    async def test_a_customers_own_number_cannot_be_released_from_the_console(
+        self, client, owner, agent, twilio_connected, platform_twilio, platform_admin, db_engine
+    ):
+        await as_user(client, owner).post(
+            "/api/v1/phone-numbers/provision",
+            json={
+                "phone_number": self.NUMBER,
+                "agent_id": str(agent.id),
+                "source": "own",
+                "connection_id": str(twilio_connected.id),
+            },
+        )
+        row = await _number(db_engine, self.NUMBER)
+
+        res = await as_user(client, platform_admin).post(
+            f"/api/v1/admin/phone-numbers/{row.id}/release"
+        )
+        assert res.status_code == 400
+        assert not _releases()

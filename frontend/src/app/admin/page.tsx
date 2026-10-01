@@ -144,7 +144,10 @@ export default function AdminOverviewPage() {
           value={k ? formatNumber(k.calls_30d) : '—'}
           hint={k ? `${formatNumber(k.minutes_30d)} minutes · ${k.calls_24h} today` : undefined} />
         <StatCard label="Agents" icon={Bot} value={k ? formatNumber(k.agents_total) : '—'} />
-        <StatCard label="Active phone numbers" icon={Hash} value={k ? formatNumber(k.phone_numbers_active) : '—'} />
+        <StatCard label="Active phone numbers" icon={Hash}
+          tone={k && k.phone_numbers_on_hold > 0 ? 'warning' : 'default'}
+          value={k ? formatNumber(k.phone_numbers_active) : '—'}
+          hint={k && k.phone_numbers_on_hold > 0 ? `${k.phone_numbers_on_hold} on hold, awaiting release` : undefined} />
         <StatCard label="Failed calls (24h)" icon={XCircle}
           tone={k && k.failed_calls_24h > 0 ? 'warning' : 'default'}
           value={k ? formatNumber(k.failed_calls_24h) : '—'} />

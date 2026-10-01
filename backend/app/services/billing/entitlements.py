@@ -510,7 +510,11 @@ class EntitlementService:
                 catalog.LIMIT_PHONE_NUMBERS,
                 PhoneNumber,
                 PhoneNumber.organization_id,
-                PhoneNumber.status == "active",
+                # Every number still held counts, whatever it is doing: a
+                # number switched off or on hold is still rented from the
+                # carrier, and "switch it off, buy another" must not be a way
+                # past the plan's allowance.
+                PhoneNumber.status != "released",
             ),
             (
                 catalog.LIMIT_KNOWLEDGE_BASES,

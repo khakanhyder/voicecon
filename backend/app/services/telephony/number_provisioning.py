@@ -15,8 +15,10 @@ from app.core.config import settings
 from app.models.agent import Agent
 from app.models.call import PhoneNumber
 from app.models.user import User
+from app.services.telephony import number_guard
 from app.services.telephony.provider_registry import (
     CREDENTIAL_SOURCE_KEY,
+    PLATFORM_SOURCE,
     ResolvedProvider,
     resolve_provider,
 )
@@ -96,10 +98,22 @@ async def purchase_number_for_agent(
         NumberProviderError: the carrier refused the purchase.
         WebhookUrlNotConfigured: the server has no public URL.
         NumberNotRecordedError: bought, but the local row could not be written.
+        EntitlementError (402): the plan has no room for another number.
+        HTTPException (409/429/503): the workspace is mid-purchase, or a daily
+            cap on Voicecon numbers was reached — see ``number_guard``.
     """
     resolved = await resolve_provider(
         db, agent.organization_id, slug=provider, connection_id=connection_id
     )
+    voicecon = resolved.option.source == PLATFORM_SOURCE
+    # Read now: after a rollback these would need a reload the session can't do.
+    organization_id, buyer_id = agent.organization_id, user.id
+
+    # From here to the commit below nothing may commit: the workspace lock
+    # taken here is what makes "has room" and "bought one" a single step.
+    entitlements = await number_guard.hold_number_slot(db, organization_id)
+    if voicecon:
+        await number_guard.reserve_voicecon_purchase(db, organization_id, entitlements)
 
     purchased = await resolved.provider.purchase_number(
         phone_number=phone_number,
@@ -138,11 +152,31 @@ async def purchase_number_for_agent(
         )
 
         db.add(record)
+        if voicecon:
+            await number_guard.record_voicecon_purchase(
+                db,
+                organization_id,
+                phone_number=purchased.phone_number,
+                user_id=buyer_id,
+            )
         await db.commit()
         await db.refresh(record)
 
     except Exception as e:
         await db.rollback()
+        if voicecon:
+            # We are paying for it whether or not the row was saved, so it
+            # still counts against the daily cap.
+            try:
+                await number_guard.record_voicecon_purchase(
+                    db,
+                    organization_id,
+                    phone_number=purchased.phone_number,
+                    user_id=buyer_id,
+                )
+                await db.commit()
+            except Exception:  # noqa: BLE001
+                await db.rollback()
         logger.error(
             f"Purchased {purchased.phone_number} on {resolved.slug} but failed to "
             f"record it: {e}",
@@ -154,4 +188,6 @@ async def purchase_number_for_agent(
         f"Provisioned {purchased.phone_number} on {resolved.slug} "
         f"({resolved.option.source}, record {record.id})"
     )
+    if voicecon:
+        await number_guard.alert_if_cap_now_reached(db, organization_id)
     return record, resolved
