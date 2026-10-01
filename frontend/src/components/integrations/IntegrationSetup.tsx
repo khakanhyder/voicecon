@@ -31,6 +31,8 @@ interface IntegrationSetupProps {
   existingConnectionId?: string
   onDisconnected?: () => void
   onConnected?: (connectionId: string) => void
+  /** Where Cancel goes; the Integrations list unless the visit began elsewhere. */
+  cancelHref?: string
 }
 
 type ConnectionStatus = 'idle' | 'connecting' | 'testing' | 'success' | 'error'
@@ -106,6 +108,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
   existingConnectionId,
   onDisconnected,
   onConnected,
+  cancelHref = '/dashboard/integrations',
 }) => {
   const router = useRouter()
   const [status, setStatus] = useState<ConnectionStatus>('idle')
@@ -554,7 +557,7 @@ export const IntegrationSetup: React.FC<IntegrationSetupProps> = ({
                   </Button>
                 )}
 
-                <Button variant="outline" onClick={() => router.push('/dashboard/integrations')} size="lg">
+                <Button variant="outline" onClick={() => router.push(cancelHref)} size="lg">
                   Cancel
                 </Button>
               </>

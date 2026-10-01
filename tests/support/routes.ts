@@ -52,7 +52,9 @@ export const ROUTES = {
   calls: v1('calls'),
   workflows: v1('workflows'),
   phoneNumbers: v1('phone-numbers'),
+  phoneNumberPurchaseOptions: v1('phone-numbers/purchase-options'),
   integrationConnections: v1('integrations/connections'),
+  integrationConnectors: v1('integrations/connectors'),
   knowledgeBases: v1('knowledge/knowledge-bases'),
   tools: v1('tools'),
 } as const

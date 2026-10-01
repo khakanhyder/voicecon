@@ -29,7 +29,7 @@ import {
   formatMonthly, formatPhoneNumber, friendlyPhoneError, hasSms, hasVoice, phoneNumberService,
 } from '@/lib/phoneNumbers'
 import { BuyNumberDialog } from '@/components/phone-numbers/BuyNumberDialog'
-import { OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
+import { ConnectedAccounts, OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
 import { ImportNumbersDialog } from '@/components/phone-numbers/ImportNumbersDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -265,6 +265,9 @@ export default function PhoneNumbersPage() {
   // Number ids with a reassignment in flight.
   const [assigning, setAssigning] = useState<Set<string>>(new Set())
   const [options, setOptions] = useState<PurchaseOptions | null>(null)
+  // The empty state depends on whether a provider is connected, so it waits
+  // for the first answer rather than flashing the wrong one.
+  const [optionsLoading, setOptionsLoading] = useState(true)
 
   // Which dialog is open. `buy` carries the flow and, for own-provider
   // purchases, the connected account to buy on.
@@ -296,6 +299,8 @@ export default function PhoneNumbersPage() {
       setOptions(await phoneNumberService.purchaseOptions())
     } catch {
       setOptions(null) // the dialogs still work; they report their own errors
+    } finally {
+      setOptionsLoading(false)
     }
   }, [])
 
@@ -381,6 +386,15 @@ export default function PhoneNumbersPage() {
 
   const voiceconDown = options?.voicecon_available === false
   const hasNumbers = numbers.length > 0
+  const ownProviders = options?.own_providers ?? []
+  const importFromAccount = (provider: OwnProvider) => {
+    setOwnOpen(false)
+    setImportFrom(provider)
+  }
+  const buyOnAccount = (provider: OwnProvider) => {
+    setOwnOpen(false)
+    setBuy({ source: 'own', provider })
+  }
 
   return (
     <div className="space-y-6">
@@ -448,7 +462,7 @@ export default function PhoneNumbersPage() {
 
       {/* Numbers */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white card-shadow">
-        {isLoading && numbers.length === 0 ? (
+        {(isLoading || optionsLoading) && numbers.length === 0 ? (
           <div className="divide-y divide-slate-100">
             {[1, 2, 3].map((i) => (
               <div key={i} className="flex animate-pulse items-center gap-4 px-6 py-4">
@@ -471,6 +485,43 @@ export default function PhoneNumbersPage() {
             >
               <RefreshCw className="h-4 w-4" /> Try again
             </button>
+          </div>
+        ) : ownProviders.length > 0 && numbers.length === 0 ? (
+          // A provider is connected: offer its account instead of the two
+          // ways to get started, which the user has already chosen between.
+          <div className="px-5 py-10 sm:px-10 sm:py-14">
+            <div className="mx-auto max-w-lg text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0F6A59]/10 ring-8 ring-[#0F6A59]/[0.04]">
+                <Plug className="h-6 w-6 text-[#0F6A59]" />
+              </div>
+              <h3 className="mt-5 font-poppins text-xl font-semibold tracking-tight text-slate-900 sm:text-[22px]">
+                Your provider is connected
+              </h3>
+              <p className="mt-1.5 text-[14px] text-slate-500">
+                Use a number you already have on your account, or buy a new one on it.
+              </p>
+            </div>
+            <div className="mx-auto mt-8 max-w-2xl">
+              <ConnectedAccounts providers={ownProviders} onImportFrom={importFromAccount} onUseAccount={buyOnAccount} />
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[13px]">
+                <button
+                  type="button"
+                  onClick={() => setOwnOpen(true)}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-[#0F6A59] hover:underline sm:min-h-0"
+                >
+                  <Plug className="h-3.5 w-3.5" /> Connect another provider
+                </button>
+                {!voiceconDown && (
+                  <button
+                    type="button"
+                    onClick={openVoicecon}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-slate-600 hover:underline sm:min-h-0"
+                  >
+                    <Phone className="h-3.5 w-3.5" /> Buy a Voicecon number instead
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         ) : numbers.length === 0 ? (
           <div className="px-5 py-10 sm:px-10 sm:py-14">
@@ -612,14 +663,8 @@ export default function PhoneNumbersPage() {
         open={ownOpen}
         onClose={() => setOwnOpen(false)}
         options={options}
-        onUseAccount={(provider) => {
-          setOwnOpen(false)
-          setBuy({ source: 'own', provider })
-        }}
-        onImportFrom={(provider) => {
-          setOwnOpen(false)
-          setImportFrom(provider)
-        }}
+        onUseAccount={buyOnAccount}
+        onImportFrom={importFromAccount}
       />
       <ImportNumbersDialog
         provider={importFrom}

@@ -17,6 +17,12 @@ interface Props {
 }
 
 /**
+ * Marks a visit to a provider's Integrations page as having started here, so
+ * connecting it returns to Phone Numbers instead of staying on Integrations.
+ */
+export const PHONE_NUMBERS_ORIGIN = 'phone-numbers'
+
+/**
  * The advanced flow: bring your own carrier account.
  *
  * This is deliberately the only place provider names appear. Connecting
@@ -50,39 +56,7 @@ export function OwnProviderDialog({ open, onClose, options, onUseAccount, onImpo
         {own.length > 0 && (
           <section>
             <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Connected accounts</h3>
-            <ul className="space-y-2">
-              {own.map((p) => (
-                <li
-                  key={p.connection_id ?? p.slug}
-                  className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"
-                >
-                  <ProviderLogo slug={p.slug} name={p.name} />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-900">
-                      {p.name}
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Connected" />
-                    </p>
-                    <p className="truncate text-[12px] text-slate-500">{p.connection_name || 'Your account'}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onImportFrom(p)}
-                      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-[13px] font-semibold text-white hover:bg-[#0c5a4b]"
-                    >
-                      <Download className="h-4 w-4" /> Use my numbers
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onUseAccount(p)}
-                      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Buy new <ArrowRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <ConnectedAccounts providers={own} onImportFrom={onImportFrom} onUseAccount={onUseAccount} />
           </section>
         )}
 
@@ -94,7 +68,7 @@ export function OwnProviderDialog({ open, onClose, options, onUseAccount, onImpo
             {supported.map((p) => (
               <li key={p.slug}>
                 <Link
-                  href={`/dashboard/integrations/${p.slug}`}
+                  href={`/dashboard/integrations/${p.slug}?from=${PHONE_NUMBERS_ORIGIN}`}
                   className="group flex h-full items-start gap-3 rounded-xl border border-slate-200 p-4 transition-colors hover:border-[#0F6A59]/40 hover:bg-[#0F6A59]/[0.03]"
                 >
                   <ProviderLogo slug={p.slug} name={p.name} />
@@ -125,6 +99,55 @@ export function OwnProviderDialog({ open, onClose, options, onUseAccount, onImpo
         </p>
       </div>
     </PhoneDialog>
+  )
+}
+
+/**
+ * The workspace's connected carrier accounts, each with its two ways to get a
+ * number: add ones already on the account, or buy a new one on it. Shown in
+ * the dialog and, once an account is connected, on the Phone Numbers page.
+ */
+export function ConnectedAccounts({
+  providers, onImportFrom, onUseAccount,
+}: {
+  providers: OwnProvider[]
+  onImportFrom: (provider: OwnProvider) => void
+  onUseAccount: (provider: OwnProvider) => void
+}) {
+  return (
+    <ul className="space-y-2">
+      {providers.map((p) => (
+        <li
+          key={p.connection_id ?? p.slug}
+          className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left sm:flex-row sm:items-center"
+        >
+          <ProviderLogo slug={p.slug} name={p.name} />
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 text-[14px] font-semibold text-slate-900">
+              {p.name}
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Connected" />
+            </p>
+            <p className="truncate text-[12px] text-slate-500">{p.connection_name || 'Your account'}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onImportFrom(p)}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#0F6A59] px-4 text-[13px] font-semibold text-white hover:bg-[#0c5a4b]"
+            >
+              <Download className="h-4 w-4" /> Use my numbers
+            </button>
+            <button
+              type="button"
+              onClick={() => onUseAccount(p)}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Buy new <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 

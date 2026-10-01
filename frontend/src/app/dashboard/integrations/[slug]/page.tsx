@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConnectionDefaults } from '@/components/integrations/ConnectionDefaults'
@@ -9,6 +9,7 @@ import { IntegrationSetup } from '@/components/integrations/IntegrationSetup'
 import { getIconUrl } from '@/components/integrations/IntegrationCard'
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { PHONE_NUMBERS_ORIGIN } from '@/components/phone-numbers/OwnProviderDialog'
 
 interface ApiConnection { id: string; status: string; connector: { id: string; slug: string } }
 interface Connector { id: string; slug: string; name: string; auth_type: string }
@@ -522,6 +523,10 @@ export default function IntegrationDetailPage() {
   const router = useRouter()
   const params = useParams()
   const slug = params?.slug as string
+  // Opened from Phone Numbers to connect a carrier: go back there afterwards,
+  // where the newly connected account is offered.
+  const fromPhoneNumbers = useSearchParams()?.get('from') === PHONE_NUMBERS_ORIGIN
+  const backHref = fromPhoneNumbers ? '/dashboard/phone-numbers' : '/dashboard/integrations'
 
   const [integration, setIntegration] = useState<any>(null)
   const [connectorId, setConnectorId] = useState<string | undefined>()
@@ -588,8 +593,8 @@ export default function IntegrationDetailPage() {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <Button variant="ghost" onClick={() => router.push('/dashboard/integrations')} className="mb-4 gap-2 -ml-2 text-slate-600">
-          <ArrowLeft className="w-4 h-4" /> Back to Integrations
+        <Button variant="ghost" onClick={() => router.push(backHref)} className="mb-4 gap-2 -ml-2 text-slate-600">
+          <ArrowLeft className="w-4 h-4" /> {fromPhoneNumbers ? 'Back to Phone Numbers' : 'Back to Integrations'}
         </Button>
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="flex items-start gap-4">
@@ -631,7 +636,13 @@ export default function IntegrationDetailPage() {
         connectorId={connectorId}
         existingConnectionId={existingConnectionId}
         onDisconnected={() => setExistingConnectionId(undefined)}
-        onConnected={(id) => setExistingConnectionId(id)}
+        onConnected={(id) => {
+          // Leaving straight away: don't mount the defaults panel for a page
+          // that is about to go.
+          if (fromPhoneNumbers) router.push('/dashboard/phone-numbers')
+          else setExistingConnectionId(id)
+        }}
+        cancelHref={backHref}
       />
 
       {/* Asked once, here, so no workflow ever has to. Only shown after the
