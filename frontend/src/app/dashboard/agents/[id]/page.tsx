@@ -597,7 +597,9 @@ export default function AgentDetailPage() {
           first_message:     a.first_message   || '',
           llm_provider:      llmProvider,
           llm_model:         llmModel,
-          llm_temperature:   Number(a.llm_temperature)  || 0.7,
+          // `??`, not `||`: 0 is a real setting, and was shown (and then
+          // saved back) as the default.
+          llm_temperature:   Number(a.llm_temperature ?? 0.7),
           llm_max_tokens:    a.llm_max_tokens  || 1000,
           llm_custom_url:    a.llm_custom_url  || '',
           tts_provider:      ttsProvider,
@@ -609,7 +611,7 @@ export default function AgentDetailPage() {
           stt_language:      a.stt_language    || 'en',
           stt_keywords:      Array.isArray(a.stt_keywords) ? a.stt_keywords : [],
           interrupt_enabled: a.interrupt_enabled ?? true,
-          interrupt_sensitivity: Number(a.interrupt_sensitivity) || 0.5,
+          interrupt_sensitivity: Number(a.interrupt_sensitivity ?? 0.5),
           silence_timeout:   a.silence_timeout || 1000,
           max_call_duration: a.max_call_duration || 1800,
           background_noise_reduction: a.background_noise_reduction ?? true,

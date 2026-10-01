@@ -37,7 +37,7 @@ from app.schemas.agent import (
     AgentCloneRequest,
 )
 from app.services.agent_service import get_agent_service, AgentVersionConflict
-from app.services.voice.llm_service import get_llm_service, ChatMessage
+from app.services.voice.llm_service import get_llm_service, ChatMessage, cap_stream, trim_to_tokens
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
@@ -482,13 +482,13 @@ async def test_agent(
 
         # Generate response
         response_text = ""
-        async for chunk in llm_service.chat_stream(
+        async for chunk in cap_stream(llm_service.chat_stream(
             messages=messages,
             provider=agent.llm_provider,
             model=agent.llm_model,
             temperature=float(agent.llm_temperature),
             max_tokens=agent.llm_max_tokens,
-        ):
+        ), agent.llm_max_tokens):
             response_text += chunk
 
         # Calculate latency
@@ -867,7 +867,7 @@ async def agent_respond(
                             role="function", name=fcall.name, content=tool_result,
                         ))
                         continue
-                    resolved_text = completion.content or ""
+                    resolved_text = trim_to_tokens(completion.content or "", max_tokens_cap)
                     break
 
                 full_response = resolved_text
@@ -881,13 +881,13 @@ async def agent_respond(
                         yield f"data: {payload}\n\n"
             else:
                 # ── No tools: original low-latency streaming path (unchanged) ──
-                async for chunk in llm_service.chat_stream(
+                async for chunk in cap_stream(llm_service.chat_stream(
                     messages=messages,
                     provider=agent.llm_provider,
                     model=llm_model,
                     temperature=float(agent.llm_temperature),
                     max_tokens=max_tokens_cap,
-                ):
+                ), max_tokens_cap):
                     full_response += chunk
                     sentence_buffer += chunk
 

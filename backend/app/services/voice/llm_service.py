@@ -19,6 +19,56 @@ from app.core.runtime_settings import key_fingerprint
 
 logger = logging.getLogger(__name__)
 
+#: Rough characters per token, for holding a reply to a token budget.
+CHARS_PER_TOKEN = 4
+
+
+def trim_to_tokens(text: str, max_tokens: Optional[int]) -> str:
+    """
+    Hold a finished reply to roughly `max_tokens`, ending on a sentence where
+    one is close.
+
+    The provider's own limit cannot do this for a model that thinks before it
+    answers: thinking is billed against the same limit, so the request has to
+    allow far more than the reply should be (see _REASONING_HEADROOM), and
+    the agent's Max Token setting then limited nothing.
+    """
+    if not text or not max_tokens:
+        return text
+    budget = int(max_tokens) * CHARS_PER_TOKEN
+    if len(text) <= budget:
+        return text
+    cut = text[:budget]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    if end >= budget // 2:
+        return cut[: end + 1]
+    return cut[: cut.rfind(" ")].rstrip() if " " in cut.strip() else cut
+
+
+async def cap_stream(stream, max_tokens: Optional[int]):
+    """
+    Pass a chat stream through until its text reaches roughly `max_tokens`,
+    then stop it — trim_to_tokens for a reply that is still being written.
+    Tool-call chunks pass through untouched.
+    """
+    budget = int(max_tokens) * CHARS_PER_TOKEN if max_tokens else None
+    try:
+        async for chunk in stream:
+            if budget is None or not isinstance(chunk, str):
+                yield chunk
+                continue
+            if len(chunk) >= budget:
+                # The budget ends inside this chunk: keep the whole words of it.
+                head = chunk[:budget]
+                yield head if len(chunk) == budget else head[: head.rfind(" ") + 1]
+                return
+            budget -= len(chunk)
+            yield chunk
+    finally:
+        aclose = getattr(stream, "aclose", None)
+        if aclose is not None:
+            await aclose()
+
 
 class ConversationContext:
     """
@@ -363,7 +413,12 @@ class LLMService:
             **kwargs
         )
 
-        result = await provider_instance.chat_completion(messages, functions=functions, **kwargs)
+        # Passed with the call, not left to the instance: providers are cached
+        # per model, so the instance holds whichever agent's settings created
+        # it, and every other agent on that model silently inherited them.
+        result = await provider_instance.chat_completion(
+            messages, functions=functions, temperature=temperature, max_tokens=max_tokens, **kwargs
+        )
         return result
 
     async def chat_stream(
@@ -410,7 +465,10 @@ class LLMService:
             **kwargs
         )
 
-        async for chunk in provider_instance.chat_completion_stream(messages, functions=functions, **kwargs):
+        # As in chat(): this call's settings, not the cached instance's.
+        async for chunk in provider_instance.chat_completion_stream(
+            messages, functions=functions, temperature=temperature, max_tokens=max_tokens, **kwargs
+        ):
             yield chunk
 
     async def get_usage_stats(self, provider: Optional[str] = None) -> list:

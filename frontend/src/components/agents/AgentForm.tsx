@@ -192,14 +192,18 @@ export interface AgentFormState {
   version: number
 }
 
+// Starting values for a new agent, set to behave like other voice platforms
+// out of the box: steady wording, short replies, a single word interrupts, and
+// a quick reply once the caller has finished. Keep in step with the defaults
+// in backend/app/schemas/agent.py and backend/app/models/agent.py.
 export const DEFAULT_FORM: AgentFormState = {
   name: '', description: '', system_prompt: '',
   first_message: 'Hello! How can I help you today?',
-  llm_provider: 'openai', llm_model: 'gpt-5.4-nano', llm_temperature: 0.7, llm_max_tokens: 1000, llm_custom_url: '',
+  llm_provider: 'openai', llm_model: 'gpt-5.4-nano', llm_temperature: 0.3, llm_max_tokens: 250, llm_custom_url: '',
   tts_provider: 'elevenlabs', tts_voice_id: '21m00Tcm4TlvDq8ikWAM', tts_speed: 1.0, tts_pitch: 1.0,
   stt_provider: 'deepgram', stt_model: 'nova-2', stt_language: 'en', stt_keywords: [],
-  interrupt_enabled: true, interrupt_sensitivity: 0.5,
-  silence_timeout: 1000, max_call_duration: 1800,
+  interrupt_enabled: true, interrupt_sensitivity: 0.8,
+  silence_timeout: 800, max_call_duration: 1800,
   background_noise_reduction: true, sentiment_analysis_enabled: false, emotion_detection_enabled: false,
   knowledge_base_ids: [],
   end_call_phrases: [],
@@ -214,10 +218,12 @@ export const DEFAULT_FORM: AgentFormState = {
 const HELP = {
   temperature:
     'How varied the replies are. Lower is more predictable and consistent, higher is more creative. ' +
-    '0.3–0.7 suits most voice agents. Claude models cap this at 1.0.',
+    '0.3–0.7 suits most voice agents. Claude models cap this at 1.0, and some models (GPT-5.5) ' +
+    'only run at their own fixed setting and ignore this.',
   maxTokens:
     'The longest a single reply may be. It is a ceiling, not a target: replies stay short because the ' +
-    'agent is told to keep them brief. Raise it if replies are cut off mid-sentence.',
+    'agent is told to keep them brief. 250 is about 150 words, already a long spoken answer. Raise it ' +
+    'if replies are cut off mid-sentence.',
   speechSpeed:
     'How fast the voice speaks. 1.0x is the voice\'s natural pace; slow it down so callers can follow ' +
     'names, numbers and read-backs.',

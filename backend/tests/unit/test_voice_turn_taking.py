@@ -562,3 +562,85 @@ async def test_sentences_are_spoken_as_they_complete():
     assert done == []
     done, rest = turn_taking.pop_sentences("Okay.", final=True)
     assert done == ["Okay."] and rest == ""
+
+
+# ── The agent's LLM settings reach the model ─────────────────────────────────
+
+
+async def test_each_call_uses_its_own_agents_temperature_and_max_tokens(monkeypatch):
+    # Providers are cached per model. Two agents on one model must still each
+    # get their own settings, not those of whichever agent called first.
+    from app.services.voice import llm_service as llm_module
+
+    seen = []
+
+    class Provider:
+        def __init__(self, **kwargs):
+            pass
+
+        async def chat_completion(self, messages, functions=None, **kwargs):
+            seen.append((kwargs["temperature"], kwargs["max_tokens"]))
+            return SimpleNamespace(content="ok")
+
+        async def chat_completion_stream(self, messages, functions=None, **kwargs):
+            seen.append((kwargs["temperature"], kwargs["max_tokens"]))
+            yield "ok"
+
+    service = llm_module.LLMService()
+    monkeypatch.setattr(service, "PROVIDERS", {"openai": Provider})
+    monkeypatch.setattr(service, "_get_api_key", lambda provider: "key")
+
+    await service.chat([], provider="openai", model="m", temperature=0.4, max_tokens=100)
+    await service.chat([], provider="openai", model="m", temperature=0.4, max_tokens=900)
+    async for _ in service.chat_stream([], provider="openai", model="m", temperature=0.0, max_tokens=250):
+        pass
+
+    assert seen == [(0.4, 100), (0.4, 900), (0.0, 250)]
+
+
+async def test_max_token_limits_the_reply_even_when_the_model_was_given_more_room():
+    from app.services.voice.llm_service import cap_stream, trim_to_tokens
+
+    long_reply = "This sentence is here to fill the reply up. " * 40  # ~1,760 characters
+
+    async def stream():
+        for word in long_reply.split(" "):
+            yield word + " "
+        yield {"function_call": {"name": "never_reached"}}
+
+    heard = [c async for c in cap_stream(stream(), 100)]
+    assert all(isinstance(c, str) for c in heard)
+    assert 350 <= len("".join(heard)) <= 400  # 100 tokens is about 400 characters
+
+    trimmed = trim_to_tokens(long_reply, 100)
+    assert len(trimmed) <= 400 and trimmed.endswith(".")
+    assert trim_to_tokens("Short.", 100) == "Short."
+
+    # The budget running out on a bare space (a common streamed chunk).
+    async def spaced():
+        for chunk in ("abcd", " ", "efgh"):
+            yield chunk
+
+    assert "".join([c async for c in cap_stream(spaced(), 1)]) == "abcd"
+
+    # A tool call is not text and is never held back.
+    async def tool():
+        yield {"function_call": {"name": "book"}}
+
+    assert [c async for c in cap_stream(tool(), 100)] == [{"function_call": {"name": "book"}}]
+
+
+async def test_a_temperature_of_zero_is_sent_as_zero(monkeypatch):
+    session, _ = make_session(monkeypatch, lambda m: "Okay.", llm_temperature=0)
+    sent = {}
+    real = session.llm_service.chat_stream
+
+    def spy(messages, **kwargs):
+        sent.update(kwargs)
+        return real(messages, **kwargs)
+
+    session.llm_service.chat_stream = spy
+    await caller_says(session, "Hello there.")
+    await settle(session)
+
+    assert sent["temperature"] == 0.0 and sent["max_tokens"] == 200

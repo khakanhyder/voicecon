@@ -41,8 +41,10 @@ export default function NewAgentPage() {
         system_prompt: form.system_prompt, first_message: form.first_message,
         llm:      { provider: form.llm_provider, model: form.llm_model, temperature: form.llm_temperature, max_tokens: form.llm_max_tokens },
         voice:    { provider: form.tts_provider, voice_id: form.tts_voice_id, speed: form.tts_speed, pitch: form.tts_pitch },
-        stt:      { provider: form.stt_provider, model: form.stt_model, language: form.stt_language },
-        settings: { interrupt_enabled: form.interrupt_enabled, interrupt_sensitivity: form.interrupt_sensitivity, silence_timeout: form.silence_timeout, max_call_duration: form.max_call_duration },
+        stt:      { provider: form.stt_provider, model: form.stt_model, language: form.stt_language, keywords: form.stt_keywords },
+        // end_call_phrases was missing here, so phrases typed while creating
+        // an agent were dropped and only stuck after a later edit.
+        settings: { interrupt_enabled: form.interrupt_enabled, interrupt_sensitivity: form.interrupt_sensitivity, silence_timeout: form.silence_timeout, max_call_duration: form.max_call_duration, end_call_phrases: form.end_call_phrases },
         advanced: { background_noise_reduction: form.background_noise_reduction, sentiment_analysis_enabled: form.sentiment_analysis_enabled, emotion_detection_enabled: form.emotion_detection_enabled },
       })
       // Knowledge bases attach to an agent that already exists, so the "Files"

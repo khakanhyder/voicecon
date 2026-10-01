@@ -17,8 +17,10 @@ class LLMConfig(BaseModel):
     # A blank model silently became "I'm having a technical issue" on every
     # reply, with no indication in the UI that anything was wrong (B1).
     model: str = Field(default="gpt-5.4-nano", min_length=1, description="Model name")
-    temperature: Decimal = Field(default=Decimal("0.7"), ge=0, le=2, description="Temperature (0-2)")
-    max_tokens: int = Field(default=1000, ge=1, le=4000, description="Max tokens")
+    # Defaults for a new agent mirror the agent form (DEFAULT_FORM in
+    # AgentForm.tsx): steady wording and short spoken replies.
+    temperature: Decimal = Field(default=Decimal("0.3"), ge=0, le=2, description="Temperature (0-2)")
+    max_tokens: int = Field(default=250, ge=1, le=4000, description="Max tokens")
     api_key: Optional[str] = Field(default=None, description="Custom API key (will be encrypted)")
 
 
@@ -48,9 +50,9 @@ class STTConfig(BaseModel):
 class ConversationSettings(BaseModel):
     """Conversation settings schema."""
     interrupt_enabled: bool = Field(default=True, description="Allow user interruptions")
-    interrupt_sensitivity: Decimal = Field(default=Decimal("0.5"), ge=0, le=1, description="Interrupt sensitivity")
+    interrupt_sensitivity: Decimal = Field(default=Decimal("0.8"), ge=0, le=1, description="Interrupt sensitivity")
     silence_timeout: int = Field(
-        default=1000, ge=500, le=10000,
+        default=800, ge=500, le=10000,
         description="Pause (ms) after the caller stops speaking before the agent replies",
     )
     max_call_duration: int = Field(default=1800, ge=60, le=7200, description="Max call duration (seconds)")

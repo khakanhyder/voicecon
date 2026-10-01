@@ -27,7 +27,7 @@ from app.services.voice.turn_taking import (
     is_echo,
     pop_sentences,
 )
-from app.services.voice.llm_service import get_llm_service, ConversationContext
+from app.services.voice.llm_service import get_llm_service, ConversationContext, cap_stream
 from app.services.voice.providers.base import ChatMessage
 from app.services.workflows.channels import VoiceChannel
 from app.services.websocket.connection_manager import ConnectionManager
@@ -1312,7 +1312,10 @@ class VoiceSession:
             # SQLAlchemy hands back a Decimal, which the provider SDKs cannot
             # JSON-encode into the request body — every turn failed with
             # "Object of type Decimal is not JSON serializable".
-            temperature = float(self.agent.llm_temperature or 0.7)
+            # `is None`, not `or`: a temperature of 0 is a setting, and was
+            # being read as "unset" and replaced with 0.7.
+            raw_temperature = self.agent.llm_temperature
+            temperature = float(raw_temperature) if raw_temperature is not None else 0.7
             # The agent's Max Token setting; was a hardcoded 500.
             max_tokens = int(self.agent.llm_max_tokens or 400)
 
@@ -1346,13 +1349,13 @@ class VoiceSession:
             else:
                 # Standard streaming response
                 response_chunks = []
-                stream = self.llm_service.chat_stream(
+                stream = cap_stream(self.llm_service.chat_stream(
                     messages=messages,
                     provider=provider,
                     model=model,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                )
+                ), max_tokens)
                 try:
                     async for chunk in stream:
                         response_chunks.append(chunk)
@@ -1414,14 +1417,14 @@ class VoiceSession:
             function_call = None
 
             stopped = False
-            stream = self.llm_service.chat_stream(
+            stream = cap_stream(self.llm_service.chat_stream(
                 messages=messages,
                 provider=provider,
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 functions=functions,
-            )
+            ), max_tokens)
             try:
                 async for chunk in stream:
                     # Check if this is a function call

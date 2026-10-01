@@ -37,8 +37,8 @@ class Agent(Base):
     # LLM Configuration
     llm_provider: Mapped[str] = mapped_column(String(50), default="openai")
     llm_model: Mapped[str] = mapped_column(String(100), default="gpt-4")
-    llm_temperature: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.7"))
-    llm_max_tokens: Mapped[int] = mapped_column(Integer, default=1000)
+    llm_temperature: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.3"))
+    llm_max_tokens: Mapped[int] = mapped_column(Integer, default=250)
     llm_api_key_encrypted: Mapped[Optional[str]] = mapped_column(Text)
 
     # Voice Configuration (TTS)
@@ -59,9 +59,9 @@ class Agent(Base):
 
     # Conversation Settings
     interrupt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    interrupt_sensitivity: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.5"))
+    interrupt_sensitivity: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.8"))
     # Pause (ms) that ends the caller's turn — Deepgram endpointing.
-    silence_timeout: Mapped[int] = mapped_column(Integer, default=1000)  # milliseconds
+    silence_timeout: Mapped[int] = mapped_column(Integer, default=800)  # milliseconds
     max_call_duration: Mapped[int] = mapped_column(Integer, default=1800)  # seconds
     end_call_phrases: Mapped[List[str]] = mapped_column(JSON, default=list)
 

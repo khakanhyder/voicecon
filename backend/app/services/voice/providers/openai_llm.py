@@ -135,7 +135,9 @@ class OpenAILLM(BaseLLMProvider):
     #: Models that reason at medium effort unless told otherwise. Later GPT-5.x
     #: models (gpt-5.1 on) default to no reasoning and are left alone, which
     #: is why the original family is matched as "gpt-5" exactly or "gpt-5-".
-    _REASONS_BY_DEFAULT = ("gpt-5-", "o1", "o3", "o4")
+    #: GPT-5.5 went back to reasoning by default: measured 2.5s a reply
+    #: against 1.2s at low effort, for the same one-sentence answer.
+    _REASONS_BY_DEFAULT = ("gpt-5-", "gpt-5.5", "o1", "o3", "o4")
 
     #: model id -> sampling params that model has rejected. Learned from the
     #: API's own error rather than a hand-kept list that goes stale with every

@@ -17,7 +17,7 @@ from app.models.agent import Agent
 from app.services.function_executor import get_function_executor, sanitize_function_name
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.services.voice.guardrails import CONDUCT_RULES
-from app.services.voice.llm_service import get_llm_service
+from app.services.voice.llm_service import get_llm_service, trim_to_tokens
 from app.services.voice.providers.base import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -88,14 +88,16 @@ class AgentChatService:
                 messages=messages,
                 provider=agent.llm_provider,
                 model=model,
-                temperature=float(agent.llm_temperature or 0.7),
+                temperature=float(agent.llm_temperature) if agent.llm_temperature is not None else 0.7,
                 max_tokens=int(agent.llm_max_tokens or 600),
                 functions=func_defs or None,
             )
 
             fcall = getattr(completion, "function_call", None)
             if not fcall:
-                return ChatTurnResult(completion.content or "", used_tool)
+                return ChatTurnResult(
+                    trim_to_tokens(completion.content or "", int(agent.llm_max_tokens or 600)), used_tool
+                )
 
             try:
                 args = json.loads(fcall.arguments or "{}")
