@@ -1,0 +1,38 @@
+# voicecon.ai
+> Build AI voice agents that answer calls in real time, respond from your own documents, and update your CRM, calendar and team chat through 35 integrations. Start your 7-day free trial.
+
+## Home
+[Voicecon: AI voice agents with no-code workflows](https://voicecon.ai): Build AI voice agents that answer calls in real time, respond from your own documents, and update your CRM, calendar and team chat through 35 integrations. Start your 7-day free trial.
+
+## Pricing
+[Pricing | Voicecon](https://voicecon.ai/pricing): Voicecon plans and pricing. Start with a free trial and choose a plan when you are ready to go live.
+
+## Product
+[Platform features | Voicecon](https://voicecon.ai/product): Build, deploy and improve AI voice agents in one dashboard: prompts, voices, knowledge bases, tools, call history and analytics.
+
+## Product tour
+[Product tour | Voicecon](https://voicecon.ai/product-tour): Take a look at the Voicecon workspace: the agent editor, the workflow canvas, call history and analytics.
+
+## How it works
+[How it works | Voicecon](https://voicecon.ai/how-it-works): Go from sign-up to your first test call with guided onboarding. No code or telephony setup required.
+
+## Integrations
+[Integrations | Voicecon](https://voicecon.ai/integrations): Connect your CRM, calendar and team chat once, then use them as tools during calls or as steps in a workflow.
+
+## Affiliate program
+[Affiliate Program | Voicecon](https://voicecon.ai/affiliate-program): Refer businesses to Voicecon and earn a commission on the plans they buy. Apply to become an affiliate partner.
+
+## Use cases
+[Use cases | Voicecon](https://voicecon.ai/use-cases): Ready-made AI voice agent templates for common jobs, so you start from a working setup instead of a blank page.
+
+## Faq
+[FAQ | Voicecon](https://voicecon.ai/faq): Answers to common questions about Voicecon: setup, the free trial, integrations, billing and data.
+
+## Workflows
+[No-code workflows | Voicecon](https://voicecon.ai/workflows): Build automations on a visual canvas: branch on what the caller said, let AI write the follow-up and push the result into your apps.
+
+## Terms
+[Terms of Service | Voicecon](https://voicecon.ai/terms): The terms that govern your use of Voicecon, including free trials, subscriptions, phone numbers, acceptable use and AI-generated output.
+
+## Privacy
+[Privacy Policy | Voicecon](https://voicecon.ai/privacy): How Voicecon collects, uses, shares and protects personal information, including call recordings, transcripts and account data.
