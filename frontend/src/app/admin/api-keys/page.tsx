@@ -34,6 +34,7 @@ import {
   PageHeader,
   Toggle,
   errorText,
+  initialParam,
   inputClass,
 } from '@/components/admin/ui'
 import { RelativeTime } from '@/components/ui/relative-time'
@@ -268,7 +269,8 @@ function TestResult({ result }: { result: CheckResult }) {
 
 export default function ApiKeysPage() {
   const { data, isLoading, error } = useQuery({ queryKey: ['admin', 'settings'], queryFn: adminApi.settings })
-  const [selected, setSelected] = useState<string>('openai')
+  // `?group=accounts` opens straight on that group, so other pages can link to a setting.
+  const [selected, setSelected] = useState<string>(() => initialParam('group') || 'openai')
   const [results, setResults] = useState<Record<string, CheckResult>>({})
 
   const group = useMemo(() => data?.groups.find((g) => g.id === selected) ?? data?.groups[0], [data, selected])

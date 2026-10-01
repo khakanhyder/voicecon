@@ -76,13 +76,32 @@ export default function AccountPage() {
 
       <H2 id="deactivating">Deactivating your account</H2>
       <P>
-        The danger zone at the bottom of <Strong>Profile</Strong> deactivates your account. It
-        signs you out and disables access; support can restore it.
+        The danger zone at the bottom of <Strong>Profile</Strong> deactivates your account. You
+        are asked for your password first (or, if you sign in with Google or Apple, a code we
+        email you), and then shown exactly what will happen before anything changes.
       </P>
-      <Callout kind="warning" title="This is about you, not your workspace">
-        Deactivating your account does not delete any workspace, and it does not hand your
-        workspaces to anyone else — ownership can&apos;t be transferred. If you own a workspace
-        that others still use, delete it or agree a plan with them first; see{' '}
+      <UL>
+        <LI>You are signed out everywhere and can no longer sign in.</LI>
+        <LI>
+          Workspaces you own are switched off, for you and for everyone you invited, and any
+          subscription on them is cancelled.
+        </LI>
+        <LI>
+          The account is kept for a recovery period, 30 days unless we tell you otherwise on the
+          confirmation screen, and is then permanently deleted. We email you the exact date.
+        </LI>
+        <LI>
+          To get the account back during that period, email support. Reactivation takes up to
+          2 business days and restores your workspaces as they were; you choose a plan again.
+        </LI>
+        <LI>
+          Once it is permanently deleted, the email address is free to create a new account
+          with. The new account has no connection to the old one.
+        </LI>
+      </UL>
+      <Callout kind="warning" title="Your workspaces go with you">
+        Ownership can&apos;t be transferred, so deactivating your account switches off every
+        workspace you own. If others still use one, agree a plan with them first; see{' '}
         <A href="/docs/workspace/team#ownership">Ownership</A>. To step out of a
         single workspace while keeping your account, leave it from{' '}
         <A href="/docs/workspace/team#workspace-settings">Workspace settings</A> instead.

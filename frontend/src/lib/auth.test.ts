@@ -232,16 +232,41 @@ describe('profile', () => {
   })
 })
 
-describe('deleteAccount', () => {
-  it('clears local state so the deleted account cannot appear signed in', async () => {
-    vi.mocked(apiClient.delete).mockResolvedValue({ data: {} } as never)
+describe('deactivating the account', () => {
+  it('checks the password without touching the session', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      data: { deactivation_token: 't', retention_days: 30, deletion_date: '2026-10-31T00:00:00+00:00', support_email: 's@x.ai' },
+    } as never)
+    localStorage.setItem('access_token', 'a')
+
+    const terms = await authService.verifyDeactivation({ password: 'pw' })
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/v1/users/me/deactivation/verify', { password: 'pw' })
+    expect(terms.retention_days).toBe(30)
+    expect(localStorage.getItem('access_token')).toBe('a')
+  })
+
+  it('clears local state so the deactivated account cannot appear signed in', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { retention_days: 30 } } as never)
     localStorage.setItem('access_token', 'a')
     localStorage.setItem('user', '{}')
     localStorage.setItem('active_organization_id', 'ws-1')
 
-    await authService.deleteAccount()
+    await authService.deactivateAccount('the-token')
 
+    expect(apiClient.post).toHaveBeenCalledWith('/api/v1/users/me/deactivate', {
+      deactivation_token: 'the-token',
+    })
     expect(localStorage.length).toBe(0)
+  })
+
+  it('keeps the session when the server refuses', async () => {
+    vi.mocked(apiClient.post).mockRejectedValue(new Error('expired'))
+    localStorage.setItem('access_token', 'a')
+
+    await expect(authService.deactivateAccount('stale')).rejects.toThrow()
+
+    expect(localStorage.getItem('access_token')).toBe('a')
   })
 })
 

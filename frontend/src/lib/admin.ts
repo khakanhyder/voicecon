@@ -227,6 +227,14 @@ export interface UserRow {
   full_name: string | null
   auth_provider: string
   is_active: boolean
+  /**
+   * `disabled` — switched off by an admin; stays until re-enabled.
+   * `deactivated` — closed by the customer; recoverable until
+   * `deletion_scheduled_at`, then permanently deleted.
+   */
+  status: 'active' | 'disabled' | 'deactivated'
+  deactivated_at: string | null
+  deletion_scheduled_at: string | null
   is_verified: boolean
   is_platform_admin: boolean
   organizations: number
@@ -695,12 +703,15 @@ export const adminApi = {
   resetUsage: (id: string, reason?: string) => send('post', `/organizations/${id}/reset-usage`, { reason }),
   catalog: () => get<Catalog>('/catalog'),
 
-  users: (params: Query) => get<Page<UserRow>>('/users', params),
+  /** `retention_days`: how long a deactivated account is kept before permanent deletion. */
+  users: (params: Query) => get<Page<UserRow> & { retention_days: number }>('/users', params),
   user: (id: string) => get<UserDetail>(`/users/${id}`),
   updateUser: (id: string, body: Partial<Pick<UserRow, 'is_active' | 'is_verified' | 'is_platform_admin'>>) =>
     send<UserRow>('patch', `/users/${id}`, body),
   signOutUser: (id: string) => send('post', `/users/${id}/sign-out`),
   unlockUser: (id: string) => send('post', `/users/${id}/unlock`),
+  reactivateUser: (id: string) =>
+    send<UserRow & { workspaces_restored: string[]; workspaces_skipped: string[] }>('post', `/users/${id}/reactivate`),
   deleteUser: (id: string) => send<{ ok: boolean; workspaces_deactivated: number }>('delete', `/users/${id}`),
 
   plans: () =>

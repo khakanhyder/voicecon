@@ -72,6 +72,23 @@ export interface VerifyCodeResult {
   expires_in_minutes: number
 }
 
+/** What the account holder is shown, and must accept, before deactivating. */
+export interface DeactivationTerms {
+  /** Handed back with the confirmation. Good for about ten minutes. */
+  deactivation_token: string
+  retention_days: number
+  /** When the account would be permanently deleted if deactivated now. */
+  deletion_date: string
+  support_email: string
+}
+
+export interface DeactivationResult {
+  deactivated_at: string
+  deletion_date: string
+  retention_days: number
+  support_email: string
+}
+
 export const authService = {
   async login(credentials: LoginCredentials) {
     const { data } = await apiClient.post('/api/v1/auth/login', credentials)
@@ -231,9 +248,36 @@ export const authService = {
     await apiClient.post('/api/v1/users/me/change-password', params)
   },
 
-  async deleteAccount() {
-    await apiClient.delete('/api/v1/users/me')
+  /**
+   * Deactivating the account, in three calls. Nothing happens to the account
+   * until the last one.
+   *
+   * 1. `sendDeactivationCode` — only for accounts with no password (Google or
+   *    Apple sign-in): emails a code to stand in for it.
+   * 2. `verifyDeactivation` — checks the password or that code, and returns
+   *    what the person is about to agree to plus a short-lived token.
+   * 3. `deactivateAccount` — takes the token, deactivates, and clears the
+   *    session from this browser.
+   */
+  async sendDeactivationCode(): Promise<SendCodeResult> {
+    const { data } = await apiClient.post<SendCodeResult>('/api/v1/users/me/deactivation/code')
+    return data
+  },
+
+  async verifyDeactivation(proof: { password?: string; code?: string }): Promise<DeactivationTerms> {
+    const { data } = await apiClient.post<DeactivationTerms>(
+      '/api/v1/users/me/deactivation/verify',
+      proof,
+    )
+    return data
+  },
+
+  async deactivateAccount(deactivationToken: string): Promise<DeactivationResult> {
+    const { data } = await apiClient.post<DeactivationResult>('/api/v1/users/me/deactivate', {
+      deactivation_token: deactivationToken,
+    })
     clearScope()
+    return data
   },
 
   /**

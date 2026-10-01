@@ -10,6 +10,7 @@ import {
   type PhoneValue,
 } from '@/lib/phone'
 import { errorInputClass } from '@/components/ui/field-error'
+import { cn } from '@/lib/utils'
 
 function Flag({ iso, className = 'h-3.5 w-5' }: { iso: string; className?: string }) {
   const [broken, setBroken] = useState(false)
@@ -42,8 +43,10 @@ interface PhoneInputProps {
 }
 
 /**
- * A phone field: a searchable country picker (flag, name, calling code) beside
- * a number box that only accepts what a phone number can contain.
+ * A phone field: a compact country picker (flag and calling code) beside a
+ * number box that only accepts what a phone number can contain. The list shows
+ * flag, ISO code and calling code; the full name is there for search, hover and
+ * screen readers only.
  *
  * It holds no state of its own beyond the open list and the search text — the
  * form owns the value and validates it with `phoneError` / `phoneToE164`.
@@ -143,7 +146,13 @@ export function PhoneInput({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        className={`${inputClassName} flex w-auto shrink-0 items-center gap-1.5 whitespace-nowrap`}
+        // cn (tailwind-merge), not string concatenation: forms pass `w-full`
+        // in inputClassName, which would otherwise beat `w-auto` and stretch
+        // this button across the row, squeezing the number box to nothing.
+        className={cn(
+          inputClassName,
+          'flex w-auto shrink-0 items-center gap-1.5 whitespace-nowrap px-3',
+        )}
       >
         <Flag iso={value.country} />
         <span>{selected?.dial}</span>
@@ -162,11 +171,11 @@ export function PhoneInput({
         onChange={(e) => onChange({ ...value, national: sanitizePhoneInput(e.target.value) })}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
-        className={`${inputClassName} min-w-0 flex-1 ${error ? errorInputClass : ''}`}
+        className={cn(inputClassName, 'w-auto min-w-0 flex-1', error && errorInputClass)}
       />
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-[min(21rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-52 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
           <div className="relative border-b border-slate-100 p-2">
             <Search
               className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -181,7 +190,7 @@ export function PhoneInput({
                 setActive(0)
               }}
               onKeyDown={onSearchKey}
-              placeholder="Search country or code"
+              placeholder="Search country"
               aria-label="Search countries"
               role="combobox"
               aria-expanded="true"
@@ -207,6 +216,8 @@ export function PhoneInput({
                 role="option"
                 data-index={i}
                 aria-selected={c.iso === value.country}
+                aria-label={`${c.name} ${c.dial}`}
+                title={c.name}
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={() => pick(c.iso)}
                 onMouseMove={() => setActive(i)}
@@ -215,8 +226,8 @@ export function PhoneInput({
                 }`}
               >
                 <Flag iso={c.iso} />
-                <span className="min-w-0 flex-1 truncate text-slate-800">{c.name}</span>
-                <span className="shrink-0 text-slate-500">{c.dial}</span>
+                <span className="w-12 shrink-0 tabular-nums text-slate-800">{c.dial}</span>
+                <span className="min-w-0 flex-1 text-xs font-medium text-slate-400">{c.iso}</span>
                 {c.iso === value.country && (
                   <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden="true" />
                 )}

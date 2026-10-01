@@ -4,11 +4,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { BadgeCheck, Ban, Unlock, LogOut, PlayCircle, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import { BadgeCheck, Ban, Unlock, LogOut, PlayCircle, RotateCcw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
 import { adminApi, type UserDetail, type UserRow } from '@/lib/admin'
 import {
   AdminButton,
   Badge,
+  Callout,
   Detail,
   Dialog,
   Drawer,
@@ -28,6 +29,24 @@ import {
   initialParam,
 } from '@/components/admin/ui'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { parseApiDate } from '@/lib/datetime'
+
+/** One badge for the account's state, the same in the table and the drawer. */
+function AccountStatus({ user }: { user: UserRow }) {
+  if (user.status === 'deactivated') return <Badge tone="warning">Deactivated</Badge>
+  if (user.status === 'disabled') return <StatusBadge status="failed" label="Disabled" />
+  return <StatusBadge status="active" />
+}
+
+/** "in 12 days" / "today" / "overdue" for a scheduled deletion. */
+function daysLeft(iso: string | null): string {
+  if (!iso) return ''
+  const when = parseApiDate(iso)
+  if (!when) return ''
+  const days = Math.ceil((when.getTime() - Date.now()) / 86_400_000)
+  if (days <= 0) return 'due now'
+  return days === 1 ? 'in 1 day' : `in ${days} days`
+}
 
 type Confirm = { title: string; description: string; confirm: string; danger?: boolean; run: () => Promise<unknown> } | null
 
@@ -54,11 +73,12 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: UserRow | null; 
     <Dialog
       open={!!user}
       onClose={() => !remove.isPending && onClose()}
-      title="Delete this user?"
+      title="Permanently delete this user?"
       description={
         <>
           <span className="font-medium text-slate-700">{user?.full_name || user?.email}</span>
-          {user?.full_name && <> ({user.email})</>} will be deleted.
+          {user?.full_name && <> ({user.email})</>} will be deleted now
+          {user?.status === 'deactivated' ? ', without waiting for the recovery period to end' : ''}.
         </>
       }
       footer={
@@ -74,9 +94,10 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: UserRow | null; 
         <li>They are signed out everywhere and can no longer sign in.</li>
         <li>Every workspace they own is deactivated and its subscription cancelled.</li>
         <li>They are removed from workspaces they were only a member of.</li>
+        <li>Their name, phone, picture, password, API keys and connected-app credentials are erased.</li>
         <li>Their email is freed, so they could sign up again as a new account.</li>
       </ul>
-      <p className="mt-3 text-sm text-slate-500">Calls and invoices are kept for records. This cannot be undone from the console.</p>
+      <p className="mt-3 text-sm text-slate-500">Calls and invoices are kept for records, no longer linked to a person. This cannot be undone.</p>
     </Dialog>
   )
 }
@@ -94,6 +115,7 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
       setConfirm(null)
       qc.invalidateQueries({ queryKey: ['admin', 'user', userId] })
       qc.invalidateQueries({ queryKey: ['admin', 'users'] })
+      qc.invalidateQueries({ queryKey: ['admin', 'organizations'] })
     },
     onError: (e) => toast.error(errorText(e)),
   })
@@ -146,7 +168,21 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
           Make admin
         </AdminButton>
       )}
-      {u.is_active ? (
+      {u.status === 'deactivated' ? (
+        <AdminButton
+          variant="primary"
+          icon={RotateCcw}
+          onClick={() => ask({
+            title: `Reactivate ${u.email}?`,
+            description:
+              'They can sign in again, the scheduled deletion is cancelled, and the workspaces that were switched off with the account are switched back on. Their subscription was cancelled at deactivation and is not restored: they choose a plan again. They are emailed that the account is back.',
+            confirm: 'Reactivate account',
+            run: () => adminApi.reactivateUser(u.id),
+          })}
+        >
+          Reactivate account
+        </AdminButton>
+      ) : u.is_active ? (
         <AdminButton
           variant="danger"
           icon={Ban}
@@ -166,7 +202,9 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
         </AdminButton>
       )}
       {!u.is_platform_admin && (
-        <AdminButton variant="danger" icon={Trash2} onClick={() => setDeleting(u)}>Delete</AdminButton>
+        <AdminButton variant="danger" icon={Trash2} onClick={() => setDeleting(u)}>
+          {u.status === 'deactivated' ? 'Delete now' : 'Delete'}
+        </AdminButton>
       )}
     </>
   )
@@ -184,11 +222,18 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
       ) : (
         <div className="space-y-6">
           <div className="flex flex-wrap gap-2">
-            {user.is_active ? <StatusBadge status="active" /> : <StatusBadge status="failed" label="Disabled" />}
+            <AccountStatus user={user} />
             {user.is_verified ? <Badge tone="success">Email verified</Badge> : <Badge tone="warning">Unverified</Badge>}
             {user.is_platform_admin && <Badge tone="brand">Platform admin</Badge>}
             {user.locked_for_seconds > 0 && <Badge tone="danger">Locked {Math.ceil(user.locked_for_seconds / 60)} min</Badge>}
           </div>
+          {user.status === 'deactivated' && (
+            <Callout tone="warning" title="The customer deactivated this account">
+              Deactivated {formatDate(user.deactivated_at, true)}. It will be permanently deleted on{' '}
+              <strong>{formatDate(user.deletion_scheduled_at, true)}</strong> ({daysLeft(user.deletion_scheduled_at)})
+              unless it is reactivated first. They cannot sign in until then.
+            </Callout>
+          )}
           <dl className="grid grid-cols-2 gap-4">
             <Detail label="Sign-in method">{humanize(user.auth_provider)}</Detail>
             <Detail label="Company">{user.company_name || '—'}</Detail>
@@ -249,7 +294,7 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Users" description="Every account on the platform. Open a user to verify, disable, sign out, delete or grant admin access." />
+      <PageHeader title="Users" description="Every account on the platform. Open a user to verify, disable, reactivate, sign out, delete or grant admin access." />
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row">
@@ -261,12 +306,22 @@ export default function UsersPage() {
             options={[
               { value: '', label: 'All users' },
               { value: 'active', label: 'Active' },
-              { value: 'disabled', label: 'Disabled' },
+              { value: 'disabled', label: 'Disabled by an admin' },
+              { value: 'deactivated', label: 'Deactivated (awaiting deletion)' },
               { value: 'unverified', label: 'Unverified email' },
               { value: 'admins', label: 'Platform admins' },
             ]}
           />
         </div>
+        {data && (
+          <p className="border-b border-slate-100 px-4 py-2.5 text-xs text-slate-500">
+            A customer who deactivates their account can be reactivated here for {data.retention_days} day
+            {data.retention_days === 1 ? '' : 's'}; after that the account is permanently deleted.{' '}
+            <Link href="/admin/api-keys?group=accounts" className="font-medium text-brand-700 hover:underline">
+              Change the period
+            </Link>
+          </p>
+        )}
         <Table>
           <thead>
             <tr><Th>User</Th><Th>Status</Th><Th>Sign-in</Th><Th className="text-right">Workspaces</Th><Th>Joined</Th><Th>Last sign-in</Th><Th><span className="sr-only">Actions</span></Th></tr>
@@ -284,10 +339,15 @@ export default function UsersPage() {
                 </Td>
                 <Td>
                   <div className="flex flex-wrap gap-1">
-                    {u.is_active ? <StatusBadge status="active" /> : <StatusBadge status="failed" label="Disabled" />}
+                    <AccountStatus user={u} />
                     {!u.is_verified && <Badge tone="warning">Unverified</Badge>}
                     {u.locked_for_seconds > 0 && <Badge tone="danger">Locked</Badge>}
                   </div>
+                  {u.status === 'deactivated' && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Deletes {formatDate(u.deletion_scheduled_at)} ({daysLeft(u.deletion_scheduled_at)})
+                    </p>
+                  )}
                 </Td>
                 <Td className="text-slate-500">{humanize(u.auth_provider)}</Td>
                 <Td className="text-right tabular-nums">{u.organizations}</Td>

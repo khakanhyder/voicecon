@@ -15,8 +15,8 @@ import { useAuthStore } from '@/store/authStore'
 import { authService } from '@/lib/auth'
 import { QUERY_KEYS } from '@/lib/constants'
 import { getErrorMessage } from '@/lib/api'
-import { useConfirm } from '@/hooks/use-confirm'
 import { ChangeEmailDialog } from '@/components/settings/ChangeEmailDialog'
+import { DeactivateAccountDialog } from '@/components/settings/DeactivateAccountDialog'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { FieldError } from '@/components/ui/field-error'
 import {
@@ -62,9 +62,8 @@ export default function ProfileSettingsPage() {
   // Change email
   const [changingEmail, setChangingEmail] = useState(false)
 
-  // Delete account
-  const { confirm, ConfirmDialog } = useConfirm()
-  const [deleting, setDeleting] = useState(false)
+  // Deactivate account
+  const [deactivating, setDeactivating] = useState(false)
 
   const hydrate = (u: NonNullable<typeof user>) =>
     setFormData({
@@ -172,29 +171,14 @@ export default function ProfileSettingsPage() {
     }
   }
 
-  // A modal like every other destructive action in the app. The old inline
-  // "Are you sure?" row swapped in silently and read as a dead button.
-  const handleDelete = async () => {
-    const ok = await confirm({
-      title: 'Delete your account?',
-      description:
-        'You will be signed out everywhere and can no longer log in. Workspaces you own are ' +
-        'deactivated and their subscriptions cancelled. Contact support if you need the account restored.',
-      confirmText: 'Delete my account',
-      cancelText: 'Keep my account',
-      isDestructive: true,
-    })
-    if (!ok) return
-    setDeleting(true)
-    try {
-      await authService.deleteAccount()
-      toast.success('Account deactivated')
-      setStoreUser(null)
-      router.push('/login')
-    } catch (err) {
-      toast.error(getErrorMessage(err))
-      setDeleting(false)
-    }
+  // The dialog has already deactivated the account and cleared this browser's
+  // session by the time this runs; all that is left is to leave.
+  const handleDeactivated = () => {
+    setDeactivating(false)
+    toast.success('Your account has been deactivated')
+    setStoreUser(null)
+    queryClient.clear()
+    router.push('/login')
   }
 
   if (loading) {
@@ -368,15 +352,22 @@ export default function ProfileSettingsPage() {
         <div>
           <h2 className="text-xl font-semibold text-destructive">Danger Zone</h2>
           <p className="text-sm text-muted-foreground">
-            Deactivating your account signs you out and disables access. Contact support to restore
-            it.
+            Deactivating your account signs you out and switches off the workspaces you own. The
+            account is kept for a recovery period, during which our support team can reactivate
+            it, and is then permanently deleted.
           </p>
         </div>
-        <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
-          {deleting ? 'Deleting…' : 'Delete Account'}
+        <Button type="button" variant="destructive" onClick={() => setDeactivating(true)}>
+          Deactivate account
         </Button>
       </div>
-      <ConfirmDialog />
+      <DeactivateAccountDialog
+        open={deactivating}
+        onClose={() => setDeactivating(false)}
+        email={formData.email}
+        hasPassword={user?.has_password ?? true}
+        onDeactivated={handleDeactivated}
+      />
       <ChangeEmailDialog
         open={changingEmail}
         onClose={() => setChangingEmail(false)}
