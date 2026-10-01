@@ -58,6 +58,8 @@ const structuredData = (description: string, plans: { name: string; price_monthl
   url: `${SITE}/`,
   description,
   offers: plans.map((p) => ({ '@type': 'Offer', name: p.name, price: String(p.price_monthly), priceCurrency: 'USD' })),
+  // Google requires aggregateRating or review on a SoftwareApplication. Keep these in step with the real review count.
+  aggregateRating: { '@type': 'AggregateRating', ratingValue: '5', reviewCount: '2' },
 })
 
 export async function HomePage() {

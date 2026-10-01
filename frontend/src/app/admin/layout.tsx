@@ -305,7 +305,9 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <AdminNotificationBell align="right" tone="light" />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto">
+        {/* relative: keeps hidden, absolutely positioned form controls (Radix
+            Select) inside this scroller. See dashboard/layout.tsx. */}
+        <main className="relative flex-1 overflow-y-auto">
           <div className="w-full px-4 py-6 md:px-8 md:py-8">{children}</div>
         </main>
       </div>

@@ -51,7 +51,7 @@ test('the agent editor fits its column on every screen', async ({ page, api }) =
   await api.on(ROUTES.workflows, { body: { workflows: [] } })
 
   await enterDashboard(page, api, `/dashboard/agents/${AGENT_ID}`)
-  await expect(page.getByRole('heading', { name: 'Assistant', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Agent', exact: true })).toBeVisible()
 
   const overflowing: string[] = []
   for (const width of WIDTHS) {
@@ -71,4 +71,44 @@ test('the agent editor fits its column on every screen', async ({ page, api }) =
   }
 
   expect(overflowing).toEqual([])
+})
+
+/**
+ * The dashboard shell is exactly one viewport tall and only `main` scrolls. A
+ * Radix Select inside a <form> adds a hidden, absolutely positioned native
+ * <select>; unless `main` is a positioned element those escape it and lengthen
+ * the document, so scrolling past the end of the form slid the whole shell up
+ * and left a blank band underneath it. Short windows showed it worst.
+ */
+const VIEWPORTS = [
+  { width: 390, height: 700 },
+  { width: 768, height: 900 },
+  { width: 1292, height: 865 },
+  { width: 1440, height: 620 },
+  { width: 1920, height: 1080 },
+]
+
+test('the create-agent page never grows past the viewport', async ({ page, api }) => {
+  await api.on(ROUTES.agents, { body: agentListResponse([agent()]) })
+  await api.on(ROUTES.knowledgeBases, { body: [] })
+
+  await enterDashboard(page, api, '/dashboard/agents/new')
+  await expect(page.getByRole('heading', { name: 'Agent', exact: true })).toBeVisible()
+
+  const taller: string[] = []
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    for (const tab of TABS) {
+      await page.getByRole('button', { name: tab, exact: true }).click()
+      const { scrollHeight, clientHeight } = await page.evaluate(() => {
+        const doc = document.documentElement
+        return { scrollHeight: doc.scrollHeight, clientHeight: doc.clientHeight }
+      })
+      if (scrollHeight > clientHeight + 1) {
+        taller.push(`${viewport.width}x${viewport.height} / ${tab}: document ${scrollHeight}px in a ${clientHeight}px window`)
+      }
+    }
+  }
+
+  expect(taller).toEqual([])
 })

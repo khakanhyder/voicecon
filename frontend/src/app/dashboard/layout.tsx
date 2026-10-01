@@ -90,9 +90,14 @@ export default function DashboardLayout({
         {/* Every 402 anywhere in the product opens this, so no page has to
             handle billing errors itself. */}
         <UpgradeDialog />
+        {/* relative: a Radix Select inside a <form> renders a hidden,
+            absolutely positioned native <select>. Without a positioned
+            ancestor those escape this scroller and lengthen the document
+            itself, so the whole shell scrolls up and leaves a blank band
+            under it. */}
         <main
           className={
-            isFullBleed ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto'
+            isFullBleed ? 'relative flex-1 overflow-hidden' : 'relative flex-1 overflow-y-auto'
           }
         >
           {isFullBleed ? (
