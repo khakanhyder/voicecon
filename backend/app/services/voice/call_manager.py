@@ -22,6 +22,7 @@ from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
 from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
+from app.services.voice import languages
 from app.services.voice.llm_service import get_llm_service
 from app.services.voice.providers.base import ChatMessage, AudioChunk, TranscriptionResult
 from app.services.voice.audio_utils import AudioBuffer, AudioStream
@@ -192,8 +193,8 @@ class CallSession:
 
             # Get provider from agent configuration
             provider = self.agent.stt_provider or "deepgram"
-            language = self.agent.stt_language or "en"
-            model = self.agent.stt_model
+            language = languages.canonical(self.agent.stt_language)
+            model = languages.resolve_stt_model(self.agent.stt_model, language)
 
             logger.info(
                 f"Starting transcription for call {self.call_id}: "
@@ -271,6 +272,7 @@ class CallSession:
                 # Create new conversation with agent's system prompt
                 system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
                 system_prompt += await current_time_note(self.db, self.agent)
+                system_prompt += languages.language_instruction(self.agent.stt_language)
                 context = llm.create_conversation(
                     conversation_id=conversation_id,
                     system_prompt=system_prompt,

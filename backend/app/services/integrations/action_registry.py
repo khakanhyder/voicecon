@@ -746,8 +746,13 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
         },
         {
             "action": "create_payment_intent",
-            "label": "Take a Payment",
-            "description": "Create a payment intent to charge a customer",
+            "label": "Create Payment Intent",
+            # A caller cannot give a card by voice, so on its own this takes no
+            # money. Said here so the agent does not report a payment as made.
+            "description": (
+                "Start a payment for a checkout page of your own to complete. It does not take "
+                "any money by itself. To get paid by a caller, use Create Payment Link or Send Invoice."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -764,6 +769,53 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
                     "description": {"type": "string", "description": "What the payment is for"},
                 },
                 "required": ["amount"],
+            },
+        },
+        {
+            "action": "create_payment_link",
+            "label": "Create Payment Link",
+            "description": (
+                "Create a link to a secure Stripe page where the customer pays by card. Returns the "
+                "url. Stripe does not send it: share it in a chat, text or email message, and never "
+                "read it out loud. The link takes one payment. Nothing is paid until they use it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "integer",
+                        "description": "Amount in the smallest currency unit — cents for USD, so 1000 means $10.00",
+                    },
+                    "description": {"type": "string", "description": "What the payment is for, shown on the payment page"},
+                    "currency": {"type": "string", "description": "Three-letter currency code, e.g. usd (default usd)"},
+                    "email": {"type": "string", "description": "Customer's email, filled in on the payment page for them"},
+                },
+                "required": ["amount", "description"],
+            },
+        },
+        {
+            "action": "send_invoice",
+            "label": "Send Invoice",
+            "description": (
+                "Email the customer a Stripe invoice with a secure link to pay it. Use this to request "
+                "payment during a call: confirm the email address and the amount with them first. "
+                "Nothing is paid until they open the email and pay."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "integer",
+                        "description": "Amount in the smallest currency unit — cents for USD, so 1000 means $10.00",
+                    },
+                    "description": {"type": "string", "description": "What the invoice is for, shown on the invoice"},
+                    "email": {"type": "string", "description": "Email address the invoice is sent to. Needed unless a customer ID is given"},
+                    "customer_id": {"type": "string", "description": "Stripe customer id (cus_...) to bill, if already known"},
+                    "name": {"type": "string", "description": "Customer's full name, used if they are new to Stripe"},
+                    "currency": {"type": "string", "description": "Three-letter currency code, e.g. usd (default usd)"},
+                    "days_until_due": {"type": "integer", "description": "Days the customer has to pay (default 7)"},
+                },
+                "required": ["amount", "description"],
             },
         },
         {

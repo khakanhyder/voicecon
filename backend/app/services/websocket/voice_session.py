@@ -27,7 +27,10 @@ from app.services.voice.turn_taking import (
     is_backchannel,
     is_echo,
     pop_sentences,
+    speech_units,
+    word_count,
 )
+from app.services.voice import languages
 from app.services.voice.llm_service import get_llm_service, ConversationContext, cap_stream
 from app.services.voice.providers.base import ChatMessage
 from app.services.workflows.channels import VoiceChannel
@@ -71,7 +74,9 @@ MAX_FALSE_PAUSES = 2
 PLAYBACK_GRACE_SECONDS = 1.5
 
 #: Spoken when the model returns nothing, so the caller is not left in silence.
-NO_REPLY_MESSAGE = "I'm sorry, I didn't catch that. Could you say it again?"
+#: The English wording; a call says it in the agent's language (see
+#: ``VoiceSession._line``).
+NO_REPLY_MESSAGE = languages.phrase("no_reply", "en")
 
 
 class SessionState(str, Enum):
@@ -118,7 +123,9 @@ class _Segment:
         return self.start + (self.sent - self.base) / 8000
 
     def played_words(self, now: float, slack: int = 0) -> List[str]:
-        words = self.text.split()
+        # Pieces of roughly equal length to say, in any script: splitting on
+        # spaces made a whole Chinese or Japanese sentence one "word".
+        words = speech_units(self.text)
         if not self.audio:
             return []
         played = self.played_bytes(now)
@@ -334,6 +341,9 @@ class VoiceSession:
             system_prompt = (self.agent.system_prompt or "You are a helpful AI assistant.") + VOICE_RULES
             # The agent is otherwise never told today's date.
             system_prompt += await current_time_note(self.db, self.agent)
+            # The agent's language. It reached speech recognition only, so an
+            # agent set to Spanish was never told to answer in Spanish.
+            system_prompt += languages.language_instruction(self._language)
             end_call_phrases = list(self.agent.end_call_phrases or [])
             if end_call_phrases:
                 phrases_str = ", ".join(f'"{p}"' for p in end_call_phrases)
@@ -432,9 +442,10 @@ class VoiceSession:
 
         if not self._welcome_sent:
             self._welcome_sent = True
-            welcome_message = (
-                self.agent.first_message
-                or f"Hello! This is {self.agent.name}. How can I help you today?"
+            # The customer's own greeting as written; the editor's untouched
+            # default, or none at all, in the agent's language.
+            welcome_message = languages.spoken_greeting(
+                self.agent.first_message, self._language, self.agent.name
             )
             # As a task: awaited here it held up this receive loop, so nothing
             # the caller said during the greeting reached Deepgram until the
@@ -493,8 +504,10 @@ class VoiceSession:
 
         from app.services.voice.stt_service import deepgram_keyword_params, deepgram_turn_params
 
-        model = self.agent.stt_model or "nova-2"
-        language = self.agent.stt_language or "en"
+        language = languages.canonical(self._language)
+        # A model the provider does not offer in this language is refused at
+        # connect, and the call then runs with no transcription at all.
+        model = languages.resolve_stt_model(self.agent.stt_model, language)
         dg_url = (
             "wss://api.deepgram.com/v1/listen"
             f"?model={model}"
@@ -521,9 +534,15 @@ class VoiceSession:
             )
             self._dg_ready = True
             self._dg_recv_task = asyncio.create_task(self._deepgram_receiver())
-            logger.info(f"Deepgram STT stream opened: call_id={self.call_id}")
+            logger.info(
+                f"Deepgram STT stream opened: call_id={self.call_id}, "
+                f"model={model}, language={language}"
+            )
         except Exception as e:
-            logger.error(f"Failed to open Deepgram stream: {e}", exc_info=True)
+            logger.error(
+                f"Failed to open Deepgram stream (model={model}, language={language}): {e}",
+                exc_info=True,
+            )
             self._dg_ready = False
             if self._dg_http is not None:
                 await self._dg_http.close()
@@ -749,7 +768,7 @@ class VoiceSession:
             heard = " ".join(self._utterance_parts + [transcript])
             logger.info(
                 f"Caller spoke over the agent without interrupting: {heard!r} "
-                f"({len(heard.split())} words, {self._interrupt_min_words()} needed, "
+                f"({word_count(heard)} words, {self._interrupt_min_words()} needed, "
                 f"interruptions {'on' if self.agent.interrupt_enabled else 'OFF'}): "
                 f"call_id={self.call_id}"
             )
@@ -827,7 +846,7 @@ class VoiceSession:
         if not (self._audible() or self._held or self.state == SessionState.SPEAKING):
             return False
         heard = " ".join(self._utterance_parts + [transcript])
-        return len(heard.split()) >= self._interrupt_min_words()
+        return word_count(heard) >= self._interrupt_min_words()
 
     def _interrupt_min_words(self) -> int:
         """1 word at full sensitivity, 3 at zero — so a cough or an "mm-hm"
@@ -844,11 +863,11 @@ class VoiceSession:
         parts = []
         for seg in segments:
             words = seg.played_words(now)
-            if len(words) == len(seg.text.split()) and seg.audio:
+            if len(words) == len(speech_units(seg.text)) and seg.audio:
                 parts.append(seg.text)
                 continue
             if words:
-                parts.append(" ".join(words) + "…")
+                parts.append("".join(words).strip() + "…")
             break
         return " ".join(parts)
 
@@ -942,9 +961,7 @@ class VoiceSession:
             if self.state == SessionState.ENDED:
                 return
             logger.info(f"Max call duration ({limit}s) reached: call_id={self.call_id}")
-            await self._end_politely(
-                "We've reached the time limit for this call. Thank you for calling, goodbye."
-            )
+            await self._end_politely(self._line("time_limit"))
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -1008,10 +1025,7 @@ class VoiceSession:
                 # The caller is the business's customer: they are not told why.
                 # Less patience than the time-limit goodbye, because every
                 # second past the margin is a minute that was not paid for.
-                await self._end_politely(
-                    "I'm sorry, I have to end our call here. Thank you for calling, goodbye.",
-                    patience=4,
-                )
+                await self._end_politely(self._line("must_end"), patience=4)
                 return
         except asyncio.CancelledError:
             raise
@@ -1056,12 +1070,12 @@ class VoiceSession:
                 async with self._turn_lock:
                     if self._silence_checkins == 0:
                         self._silence_checkins = 1
-                        await self._speak_response("Are you still there?")
+                        await self._speak_response(self._line("still_there"))
                         await self._wait_playback()
                         continue
 
                     # Second consecutive silent check-in: nobody's on the line.
-                    await self._speak_response("I haven't heard from you, so I'll end the call here. Take care!")
+                    await self._speak_response(self._line("silence_goodbye"))
                     await self._wait_playback()
                     await self.end_call()
                     break
@@ -1137,7 +1151,7 @@ class VoiceSession:
             gen=self._turn_gen,
             text=utterance,
             hold_until=self._last_eos + extra_wait_seconds(
-                utterance, self._last_agent_text, self.agent.stt_language or "en"
+                utterance, self._last_agent_text, self._language or "en"
             ),
         )
         self._turn = turn
@@ -1181,8 +1195,9 @@ class VoiceSession:
                 # leaving the caller in silence until the idle check-in.
                 logger.warning(f"No reply generated for utterance: call_id={self.call_id}")
                 if await self._commit(turn):
-                    await self._log_transcript_entry("assistant", NO_REPLY_MESSAGE)
-                    await self._speak_response(NO_REPLY_MESSAGE)
+                    no_reply = self._line("no_reply")
+                    await self._log_transcript_entry("assistant", no_reply)
+                    await self._speak_response(no_reply)
                     await self._wait_playback()
                     return
 
@@ -1222,7 +1237,7 @@ class VoiceSession:
 
         except Exception as e:
             logger.error(f"Error processing utterance: {e}", exc_info=True)
-            error_msg = "I'm sorry, I didn't quite catch that. Could you repeat?"
+            error_msg = self._line("no_reply")
             await self._log_transcript_entry("assistant", error_msg)
             await self._speak_response(error_msg)
             await self._wait_playback()
@@ -1594,9 +1609,11 @@ class VoiceSession:
                     formatted_result = f"Tool {matched_tool.name} failed: {result.get('error', 'unknown error')}"
 
             else:
-                return await self._fixed_line(
-                    turn, f"I tried to use a capability called {function_name}, but it's not configured."
+                # The tool's name means nothing to a caller; it goes to the log.
+                logger.warning(
+                    f"Model called a tool that is not set up: {function_name}: call_id={self.call_id}"
                 )
+                return await self._fixed_line(turn, self._line("tool_trouble"))
 
             # Record the exchange as ChatMessage objects. `messages` is a
             # List[ChatMessage] — appending raw dicts here raised AttributeError
@@ -1629,9 +1646,16 @@ class VoiceSession:
             # Continue loop to let LLM generate final response with function result
 
         # Max function calls reached
-        return await self._fixed_line(
-            turn, "I apologize, but I'm having trouble completing that request."
-        )
+        return await self._fixed_line(turn, self._line("tool_trouble"))
+
+    @property
+    def _language(self) -> Optional[str]:
+        """The agent's language (the Language setting on its Transcriber tab)."""
+        return getattr(getattr(self, "agent", None), "stt_language", None)
+
+    def _line(self, key: str) -> str:
+        """One of the platform's own lines, in the agent's language."""
+        return languages.phrase(key, self._language)
 
     async def _fixed_line(self, turn: Optional[_Turn], text: str) -> str:
         """A line the session writes itself rather than the model: spoken
@@ -1651,7 +1675,9 @@ class VoiceSession:
         Args:
             tool: The tool about to run; its config may override the wording
         """
-        filler = (tool.config or {}).get("filler_message") or "One moment while I check that."
+        filler = languages.spoken_filler(
+            (tool.config or {}).get("filler_message"), self._language
+        )
 
         try:
             await self.speak(filler)
@@ -1841,6 +1867,11 @@ class VoiceSession:
             }
             if provider == "elevenlabs":
                 tts_kwargs["output_format"] = "ulaw_8000"
+            # Pin the voice to the agent's language, so a short sentence or a
+            # number is not read in English.
+            language_code = languages.tts_language_code(self._language)
+            if language_code:
+                tts_kwargs["language_code"] = language_code
 
             # Reframe the provider's byte stream into 20ms (160-byte) mulaw frames,
             # which is what Twilio expects for smooth playback.

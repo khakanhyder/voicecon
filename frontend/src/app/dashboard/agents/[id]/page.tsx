@@ -18,6 +18,7 @@ import {
 import { AssistantsRail } from '@/components/agents/AssistantsRail'
 import { AgentCallsTab } from '@/components/agents/AgentCallsTab'
 import { CallTestPanel, TestCallAgent } from '@/components/agents/CallTestPanel'
+import { spokenGreeting } from '@/lib/agentLanguages'
 
 import { useConfirm } from '@/hooks/use-confirm'
 
@@ -711,7 +712,9 @@ export default function AgentDetailPage() {
 
   const testCallAgent: TestCallAgent = {
     name:              form.name,
-    first_message:     form.first_message,
+    // What a call opens with: an untouched default greeting follows the
+    // agent's language, as it does on the phone.
+    first_message:     spokenGreeting(form.first_message, form.stt_language),
     interrupt_enabled: form.interrupt_enabled,
     interrupt_sensitivity: form.interrupt_sensitivity,
     max_call_duration: form.max_call_duration,

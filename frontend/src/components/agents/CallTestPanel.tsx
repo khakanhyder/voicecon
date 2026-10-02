@@ -14,6 +14,7 @@ import {
   Bot, Mic, Volume2, Phone, PhoneOff, PhoneCall, X, Send, Radio, Wifi, Zap,
 } from 'lucide-react'
 import { getAccessToken } from '@/lib/session'
+import { spokenWordCount } from '@/lib/agentLanguages'
 
 /** Only the fields the drawer actually reads off the agent. */
 export interface TestCallAgent {
@@ -31,7 +32,8 @@ export interface TestCallAgent {
  *  3 at zero, so a cough or an "mm-hm" doesn't stop the agent mid-sentence.
  *  Mirrors voice_session.py's rule for phone calls. */
 const interruptMinWords = (sensitivity: number) => Math.max(1, Math.round(3 - 2 * sensitivity))
-const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
+// In any script: a Chinese or Japanese sentence has no spaces to split on.
+const wordCount = spokenWordCount
 
 interface Message {
   id: string

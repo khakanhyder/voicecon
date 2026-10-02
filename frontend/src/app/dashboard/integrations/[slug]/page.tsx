@@ -236,8 +236,8 @@ const integrationData: Record<string, any> = {
     category: 'payment', authType: 'api_key',
     features: ['Payment Processing', 'Subscription Management', 'Invoicing', 'Webhooks'],
     popular: true,
-    permissions: ['Process payments', 'Manage customers', 'Create subscriptions', 'Access payment data'],
-    setupSteps: ['Get your Stripe API keys from dashboard.stripe.com', 'Enter Secret Key below', 'Configure webhook endpoints', 'Test payment processing'],
+    permissions: ['Send invoices and payment links', 'Manage customers', 'Create and cancel subscriptions', 'Refund payments'],
+    setupSteps: ['Get your Stripe API keys from dashboard.stripe.com', 'Enter your Secret Key and Publishable Key below', 'Add Stripe actions to an agent as tools: Send Invoice or Create Payment Link to get paid', 'Try it with test-mode keys first'],
     apiKeyFields: [
       { name: 'secret_key', label: 'Secret Key', type: 'password', required: true },
       { name: 'publishable_key', label: 'Publishable Key', type: 'text', required: true },

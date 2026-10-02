@@ -269,9 +269,12 @@ TOOLS
             default: 'en',
             description: (
               <>
-                26 options, including regional variants. Set the specific variant when you
-                know it — <C>en-GB</C> outperforms <C>en</C> on British callers, particularly
-                for place names.
+                The language the agent listens, answers and speaks in, from the greeting
+                onwards. 26 options, including regional variants. Set the specific variant
+                when you know it — <C>en-GB</C> outperforms <C>en</C> on British callers,
+                particularly for place names. Only the transcriber models that support the
+                chosen language are offered. Write the greeting and any end-call phrases in
+                the same language: they are spoken exactly as written.
               </>
             ),
           },

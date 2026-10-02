@@ -45,6 +45,18 @@ class STTConfig(BaseModel):
     # keywords biasing).
     keywords: List[str] = Field(default_factory=list, description="Vocabulary to bias speech recognition toward")
 
+    @validator("language", pre=True, always=True)
+    def _known_language_code(cls, value):
+        from app.services.voice import languages
+        return languages.canonical(value)
+
+    @validator("model", always=True)
+    def _model_supports_language(cls, value, values):
+        # The provider refuses a model it does not offer in this language, and
+        # the call then hears nothing. Saved as a pair that works instead.
+        from app.services.voice import languages
+        return languages.resolve_stt_model(value, values.get("language"))
+
 
 # Conversation Settings
 class ConversationSettings(BaseModel):

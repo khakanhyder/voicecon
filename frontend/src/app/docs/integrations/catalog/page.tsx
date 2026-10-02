@@ -239,7 +239,7 @@ export default function CatalogPage() {
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
           [<Strong>Supabase</Strong>, KEY, <Actions items={['fetch_table']} />],
-          [<Strong>Stripe</Strong>, KEY, <Actions items={['create_customer', 'get_customer', 'create_payment_intent', 'create_subscription', 'create_refund']} />],
+          [<Strong>Stripe</Strong>, KEY, <Actions items={['create_customer', 'find_customers', 'send_invoice', 'create_payment_link', 'create_subscription', 'create_refund']} />],
           [<Strong>Langfuse</Strong>, KEY, <Actions items={['create_trace']} />],
         ]}
       />
@@ -249,19 +249,21 @@ export default function CatalogPage() {
           product already knows about the caller.
         </LI>
         <LI>
-          <Strong>Stripe</Strong> — look a customer up with <C>get_customer</C>, take money
-          with <C>create_payment_intent</C>, start a plan with <C>create_subscription</C>, or
-          put it right with <C>create_refund</C>.
+          <Strong>Stripe</Strong> — look a customer up with <C>find_customers</C>, ask for
+          payment with <C>send_invoice</C> (Stripe emails the caller a link to pay) or{' '}
+          <C>create_payment_link</C> (a link your agent shares in chat or by text), start a
+          plan with <C>create_subscription</C>, or put it right with <C>create_refund</C>.
         </LI>
         <LI>
           <Strong>Langfuse</Strong> — emit traces for LLM observability if you already run it.
         </LI>
       </UL>
       <Callout kind="danger" title="Think hard before taking card details by voice">
-        <C>create_payment_intent</C> is designed to charge a customer who already exists in
-        Stripe with a saved payment method — that is the safe shape. Reading a card number to
-        a voice agent brings the whole call, its recording, and its transcript into PCI scope.
-        Prefer confirming a charge against a stored method, or sending a payment link.
+        Reading a card number to a voice agent brings the whole call, its recording, and its
+        transcript into PCI scope. Have the agent use <C>send_invoice</C> or{' '}
+        <C>create_payment_link</C> instead: the caller pays on Stripe&apos;s own page, and no
+        card detail is ever spoken. Neither takes money by itself, so the agent should say a
+        payment request was sent, not that the payment was made.
       </Callout>
 
       <Callout kind="note" title="Nothing here fits?">

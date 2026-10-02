@@ -354,7 +354,7 @@ async def test_stripe_cancel_defaults_to_the_end_of_the_paid_period(db, api):
     result = await run(db, connection, "cancel_subscription", {"subscription_id": "sub_1", "confirmed": True}, allow_delete=True)
     assert result["cancel_at_period_end"] is True
     [(_, _, kw)] = api.sent("POST")
-    assert kw["data"] == {"cancel_at_period_end": True}
+    assert kw["data"] == {"cancel_at_period_end": "true"}
     assert api.sent("DELETE") == []
     [change] = await audit(db)
     assert change.before["status"] == "active"
@@ -366,3 +366,126 @@ async def test_stripe_cancel_immediately_when_asked(db, api):
     connection = await connect(db, "stripe")
     await run(db, connection, "cancel_subscription", {"subscription_id": "sub_1", "immediately": True, "confirmed": True}, allow_delete=True)
     assert api.sent("DELETE", "/v1/subscriptions/sub_1")
+
+
+# Stripe takes form bodies with nested values in brackets. They used to go out
+# as a Python dict's repr, which Stripe rejects as "Invalid object", so no
+# payment intent was ever created.
+
+
+def test_stripe_bodies_go_out_in_brackets_on_the_wire():
+    import httpx
+
+    from app.services.integrations.connectors.stripe_connector import _form
+
+    body = httpx.Request("POST", "https://api.stripe.com/v1/x", data=_form({
+        "amount": 4500,
+        "automatic_payment_methods": {"enabled": True},
+        "items": [{"price": "price_1", "quantity": 1}],
+        "metadata": {"call": "c1"},
+        "description": None,
+    })).content.decode()
+    assert body == (
+        "amount=4500&automatic_payment_methods%5Benabled%5D=true"
+        "&items%5B0%5D%5Bprice%5D=price_1&items%5B0%5D%5Bquantity%5D=1&metadata%5Bcall%5D=c1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stripe_payment_intent_is_accepted_and_not_reported_as_paid(db, api):
+    api.on("POST", "/v1/payment_intents", {"id": "pi_1", "amount": 4500, "currency": "usd", "status": "requires_payment_method"})
+    connection = await connect(db, "stripe")
+    result = await run(db, connection, "create_payment_intent", {"amount": 4500, "customer": "cus_1"})
+    [(_, _, kw)] = api.sent("POST")
+    assert kw["data"] == {"amount": 4500, "currency": "usd", "customer": "cus_1",
+                          "automatic_payment_methods[enabled]": "true"}
+    assert "No money has been taken" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_stripe_subscription_items_are_sent_as_a_list(db, api):
+    api.on("POST", "/v1/subscriptions", {"id": "sub_1", "status": "active"})
+    connection = await connect(db, "stripe")
+    await run(db, connection, "create_subscription", {"customer": "cus_1", "items": [{"price": "price_1"}]})
+    [(_, _, kw)] = api.sent("POST")
+    assert kw["data"] == {"customer": "cus_1", "items[0][price]": "price_1"}
+
+
+@pytest.mark.asyncio
+async def test_stripe_payment_link_takes_one_payment_and_returns_the_url(db, api):
+    api.on("POST", "/v1/prices", {"id": "price_9"})
+    api.on("POST", "/v1/payment_links", {"id": "plink_1", "url": "https://buy.stripe.com/test_abc"})
+    connection = await connect(db, "stripe")
+    result = await run(db, connection, "create_payment_link", {
+        "amount": 4500, "description": "Studio deposit", "email": "sara+1@example.com",
+    })
+    price, link = api.sent("POST")
+    assert price[2]["data"] == {"unit_amount": 4500, "currency": "usd", "product_data[name]": "Studio deposit"}
+    assert link[2]["data"] == {"line_items[0][price]": "price_9", "line_items[0][quantity]": 1,
+                               "restrictions[completed_sessions][limit]": 1}
+    assert result["url"] == "https://buy.stripe.com/test_abc?prefilled_email=sara%2B1%40example.com"
+    assert result["amount"] == 4500
+
+
+@pytest.mark.asyncio
+async def test_stripe_invoice_is_emailed_to_a_new_customer(db, api):
+    api.on("GET", "/v1/customers", {"data": []})
+    api.on("POST", "/v1/customers", {"id": "cus_new", "email": "sara@example.com"})
+    api.on("POST", "/v1/invoices", {"id": "in_1", "status": "draft"})
+    api.on("POST", "/v1/invoices/in_1/send", {
+        "id": "in_1", "number": "A-0001", "status": "open", "amount_due": 4500, "currency": "usd",
+        "customer_email": "sara@example.com", "hosted_invoice_url": "https://invoice.stripe.com/i/1",
+    })
+    connection = await connect(db, "stripe")
+    result = await run(db, connection, "send_invoice", {
+        "amount": 4500, "description": "Studio deposit", "email": "sara@example.com", "name": "Sara",
+    })
+    assert [c[1] for c in api.sent("POST")] == [
+        "/v1/customers", "/v1/invoices", "/v1/invoiceitems", "/v1/invoices/in_1/finalize", "/v1/invoices/in_1/send",
+    ]
+    invoice = api.sent("POST", "/v1/invoices")[0][2]["data"]
+    assert invoice["customer"] == "cus_new" and invoice["collection_method"] == "send_invoice"
+    assert invoice["days_until_due"] == 7 and invoice["pending_invoice_items_behavior"] == "exclude"
+    assert api.sent("POST", "/v1/invoiceitems")[0][2]["data"] == {
+        "customer": "cus_new", "invoice": "in_1", "amount": 4500, "currency": "usd", "description": "Studio deposit",
+    }
+    assert result["status"] == "open" and result["sent_to"] == "sara@example.com"
+    assert result["hosted_invoice_url"] == "https://invoice.stripe.com/i/1"
+
+
+@pytest.mark.asyncio
+async def test_stripe_invoice_reuses_the_customer_with_that_email(db, api):
+    api.on("GET", "/v1/customers", {"data": [{"id": "cus_1", "email": "sara@example.com"}]})
+    api.on("POST", "/v1/invoices", {"id": "in_1"})
+    api.on("POST", "/v1/invoices/in_1/send", {"id": "in_1", "status": "open"})
+    connection = await connect(db, "stripe")
+    result = await run(db, connection, "send_invoice", {"amount": 4500, "description": "Deposit", "email": "sara@example.com"})
+    assert api.sent("POST", "/v1/customers") == []
+    assert result["customer"] == "cus_1"
+
+
+@pytest.mark.asyncio
+async def test_stripe_invoice_that_fails_leaves_no_draft_and_gives_stripes_reason(db, api):
+    api.on("POST", "/v1/invoices", {"id": "in_1"})
+    api.on("POST", "/v1/invoiceitems", ConnectorError(
+        'Request failed: HTTP 400: {"error": {"message": "Amount must be at least $0.50 usd", "type": "invalid_request_error"}}'
+    ))
+    connection = await connect(db, "stripe")
+    with pytest.raises(ConnectorError) as failure:
+        await run(db, connection, "send_invoice", {"amount": 10, "description": "Deposit", "customer_id": "cus_1"})
+    assert str(failure.value) == "Failed to send invoice: Amount must be at least $0.50 usd"
+    assert api.sent("DELETE", "/v1/invoices/in_1")
+    assert api.sent("POST", "/v1/invoices/in_1/send") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action, params", [
+    ("send_invoice", {"amount": 45.5, "description": "Deposit", "email": "a@b.co"}),
+    ("send_invoice", {"amount": 4500, "description": "Deposit"}),
+    ("create_payment_link", {"amount": 0, "description": "Deposit"}),
+])
+async def test_stripe_payment_requests_are_checked_before_anything_is_sent(db, api, action, params):
+    connection = await connect(db, "stripe")
+    with pytest.raises((ConnectorError, IntegrationActionError)):
+        await run(db, connection, action, params)
+    assert api.calls == []

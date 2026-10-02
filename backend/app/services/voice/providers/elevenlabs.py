@@ -139,6 +139,26 @@ class ElevenLabsTTS(BaseTTSProvider):
             settings["speed"] = max(0.7, min(1.2, float(speed)))
         return settings
 
+    #: Models that take `language_code`. Others reject the request with it.
+    LANGUAGE_CODE_MODELS = ("eleven_flash_v2_5", "eleven_turbo_v2_5")
+
+    def _request_body(self, text: str, voice_settings: Dict[str, Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        The synthesis request. `language_code` pins the voice to the agent's
+        language: left to guess, the model reads a short sentence — "12",
+        "OK", a name — in English whatever the rest of the call is in.
+        """
+        model_id = kwargs.get("model_id", self.model_id)
+        data: Dict[str, Any] = {
+            "text": text,
+            "model_id": model_id,
+            "voice_settings": voice_settings,
+        }
+        language_code = kwargs.get("language_code")
+        if language_code and model_id in self.LANGUAGE_CODE_MODELS:
+            data["language_code"] = language_code
+        return data
+
     def _get_cache_key(self, text: str, voice_id: str, settings: Dict) -> str:
         """Generate cache key for text."""
         key_data = f"{text}:{voice_id}:{json.dumps(settings, sort_keys=True)}"
@@ -181,12 +201,16 @@ class ElevenLabsTTS(BaseTTSProvider):
         """
         voice_id = kwargs.get("voice_id", self.voice_id)
         voice_settings = self._build_voice_settings(kwargs)
+        data = self._request_body(text, voice_settings, kwargs)
+        # Part of the cache key only: the same text in another language is
+        # different audio.
+        cache_settings = {**voice_settings, "language_code": data.get("language_code")}
 
         # Check cache — keyed on the settings actually in effect for this
         # call. Keying on the instance defaults alone (the old behaviour)
         # meant a non-default speed/stability override on a cache hit
         # silently got back audio synthesized for a DIFFERENT setting (M8).
-        cached_audio = self._get_from_cache(text, voice_id, voice_settings)
+        cached_audio = self._get_from_cache(text, voice_id, cache_settings)
         if cached_audio:
             logger.info(f"Cache hit for text: {text[:50]}...")
             return SynthesisResult(
@@ -199,11 +223,6 @@ class ElevenLabsTTS(BaseTTSProvider):
 
         # Prepare request
         url = f"/text-to-speech/{voice_id}"
-        data = {
-            "text": text,
-            "model_id": kwargs.get("model_id", self.model_id),
-            "voice_settings": voice_settings,
-        }
 
         try:
             response = await self.client.post(url, json=data)
@@ -223,7 +242,7 @@ class ElevenLabsTTS(BaseTTSProvider):
             audio_data = response.content
 
             # Cache the result
-            self._add_to_cache(text, voice_id, voice_settings, audio_data)
+            self._add_to_cache(text, voice_id, cache_settings, audio_data)
 
             # Track usage
             cost = self._calculate_cost(len(text))
@@ -268,11 +287,7 @@ class ElevenLabsTTS(BaseTTSProvider):
         output_format = kwargs.get("output_format")
         if output_format:
             url = f"{url}?output_format={output_format}"
-        data = {
-            "text": text,
-            "model_id": kwargs.get("model_id", self.model_id),
-            "voice_settings": self._build_voice_settings(kwargs),
-        }
+        data = self._request_body(text, self._build_voice_settings(kwargs), kwargs)
 
         try:
             async with self.client.stream("POST", url, json=data) as response:

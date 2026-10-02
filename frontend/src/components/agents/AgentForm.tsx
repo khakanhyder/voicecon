@@ -4,6 +4,10 @@ import { useEffect, useId, useRef, useState } from 'react'
 import {
   FileText, Cpu, Volume2, Mic, MessageSquare, Settings, Wrench, BookOpen, ChevronUp, ChevronDown, Check, Phone,
 } from 'lucide-react'
+import {
+  LANGUAGES, FALLBACK_STT_MODEL, defaultGreeting, isDefaultGreeting, isEnglish,
+  languageLabel, sttModelFor, sttModelSupports,
+} from '@/lib/agentLanguages'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -109,34 +113,9 @@ export const STT_MODELS: Record<string, { value: string; label: string; desc: st
   ],
 }
 
-export const LANGUAGES = [
-  { value: 'en',    label: 'English' },
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'en-AU', label: 'English (AU)' },
-  { value: 'es',    label: 'Spanish' },
-  { value: 'es-MX', label: 'Spanish (Mexico)' },
-  { value: 'fr',    label: 'French' },
-  { value: 'fr-CA', label: 'French (Canada)' },
-  { value: 'de',    label: 'German' },
-  { value: 'it',    label: 'Italian' },
-  { value: 'pt',    label: 'Portuguese' },
-  { value: 'pt-BR', label: 'Portuguese (Brazil)' },
-  { value: 'nl',    label: 'Dutch' },
-  { value: 'pl',    label: 'Polish' },
-  { value: 'ja',    label: 'Japanese' },
-  { value: 'ko',    label: 'Korean' },
-  { value: 'zh',    label: 'Chinese (Mandarin)' },
-  { value: 'zh-TW', label: 'Chinese (Traditional)' },
-  { value: 'ar',    label: 'Arabic' },
-  { value: 'hi',    label: 'Hindi' },
-  { value: 'ru',    label: 'Russian' },
-  { value: 'tr',    label: 'Turkish' },
-  { value: 'sv',    label: 'Swedish' },
-  { value: 'da',    label: 'Danish' },
-  { value: 'fi',    label: 'Finnish' },
-  { value: 'no',    label: 'Norwegian' },
-]
+// The languages an agent can speak, and which transcriber models take each of
+// them, live in lib/agentLanguages (mirrored from the backend).
+export { LANGUAGES }
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
@@ -536,6 +515,11 @@ export function AgentTabContent({ tab, form, set }: {
                   placeholder="Thank you for calling Wellness Partners..."
                   className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 py-2"
                 />
+                {!isEnglish(form.stt_language) && (
+                  <p className="text-xs text-slate-500">
+                    This agent speaks {languageLabel(form.stt_language)}. The greeting is spoken exactly as written, so write it in {languageLabel(form.stt_language)}.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="agent-system-prompt" className="text-[15px] font-bold text-[#000000] font-poppins block mt-4">System Prompt</Label>
@@ -701,8 +685,20 @@ export function AgentTabContent({ tab, form, set }: {
   }
 
   if (tab === 'stt') {
-    const sttModels = STT_MODELS[form.stt_provider] || STT_MODELS.deepgram
-    const defaultSttModel = sttModels[0]?.value || 'nova-2'
+    // Only the models the provider offers in the agent's language: any other
+    // pair is refused when the call starts, and the agent then hears nothing.
+    const sttModels = (STT_MODELS[form.stt_provider] || STT_MODELS.deepgram)
+      .filter(m => sttModelSupports(m.value, form.stt_language))
+    const defaultSttModel = sttModels[0]?.value || FALLBACK_STT_MODEL
+    const changeLanguage = (language: string) => {
+      set('stt_language', language)
+      set('stt_model', sttModelFor(form.stt_model || defaultSttModel, language))
+      // A greeting nobody has edited follows the language; one the customer
+      // wrote is theirs and is left alone.
+      if (!form.first_message.trim() || isDefaultGreeting(form.first_message)) {
+        set('first_message', defaultGreeting(language))
+      }
+    }
     return (
     <div className="flex w-full flex-col">
       <SectionCard title="Transcriber" subtitle="Speech-to-text engine for incoming audio" icon={Mic}>
@@ -715,7 +711,7 @@ export function AgentTabContent({ tab, form, set }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="agent-stt-model" className="text-[14px] font-bold text-[#000000] font-poppins block">Model</Label>
-            <Select value={form.stt_model || defaultSttModel} onValueChange={v => set('stt_model', v)}>
+            <Select value={sttModelFor(form.stt_model || defaultSttModel, form.stt_language)} onValueChange={v => set('stt_model', v)}>
               <SelectTrigger id="agent-stt-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {sttModels.map(m => (
@@ -728,7 +724,7 @@ export function AgentTabContent({ tab, form, set }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="agent-stt-language" className="text-[14px] font-bold text-[#000000] font-poppins block">Language</Label>
-            <Select value={form.stt_language} onValueChange={v => set('stt_language', v)}>
+            <Select value={form.stt_language} onValueChange={changeLanguage}>
               <SelectTrigger id="agent-stt-language" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
               <SelectContent>
                 {LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
@@ -736,6 +732,9 @@ export function AgentTabContent({ tab, form, set }: {
             </Select>
           </div>
         </div>
+        <p className="text-xs text-slate-400">
+          The agent listens, answers and speaks in this language from the greeting onwards. Only the models that support it are listed.
+        </p>
 
         <div className="space-y-2">
           <Label htmlFor="agent-stt-keywords" className="text-[14px] font-bold text-[#000000] font-poppins block">

@@ -42,6 +42,8 @@ from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
 from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
+from app.services.voice import languages
+from app.services.voice.turn_taking import pop_sentences
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.core.time import UTCDatetime, utc_iso
 
@@ -476,8 +478,9 @@ async def test_agent(
         llm_service = get_llm_service()
         messages = []
 
-        if agent.system_prompt:
-            messages.append(ChatMessage(role="system", content=agent.system_prompt))
+        system_text = (agent.system_prompt or "") + languages.language_instruction(agent.stt_language)
+        if system_text:
+            messages.append(ChatMessage(role="system", content=system_text))
 
         messages.append(ChatMessage(role="user", content=test_request.test_message))
 
@@ -514,6 +517,7 @@ async def test_agent(
                 text=response_text[:200],  # Limit for testing
                 provider=agent.tts_provider,
                 voice_id=agent.tts_voice_id or "rachel",
+                language_code=languages.tts_language_code(agent.stt_language),
                 api_key=await resolve_tts_api_key(
                     db, agent.organization_id, agent.tts_provider, agent.tts_voice_id
                 ),
@@ -583,6 +587,7 @@ async def agent_speak(
             provider=agent.tts_provider,
             voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
             speed=float(getattr(agent, "tts_speed", None) or 1.0),
+            language_code=languages.tts_language_code(agent.stt_language),
             api_key=await resolve_tts_api_key(
                 db, org_id, agent.tts_provider, agent.tts_voice_id
             ),
@@ -651,6 +656,7 @@ async def agent_respond(
     )
 
     # Gather agent conversation config
+    agent_language = getattr(agent, "stt_language", None)
     end_call_phrases = list(agent.end_call_phrases or [])
     # The agent's own Max Token setting. It was hard-capped at 150 here, so the
     # slider did nothing in a test call, and 150 is too tight for reasoning
@@ -678,6 +684,8 @@ async def agent_respond(
             system_text += VOICE_RULES
             # Today's date and timezone: without it "next Friday" is a guess.
             system_text += await current_time_note(db, agent)
+            # The agent's language, as on a phone call.
+            system_text += languages.language_instruction(agent_language)
             # The agent's attached knowledge bases, searched with this turn's
             # words. This endpoint used to skip them entirely, so a test call
             # could only answer from the prompt: a fee that lived only in the
@@ -762,6 +770,7 @@ async def agent_respond(
                                     voice_id=agent.tts_voice_id or "21m00Tcm4TlvDq8ikWAM",
                                     model="eleven_flash_v2_5",
                                     speed=float(getattr(agent, "tts_speed", None) or 1.0),
+                                    language_code=languages.tts_language_code(agent_language),
                                     api_key=tts_api_key,
                                 ),
                                 timeout=5.0,
@@ -877,7 +886,7 @@ async def agent_respond(
                     break
 
                 full_response = resolved_text
-                for sent in re.split(r'(?<=[.!?])\s+', resolved_text.strip()):
+                for sent in pop_sentences(resolved_text.strip(), final=True)[0]:
                     task = _start_tts(sent)
                     if task:
                         pending_tts.append(task)
@@ -899,9 +908,12 @@ async def agent_respond(
 
                     flush_chunks = []
                     while True:
-                        m = re.search(r'(?<=[.!?])\s+', sentence_buffer)
+                        # Sentence marks of every script the agent can speak:
+                        # Chinese and Japanese ones have no space after them,
+                        # so a whole reply used to wait to be spoken at once.
+                        m = re.search(r'(?<=[.!?؟।])\s+|(?<=[。！？])\s*', sentence_buffer)
                         if m:
-                            flush_chunks.append(sentence_buffer[:m.start() + 1])
+                            flush_chunks.append(sentence_buffer[:m.start()])
                             sentence_buffer = sentence_buffer[m.end():]
                             continue
                         if len(sentence_buffer) >= 25:
@@ -938,7 +950,7 @@ async def agent_respond(
 
             # Fallback when LLM returned nothing
             if not full_response.strip():
-                fallback = "I'm sorry, I didn't get a response. Could you try again?"
+                fallback = languages.phrase("no_reply", agent_language)
                 task = _start_tts(fallback)
                 if task:
                     payload = await task
@@ -962,7 +974,9 @@ async def agent_respond(
         except Exception as e:
             logger.error(f"Error in respond stream: {e}", exc_info=True)
             err_text = str(e).lower()
-            err_msg = "I'm having a technical issue right now. Please try again."
+            # Spoken by the agent, so in its language; `reason` below is the
+            # toast for the person running the test and stays in English.
+            err_msg = languages.phrase("unavailable", agent_language)
             # `reason` is the toast the person testing the agent sees. It is
             # written for a customer: provider names, keys, quotas and raw
             # exception text describe the platform's own configuration, which
@@ -970,15 +984,12 @@ async def agent_respond(
             reason = "The agent couldn't respond just now. Please try again — if it keeps happening, contact support."
             cause = f"{type(e).__name__}: {str(e)[:300]}"
             if "invalid_api_key" in err_text or "authentication" in err_text or "401" in err_text:
-                err_msg = "The AI service is temporarily unavailable. Please try again shortly."
                 reason = "The AI service is temporarily unavailable. Please try again shortly."
                 cause = f"Provider API key rejected — check the {agent.llm_provider} credentials. ({cause})"
             elif "quota" in err_text or "429" in err_text:
-                err_msg = "The AI service is temporarily unavailable. Please try again shortly."
                 reason = "The AI service is temporarily unavailable. Please try again shortly."
                 cause = f"Provider quota/billing limit reached for {agent.llm_provider}. ({cause})"
             elif "rate" in err_text:
-                err_msg = "I'm receiving too many requests. Please wait a moment and try again."
                 reason = "The AI model is busy right now. Wait a moment and try again."
                 cause = f"Provider rate limit hit for {agent.llm_provider}. ({cause})"
             elif not (agent.llm_model or "").strip():
@@ -1183,8 +1194,10 @@ async def agent_stt_websocket(
             await websocket.close(code=4004)
             return
 
-        stt_model = getattr(agent, "stt_model", None) or "nova-3"
-        stt_language = getattr(agent, "stt_language", None) or "en"
+        stt_language = languages.canonical(getattr(agent, "stt_language", None))
+        stt_model = languages.resolve_stt_model(
+            getattr(agent, "stt_model", None), stt_language, default="nova-3"
+        )
         stt_keywords = getattr(agent, "stt_keywords", None) or []
         silence_ms = int(getattr(agent, "silence_timeout", None) or 1000)
 
@@ -1354,8 +1367,8 @@ async def agent_transcribe(
 
         url = "https://api.deepgram.com/v1/listen"
         params = {
-            "language": agent.stt_language or "en",
-            "model": agent.stt_model or "nova-2",
+            "language": languages.canonical(agent.stt_language),
+            "model": languages.resolve_stt_model(agent.stt_model, agent.stt_language),
             "punctuate": "true",
             "smart_format": "true",
         }

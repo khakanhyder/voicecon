@@ -21,6 +21,7 @@ from app.models.agent import Agent
 from app.models.company import CompanyProfile
 from app.schemas.agent import AgentCreate, STTConfig
 from app.services.agent_service import AgentService
+from app.services.voice import languages
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +73,16 @@ async def create_agent_from_onboarding(
             )
             return None
 
+        language = STT_LANGUAGE_CODES.get(
+            (profile.preferred_language or "").strip().lower(), "en"
+        )
         try:
             data = AgentCreate(
                 name=name,
                 system_prompt=instructions,
-                first_message=DEFAULT_FIRST_MESSAGE,
-                stt=STTConfig(
-                    language=STT_LANGUAGE_CODES.get(
-                        (profile.preferred_language or "").strip().lower(), "en"
-                    )
-                ),
+                # The form's default greeting, in the language the agent speaks.
+                first_message=languages.spoken_greeting(DEFAULT_FIRST_MESSAGE, language),
+                stt=STTConfig(language=language),
             )
         except ValidationError as exc:
             logger.warning("Onboarding agent details were not usable: %s", exc)

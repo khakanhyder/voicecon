@@ -47,17 +47,67 @@ _SLOW_ANSWER_RE = re.compile(
     r"post ?code|zip|card|digits?|reference|account)\b",
     re.IGNORECASE,
 )
-_WORD_RE = re.compile(r"[a-z0-9'À-ɏ-]+")
+# Characters of scripts written without spaces between words (Chinese,
+# Japanese). Each one counts as a word of its own.
+_UNSPACED = (
+    "\u3040-\u30ff"   # hiragana, katakana
+    "\u3400-\u4dbf"   # CJK extension A
+    "\u4e00-\u9fff"   # CJK unified ideographs
+    "\uf900-\ufaff"   # CJK compatibility ideographs
+)
+# A word in any script: one unspaced-script character, or a run of anything
+# that is not a space, punctuation or one of those characters. This was Latin
+# letters only, so Russian, Arabic, Hindi, Korean, Chinese and Japanese speech
+# had no words at all: the echo filter and the listening-noise check never
+# matched, and the barge-in word count saw a whole sentence as one word.
+_WORD_RE = re.compile(
+    rf"[{_UNSPACED}]|[^\s{_UNSPACED}.,!?;:\"()\[\]{{}}«»“”„‘¿¡。、，！？；：「」『』（）…·|/\\।॥؟،؛]+"
+)
 # Abbreviations whose full stop does not end a sentence.
+_UNSPACED_CHAR_RE = re.compile(rf"[{_UNSPACED}]")
+_UNIT_RE = re.compile(rf"\s*(?:[{_UNSPACED}][^\s\w]*|[^\s{_UNSPACED}]+)")
 _ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "st", "vs", "no", "a.m", "p.m", "e.g", "i.e"}
-_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+# Latin, Arabic and Hindi sentence marks are followed by a space; Chinese and
+# Japanese ones are not.
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?؟।])\s+|(?<=[。！？])\s*")
 #: Shortest piece worth its own text-to-speech request; anything shorter is
 #: joined to the sentence after it.
 MIN_SPOKEN_CHARS = 20
 
 
 def _words(text: str) -> List[str]:
-    return _WORD_RE.findall((text or "").lower())
+    return [w.strip("'-") for w in _WORD_RE.findall((text or "").lower()) if w.strip("'-")]
+
+
+def word_count(text: str) -> int:
+    """
+    How many words were said, in any script — what barge-in counts.
+
+    Two characters of an unspaced script count as one word: "はい" or "你好"
+    is one word's worth of speech, not two.
+    """
+    spaced = unspaced = 0
+    for word in _words(text):
+        if len(word) == 1 and _UNSPACED_CHAR_RE.match(word):
+            unspaced += 1
+        else:
+            spaced += 1
+    return spaced + (unspaced + 1) // 2
+
+
+def speech_units(text: str) -> List[str]:
+    """
+    The text cut into pieces that take about as long to say as each other,
+    which joined back together give the text again. Used to work out how far
+    into a sentence the voice had got when it was interrupted.
+    """
+    return _UNIT_RE.findall(text or "")
+
+
+def _spoken_length(text: str) -> int:
+    """Length for the too-short-to-speak rule; an unspaced-script character
+    carries about as much as two Latin letters."""
+    return len(text) + len(_UNSPACED_CHAR_RE.findall(text))
 
 
 def expects_slow_answer(agent_text: Optional[str]) -> bool:
@@ -90,13 +140,13 @@ def extra_wait_seconds(
     words = _words(stripped)
     if not words:
         return 0.0
-    if stripped.endswith(("?", "!")):
+    if stripped.endswith(("?", "!", "？", "！", "؟")):
         return 0.0
-    if stripped.endswith((",", "-", "…", "...")):
+    if stripped.endswith((",", "-", "…", "...", "，", "、", "،")):
         return MAX_EXTRA_WAIT
 
     last = words[-1]
-    has_full_stop = stripped.endswith(".")
+    has_full_stop = stripped.endswith((".", "。", "।"))
     # The word lists are English; other languages use only the punctuation
     # and digit rules.
     english = (language or "en").lower().startswith("en")
@@ -163,7 +213,7 @@ def pop_sentences(buffer: str, final: bool = False) -> Tuple[List[str], str]:
     for match in _SENTENCE_END_RE.finditer(buffer):
         piece = buffer[start:match.start()]
         tail = piece.rstrip(".!?").rsplit(None, 1)[-1].lower() if piece.strip() else ""
-        if len(piece.strip()) < MIN_SPOKEN_CHARS or tail in _ABBREVIATIONS:
+        if _spoken_length(piece.strip()) < MIN_SPOKEN_CHARS or tail in _ABBREVIATIONS:
             continue
         sentences.append(piece.strip())
         start = match.end()

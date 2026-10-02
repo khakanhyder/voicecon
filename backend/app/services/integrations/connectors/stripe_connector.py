@@ -3,8 +3,10 @@ Stripe Connector.
 
 Integration with Stripe Payment API.
 """
+import json
 import logging
 from typing import Dict, Any, Optional, List
+from urllib.parse import quote
 
 from app.services.integrations.connector_base import BaseConnector, ConnectorError
 
@@ -24,6 +26,12 @@ class StripeConnector(BaseConnector):
     - Handle refunds
     - Get balance and transactions
     """
+
+    async def post(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """POST with the body in Stripe's form encoding (see ``_form``)."""
+        if kwargs.get("data"):
+            kwargs["data"] = _form(kwargs["data"])
+        return await super().post(endpoint, **kwargs)
 
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -108,7 +116,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to create Stripe customer: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to create customer: {str(e)}")
+            raise ConnectorError(f"Failed to create customer: {_reason(e)}")
 
     async def get_customer(self, customer_id: str) -> Dict[str, Any]:
         """
@@ -140,7 +148,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to get Stripe customer: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to get customer: {str(e)}")
+            raise ConnectorError(f"Failed to get customer: {_reason(e)}")
 
     async def find_customers(self, email: str, limit: int = 5) -> Dict[str, Any]:
         """Customers with this email (Stripe matches it exactly, ignoring case)."""
@@ -149,7 +157,7 @@ class StripeConnector(BaseConnector):
         try:
             response = await self.get("/v1/customers", params={"email": email.strip(), "limit": max(1, min(int(limit or 5), 20))})
         except Exception as e:
-            raise ConnectorError(f"Failed to find customers: {e}")
+            raise ConnectorError(f"Failed to find customers: {_reason(e)}")
         customers = [
             {"id": c.get("id"), "name": c.get("name"), "email": c.get("email"), "phone": c.get("phone")}
             for c in response.get("data", [])
@@ -208,7 +216,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to update Stripe customer: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to update customer: {str(e)}")
+            raise ConnectorError(f"Failed to update customer: {_reason(e)}")
 
     async def delete_customer(self, customer_id: str) -> Dict[str, Any]:
         """
@@ -235,7 +243,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to delete Stripe customer: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to delete customer: {str(e)}")
+            raise ConnectorError(f"Failed to delete customer: {_reason(e)}")
 
     # ========================================================================
     # Payment Intent Methods
@@ -290,7 +298,7 @@ class StripeConnector(BaseConnector):
 
             logger.info(f"Stripe payment intent created: {response.get('id')}")
 
-            return {
+            result = {
                 "id": response.get("id"),
                 "amount": response.get("amount"),
                 "currency": response.get("currency"),
@@ -298,10 +306,18 @@ class StripeConnector(BaseConnector):
                 "client_secret": response.get("client_secret"),
                 "created": response.get("created"),
             }
+            # An intent is only the start of a payment. Without this an agent
+            # reads "created" as "paid" and tells the caller so.
+            if response.get("status") != "succeeded":
+                result["message"] = (
+                    "No money has been taken yet: this payment still needs a card. "
+                    "To get paid, send the customer a payment link or an invoice."
+                )
+            return result
 
         except Exception as e:
             logger.error(f"Failed to create Stripe payment intent: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to create payment intent: {str(e)}")
+            raise ConnectorError(f"Failed to create payment intent: {_reason(e)}")
 
     async def confirm_payment_intent(
         self,
@@ -342,14 +358,14 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to confirm Stripe payment intent: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to confirm payment intent: {str(e)}")
+            raise ConnectorError(f"Failed to confirm payment intent: {_reason(e)}")
 
     async def get_payment_intent(self, intent_id: str) -> Dict[str, Any]:
         """A payment intent by id."""
         try:
             pi = await self.get(f"/v1/payment_intents/{intent_id}")
         except Exception as e:
-            raise ConnectorError(f"Failed to get payment intent: {e}")
+            raise ConnectorError(f"Failed to get payment intent: {_reason(e)}")
         return {"id": pi.get("id"), "amount": pi.get("amount"), "currency": pi.get("currency"),
                 "status": pi.get("status"), "customer": pi.get("customer"), "description": pi.get("description")}
 
@@ -381,7 +397,72 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to cancel Stripe payment intent: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to cancel payment intent: {str(e)}")
+            raise ConnectorError(f"Failed to cancel payment intent: {_reason(e)}")
+
+    # ========================================================================
+    # Payment Link Methods
+    # ========================================================================
+
+    async def create_payment_link(
+        self,
+        amount: int,
+        description: str,
+        currency: str = "usd",
+        email: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a link to a Stripe-hosted page where the customer pays by card.
+
+        The link takes one payment and then closes, so a link shared twice
+        cannot be paid twice. Stripe does not send it to anyone: the caller of
+        this method shares the URL.
+
+        Args:
+            amount: Amount in the smallest currency unit (e.g., 1000 = $10.00)
+            description: What the payment is for, shown on the payment page
+            currency: Currency code (default: "usd")
+            email: Customer email, filled in on the payment page for them
+
+        Returns:
+            The payment link and its URL
+
+        Raises:
+            ConnectorError: If creation fails
+        """
+        amount = _minor_units(amount)
+        if not (description or "").strip():
+            raise ConnectorError("Say what the payment is for.")
+        try:
+            # A payment link sells a price, so the amount becomes one first.
+            price = await self.post("/v1/prices", data={
+                "unit_amount": amount,
+                "currency": _currency(currency),
+                "product_data": {"name": description.strip()},
+            })
+            link = await self.post("/v1/payment_links", data={
+                "line_items": [{"price": price.get("id"), "quantity": 1}],
+                "restrictions": {"completed_sessions": {"limit": 1}},
+            })
+        except Exception as e:
+            logger.error(f"Failed to create Stripe payment link: {e}", exc_info=True)
+            raise ConnectorError(f"Failed to create payment link: {_reason(e)}")
+
+        logger.info(f"Stripe payment link created: {link.get('id')}")
+
+        url = link.get("url")
+        if url and (email or "").strip():
+            url = f"{url}?prefilled_email={quote(email.strip())}"
+        return {
+            "id": link.get("id"),
+            "url": url,
+            "amount": amount,
+            "currency": _currency(currency),
+            "description": description.strip(),
+            "message": (
+                "Nothing has been paid yet and Stripe has not sent this link to anyone. "
+                "Give the customer the url in a message; do not read it out loud."
+            ),
+        }
 
     # ========================================================================
     # Subscription Methods
@@ -435,14 +516,14 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to create Stripe subscription: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to create subscription: {str(e)}")
+            raise ConnectorError(f"Failed to create subscription: {_reason(e)}")
 
     async def get_subscription(self, subscription_id: str) -> Dict[str, Any]:
         """A subscription by id."""
         try:
             sub = await self.get(f"/v1/subscriptions/{subscription_id}")
         except Exception as e:
-            raise ConnectorError(f"Failed to get subscription: {e}")
+            raise ConnectorError(f"Failed to get subscription: {_reason(e)}")
         return _subscription_summary(sub)
 
     async def list_subscriptions(self, customer_id: str, status: str = "active") -> Dict[str, Any]:
@@ -450,7 +531,7 @@ class StripeConnector(BaseConnector):
         try:
             response = await self.get("/v1/subscriptions", params={"customer": customer_id, "status": status or "all", "limit": 20})
         except Exception as e:
-            raise ConnectorError(f"Failed to list subscriptions: {e}")
+            raise ConnectorError(f"Failed to list subscriptions: {_reason(e)}")
         subs = [_subscription_summary(s) for s in response.get("data", [])]
         return {"subscriptions": subs, "count": len(subs)}
 
@@ -492,7 +573,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to cancel Stripe subscription: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to cancel subscription: {str(e)}")
+            raise ConnectorError(f"Failed to cancel subscription: {_reason(e)}")
 
     # ========================================================================
     # Refund Methods
@@ -544,7 +625,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to create Stripe refund: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to create refund: {str(e)}")
+            raise ConnectorError(f"Failed to create refund: {_reason(e)}")
 
     # ========================================================================
     # Invoice Methods
@@ -600,7 +681,105 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to create Stripe invoice: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to create invoice: {str(e)}")
+            raise ConnectorError(f"Failed to create invoice: {_reason(e)}")
+
+    async def send_invoice(
+        self,
+        amount: int,
+        description: str,
+        email: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        name: Optional[str] = None,
+        currency: str = "usd",
+        days_until_due: int = 7,
+    ) -> Dict[str, Any]:
+        """
+        Bill a customer by email: Stripe sends them an invoice with a pay link.
+
+        The customer is ``customer_id`` when given, otherwise the existing
+        customer with that email, otherwise a new one.
+
+        Args:
+            amount: Amount in the smallest currency unit (e.g., 1000 = $10.00)
+            description: What the invoice is for, shown as its one line
+            email: Where the invoice is sent (needed unless customer_id is given)
+            customer_id: Existing Stripe customer to bill
+            name: Customer name, used when a new customer is created
+            currency: Currency code (default: "usd")
+            days_until_due: Days the customer has to pay
+
+        Returns:
+            The sent invoice and its hosted payment page
+
+        Raises:
+            ConnectorError: If the invoice could not be sent
+        """
+        amount = _minor_units(amount)
+        if not (description or "").strip():
+            raise ConnectorError("Say what the invoice is for.")
+        email = (email or "").strip()
+        if not customer_id and not email:
+            raise ConnectorError("Give the customer's email address to send the invoice to.")
+
+        invoice_id = None
+        try:
+            if not customer_id:
+                found = await self.find_customers(email, limit=1)
+                if found["customers"]:
+                    customer_id = found["customers"][0]["id"]
+                else:
+                    customer_id = (await self.create_customer(email=email, name=name))["id"]
+
+            invoice = await self.post("/v1/invoices", data={
+                "customer": customer_id,
+                "collection_method": "send_invoice",
+                "days_until_due": max(1, int(days_until_due or 7)),
+                "currency": _currency(currency),
+                "description": description.strip(),
+                # Only what this call bills. Anything already pending on the
+                # customer stays off this invoice.
+                "pending_invoice_items_behavior": "exclude",
+                "auto_advance": False,
+            })
+            invoice_id = invoice.get("id")
+            await self.post("/v1/invoiceitems", data={
+                "customer": customer_id,
+                "invoice": invoice_id,
+                "amount": amount,
+                "currency": _currency(currency),
+                "description": description.strip(),
+            })
+            await self.post(f"/v1/invoices/{invoice_id}/finalize")
+            sent = await self.post(f"/v1/invoices/{invoice_id}/send")
+        except Exception as e:
+            logger.error(f"Failed to send Stripe invoice: {e}", exc_info=True)
+            await self._discard_draft_invoice(invoice_id)
+            raise ConnectorError(f"Failed to send invoice: {_reason(e)}")
+
+        logger.info(f"Stripe invoice sent: {invoice_id}")
+
+        return {
+            "id": sent.get("id"),
+            "number": sent.get("number"),
+            "customer": customer_id,
+            "sent_to": sent.get("customer_email") or email or None,
+            "amount_due": sent.get("amount_due"),
+            "currency": sent.get("currency"),
+            "status": sent.get("status"),
+            "due_date": sent.get("due_date"),
+            "hosted_invoice_url": sent.get("hosted_invoice_url"),
+            "message": "The invoice was emailed to the customer with a link to pay it. Nothing has been paid yet.",
+        }
+
+    async def _discard_draft_invoice(self, invoice_id: Optional[str]) -> None:
+        """Remove an invoice that failed part-way, so no stray draft is left."""
+        if not invoice_id:
+            return
+        try:
+            # Stripe only deletes drafts; a finalized invoice is left as it is.
+            await self.delete(f"/v1/invoices/{invoice_id}")
+        except Exception as e:  # noqa: BLE001 - the original error is the one to report
+            logger.info(f"Left Stripe invoice {invoice_id} in place: {e}")
 
     async def finalize_invoice(
         self,
@@ -631,7 +810,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to finalize Stripe invoice: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to finalize invoice: {str(e)}")
+            raise ConnectorError(f"Failed to finalize invoice: {_reason(e)}")
 
     async def pay_invoice(
         self,
@@ -662,7 +841,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to pay Stripe invoice: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to pay invoice: {str(e)}")
+            raise ConnectorError(f"Failed to pay invoice: {_reason(e)}")
 
     # ========================================================================
     # Balance & Transaction Methods
@@ -688,7 +867,7 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to get Stripe balance: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to get balance: {str(e)}")
+            raise ConnectorError(f"Failed to get balance: {_reason(e)}")
 
     async def list_charges(
         self,
@@ -733,7 +912,70 @@ class StripeConnector(BaseConnector):
 
         except Exception as e:
             logger.error(f"Failed to list Stripe charges: {e}", exc_info=True)
-            raise ConnectorError(f"Failed to list charges: {str(e)}")
+            raise ConnectorError(f"Failed to list charges: {_reason(e)}")
+
+
+def _form(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """Flatten a request body into Stripe's form encoding.
+
+    Stripe takes form bodies, with nested values written in brackets:
+    ``automatic_payment_methods[enabled]=true``, ``items[0][price]=price_x``.
+    Handed a nested dict as it is, the HTTP client sends its Python repr
+    (``{'enabled': True}``) and Stripe answers 400 "Invalid object". Every
+    payment intent failed that way, as did subscriptions and anything carrying
+    metadata.
+    """
+    flat: Dict[str, Any] = {}
+    for key, value in data.items():
+        name = f"{prefix}[{key}]" if prefix else str(key)
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            flat.update(_form(value, name))
+        elif isinstance(value, (list, tuple)):
+            flat.update(_form(dict(enumerate(value)), name))
+        elif isinstance(value, bool):
+            flat[name] = "true" if value else "false"
+        else:
+            flat[name] = value
+    return flat
+
+
+def _reason(error: Exception) -> str:
+    """Stripe's own sentence for a failed request, without the HTTP wrapping.
+
+    A failure arrives as ``Request failed: HTTP 400: {"error": {...}}``. The
+    ``message`` inside is written for people ("Amount must be at least $0.50
+    usd") and is what an agent should be given to say.
+    """
+    text = str(error)
+    start = text.find("{")
+    if start != -1:
+        try:
+            message = (json.loads(text[start:]).get("error") or {}).get("message")
+        except (ValueError, AttributeError):
+            message = None
+        if message:
+            return str(message)
+    return text
+
+
+def _minor_units(amount: Any) -> int:
+    """An amount as a whole number of the currency's smallest unit."""
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        value = 0
+    if value <= 0 or value != int(value):
+        raise ConnectorError(
+            "The amount must be a whole number in the smallest currency unit "
+            "(cents for USD, so 1000 means $10.00)."
+        )
+    return int(value)
+
+
+def _currency(currency: Optional[str]) -> str:
+    return (currency or "usd").strip().lower() or "usd"
 
 
 def _subscription_summary(sub: Dict[str, Any]) -> Dict[str, Any]:
