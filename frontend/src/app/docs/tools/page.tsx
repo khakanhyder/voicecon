@@ -12,7 +12,7 @@ export default function ToolsPage() {
       <H2 id="what-is-a-tool">What is a tool?</H2>
       <P>
         A tool is one thing an agent can do. Without tools an agent can only talk; with them
-        it can transfer a call, text a confirmation, write to your CRM, look something up, or
+        it can transfer a call, write to your CRM, look something up, or
         run an entire workflow.
       </P>
       <P>
@@ -70,24 +70,24 @@ export default function ToolsPage() {
         widths={['w-[20%]', 'w-[48%]']}
         rows={[
           [
-            <Badge tone="violet">Workflow</Badge>,
+            <Badge key="name" tone="violet">Workflow</Badge>,
             'Run Workflow',
-            <A href="/docs/tools/workflow">Workflow tools</A>,
+            <A key="ref" href="/docs/tools/workflow">Workflow tools</A>,
           ],
           [
-            <Badge tone="emerald">Phone call</Badge>,
-            'Transfer Call, Hang Up, Leave Voicemail, DTMF, Send Text, SIP Request',
-            <A href="/docs/tools/phone-call">Phone call tools</A>,
+            <Badge key="name" tone="emerald">Phone call</Badge>,
+            'Transfer Call, Hang Up, Leave Voicemail, DTMF, SIP Request',
+            <A key="ref" href="/docs/tools/phone-call">Phone call tools</A>,
           ],
           [
-            <Badge tone="brand">Assistant</Badge>,
+            <Badge key="name" tone="brand">Assistant</Badge>,
             'Handoff, Query Knowledge Base',
-            <A href="/docs/tools/assistant">Assistant tools</A>,
+            <A key="ref" href="/docs/tools/assistant">Assistant tools</A>,
           ],
           [
-            <Badge tone="blue">Integration</Badge>,
+            <Badge key="name" tone="blue">Integration</Badge>,
             'Connected Integration, API Request, MCP, Slack, Google Sheets, Google Calendar, GoHighLevel, Custom Tool',
-            <A href="/docs/tools/integration">Integration tools</A>,
+            <A key="ref" href="/docs/tools/integration">Integration tools</A>,
           ],
         ]}
       />
@@ -177,17 +177,17 @@ export default function ToolsPage() {
           ],
           [
             <><A href="/docs/tools/phone-call">Phone call tools</A>, Handoff</>,
-            'Reports that there is no live call to act on. Nothing is dialled, transferred, or texted.',
+            'Reports that there is no live call to act on. Nothing is dialled or transferred.',
           ],
           [
-            <A href="/docs/tools/workflow">Run Workflow</A>,
+            <A key="name" href="/docs/tools/workflow">Run Workflow</A>,
             <>
               Declines, because running it would run the whole workflow with its side effects.
               Use the builder&rsquo;s <Strong>Run</Strong> button, which shows every step.
             </>,
           ],
           [
-            <A href="/docs/tools/assistant#query-knowledge-base">Query Knowledge Base</A>,
+            <A key="name" href="/docs/tools/assistant#query-knowledge-base">Query Knowledge Base</A>,
             <>
               Declines, and points at the knowledge base&rsquo;s own{' '}
               <A href="/docs/knowledge-base#testing-retrieval">Test retrieval</A> panel, which
@@ -195,7 +195,7 @@ export default function ToolsPage() {
             </>,
           ],
           [
-            <A href="/docs/tools/integration#connected-integration">Connected Integration</A>,
+            <A key="name" href="/docs/tools/integration#connected-integration">Connected Integration</A>,
             <>
               Declines, and points at <A href="/docs/integrations#testing-a-connection">
               Integrations</A>, where the connection itself can be checked.
@@ -219,10 +219,10 @@ export default function ToolsPage() {
         headers={['Field', 'Is']}
         widths={['w-[22%]']}
         rows={[
-          [<C>status_code</C>, <>The HTTP status — <C>200</C>, <C>404</C>, <C>500</C>.</>],
-          [<C>ok</C>, <>Whether the status was a success. This is what to branch on.</>],
-          [<C>json</C>, <>The parsed response, when the endpoint returned JSON. Reach into it with dots.</>],
-          [<C>body</C>, <>The raw response text, capped at 2,000 characters. Present either way, so a non-JSON error page is still visible.</>],
+          [<C key="name">status_code</C>, <>The HTTP status — <C>200</C>, <C>404</C>, <C>500</C>.</>],
+          [<C key="name">ok</C>, <>Whether the status was a success. This is what to branch on.</>],
+          [<C key="name">json</C>, <>The parsed response, when the endpoint returned JSON. Reach into it with dots.</>],
+          [<C key="name">body</C>, <>The raw response text, capped at 2,000 characters. Present either way, so a non-JSON error page is still visible.</>],
         ]}
       />
       <Callout kind="tip" title="A 500 is not a failed tool">
@@ -240,22 +240,22 @@ export default function ToolsPage() {
         widths={['w-[42%]']}
         rows={[
           [
-            <C>Headers is not valid JSON: …</C>,
+            <C key="name">Headers is not valid JSON: …</C>,
             'The field names the line and column. Usually a trailing comma or a missing quote.',
           ],
           [
-            <C>… url rejected: …</C>,
+            <C key="name">… url rejected: …</C>,
             <>
               The destination is not a public address. See{' '}
               <A href="/docs/tools/integration#api-request-limits">Where it may connect</A>.
             </>,
           ],
           [
-            <C>Bearer authentication is selected but no token is set</C>,
+            <C key="name">Bearer authentication is selected but no token is set</C>,
             'An auth mode was chosen and its credential left blank.',
           ],
           [
-            <C>The request timed out</C>,
+            <C key="name">The request timed out</C>,
             'Your endpoint did not answer in time. Raise the timeout, or check it is reachable.',
           ],
         ]}

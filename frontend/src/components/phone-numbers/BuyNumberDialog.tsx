@@ -5,13 +5,13 @@ import Link from 'next/link'
 import axios from 'axios'
 import {
   AlertCircle, ArrowLeft, Bot, Check, CheckCircle2, ChevronDown, Loader2,
-  MapPin, MessageSquare, Phone, PhoneCall, Plug, RefreshCw, Search,
+  MapPin, Phone, PhoneCall, Plug, RefreshCw, Search,
 } from 'lucide-react'
 import { PhoneDialog } from './PhoneDialog'
 import { PhoneNumberPaywall } from '@/components/billing/PhoneNumberPaywall'
 import {
   COUNTRIES, type AvailableNumber, type NumberSource, type OwnProvider, type PhoneNumber,
-  formatMonthly, formatPhoneNumber, friendlyPhoneError, hasSms, hasVoice, locationLabel,
+  formatMonthly, formatPhoneNumber, friendlyPhoneError, hasVoice, locationLabel,
   phoneNumberService, validateSearch,
 } from '@/lib/phoneNumbers'
 import { appDisplayName } from '@/lib/appNames'
@@ -52,7 +52,9 @@ function Capabilities({ caps }: { caps: Record<string, boolean> }) {
   return (
     <div className="flex flex-wrap gap-1">
       {hasVoice(caps) && <CapabilityChip icon={PhoneCall} label="Voice" />}
+      {/* SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
       {hasSms(caps) && <CapabilityChip icon={MessageSquare} label="SMS" />}
+      */}
     </div>
   )
 }

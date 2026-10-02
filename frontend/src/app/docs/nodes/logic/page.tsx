@@ -205,9 +205,9 @@ RIGHT — narrowest first
         headers={['Reference', 'Value']}
         widths={['w-[28%]']}
         rows={[
-          [<C>{'{{loop.item}}'}</C>, 'The current item. Reach into it with dots when items are objects.'],
-          [<C>{'{{loop.index}}'}</C>, 'Zero-based position.'],
-          [<C>{'{{loop.length}}'}</C>, 'Total number of items.'],
+          [<C key="c0">{'{{loop.item}}'}</C>, 'The current item. Reach into it with dots when items are objects.'],
+          [<C key="c0">{'{{loop.index}}'}</C>, 'Zero-based position.'],
+          [<C key="c0">{'{{loop.length}}'}</C>, 'Total number of items.'],
         ]}
       />
 
@@ -250,14 +250,14 @@ RIGHT — narrowest first
         widths={['w-[22%]']}
         rows={[
           [
-            <Strong>Name</Strong>,
+            <Strong key="c0">Name</Strong>,
             <>
               What the result is called. Later steps use it as <C>{'{{name}}'}</C> — no{' '}
               <C>steps.</C> prefix needed, because Set Fields publishes at the top level.
             </>,
           ],
           [
-            <Strong>Source</Strong>,
+            <Strong key="c0">Source</Strong>,
             <>
               Where the value comes from: a reference like <C>{'{{trigger.orders}}'}</C>, a
               literal like <C>Gold</C>, or a mix of both. Leave the transforms empty and the
@@ -265,7 +265,7 @@ RIGHT — narrowest first
             </>,
           ],
           [
-            <Strong>Transform</Strong>,
+            <Strong key="c0">Transform</Strong>,
             <>
               What to do with the value — chosen from the dropdown, not typed. Some
               transforms reveal an argument box beside them (a currency, a number of decimal
@@ -273,7 +273,7 @@ RIGHT — narrowest first
             </>,
           ],
           [
-            <Strong>then…</Strong>,
+            <Strong key="c0">then…</Strong>,
             <>
               A second and third transform, each fed the previous one&rsquo;s result. The
               slot only appears once the one before it is set.
@@ -293,14 +293,14 @@ RIGHT — narrowest first
         headers={['Transform', 'Does', 'Argument']}
         widths={['w-[24%]', 'w-[46%]']}
         rows={[
-          [<Strong>Sum of</Strong>, 'Adds a field up across a list — an order total, a month of charges.', <>Field to add up. Blank for a plain list of numbers.</>],
-          [<Strong>Average of</Strong>, 'Mean of a field across a list.', 'Field to average'],
-          [<Strong>Largest of</Strong>, 'Highest value of a field across a list.', 'Field to compare'],
-          [<Strong>Smallest of</Strong>, 'Lowest value of a field across a list.', 'Field to compare'],
-          [<Strong>Round</Strong>, 'Rounds to a number of decimal places.', 'Decimal places'],
-          [<Strong>Round down</Strong>, 'Rounds towards zero.', '—'],
-          [<Strong>Round up</Strong>, 'Rounds away from zero.', '—'],
-          [<Strong>Absolute value</Strong>, 'Drops the minus sign.', '—'],
+          [<Strong key="c0">Sum of</Strong>, 'Adds a field up across a list — an order total, a month of charges.', <>Field to add up. Blank for a plain list of numbers.</>],
+          [<Strong key="c0">Average of</Strong>, 'Mean of a field across a list.', 'Field to average'],
+          [<Strong key="c0">Largest of</Strong>, 'Highest value of a field across a list.', 'Field to compare'],
+          [<Strong key="c0">Smallest of</Strong>, 'Lowest value of a field across a list.', 'Field to compare'],
+          [<Strong key="c0">Round</Strong>, 'Rounds to a number of decimal places.', 'Decimal places'],
+          [<Strong key="c0">Round down</Strong>, 'Rounds towards zero.', '—'],
+          [<Strong key="c0">Round up</Strong>, 'Rounds away from zero.', '—'],
+          [<Strong key="c0">Absolute value</Strong>, 'Drops the minus sign.', '—'],
         ]}
       />
 
@@ -309,11 +309,11 @@ RIGHT — narrowest first
         headers={['Transform', 'Does', 'Argument']}
         widths={['w-[24%]', 'w-[46%]']}
         rows={[
-          [<Strong>Format as money</Strong>, <>Renders a number as currency — <C>1240.5</C> becomes <C>$1,240.50</C>.</>, <>Currency code, e.g. <C>USD</C></>],
-          [<Strong>Format as number</Strong>, 'Fixed decimal places with thousands separators.', 'Decimal places'],
-          [<Strong>Format as date</Strong>, <>Renders a date the way you want it read out.</>, <>Pattern, e.g. <C>%d %b %Y</C></>],
-          [<Strong>Add days to date</Strong>, 'Moves a date forward (or back, with a negative number).', 'Days'],
-          [<Strong>Add hours to date</Strong>, 'Moves a time forward or back.', 'Hours'],
+          [<Strong key="c0">Format as money</Strong>, <>Renders a number as currency — <C>1240.5</C> becomes <C>$1,240.50</C>.</>, <>Currency code, e.g. <C>USD</C></>],
+          [<Strong key="c0">Format as number</Strong>, 'Fixed decimal places with thousands separators.', 'Decimal places'],
+          [<Strong key="c0">Format as date</Strong>, <>Renders a date the way you want it read out.</>, <>Pattern, e.g. <C>%d %b %Y</C></>],
+          [<Strong key="c0">Add days to date</Strong>, 'Moves a date forward (or back, with a negative number).', 'Days'],
+          [<Strong key="c0">Add hours to date</Strong>, 'Moves a time forward or back.', 'Hours'],
         ]}
       />
 
@@ -329,12 +329,12 @@ RIGHT — narrowest first
         headers={['Transform', 'Does', 'Argument']}
         widths={['w-[24%]', 'w-[46%]']}
         rows={[
-          [<Strong>UPPERCASE</Strong>, 'Everything upper case.', '—'],
-          [<Strong>lowercase</Strong>, 'Everything lower case. Useful before a comparison.', '—'],
-          [<Strong>Capitalise first letter</Strong>, 'First letter up, rest untouched.', '—'],
-          [<Strong>Title Case</Strong>, 'Capitalises each word — names, company names.', '—'],
-          [<Strong>Remove extra spaces</Strong>, 'Trims the ends and collapses runs of spaces.', '—'],
-          [<Strong>Shorten to</Strong>, 'Cuts text to a maximum length.', 'Characters'],
+          [<Strong key="c0">UPPERCASE</Strong>, 'Everything upper case.', '—'],
+          [<Strong key="c0">lowercase</Strong>, 'Everything lower case. Useful before a comparison.', '—'],
+          [<Strong key="c0">Capitalise first letter</Strong>, 'First letter up, rest untouched.', '—'],
+          [<Strong key="c0">Title Case</Strong>, 'Capitalises each word — names, company names.', '—'],
+          [<Strong key="c0">Remove extra spaces</Strong>, 'Trims the ends and collapses runs of spaces.', '—'],
+          [<Strong key="c0">Shorten to</Strong>, 'Cuts text to a maximum length.', 'Characters'],
         ]}
       />
 
@@ -343,11 +343,11 @@ RIGHT — narrowest first
         headers={['Transform', 'Does', 'Argument']}
         widths={['w-[24%]', 'w-[46%]']}
         rows={[
-          [<Strong>Count items</Strong>, <>How many are in the list — &ldquo;you have {'{{order_count}}'} open orders&rdquo;.</>, '—'],
-          [<Strong>First item</Strong>, 'The first entry. Handy for a search that returns matches in relevance order.', '—'],
-          [<Strong>Last item</Strong>, 'The last entry — the most recent, where the list is chronological.', '—'],
-          [<Strong>Join into text</Strong>, <>Turns a list into one readable string.</>, <>Separator, e.g. <C>, </C></>],
-          [<Strong>Extract field from each</Strong>, <>Pulls one field out of every item, giving a list of just those values.</>, 'Field name'],
+          [<Strong key="c0">Count items</Strong>, <>How many are in the list — &ldquo;you have {'{{order_count}}'} open orders&rdquo;.</>, '—'],
+          [<Strong key="c0">First item</Strong>, 'The first entry. Handy for a search that returns matches in relevance order.', '—'],
+          [<Strong key="c0">Last item</Strong>, 'The last entry — the most recent, where the list is chronological.', '—'],
+          [<Strong key="c0">Join into text</Strong>, <>Turns a list into one readable string.</>, <>Separator, e.g. <C>, </C></>],
+          [<Strong key="c0">Extract field from each</Strong>, <>Pulls one field out of every item, giving a list of just those values.</>, 'Field name'],
         ]}
       />
 
@@ -356,9 +356,9 @@ RIGHT — narrowest first
         headers={['Transform', 'Does', 'Argument']}
         widths={['w-[24%]', 'w-[46%]']}
         rows={[
-          [<Strong>To whole number</Strong>, 'Turns text into an integer, so numeric comparisons work.', '—'],
-          [<Strong>To decimal number</Strong>, 'Turns text into a decimal.', '—'],
-          [<Strong>To text</Strong>, 'Turns anything into a string.', '—'],
+          [<Strong key="c0">To whole number</Strong>, 'Turns text into an integer, so numeric comparisons work.', '—'],
+          [<Strong key="c0">To decimal number</Strong>, 'Turns text into a decimal.', '—'],
+          [<Strong key="c0">To text</Strong>, 'Turns anything into a string.', '—'],
         ]}
       />
 
@@ -543,16 +543,16 @@ total     =  {{subtotal}}       +   {{tax}}
         headers={['Operator', 'True when', 'Branch', 'Filter']}
         widths={['w-[22%]', 'w-[44%]', 'w-[10%]']}
         rows={[
-          [<C>equals</C>, 'The values match', 'Yes', 'Yes'],
-          [<C>does not equal</C>, 'The values differ', 'Yes', 'Yes'],
-          [<C>contains</C>, 'The value appears inside the variable', 'Yes', 'Yes'],
-          [<C>does not contain</C>, 'The value does not appear inside it', 'Yes', '—'],
-          [<C>starts with</C>, 'The variable begins with the value', 'Yes', '—'],
-          [<C>ends with</C>, 'The variable ends with the value', 'Yes', '—'],
-          [<C>is greater than</C>, 'Numerically larger', 'Yes', 'Yes'],
-          [<C>is less than</C>, 'Numerically smaller', 'Yes', 'Yes'],
-          [<C>is empty</C>, 'Null, missing, or an empty string', 'Yes', 'Yes'],
-          [<C>is not empty</C>, 'Has any value', 'Yes', 'Yes'],
+          [<C key="c0">equals</C>, 'The values match', 'Yes', 'Yes'],
+          [<C key="c0">does not equal</C>, 'The values differ', 'Yes', 'Yes'],
+          [<C key="c0">contains</C>, 'The value appears inside the variable', 'Yes', 'Yes'],
+          [<C key="c0">does not contain</C>, 'The value does not appear inside it', 'Yes', '—'],
+          [<C key="c0">starts with</C>, 'The variable begins with the value', 'Yes', '—'],
+          [<C key="c0">ends with</C>, 'The variable ends with the value', 'Yes', '—'],
+          [<C key="c0">is greater than</C>, 'Numerically larger', 'Yes', 'Yes'],
+          [<C key="c0">is less than</C>, 'Numerically smaller', 'Yes', 'Yes'],
+          [<C key="c0">is empty</C>, 'Null, missing, or an empty string', 'Yes', 'Yes'],
+          [<C key="c0">is not empty</C>, 'Has any value', 'Yes', 'Yes'],
         ]}
       />
 

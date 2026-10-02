@@ -26,7 +26,7 @@ export default function WorkflowsPage() {
         headers={['Situation', 'Workflow?']}
         widths={['w-[52%]']}
         rows={[
-          ['One action, no branching — send an SMS', <>No. Use a single <A href="/docs/tools">tool</A>.</>],
+          ['One action, no branching — transfer a call', <>No. Use a single <A href="/docs/tools">tool</A>.</>],
           ['Several actions in a fixed order', <>Yes.</>],
           ['The next step depends on an earlier answer', <>Yes — that is what Branch and Switch are for.</>],
           ['Something must happen after every call ends', <>Yes, with a <A href="/docs/workflows/triggers#call-completed">call completed</A> trigger.</>],
@@ -159,26 +159,26 @@ export default function WorkflowsPage() {
         widths={['w-[26%]', 'w-[14%]']}
         rows={[
           [
-            <Strong>Required field missing</Strong>,
-            <Badge tone="rose">Error</Badge>,
+            <Strong key="c0">Required field missing</Strong>,
+            <Badge key="c1" tone="rose">Error</Badge>,
             'A Webhook with no URL, an Ask with no variable to save into.',
           ],
           [
-            <Strong>Field is not valid JSON</Strong>,
-            <Badge tone="rose">Error</Badge>,
+            <Strong key="c0">Field is not valid JSON</Strong>,
+            <Badge key="c1" tone="rose">Error</Badge>,
             <>A headers or body field that does not parse — usually a trailing comma or a missing quote.</>,
           ],
           [
-            <Strong>Step no longer supported</Strong>,
-            <Badge tone="rose">Error</Badge>,
+            <Strong key="c0">Step no longer supported</Strong>,
+            <Badge key="c1" tone="rose">Error</Badge>,
             <>
               A node type this build has retired, kept from an older version of the flow. See{' '}
               <A href="#retired-steps">below</A>.
             </>,
           ],
           [
-            <Strong>Workflow contains a loop</Strong>,
-            <Badge tone="rose">Error</Badge>,
+            <Strong key="c0">Workflow contains a loop</Strong>,
+            <Badge key="c1" tone="rose">Error</Badge>,
             <>
               Edges form a cycle, so the run would never finish. To repeat work, use the{' '}
               <A href="/docs/nodes/logic#loop">Loop Over Items</A> node rather than wiring a
@@ -186,21 +186,21 @@ export default function WorkflowsPage() {
             </>,
           ],
           [
-            <Strong>Not connected to the flow</Strong>,
-            <Badge tone="amber">Warning</Badge>,
+            <Strong key="c0">Not connected to the flow</Strong>,
+            <Badge key="c1" tone="amber">Warning</Badge>,
             'Nothing reaches the node from the trigger, so it never runs.',
           ],
           [
-            <Strong>Output not connected</Strong>,
-            <Badge tone="amber">Warning</Badge>,
+            <Strong key="c0">Output not connected</Strong>,
+            <Badge key="c1" tone="amber">Warning</Badge>,
             <>
               A node with more than one output — Branch, Switch, Loop — has a handle going
               nowhere. That path of the run stops there.
             </>,
           ],
           [
-            <Strong>Workflow has no steps yet</Strong>,
-            <Badge tone="amber">Warning</Badge>,
+            <Strong key="c0">Workflow has no steps yet</Strong>,
+            <Badge key="c1" tone="amber">Warning</Badge>,
             'Only a trigger on the canvas.',
           ],
         ]}

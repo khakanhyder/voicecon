@@ -47,10 +47,10 @@ export default function TriggerNodePage() {
         headers={['Field', 'Purpose']}
         widths={['w-[22%]']}
         rows={[
-          [<Strong>Name</Strong>, <>The reference key. Use <C>snake_case</C> — it is what you will type in every downstream field.</>],
-          [<Strong>Type</Strong>, 'String, number, or boolean. Governs how the value is interpreted when supplied.'],
-          [<Strong>Description</Strong>, 'What the value is. Read by the model when this workflow is used as a tool.'],
-          [<Strong>Required</Strong>, 'Whether the workflow can run without it.'],
+          [<Strong key="c0">Name</Strong>, <>The reference key. Use <C>snake_case</C> — it is what you will type in every downstream field.</>],
+          [<Strong key="c0">Type</Strong>, 'String, number, or boolean. Governs how the value is interpreted when supplied.'],
+          [<Strong key="c0">Description</Strong>, 'What the value is. Read by the model when this workflow is used as a tool.'],
+          [<Strong key="c0">Required</Strong>, 'Whether the workflow can run without it.'],
         ]}
       />
 

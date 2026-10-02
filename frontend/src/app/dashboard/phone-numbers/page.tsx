@@ -15,7 +15,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertCircle, ArrowRight, Bot, Check, DollarSign, ExternalLink, Loader2, MessageSquare,
+  AlertCircle, ArrowRight, Bot, Check, DollarSign, ExternalLink, Loader2,
   Phone, PhoneCall, Plug, Plus, RefreshCw, Trash2, TrendingUp,
 } from 'lucide-react'
 import { apiClient } from '@/lib/api'
@@ -27,7 +27,7 @@ import { formatDate } from '@/lib/datetime'
 import { appDisplayName } from '@/lib/appNames'
 import {
   type NumberSource, type OwnProvider, type PhoneNumber, type PurchaseOptions,
-  formatMonthly, formatPhoneNumber, friendlyPhoneError, hasSms, hasVoice, phoneNumberService,
+  formatMonthly, formatPhoneNumber, friendlyPhoneError, hasVoice, phoneNumberService,
 } from '@/lib/phoneNumbers'
 import { BuyNumberDialog } from '@/components/phone-numbers/BuyNumberDialog'
 import { ConnectedAccounts, OwnProviderDialog } from '@/components/phone-numbers/OwnProviderDialog'
@@ -618,11 +618,13 @@ export default function PhoneNumbersPage() {
                           <PhoneCall className="h-3 w-3" /> Voice
                         </span>
                       )}
+                      {/* SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
                       {hasSms(num.capabilities) && (
                         <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
                           <MessageSquare className="h-3 w-3" /> SMS
                         </span>
                       )}
+                      */}
                     </div>
 
                     <div className="order-last col-span-2 min-w-0 md:order-none md:col-span-1">

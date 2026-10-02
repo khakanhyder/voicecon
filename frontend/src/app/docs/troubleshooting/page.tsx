@@ -313,14 +313,6 @@ export default function TroubleshootingPage() {
         <LI>The carrier is blocking the destination — some regions require prior authorisation.</LI>
       </UL>
 
-      <H3>SMS does not send</H3>
-      <P>
-        The sending number lacks SMS capability. That is set at purchase and cannot be added
-        afterwards — check the number&rsquo;s{' '}
-        <A href="/docs/phone-numbers#configuration">capabilities</A>. You will need a
-        different number.
-      </P>
-
       <H3>Calls stop connecting mid-campaign</H3>
       <P>
         You have hit a plan limit, most likely call minutes. Check{' '}

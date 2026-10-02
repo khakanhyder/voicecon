@@ -154,10 +154,10 @@ export default function KnowledgeBasePage() {
         headers={['Source', 'Use for']}
         widths={['w-[20%]']}
         rows={[
-          [<C>file</C>, 'PDFs, Word documents, text files, HTML. Uploaded directly.'],
-          [<C>url</C>, 'A web page, fetched and extracted.'],
-          [<C>text</C>, 'Pasted text. Fastest way to add a policy or a set of FAQs.'],
-          [<C>api</C>, 'Documents pushed programmatically from your own systems.'],
+          [<C key="c0">file</C>, 'PDFs, Word documents, text files, HTML. Uploaded directly.'],
+          [<C key="c0">url</C>, 'A web page, fetched and extracted.'],
+          [<C key="c0">text</C>, 'Pasted text. Fastest way to add a policy or a set of FAQs.'],
+          [<C key="c0">api</C>, 'Documents pushed programmatically from your own systems.'],
         ]}
       />
       <P>Each document records:</P>
@@ -177,10 +177,10 @@ export default function KnowledgeBasePage() {
         headers={['Status', 'Meaning']}
         widths={['w-[20%]']}
         rows={[
-          [<C>pending</C>, 'Queued.'],
-          [<C>processing</C>, 'Being chunked and embedded.'],
-          [<C>completed</C>, 'Searchable.'],
-          [<C>failed</C>, <>Something went wrong; <C>processing_error</C> says what.</>],
+          [<C key="c0">pending</C>, 'Queued.'],
+          [<C key="c0">processing</C>, 'Being chunked and embedded.'],
+          [<C key="c0">completed</C>, 'Searchable.'],
+          [<C key="c0">failed</C>, <>Something went wrong; <C>processing_error</C> says what.</>],
         ]}
       />
       <P>The usual causes of a failure:</P>

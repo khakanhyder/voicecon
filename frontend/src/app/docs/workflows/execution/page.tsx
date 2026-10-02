@@ -119,8 +119,8 @@ export default function ExecutionPage() {
         headers={['Setting', 'Async run', 'Sync run']}
         widths={['w-[28%]', 'w-[24%]']}
         rows={[
-          [<C>max_retries</C>, 'As configured, up to 10', <>At most <Strong>1</Strong> retry</>],
-          [<C>retry_delay</C>, 'As configured', <>At most <Strong>2 seconds</Strong></>],
+          [<C key="c0">max_retries</C>, 'As configured, up to 10', <>At most <Strong>1</Strong> retry</>],
+          [<C key="c0">retry_delay</C>, 'As configured', <>At most <Strong>2 seconds</Strong></>],
         ]}
       />
       <P>
@@ -149,23 +149,23 @@ export default function ExecutionPage() {
         widths={['w-[32%]']}
         rows={[
           [
-            <C>{'settings.on_error'}</C>,
+            <C key="c0">{'settings.on_error'}</C>,
             <>
               <C>continue</C> or <C>stop</C> for this node alone, overriding the
               workflow&rsquo;s <C>error_handling</C>.
             </>,
           ],
           [
-            <C>{'settings.retry.enabled'}</C>,
+            <C key="c0">{'settings.retry.enabled'}</C>,
             <>
               Turns retrying on for a node that would not normally retry, or off for one that
               would.
             </>,
           ],
-          [<C>{'settings.retry.max_tries'}</C>, <>Retry count for this node.</>],
-          [<C>{'settings.retry.delay_seconds'}</C>, <>Wait between this node&rsquo;s attempts.</>],
+          [<C key="c0">{'settings.retry.max_tries'}</C>, <>Retry count for this node.</>],
+          [<C key="c0">{'settings.retry.delay_seconds'}</C>, <>Wait between this node&rsquo;s attempts.</>],
           [
-            <C>{'settings.retry.backoff'}</C>,
+            <C key="c0">{'settings.retry.backoff'}</C>,
             <>
               <C>fixed</C> (the default) waits the same each time; <C>exponential</C> doubles
               the wait on every attempt, which is kinder to a service that is already
@@ -173,7 +173,7 @@ export default function ExecutionPage() {
             </>,
           ],
           [
-            <C>{'settings.timeout_seconds'}</C>,
+            <C key="c0">{'settings.timeout_seconds'}</C>,
             <>
               Abandon this step if it has not finished in time. The step is marked failed —
               a timeout is not retried.
@@ -197,14 +197,14 @@ export default function ExecutionPage() {
         headers={['Field', 'What it tells you']}
         widths={['w-[26%]']}
         rows={[
-          [<C>status</C>, <>One of <C>pending</C>, <C>running</C>, <C>completed</C>, <C>failed</C>, <C>cancelled</C>.</>],
-          [<C>trigger_data</C>, 'Exactly what the run started with — the first thing to check when output looks wrong.'],
-          [<C>steps_executed</C>, 'How far it got. A low number on a long workflow means it stopped early.'],
-          [<C>steps_successful</C> , 'How many succeeded.'],
-          [<C>steps_failed</C>, 'How many failed. Non-zero with status completed means error handling was set to continue.'],
-          [<C>duration_ms</C>, 'Wall-clock time. Watch this on mid-call workflows — slow runs mean dead air.'],
-          [<C>result_data</C>, 'Per-node outputs.'],
-          [<C>error_message</C>, 'Why it failed, when it did.'],
+          [<C key="c0">status</C>, <>One of <C>pending</C>, <C>running</C>, <C>completed</C>, <C>failed</C>, <C>cancelled</C>.</>],
+          [<C key="c0">trigger_data</C>, 'Exactly what the run started with — the first thing to check when output looks wrong.'],
+          [<C key="c0">steps_executed</C>, 'How far it got. A low number on a long workflow means it stopped early.'],
+          [<C key="c0">steps_successful</C> , 'How many succeeded.'],
+          [<C key="c0">steps_failed</C>, 'How many failed. Non-zero with status completed means error handling was set to continue.'],
+          [<C key="c0">duration_ms</C>, 'Wall-clock time. Watch this on mid-call workflows — slow runs mean dead air.'],
+          [<C key="c0">result_data</C>, 'Per-node outputs.'],
+          [<C key="c0">error_message</C>, 'Why it failed, when it did.'],
         ]}
       />
 

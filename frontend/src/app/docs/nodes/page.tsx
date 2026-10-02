@@ -19,22 +19,22 @@ export default function NodesPage() {
         widths={['w-[20%]', 'w-[46%]']}
         rows={[
           [
-            <Badge tone="blue">Conversation</Badge>,
+            <Badge key="c0" tone="blue">Conversation</Badge>,
             'Speak, Ask Question, Transfer Call, End Call',
             'Yes',
           ],
           [
-            <Badge tone="amber">Logic</Badge>,
+            <Badge key="c0" tone="amber">Logic</Badge>,
             'Branch, Switch, Filter, Merge, Loop Over Items, Set Fields, Calculate, Wait',
             'No',
           ],
           [
-            <Badge tone="violet">Actions</Badge>,
+            <Badge key="c0" tone="violet">Actions</Badge>,
             'Run Tool, Webhook, Integration',
             'No',
           ],
           [
-            <Badge tone="brand">AI</Badge>,
+            <Badge key="c0" tone="brand">AI</Badge>,
             'AI Response',
             'No',
           ],
@@ -54,23 +54,23 @@ export default function NodesPage() {
         headers={['Node', 'Does', 'Outputs']}
         widths={['w-[20%]', 'w-[48%]']}
         rows={[
-          [<A href="/docs/nodes/trigger">Trigger</A>, 'Starts the workflow; declares its inputs', <C>out</C>],
-          [<A href="/docs/nodes/conversation#speak">Speak</A>, 'Says something to the caller', <C>out</C>],
-          [<A href="/docs/nodes/conversation#ask">Ask Question</A>, 'Asks, and captures the answer into a variable', <C>out</C>],
-          [<A href="/docs/nodes/conversation#transfer">Transfer Call</A>, 'Hands the call to a number or SIP address', <em>none — terminal</em>],
-          [<A href="/docs/nodes/conversation#end">End Call</A>, 'Says goodbye and hangs up', <em>none — terminal</em>],
-          [<A href="/docs/nodes/logic#condition">Branch</A>, 'Splits on one condition', <><C>true</C>, <C>false</C></>],
-          [<A href="/docs/nodes/logic#switch">Switch</A>, 'Routes to the first matching rule', <>one per rule, plus <C>else</C></>],
-          [<A href="/docs/nodes/logic#filter">Filter</A>, 'Continues only when a condition holds', <C>out</C>],
-          [<A href="/docs/nodes/logic#merge">Merge</A>, 'Joins parallel branches back together', <C>out</C>],
-          [<A href="/docs/nodes/logic#loop">Loop Over Items</A>, 'Runs a body once per item in a list', <><C>loop</C>, <C>done</C></>],
-          [<A href="/docs/nodes/logic#transform">Set Fields</A>, 'Builds named values for later steps', <C>out</C>],
-          [<A href="/docs/nodes/logic#calculate">Calculate</A>, 'Works out numbers from other values, row by row', <C>out</C>],
-          [<A href="/docs/nodes/logic#delay">Wait</A>, 'Pauses before continuing', <C>out</C>],
-          [<A href="/docs/nodes/actions#tool">Run Tool</A>, 'Executes a configured tool', <C>out</C>],
-          [<A href="/docs/nodes/actions#webhook">Webhook</A>, 'Calls an external HTTP endpoint', <C>out</C>],
-          [<A href="/docs/nodes/actions#action">Integration</A>, 'Runs an action on a connected app', <C>out</C>],
-          [<A href="/docs/nodes/ai">AI Response</A>, 'Generates a reply from context', <C>out</C>],
+          [<A key="c0" href="/docs/nodes/trigger">Trigger</A>, 'Starts the workflow; declares its inputs', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/conversation#speak">Speak</A>, 'Says something to the caller', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/conversation#ask">Ask Question</A>, 'Asks, and captures the answer into a variable', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/conversation#transfer">Transfer Call</A>, 'Hands the call to a number or SIP address', <em key="c1">none — terminal</em>],
+          [<A key="c0" href="/docs/nodes/conversation#end">End Call</A>, 'Says goodbye and hangs up', <em key="c1">none — terminal</em>],
+          [<A key="c0" href="/docs/nodes/logic#condition">Branch</A>, 'Splits on one condition', <><C>true</C>, <C>false</C></>],
+          [<A key="c0" href="/docs/nodes/logic#switch">Switch</A>, 'Routes to the first matching rule', <>one per rule, plus <C>else</C></>],
+          [<A key="c0" href="/docs/nodes/logic#filter">Filter</A>, 'Continues only when a condition holds', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/logic#merge">Merge</A>, 'Joins parallel branches back together', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/logic#loop">Loop Over Items</A>, 'Runs a body once per item in a list', <><C>loop</C>, <C>done</C></>],
+          [<A key="c0" href="/docs/nodes/logic#transform">Set Fields</A>, 'Builds named values for later steps', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/logic#calculate">Calculate</A>, 'Works out numbers from other values, row by row', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/logic#delay">Wait</A>, 'Pauses before continuing', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/actions#tool">Run Tool</A>, 'Executes a configured tool', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/actions#webhook">Webhook</A>, 'Calls an external HTTP endpoint', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/actions#action">Integration</A>, 'Runs an action on a connected app', <C key="c1">out</C>],
+          [<A key="c0" href="/docs/nodes/ai">AI Response</A>, 'Generates a reply from context', <C key="c1">out</C>],
         ]}
       />
 
@@ -105,19 +105,19 @@ export default function NodesPage() {
         headers={['Field type', 'Behaviour']}
         widths={['w-[24%]']}
         rows={[
-          [<Strong>Text / Textarea</Strong>, <>Free text. Accepts <C>{'{{references}}'}</C>.</>],
-          [<Strong>Number</Strong>, 'Numeric input, usually with a sensible default already filled.'],
-          [<Strong>Select</Strong>, 'A fixed list of options.'],
-          [<Strong>JSON</Strong>, <>A JSON object. References inside are resolved with types preserved — see <A href="/docs/workflows/variables#type-preservation">Type preservation</A>.</>],
-          [<Strong>Field map</Strong>, <>The named-field editor on <A href="/docs/nodes/logic#transform">Set Fields</A> — a name, a source, and up to three chained transforms per row.</>],
-          [<Strong>Calculations</Strong>, <>The ordered arithmetic rows on <A href="/docs/nodes/logic#calculate">Calculate</A>.</>],
-          [<Strong>Connection</Strong>, 'Picks one of your connected integrations.'],
-          [<Strong>Tool</Strong>, <>Picks one of the workspace&rsquo;s tools, on <A href="/docs/nodes/actions#tool">Run Tool</A>.</>],
-          [<Strong>Connection action</Strong>, 'Picks an action on the chosen connection. Populated after a connection is selected.'],
-          [<Strong>Action parameters</Strong>, 'Rendered from the action’s own schema — resource pickers where the connector offers one, expression inputs elsewhere.'],
-          [<Strong>Key / value</Strong>, 'An editable list of name-to-value assignments.'],
-          [<Strong>Rules</Strong>, 'The ordered rule list that grows a Switch node’s output handles.'],
-          [<Strong>Inputs</Strong>, 'Declares the workflow’s parameters. Only on the Trigger node.'],
+          [<Strong key="c0">Text / Textarea</Strong>, <>Free text. Accepts <C>{'{{references}}'}</C>.</>],
+          [<Strong key="c0">Number</Strong>, 'Numeric input, usually with a sensible default already filled.'],
+          [<Strong key="c0">Select</Strong>, 'A fixed list of options.'],
+          [<Strong key="c0">JSON</Strong>, <>A JSON object. References inside are resolved with types preserved — see <A href="/docs/workflows/variables#type-preservation">Type preservation</A>.</>],
+          [<Strong key="c0">Field map</Strong>, <>The named-field editor on <A href="/docs/nodes/logic#transform">Set Fields</A> — a name, a source, and up to three chained transforms per row.</>],
+          [<Strong key="c0">Calculations</Strong>, <>The ordered arithmetic rows on <A href="/docs/nodes/logic#calculate">Calculate</A>.</>],
+          [<Strong key="c0">Connection</Strong>, 'Picks one of your connected integrations.'],
+          [<Strong key="c0">Tool</Strong>, <>Picks one of the workspace&rsquo;s tools, on <A href="/docs/nodes/actions#tool">Run Tool</A>.</>],
+          [<Strong key="c0">Connection action</Strong>, 'Picks an action on the chosen connection. Populated after a connection is selected.'],
+          [<Strong key="c0">Action parameters</Strong>, 'Rendered from the action’s own schema — resource pickers where the connector offers one, expression inputs elsewhere.'],
+          [<Strong key="c0">Key / value</Strong>, 'An editable list of name-to-value assignments.'],
+          [<Strong key="c0">Rules</Strong>, 'The ordered rule list that grows a Switch node’s output handles.'],
+          [<Strong key="c0">Inputs</Strong>, 'Declares the workflow’s parameters. Only on the Trigger node.'],
         ]}
       />
 

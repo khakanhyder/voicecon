@@ -92,11 +92,11 @@ export default function ConceptsPage() {
         widths={['w-[24%]']}
         rows={[
           [
-            <Strong>Connector</Strong>,
+            <Strong key="c0">Connector</Strong>,
             'The platform-provided definition of an app — its base URL, auth type, rate limits, and the actions it supports. You do not create these.',
           ],
           [
-            <Strong>Connection</Strong>,
+            <Strong key="c0">Connection</Strong>,
             'Your authenticated account on that app. Credentials are encrypted at rest. This is what you create, and what a tool or workflow node points at.',
           ],
         ]}
@@ -122,7 +122,7 @@ export default function ConceptsPage() {
       <H2 id="phone-number">Phone number</H2>
       <P>
         A real number provisioned through a carrier connection. It records which provider it
-        was bought on, its capabilities (voice, SMS), its status, and its monthly cost.
+        was bought on, its status, and its monthly cost.
       </P>
       <P>
         A number points at <Strong>at most one agent</Strong>. An agent may hold several

@@ -31,9 +31,9 @@ export default function VariablesPage() {
         headers={['Namespace', 'Written by', 'Read as']}
         widths={['w-[20%]', 'w-[34%]']}
         rows={[
-          [<C>trigger</C>, 'The trigger, once, at the start', <C>{'{{trigger.field}}'}</C>],
-          [<C>steps</C>, 'Every node, keyed by node id', <C>{'{{steps.n_abc123.field}}'}</C>],
-          ['top level', 'Ask, Set Fields, Code, AI nodes', <C>{'{{variable_name}}'}</C>],
+          [<C key="c0">trigger</C>, 'The trigger, once, at the start', <C key="c1">{'{{trigger.field}}'}</C>],
+          [<C key="c0">steps</C>, 'Every node, keyed by node id', <C key="c1">{'{{steps.n_abc123.field}}'}</C>],
+          ['top level', 'Ask, Set Fields, Code, AI nodes', <C key="c0">{'{{variable_name}}'}</C>],
         ]}
       />
 
@@ -53,12 +53,12 @@ export default function VariablesPage() {
         headers={['Reference', 'Resolves to']}
         widths={['w-[46%]']}
         rows={[
-          [<C>{'{{trigger.email}}'}</C>, 'A field on the trigger data'],
-          [<C>{'{{account_number}}'}</C>, 'A top-level variable published by an earlier node'],
-          [<C>{'{{steps.n_abc123.status}}'}</C>, 'A field on a specific node’s result'],
-          [<C>{'{{trigger.items[0].sku}}'}</C>, 'The first item in an array, then a field on it'],
-          [<C>{'{{results.0.latitude}}'}</C>, 'Array index without brackets — also valid'],
-          [<C>{'{{trigger.items[-1].sku}}'}</C>, 'Negative index — counts from the end'],
+          [<C key="c0">{'{{trigger.email}}'}</C>, 'A field on the trigger data'],
+          [<C key="c0">{'{{account_number}}'}</C>, 'A top-level variable published by an earlier node'],
+          [<C key="c0">{'{{steps.n_abc123.status}}'}</C>, 'A field on a specific node’s result'],
+          [<C key="c0">{'{{trigger.items[0].sku}}'}</C>, 'The first item in an array, then a field on it'],
+          [<C key="c0">{'{{results.0.latitude}}'}</C>, 'Array index without brackets — also valid'],
+          [<C key="c0">{'{{trigger.items[-1].sku}}'}</C>, 'Negative index — counts from the end'],
         ]}
       />
 
@@ -149,22 +149,22 @@ Result:       "Amount: true"       ← lowercase JSON spelling, not Python's Tru
         widths={['w-[22%]', 'w-[34%]']}
         rows={[
           [
-            <A href="/docs/nodes/conversation#ask">Ask Question</A>,
+            <A key="c0" href="/docs/nodes/conversation#ask">Ask Question</A>,
             'The caller’s answer',
             <>The <Strong>Save answer as</Strong> field</>,
           ],
           [
-            <A href="/docs/nodes/logic#transform">Set Fields</A>,
+            <A key="c0" href="/docs/nodes/logic#transform">Set Fields</A>,
             'One variable per row',
             'The key of each row',
           ],
           [
-            <A href="/docs/nodes/logic#calculate">Calculate</A>,
+            <A key="c0" href="/docs/nodes/logic#calculate">Calculate</A>,
             'One variable per calculation row',
             'The row’s name',
           ],
           [
-            <A href="/docs/nodes/ai">AI Response</A>,
+            <A key="c0" href="/docs/nodes/ai">AI Response</A>,
             'The generated reply',
             <>The <Strong>Save reply as</Strong> field</>,
           ],
@@ -190,9 +190,9 @@ is_urgent  =  {{trigger.priority}}
         headers={['Reference', 'Meaning']}
         widths={['w-[30%]']}
         rows={[
-          [<C>{'{{loop.item}}'}</C>, 'The current item.'],
-          [<C>{'{{loop.index}}'}</C>, 'Zero-based position in the list.'],
-          [<C>{'{{loop.length}}'}</C>, 'Total number of items.'],
+          [<C key="c0">{'{{loop.item}}'}</C>, 'The current item.'],
+          [<C key="c0">{'{{loop.index}}'}</C>, 'Zero-based position in the list.'],
+          [<C key="c0">{'{{loop.length}}'}</C>, 'Total number of items.'],
         ]}
       />
       <P>

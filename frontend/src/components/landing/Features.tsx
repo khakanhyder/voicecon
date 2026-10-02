@@ -104,7 +104,7 @@ const FEATURES = [
   {
     icon: Wrench,
     title: 'Tools during the call',
-    body: 'Let agents transfer calls, send SMS, press keypad tones, leave voicemails, query a knowledge base or run a workflow in the middle of the conversation.',
+    body: 'Let agents transfer calls, press keypad tones, leave voicemails, query a knowledge base or run a workflow in the middle of the conversation.',
   },
   {
     icon: FileText,

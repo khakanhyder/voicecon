@@ -107,8 +107,8 @@ export default function ConversationNodesPage() {
         headers={['Use this input type', 'When']}
         widths={['w-[20%]']}
         rows={[
-          [<C>speech</C>, 'Names, addresses, free-text reasons, yes/no. Natural, but transcription can misread.'],
-          [<C>dtmf</C>, 'Account numbers, PINs, menu selections, card digits. Exact, and unaffected by accent or noise.'],
+          [<C key="c0">speech</C>, 'Names, addresses, free-text reasons, yes/no. Natural, but transcription can misread.'],
+          [<C key="c0">dtmf</C>, 'Account numbers, PINs, menu selections, card digits. Exact, and unaffected by accent or noise.'],
         ]}
       />
 

@@ -41,9 +41,8 @@ export default function PhoneNumbersPage() {
         headers={['Provider', 'Buy numbers', 'Notes']}
         widths={['w-[18%]', 'w-[16%]']}
         rows={[
-          [<Strong>Twilio</Strong>, 'Yes', 'Widest country coverage and the most familiar console. The default choice.'],
-          [<Strong>Telnyx</Strong>, 'Yes', 'Often cheaper per minute. Uses a TeXML application, created for you at purchase.'],
-          [<Strong>Vonage</Strong>, '—', 'Available as an integration for SMS; numbers are not provisioned through Voicecon.'],
+          [<Strong key="name">Twilio</Strong>, 'Yes', 'Widest country coverage and the most familiar console. The default choice.'],
+          [<Strong key="name">Telnyx</Strong>, 'Yes', 'Often cheaper per minute. Uses a TeXML application, created for you at purchase.'],
         ]}
       />
       <Callout kind="note" title="With more than one carrier connected">
@@ -79,27 +78,12 @@ export default function PhoneNumbersPage() {
             ),
           },
           {
-            name: 'capabilities',
-            type: 'voice / sms',
-            description: (
-              <>
-                Filter to numbers that support what you need. A number without SMS cannot send
-                confirmations, and that is not something you can add later.
-              </>
-            ),
-          },
-          {
             name: 'provider',
             type: 'enum',
             description: 'Which connected carrier to search. Required when more than one is connected.',
           },
         ]}
       />
-      <Callout kind="tip" title="Buy voice + SMS even if you only need voice today">
-        Texting confirmations, links, and reference numbers is one of the highest-value things
-        a voice agent does. A voice-only number closes that door, and switching numbers later
-        means updating everywhere the old one is printed.
-      </Callout>
 
       <H2 id="provisioning">Buying a number</H2>
       <Steps>
@@ -177,7 +161,7 @@ export default function PhoneNumbersPage() {
           {
             name: 'capabilities',
             type: 'object',
-            default: '{ voice: true, sms: true }',
+            default: '{ voice: true }',
             description: 'What the carrier issued this number with. Read-only — set at purchase.',
           },
           {
@@ -199,11 +183,6 @@ export default function PhoneNumbersPage() {
                 bespoke telephony setup.
               </>
             ),
-          },
-          {
-            name: 'sms_webhook_url',
-            type: 'url',
-            description: 'Where inbound SMS is delivered.',
           },
           {
             name: 'status_callback_url',

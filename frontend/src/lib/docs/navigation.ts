@@ -480,17 +480,18 @@ export const DOCS_NAV: DocGroup[] = [
       {
         title: 'Phone Call Tools',
         href: '/docs/tools/phone-call',
-        description: 'Transfer, hang up, voicemail, DTMF, SMS, and SIP.',
+        description: 'Transfer, hang up, voicemail, DTMF, and SIP.',
         sections: [
           { id: 'transfer-call', title: 'Transfer Call' },
           { id: 'hang-up', title: 'Hang Up' },
           { id: 'leave-voicemail', title: 'Leave Voicemail' },
           { id: 'dtmf', title: 'DTMF' },
-          { id: 'send-sms', title: 'Send Text' },
+          // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+          // { id: 'send-sms', title: 'Send Text' },
           { id: 'sip-request', title: 'SIP Request' },
           { id: 'summary', title: 'At a glance' },
         ],
-        keywords: ['transfer', 'hangup', 'voicemail', 'dtmf', 'sms', 'text', 'sip'],
+        keywords: ['transfer', 'hangup', 'voicemail', 'dtmf', 'sip'],
       },
       {
         title: 'Assistant Tools',
@@ -601,8 +602,8 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'releasing', title: 'Releasing a number' },
         ],
         keywords: [
-          'twilio', 'telnyx', 'vonage', 'buy number', 'provision', 'area code',
-          'webhook', 'sms', 'voice', 'capabilities', 'release',
+          'twilio', 'telnyx', 'buy number', 'provision', 'area code',
+          'webhook', 'voice', 'capabilities', 'release',
         ],
       },
       {

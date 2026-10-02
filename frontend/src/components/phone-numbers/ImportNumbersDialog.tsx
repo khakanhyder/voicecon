@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Bot, Check, Loader2, MessageSquare, Phone, PhoneCall, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, Bot, Check, Loader2, Phone, PhoneCall, Plus, RefreshCw } from 'lucide-react'
 import { PhoneDialog } from './PhoneDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   type OwnAccountNumber, type OwnProvider, type PhoneNumber,
-  formatPhoneNumber, friendlyPhoneError, hasSms, hasVoice, phoneNumberService,
+  formatPhoneNumber, friendlyPhoneError, hasVoice, phoneNumberService,
 } from '@/lib/phoneNumbers'
 
 interface Props {
@@ -204,11 +204,13 @@ export function ImportNumbersDialog({ provider, onClose, agents, onImported, onB
                           <PhoneCall className="h-3 w-3" /> Voice
                         </span>
                       )}
+                      {/* SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
                       {hasSms(num.capabilities) && (
                         <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
                           <MessageSquare className="h-3 w-3" /> SMS
                         </span>
                       )}
+                      */}
                     </div>
                   </div>
                   {added ? (

@@ -42,7 +42,7 @@ const integrationCatalog: Integration[] = [
   // Communication
   { id: '9', slug: 'slack', name: 'Slack', description: 'Send notifications and updates to your Slack channels', category: 'communication', icon: '💬', authType: 'oauth2', features: ['Channel Messages', 'Direct Messages', 'File Sharing', 'Webhooks'], popular: true },
   { id: '10', slug: 'microsoft-teams', name: 'Microsoft Teams', description: 'Post messages and alerts to a Teams channel via Incoming Webhook', category: 'communication', icon: '👥', authType: 'api_key', features: ['Channel Messages', 'Rich Cards', 'Alerts'], popular: false },
-  { id: '11', slug: 'twilio', name: 'Twilio', description: 'Enhanced telephony features and SMS capabilities', category: 'communication', icon: '📞', authType: 'api_key', features: ['Voice Calls', 'SMS', 'WhatsApp', 'Call Recording'], popular: false },
+  { id: '11', slug: 'twilio', name: 'Twilio', description: 'Use phone numbers from your own Twilio account', category: 'communication', icon: '📞', authType: 'api_key', features: ['Voice Calls', 'Phone Numbers', 'Call Recording'], popular: false },
   { id: '12', slug: 'sendgrid', name: 'SendGrid', description: 'Send transactional emails from voice conversations', category: 'communication', icon: '✉️', authType: 'api_key', features: ['Transactional Email', 'Templates', 'Analytics', 'List Management'], popular: false },
   // Productivity
   { id: '13', slug: 'zapier', name: 'Zapier', description: 'Connect to 5000+ apps through Zapier automation', category: 'productivity', icon: '⚡', authType: 'api_key', features: ['Workflow Automation', 'Custom Triggers', 'Multi-Step Zaps', 'Webhooks'], popular: true },
@@ -53,12 +53,13 @@ const integrationCatalog: Integration[] = [
   // Payment
   { id: '18', slug: 'stripe', name: 'Stripe', description: 'Process payments and manage subscriptions during calls', category: 'other', icon: '💳', authType: 'api_key', features: ['Payment Processing', 'Subscription Management', 'Invoicing', 'Webhooks'], popular: true },
   // CRM (extended)
-  { id: '19', slug: 'gohighlevel', name: 'GoHighLevel', description: 'All-in-one CRM — sync contacts, pipelines, and SMS from voice calls', category: 'crm', icon: '🚀', authType: 'api_key', features: ['Contact Sync', 'Pipeline Management', 'SMS Campaigns', 'Appointment Booking'], popular: true },
+  { id: '19', slug: 'gohighlevel', name: 'GoHighLevel', description: 'All-in-one CRM — sync contacts and pipelines from voice calls', category: 'crm', icon: '🚀', authType: 'api_key', features: ['Contact Sync', 'Pipeline Management', 'Appointment Booking'], popular: true },
   { id: '20', slug: 'notion', name: 'Notion', description: 'Create and update Notion pages and databases from voice conversations', category: 'productivity', icon: '📝', authType: 'oauth2', features: ['Page Creation', 'Database Updates', 'Notes', 'Task Tracking'], popular: false },
   { id: '21', slug: 'monday', name: 'Monday.com', description: 'Update boards and items in Monday.com from call outcomes', category: 'productivity', icon: '📋', authType: 'api_key', features: ['Board Updates', 'Item Creation', 'Status Tracking', 'Automations'], popular: false },
   // Phone Providers
-  { id: '22', slug: 'telnyx', name: 'Telnyx', description: 'Carrier-grade VoIP and SIP trunking for voice AI deployments', category: 'phone', icon: '📱', authType: 'api_key', features: ['SIP Trunking', 'Phone Numbers', 'SMS', 'Call Control API'], popular: true },
-  { id: '23', slug: 'vonage', name: 'Vonage (Nexmo)', description: 'Global cloud communications — calls, SMS, and phone number management', category: 'phone', icon: '☎️', authType: 'api_key', features: ['Voice Calls', 'SMS', 'Phone Numbers', 'WebRTC'], popular: false },
+  { id: '22', slug: 'telnyx', name: 'Telnyx', description: 'Carrier-grade VoIP and SIP trunking for voice AI deployments', category: 'phone', icon: '📱', authType: 'api_key', features: ['SIP Trunking', 'Phone Numbers', 'Call Control API'], popular: true },
+  // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now. Vonage only sent SMS.
+  // { id: '23', slug: 'vonage', name: 'Vonage (Nexmo)', description: 'Global cloud communications — calls, SMS, and phone number management', category: 'phone', icon: '☎️', authType: 'api_key', features: ['Voice Calls', 'SMS', 'Phone Numbers', 'WebRTC'], popular: false },
   // Analytics / Observability
   { id: '24', slug: 'langfuse', name: 'Langfuse', description: 'Open-source LLM observability — trace, evaluate, and debug AI calls', category: 'analytics', icon: '🔭', authType: 'api_key', features: ['LLM Tracing', 'Prompt Management', 'Evaluation', 'Cost Tracking'], popular: true },
   // Cloud Storage

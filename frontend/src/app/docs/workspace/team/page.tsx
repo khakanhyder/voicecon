@@ -42,10 +42,10 @@ export default function TeamPage() {
         headers={['Role', 'In one line']}
         widths={['w-[16%]']}
         rows={[
-          [<Strong>Owner</Strong>, 'The person who created the workspace. Full control, including billing and deleting the workspace. Exactly one per workspace, and it never changes.'],
-          [<Strong>Admin</Strong>, 'Runs the team day to day, but cannot touch the owner or other admins, change the plan, or delete the workspace.'],
-          [<Strong>Member</Strong>, 'Builds and runs things — agents, workflows, tools, integrations. No team or billing access.'],
-          [<Strong>Viewer</Strong>, 'Read-only. Can see everything, change nothing.'],
+          [<Strong key="c0">Owner</Strong>, 'The person who created the workspace. Full control, including billing and deleting the workspace. Exactly one per workspace, and it never changes.'],
+          [<Strong key="c0">Admin</Strong>, 'Runs the team day to day, but cannot touch the owner or other admins, change the plan, or delete the workspace.'],
+          [<Strong key="c0">Member</Strong>, 'Builds and runs things — agents, workflows, tools, integrations. No team or billing access.'],
+          [<Strong key="c0">Viewer</Strong>, 'Read-only. Can see everything, change nothing.'],
         ]}
       />
       <Callout kind="note" title="Why admins cannot do everything">
@@ -60,23 +60,23 @@ export default function TeamPage() {
         headers={['Capability', 'Owner', 'Admin', 'Member', 'Viewer']}
         widths={['w-[40%]', 'w-[12%]', 'w-[12%]', 'w-[12%]']}
         rows={[
-          [<>View agents, calls, workflows, analytics</>, <Y />, <Y />, <Y />, <Y />],
-          [<>Create and edit agents</>, <Y />, <Y />, <Y />, <N />],
-          [<>Delete agents</>, <Y />, <Y />, <Y />, <N />],
-          [<>Create and edit workflows</>, <Y />, <Y />, <Y />, <N />],
-          [<>Execute workflows</>, <Y />, <Y />, <Y />, <N />],
-          [<>Create and edit tools</>, <Y />, <Y />, <Y />, <N />],
-          [<>Manage knowledge bases</>, <Y />, <Y />, <Y />, <N />],
-          [<>Connect and manage integrations</>, <Y />, <Y />, <Y />, <N />],
-          [<>Buy and configure phone numbers</>, <Y />, <Y />, <Y />, <N />],
-          [<>View API keys</>, <Y />, <Y />, <Y />, <N />],
-          [<>Create and revoke API keys</>, <Y />, <Y />, <N />, <N />],
-          [<>Invite, remove, and re-role members</>, <Y />, <Y />, <N />, <N />],
-          [<>Act on another admin or the owner</>, <Y />, <N />, <N />, <N />],
-          [<>View billing and invoices</>, <Y />, <Y />, <N />, <N />],
-          [<>Change the plan or payment method</>, <Y />, <N />, <N />, <N />],
-          [<>Rename the workspace and change settings</>, <Y />, <Y />, <N />, <N />],
-          [<>Delete the workspace</>, <Y />, <N />, <N />, <N />],
+          [<>View agents, calls, workflows, analytics</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <Y key="c3" />],
+          [<>Create and edit agents</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Delete agents</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Create and edit workflows</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Execute workflows</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Create and edit tools</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Manage knowledge bases</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Connect and manage integrations</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Buy and configure phone numbers</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>View API keys</>, <Y key="c0" />, <Y key="c1" />, <Y key="c2" />, <N key="c3" />],
+          [<>Create and revoke API keys</>, <Y key="c0" />, <Y key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>Invite, remove, and re-role members</>, <Y key="c0" />, <Y key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>Act on another admin or the owner</>, <Y key="c0" />, <N key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>View billing and invoices</>, <Y key="c0" />, <Y key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>Change the plan or payment method</>, <Y key="c0" />, <N key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>Rename the workspace and change settings</>, <Y key="c0" />, <Y key="c1" />, <N key="c2" />, <N key="c3" />],
+          [<>Delete the workspace</>, <Y key="c0" />, <N key="c1" />, <N key="c2" />, <N key="c3" />],
         ]}
       />
 
@@ -126,7 +126,7 @@ export default function TeamPage() {
         widths={['w-[22%]', 'w-[46%]']}
         rows={[
           [
-            <Strong>Name</Strong>,
+            <Strong key="c0">Name</Strong>,
             <>
               Shown in the workspace switcher and on the invitations you send. Renaming takes
               effect everywhere immediately — no reload needed. Minimum two characters.
@@ -134,17 +134,17 @@ export default function TeamPage() {
             'Owner, admin',
           ],
           [
-            <Strong>Workspace ID</Strong>,
+            <Strong key="c0">Workspace ID</Strong>,
             <>
               The workspace&rsquo;s slug. Stable — it does not change when you rename the
               workspace. Quote it when contacting support.
             </>,
-            <em>Read-only</em>,
+            <em key="c1">Read-only</em>,
           ],
-          [<Strong>Your role</Strong>, 'Your role in this workspace, not your role elsewhere.', <em>Read-only</em>],
-          [<Strong>Members</Strong>, <>How many people are in it. The list itself lives under <Strong>Team</Strong>.</>, <em>Read-only</em>],
-          [<Strong>Owner</Strong>, 'The owner’s email — who to ask when you need something only an owner can do.', <em>Read-only</em>],
-          [<Strong>Created</Strong>, 'When the workspace was created.', <em>Read-only</em>],
+          [<Strong key="c0">Your role</Strong>, 'Your role in this workspace, not your role elsewhere.', <em key="c1">Read-only</em>],
+          [<Strong key="c0">Members</Strong>, <>How many people are in it. The list itself lives under <Strong>Team</Strong>.</>, <em key="c1">Read-only</em>],
+          [<Strong key="c0">Owner</Strong>, 'The owner’s email — who to ask when you need something only an owner can do.', <em key="c1">Read-only</em>],
+          [<Strong key="c0">Created</Strong>, 'When the workspace was created.', <em key="c1">Read-only</em>],
         ]}
       />
       <Callout kind="note" title="Renaming is cosmetic; the ID is not">
@@ -159,7 +159,7 @@ export default function TeamPage() {
         widths={['w-[20%]', 'w-[50%]']}
         rows={[
           [
-            <Strong>Leave workspace</Strong>,
+            <Strong key="c0">Leave workspace</Strong>,
             <>
               Removes you from it. You lose access to everything inside, and need a fresh
               invitation to return. What you built stays behind.
@@ -167,7 +167,7 @@ export default function TeamPage() {
             'Everyone except the owner',
           ],
           [
-            <Strong>Delete workspace</Strong>,
+            <Strong key="c0">Delete workspace</Strong>,
             <>
               Agents, workflows and phone numbers stop working immediately. Call history and
               invoices are kept so your records stay complete. Not undoable from the

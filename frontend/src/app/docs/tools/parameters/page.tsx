@@ -104,11 +104,11 @@ Model:   invokes book_appointment({
         headers={['Type', 'Use for', 'Example value']}
         widths={['w-[16%]', 'w-[44%]']}
         rows={[
-          [<C>string</C>, 'Names, emails, dates as spoken, free text, IDs', <C>&quot;Ada Lovelace&quot;</C>],
-          [<C>number</C>, 'Quantities, amounts, scores, durations', <C>3</C>],
-          [<C>boolean</C>, 'Yes/no facts the caller confirms', <C>true</C>],
-          [<C>object</C>, 'Structured data with named fields', <C>{'{ "street": "…", "city": "…" }'}</C>],
-          [<C>array</C>, 'Lists — several items, several dates', <C>{'["Tue", "Wed"]'}</C>],
+          [<C key="name">string</C>, 'Names, emails, dates as spoken, free text, IDs', <C key="value">&quot;Ada Lovelace&quot;</C>],
+          [<C key="name">number</C>, 'Quantities, amounts, scores, durations', <C key="value">3</C>],
+          [<C key="name">boolean</C>, 'Yes/no facts the caller confirms', <C key="value">true</C>],
+          [<C key="name">object</C>, 'Structured data with named fields', <C key="value">{'{ "street": "…", "city": "…" }'}</C>],
+          [<C key="name">array</C>, 'Lists — several items, several dates', <C key="value">{'["Tue", "Wed"]'}</C>],
         ]}
       />
 
@@ -134,11 +134,11 @@ Model:   invokes book_appointment({
         headers={['Instead of', 'Write']}
         widths={['w-[30%]']}
         rows={[
-          [<C>&quot;name&quot;</C>, <C>&quot;The caller&rsquo;s full name, as they say it&quot;</C>],
-          [<C>&quot;date&quot;</C>, <C>&quot;The date the caller wants, in their own words, e.g. &lsquo;next Tuesday&rsquo;&quot;</C>],
-          [<C>&quot;amount&quot;</C>, <C>&quot;The refund amount in pounds, numbers only&quot;</C>],
-          [<C>&quot;id&quot;</C>, <C>&quot;The 8-digit account number the caller reads out&quot;</C>],
-          [<C>&quot;urgent&quot;</C>, <C>&quot;True only if the caller explicitly says it is urgent&quot;</C>],
+          [<C key="name">&quot;name&quot;</C>, <C key="value">&quot;The caller&rsquo;s full name, as they say it&quot;</C>],
+          [<C key="name">&quot;date&quot;</C>, <C key="value">&quot;The date the caller wants, in their own words, e.g. &lsquo;next Tuesday&rsquo;&quot;</C>],
+          [<C key="name">&quot;amount&quot;</C>, <C key="value">&quot;The refund amount in pounds, numbers only&quot;</C>],
+          [<C key="name">&quot;id&quot;</C>, <C key="value">&quot;The 8-digit account number the caller reads out&quot;</C>],
+          [<C key="name">&quot;urgent&quot;</C>, <C key="value">&quot;True only if the caller explicitly says it is urgent&quot;</C>],
         ]}
       />
 
@@ -226,7 +226,7 @@ Body template
       />
 
       <P>
-        The same tokens work in an SMS message template, a Slack message, a Google Sheets row,
+        The same tokens work in a voicemail message, a Slack message, a Google Sheets row,
         or a calendar event title.
       </P>
 

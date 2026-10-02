@@ -1,5 +1,6 @@
 import { DocPage, docMetadata } from '@/components/docs/DocPage'
-import { CodeBlock } from '@/components/docs/CodeBlock'
+// Only the Send Text section (commented out below) uses it.
+// import { CodeBlock } from '@/components/docs/CodeBlock'
 import {
   A, C, Callout, H2, LI, P, ParamTable, RefHeader, Strong, Table, UL,
 } from '@/components/docs/prose'
@@ -129,6 +130,7 @@ export default function PhoneCallToolsPage() {
         <C>input_type: dtmf</C>.
       </Callout>
 
+      {/* SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
       <RefHeader id="send-sms" name="Send Text" chip="Phone call" tone="emerald">
         Sends an SMS to the caller or any number, without interrupting the call.
       </RefHeader>
@@ -181,6 +183,7 @@ Message          Hi {{name}}, your appointment is confirmed for
         The sending number must have SMS enabled at the carrier. Check the number&rsquo;s
         capabilities under <A href="/docs/phone-numbers#configuration">Phone Numbers</A>.
       </Callout>
+      */}
 
       <RefHeader id="sip-request" name="SIP Request" chip="Phone call · Advanced" tone="emerald">
         Issues a raw SIP request. For telephony engineers integrating with existing SIP
@@ -220,12 +223,11 @@ Message          Hi {{name}}, your appointment is confirmed for
         headers={['Tool', 'Ends the call?', 'Needs']}
         widths={['w-[26%]', 'w-[20%]']}
         rows={[
-          [<Strong>Transfer Call</Strong>, 'Yes — hands it over', 'A destination'],
-          [<Strong>Hang Up</Strong>, 'Yes', 'Nothing'],
-          [<Strong>Leave Voicemail</Strong>, 'Usually', 'A message'],
-          [<Strong>DTMF</Strong>, 'No', 'Digits'],
-          [<Strong>Send Text</Strong>, 'No', 'SMS-capable number'],
-          [<Strong>SIP Request</Strong>, 'Depends on method', 'SIP infrastructure'],
+          [<Strong key="name">Transfer Call</Strong>, 'Yes — hands it over', 'A destination'],
+          [<Strong key="name">Hang Up</Strong>, 'Yes', 'Nothing'],
+          [<Strong key="name">Leave Voicemail</Strong>, 'Usually', 'A message'],
+          [<Strong key="name">DTMF</Strong>, 'No', 'Digits'],
+          [<Strong key="name">SIP Request</Strong>, 'Depends on method', 'SIP infrastructure'],
         ]}
       />
     </DocPage>

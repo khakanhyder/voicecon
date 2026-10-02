@@ -371,7 +371,7 @@ Always confirm details before finalizing any booking.""",
    - Configure any special requirements
 
 4. **Set Up Reminders**
-   - Enable SMS/Email reminders
+   - Enable email reminders
    - Configure reminder timing (24hr, 1hr before, etc.)
    - Customize reminder messages
 
@@ -634,7 +634,6 @@ Remember: Build rapport before asking for information. Make it feel like a conve
 4. **Set Up Notifications**
    - Email alerts for new leads
    - Slack notifications
-   - SMS alerts for hot leads
 
 5. **Create Follow-up Workflows**
    - Immediate email response

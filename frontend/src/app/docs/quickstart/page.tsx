@@ -97,12 +97,12 @@ Rules:
         rows={[
           [
             'LLM model',
-            <C>gpt-4.1-mini</C>,
+            <C key="name">gpt-4.1-mini</C>,
             'Fast enough for natural turn-taking. Move up only if the agent reasons poorly.',
           ],
           [
             'Temperature',
-            <C>0.7</C>,
+            <C key="name">0.7</C>,
             'Lower for scripted accuracy, higher for warmth. 0.3–0.8 is the usable band.',
           ],
           [
@@ -183,7 +183,7 @@ Rules:
       <P>Your agent can talk. Now give it the ability to act.</P>
       <UL>
         <LI>
-          <A href="/docs/tools">Add a tool</A> so it can send an SMS, transfer to a human, or
+          <A href="/docs/tools">Add a tool</A> so it can transfer to a human, look something up, or
           write to your CRM.
         </LI>
         <LI>

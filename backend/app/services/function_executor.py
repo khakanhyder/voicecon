@@ -60,6 +60,11 @@ def _as_uuid_arg(value):
         return value
 
 
+#: Tool types that still exist on saved tools but no longer run.
+#: SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+DISABLED_TOOL_TYPES = frozenset({"send_sms"})
+
+
 def object_schema(parameters: Any) -> Dict[str, Any]:
     """
     A tool's parameter schema as both providers require it: a JSON Schema
@@ -700,6 +705,10 @@ class FunctionExecutor:
         definitions = []
 
         for tool in tools:
+            # A Send Text tool saved before SMS was switched off is still
+            # assigned to its agent; the model is no longer offered it.
+            if tool.tool_type in DISABLED_TOOL_TYPES:
+                continue
             schema = None
             if tool.tool_type == "workflow" and db is not None:
                 schema = await self._workflow_input_schema(tool, db)
@@ -780,9 +789,10 @@ class FunctionExecutor:
             parameters["required"].append("destination")
         elif t == "hang_up":
             parameters["properties"]["reason"] = {"type": "string", "description": "Reason for ending the call"}
-        elif t == "send_sms":
-            parameters["properties"]["message"] = {"type": "string", "description": "SMS message to send"}
-            parameters["required"].append("message")
+        # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+        # elif t == "send_sms":
+        #     parameters["properties"]["message"] = {"type": "string", "description": "SMS message to send"}
+        #     parameters["required"].append("message")
         elif t == "leave_voicemail":
             parameters["properties"]["message"] = {"type": "string", "description": "Voicemail message to leave"}
             parameters["required"].append("message")
@@ -855,7 +865,8 @@ class FunctionExecutor:
             if t in HTTP_TOOL_TYPES:
                 result = await run_http_tool(t, cfg, parameters)
 
-            elif t in ("transfer_call", "hang_up", "leave_voicemail", "dtmf", "send_sms", "sip_request"):
+            # "send_sms" was in this list. SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+            elif t in ("transfer_call", "hang_up", "leave_voicemail", "dtmf", "sip_request"):
                 # Telephony actions — return structured action for the call handler to interpret
                 result = {"action": t, "config": cfg, "parameters": parameters, "requires_telephony": True}
 

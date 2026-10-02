@@ -20,7 +20,7 @@ export default function AccountPage() {
         widths={['w-[24%]']}
         rows={[
           [
-            <Strong>Profile picture</Strong>,
+            <Strong key="c0">Profile picture</Strong>,
             <>
               Click the circle or drag an image onto it. JPEG, PNG, WebP or GIF, up to 5MB.
               If your picture is already hosted somewhere — a Google account photo, say —
@@ -28,20 +28,20 @@ export default function AccountPage() {
             </>,
           ],
           [
-            <Strong>Full name</Strong>,
+            <Strong key="c0">Full name</Strong>,
             'Appears wherever activity is attributed, so make it recognisable to colleagues.',
           ],
           [
-            <Strong>Email</Strong>,
+            <Strong key="c0">Email</Strong>,
             <>
               Read-only. It is your sign-in identity, so changing it needs support.
             </>,
           ],
-          [<Strong>Phone number</Strong>, 'Your own contact number. Unrelated to the numbers your agents answer on.'],
-          [<Strong>Company</Strong>, 'Free text on your profile.'],
-          [<Strong>Bio</Strong>, 'A short description of yourself.'],
+          [<Strong key="c0">Phone number</Strong>, 'Your own contact number. Unrelated to the numbers your agents answer on.'],
+          [<Strong key="c0">Company</Strong>, 'Free text on your profile.'],
+          [<Strong key="c0">Bio</Strong>, 'A short description of yourself.'],
           [
-            <Strong>Timezone</Strong>,
+            <Strong key="c0">Timezone</Strong>,
             <>
               Chosen from a list. Worth setting before you read call logs or schedule
               anything — it is the timezone timestamps are shown in.
@@ -116,8 +116,8 @@ export default function AccountPage() {
         headers={['Action', 'Effect']}
         widths={['w-[26%]']}
         rows={[
-          [<Strong>Mark as read</Strong>, 'Clears one notification from the unread count.'],
-          [<Strong>Mark all as read</Strong>, 'Clears everything.'],
+          [<Strong key="c0">Mark as read</Strong>, 'Clears one notification from the unread count.'],
+          [<Strong key="c0">Mark all as read</Strong>, 'Clears everything.'],
         ]}
       />
       <Callout kind="note" title="Integration failure notices matter most">

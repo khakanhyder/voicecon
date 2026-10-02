@@ -13,7 +13,7 @@ export default function IntroductionPage() {
       <P>
         Voicecon is a platform for building AI agents that hold real phone conversations —
         and, crucially, that <Strong>do things</Strong> during those conversations. An agent
-        can look up an order in your CRM, book a slot on a calendar, text a confirmation, or
+        can look up an order in your CRM, book a slot on a calendar, email a confirmation, or
         escalate to a human, all mid-sentence.
       </P>
       <P>
@@ -84,7 +84,7 @@ export default function IntroductionPage() {
 
       <P>
         Not every call travels the whole chain. A simple FAQ agent stops at the second box. An
-        agent that only needs to send one SMS stops at the third. The chain extends as far as
+        agent that only needs to transfer a call stops at the third. The chain extends as far as
         the job requires, and each link is optional.
       </P>
 
@@ -93,7 +93,7 @@ export default function IntroductionPage() {
         widths={['w-[46%]']}
         rows={[
           ['Answer questions from documents', <>A <A href="/docs/knowledge-base">knowledge base</A> attached to the agent</>],
-          ['Do one specific thing (send an SMS, transfer)', <>A single <A href="/docs/tools">tool</A></>],
+          ['Do one specific thing (transfer a call, look something up)', <>A single <A href="/docs/tools">tool</A></>],
           ['Do several things in order, with branching', <>A <A href="/docs/workflows">workflow</A>, invoked by a workflow tool</>],
           ['Read or write data in another product', <>An <A href="/docs/integrations">integration</A>, used from a tool or workflow</>],
           ['Hand the caller to a person', <>A transfer or handoff <A href="/docs/tools/phone-call">tool</A></>],

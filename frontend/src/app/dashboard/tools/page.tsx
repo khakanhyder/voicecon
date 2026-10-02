@@ -90,7 +90,8 @@ const TOOL_TYPES = {
       { type: 'hang_up', label: 'Hang Up', icon: PhoneOff, description: 'End the current call gracefully' },
       { type: 'leave_voicemail', label: 'Leave Voicemail', icon: Voicemail, description: 'Leave a voicemail message for the caller' },
       { type: 'dtmf', label: 'DTMF', icon: Hash, description: 'Send DTMF (touch-tone) signals into the call' },
-      { type: 'send_sms', label: 'Send Text', icon: MessageSquare, description: 'Send an SMS to the caller or any number' },
+      // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+      // { type: 'send_sms', label: 'Send Text', icon: MessageSquare, description: 'Send an SMS to the caller or any number' },
       { type: 'sip_request', label: 'SIP Request', icon: ArrowLeftRight, description: 'Make a custom SIP protocol request' },
     ],
   },
@@ -502,12 +503,13 @@ function ToolConfigFields({ toolType, config, params, errors, onCfg, onParams }:
         {paramBuilder}
       </div>
 
-    case 'send_sms':
-      return <div className="space-y-4">
-        <Field label="Recipient Number" required hint="Phone number with country code, or {{caller_number}}" error={e.to}><TI value={config.to || ''} onChange={s('to')} placeholder="+15551234567 or {{caller_number}}" /></Field>
-        <Field label="Message Template" required hint="Use {{variable}} for dynamic values" error={e.message}><TA value={config.message || ''} onChange={s('message')} placeholder="Hi {{name}}, your appointment is confirmed for {{date}}." rows={3} /></Field>
-        {paramBuilder}
-      </div>
+    // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+    // case 'send_sms':
+    //   return <div className="space-y-4">
+    //     <Field label="Recipient Number" required hint="Phone number with country code, or {{caller_number}}" error={e.to}><TI value={config.to || ''} onChange={s('to')} placeholder="+15551234567 or {{caller_number}}" /></Field>
+    //     <Field label="Message Template" required hint="Use {{variable}} for dynamic values" error={e.message}><TA value={config.message || ''} onChange={s('message')} placeholder="Hi {{name}}, your appointment is confirmed for {{date}}." rows={3} /></Field>
+    //     {paramBuilder}
+    //   </div>
 
     case 'dtmf':
       return <div className="space-y-4">

@@ -201,7 +201,7 @@ const SECTIONS: LegalSection[] = [
             ['Anthropic', 'Language model replies, when a customer selects an Anthropic model', 'Transcripts, prompts, knowledge base content'],
             ['Deepgram', 'Real-time speech-to-text', 'Caller audio'],
             ['ElevenLabs', 'Text-to-speech voices', 'Agent reply text'],
-            ['Twilio and Telnyx', 'Phone numbers, calls and text messages', 'Phone numbers, call audio, SMS content'],
+            ['Twilio and Telnyx', 'Phone numbers and calls', 'Phone numbers, call audio'],
             ['Stripe', 'Payments and subscription billing', 'Billing contact and payment details'],
             ['Google and Apple', 'Optional sign-in, and email delivery through Google', 'Name, email address, account identifier, email content'],
             ['Mailchimp', 'Waitlist and marketing email', 'Email address'],
@@ -351,7 +351,7 @@ const SECTIONS: LegalSection[] = [
         <UL>
           <li>giving any notice and obtaining any consent that call-recording and wiretap laws require, which in some places means every party&apos;s consent;</li>
           <li>disclosing that callers are speaking with an AI system where the law requires it;</li>
-          <li>obtaining consent for automated or prerecorded calls and text messages, and honouring do-not-call and opt-out requests;</li>
+          <li>obtaining consent for automated or prerecorded calls, and honouring do-not-call and opt-out requests;</li>
           <li>providing their own privacy notice that explains how they use Voicecon;</li>
           <li>not uploading sensitive data, such as health, financial account or government ID information, unless they have a lawful basis and the appropriate agreements in place.</li>
         </UL>

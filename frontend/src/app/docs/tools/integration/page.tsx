@@ -177,10 +177,10 @@ Sent
         headers={['Field', 'Is']}
         widths={['w-[22%]']}
         rows={[
-          [<C>status_code</C>, 'The HTTP status.'],
-          [<C>ok</C>, <>Whether that status was a success — the thing to branch on.</>],
-          [<C>json</C>, <>The parsed response, when the endpoint returned JSON.</>],
-          [<C>body</C>, 'The raw text, capped at 2,000 characters.'],
+          [<C key="name">status_code</C>, 'The HTTP status.'],
+          [<C key="name">ok</C>, <>Whether that status was a success — the thing to branch on.</>],
+          [<C key="name">json</C>, <>The parsed response, when the endpoint returned JSON.</>],
+          [<C key="name">body</C>, 'The raw text, capped at 2,000 characters.'],
         ]}
       />
       <CodeBlock

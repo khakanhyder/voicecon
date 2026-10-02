@@ -147,14 +147,15 @@ export function validateTool(input: {
       require('message', 'Voicemail message')
       break
 
-    case 'send_sms': {
-      const to = require('to', 'Recipient number')
-      if (to && !(isToolPhoneNumber(to) || TEMPLATE.test(to))) {
-        errors.to = 'Enter a phone number with country code (e.g. +15551234567) or {{caller_number}}.'
-      }
-      require('message', 'Message template')
-      break
-    }
+    // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+    // case 'send_sms': {
+    //   const to = require('to', 'Recipient number')
+    //   if (to && !(isToolPhoneNumber(to) || TEMPLATE.test(to))) {
+    //     errors.to = 'Enter a phone number with country code (e.g. +15551234567) or {{caller_number}}.'
+    //   }
+    //   require('message', 'Message template')
+    //   break
+    // }
 
     case 'dtmf': {
       const digits = require('digits', 'DTMF digits')

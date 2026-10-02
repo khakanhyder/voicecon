@@ -20,7 +20,6 @@ class TestRequiredFields:
         ("connected_integration", "connection_id"),
         ("transfer_call", "destination"),
         ("leave_voicemail", "message"),
-        ("send_sms", "to"),
         ("dtmf", "digits"),
         ("sip_request", "sip_uri"),
         ("handoff", "destination"),
@@ -56,9 +55,9 @@ class TestTransferAndSms:
     def test_rejects_undialable_destinations(self, destination):
         assert "destination" in errors("transfer_call", destination=destination)
 
-    def test_sms_accepts_the_caller_template_and_needs_a_message(self):
-        assert errors("send_sms", to="{{caller_number}}", message="Hi") == {}
-        assert set(errors("send_sms", to="call me")) == {"to", "message"}
+    def test_send_text_can_no_longer_be_created(self):
+        # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+        assert "tool_type" in errors("send_sms", to="{{caller_number}}", message="Hi")
 
 
 class TestUrlsAndJson:

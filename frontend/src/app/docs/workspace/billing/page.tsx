@@ -72,10 +72,10 @@ export default function BillingPage() {
         headers={['Action', 'What happens']}
         widths={['w-[22%]']}
         rows={[
-          [<Strong>Upgrade</Strong>, 'Effective immediately, with the period prorated.'],
-          [<Strong>Downgrade</Strong>, 'Effective at the next period, so you keep what you have paid for. Check you are within the lower plan’s limits first.'],
-          [<Strong>Cancel</Strong>, 'Access continues to the end of the paid period, then stops.'],
-          [<Strong>Reactivate</Strong>, 'Available after cancelling, restoring the subscription.'],
+          [<Strong key="c0">Upgrade</Strong>, 'Effective immediately, with the period prorated.'],
+          [<Strong key="c0">Downgrade</Strong>, 'Effective at the next period, so you keep what you have paid for. Check you are within the lower plan’s limits first.'],
+          [<Strong key="c0">Cancel</Strong>, 'Access continues to the end of the paid period, then stops.'],
+          [<Strong key="c0">Reactivate</Strong>, 'Available after cancelling, restoring the subscription.'],
         ]}
       />
       <Callout kind="warning" title="Downgrade below your usage and something has to give">
@@ -122,9 +122,9 @@ export default function BillingPage() {
         headers={['Moving', 'What happens']}
         widths={['w-[34%]']}
         rows={[
-          [<Strong>Trial → Pay As You Go</Strong>, 'Takes effect with your first top-up.'],
-          [<Strong>Subscription → Pay As You Go</Strong>, 'Takes effect when the period you have paid for ends. Add credit before then so calls keep running. You can change your mind until that date.'],
-          [<Strong>Pay As You Go → subscription</Strong>, 'Takes effect at checkout. Your remaining credit is kept.'],
+          [<Strong key="c0">Trial → Pay As You Go</Strong>, 'Takes effect with your first top-up.'],
+          [<Strong key="c0">Subscription → Pay As You Go</Strong>, 'Takes effect when the period you have paid for ends. Add credit before then so calls keep running. You can change your mind until that date.'],
+          [<Strong key="c0">Pay As You Go → subscription</Strong>, 'Takes effect at checkout. Your remaining credit is kept.'],
         ]}
       />
       <Callout kind="warning" title="A low balance stops calls, including the one in progress">
@@ -152,9 +152,9 @@ export default function BillingPage() {
         headers={['Billed by', 'For']}
         widths={['w-[24%]']}
         rows={[
-          [<Strong>Voicecon</Strong>, 'Your plan — the platform, and the minutes it includes.'],
-          [<Strong>Your carrier</Strong>, 'Phone numbers (monthly) and call minutes (per minute), directly on your Twilio or Telnyx account.'],
-          [<Strong>Your AI providers</Strong>, 'Model, transcription, and speech usage — when you bring your own API keys.'],
+          [<Strong key="c0">Voicecon</Strong>, 'Your plan — the platform, and the minutes it includes.'],
+          [<Strong key="c0">Your carrier</Strong>, 'Phone numbers (monthly) and call minutes (per minute), directly on your Twilio or Telnyx account.'],
+          [<Strong key="c0">Your AI providers</Strong>, 'Model, transcription, and speech usage — when you bring your own API keys.'],
         ]}
       />
       <P>

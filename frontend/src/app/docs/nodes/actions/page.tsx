@@ -185,10 +185,10 @@ Response: { "status": "ok", "results": [ { "id": 12, "email": "ada@example.com" 
         headers={['Refused', 'Examples']}
         widths={['w-[34%]']}
         rows={[
-          [<Strong>Loopback</Strong>, <><C>localhost</C>, <C>127.0.0.1</C>, <C>::1</C></>],
-          [<Strong>Private ranges</Strong>, <><C>10.x.x.x</C>, <C>172.16–31.x.x</C>, <C>192.168.x.x</C></>],
-          [<Strong>Link-local</Strong>, <><C>169.254.169.254</C> — the cloud metadata endpoint</>],
-          [<Strong>Other schemes</Strong>, <><C>file:</C>, <C>ftp:</C>, <C>gopher:</C> and anything else</>],
+          [<Strong key="c0">Loopback</Strong>, <><C>localhost</C>, <C>127.0.0.1</C>, <C>::1</C></>],
+          [<Strong key="c0">Private ranges</Strong>, <><C>10.x.x.x</C>, <C>172.16–31.x.x</C>, <C>192.168.x.x</C></>],
+          [<Strong key="c0">Link-local</Strong>, <><C>169.254.169.254</C> — the cloud metadata endpoint</>],
+          [<Strong key="c0">Other schemes</Strong>, <><C>file:</C>, <C>ftp:</C>, <C>gopher:</C> and anything else</>],
         ]}
       />
       <P>
@@ -282,17 +282,17 @@ Response: { "status": "ok", "results": [ { "id": 12, "email": "ada@example.com" 
         widths={['w-[20%]', 'w-[40%]']}
         rows={[
           [
-            <Strong>Integration</Strong>,
+            <Strong key="c0">Integration</Strong>,
             'The destination is a supported app',
             'Credentials handled for you, parameters validated against a real schema, resource pickers, rate limiting, and logged calls.',
           ],
           [
-            <Strong>Webhook</Strong>,
+            <Strong key="c0">Webhook</Strong>,
             'Your own API, or an app with no connector',
             'Total control over method, headers, and body — at the cost of managing auth yourself.',
           ],
           [
-            <Strong>Run Tool</Strong>,
+            <Strong key="c0">Run Tool</Strong>,
             'The logic already exists as a tool',
             'One definition serving both the agent and the workflow. Change it once.',
           ],

@@ -142,11 +142,11 @@ const integrationData: Record<string, any> = {
   },
   twilio: {
     slug: 'twilio', name: 'Twilio', icon: '📞',
-    description: 'Enhanced telephony features and SMS capabilities',
+    description: 'Use phone numbers from your own Twilio account',
     category: 'communication', authType: 'api_key',
-    features: ['Voice Calls', 'SMS', 'WhatsApp', 'Call Recording'],
+    features: ['Voice Calls', 'Phone Numbers', 'Call Recording'],
     popular: false,
-    permissions: ['Make and receive calls', 'Send and receive SMS', 'Access call logs', 'Manage phone numbers'],
+    permissions: ['Make and receive calls', 'Access call logs', 'Manage phone numbers'],
     setupSteps: ['Get your Account SID from Twilio Console', 'Generate an Auth Token', 'Enter credentials below', 'Test the connection'],
     apiKeyFields: [
       { name: 'account_sid', label: 'Account SID', type: 'text', required: true },
@@ -246,11 +246,11 @@ const integrationData: Record<string, any> = {
   // GoHighLevel
   gohighlevel: {
     slug: 'gohighlevel', name: 'GoHighLevel', icon: '🚀',
-    description: 'All-in-one CRM — sync contacts, pipelines, and SMS from voice calls',
+    description: 'All-in-one CRM — sync contacts and pipelines from voice calls',
     category: 'crm', authType: 'api_key',
-    features: ['Contact Sync', 'Pipeline Management', 'SMS Campaigns', 'Appointment Booking'],
+    features: ['Contact Sync', 'Pipeline Management', 'Appointment Booking'],
     popular: true,
-    permissions: ['Read and write contacts', 'Manage pipelines', 'Send SMS', 'Manage appointments'],
+    permissions: ['Read and write contacts', 'Manage pipelines', 'Manage appointments'],
     setupSteps: ['Log in to your GoHighLevel account', 'Go to Settings → API → API Keys', 'Create a new API key', 'Enter your Location ID and API key below'],
     apiKeyFields: [
       { name: 'api_key', label: 'API Key', type: 'password', required: true },
@@ -295,29 +295,30 @@ const integrationData: Record<string, any> = {
     slug: 'telnyx', name: 'Telnyx', icon: '📱',
     description: 'Carrier-grade VoIP and SIP trunking for voice AI deployments',
     category: 'phone', authType: 'api_key',
-    features: ['SIP Trunking', 'Phone Numbers', 'SMS', 'Call Control API'],
+    features: ['SIP Trunking', 'Phone Numbers', 'Call Control API'],
     popular: true,
-    permissions: ['Manage phone numbers', 'Make and receive calls', 'Send SMS', 'Access call logs'],
+    permissions: ['Manage phone numbers', 'Make and receive calls', 'Access call logs'],
     setupSteps: ['Log in to portal.telnyx.com', 'Go to Auth → API Keys', 'Create a new API key', 'Enter the key below'],
     apiKeyFields: [
       { name: 'api_key', label: 'API Key', type: 'password', required: true },
       { name: 'sip_connection_id', label: 'SIP Connection ID (optional)', type: 'text', required: false },
     ],
   },
-  vonage: {
-    slug: 'vonage', name: 'Vonage (Nexmo)', icon: '☎️',
-    description: 'Global cloud communications — calls, SMS, and phone number management',
-    category: 'phone', authType: 'api_key',
-    features: ['Voice Calls', 'SMS', 'Phone Numbers', 'WebRTC'],
-    popular: false,
-    permissions: ['Make and receive calls', 'Send SMS', 'Manage phone numbers', 'Access call logs'],
-    setupSteps: ['Go to dashboard.nexmo.com', 'Navigate to API Settings', 'Copy your API Key and API Secret', 'Enter both below'],
-    apiKeyFields: [
-      { name: 'api_key', label: 'API Key', type: 'text', required: true },
-      { name: 'api_secret', label: 'API Secret', type: 'password', required: true },
-      { name: 'application_id', label: 'Application ID (optional)', type: 'text', required: false },
-    ],
-  },
+  // SMS is switched off (3 Oct 2026): Voicecon is voice-only for now. Vonage only sent SMS.
+  // vonage: {
+  //   slug: 'vonage', name: 'Vonage (Nexmo)', icon: '☎️',
+  //   description: 'Global cloud communications — calls, SMS, and phone number management',
+  //   category: 'phone', authType: 'api_key',
+  //   features: ['Voice Calls', 'SMS', 'Phone Numbers', 'WebRTC'],
+  //   popular: false,
+  //   permissions: ['Make and receive calls', 'Send SMS', 'Manage phone numbers', 'Access call logs'],
+  //   setupSteps: ['Go to dashboard.nexmo.com', 'Navigate to API Settings', 'Copy your API Key and API Secret', 'Enter both below'],
+  //   apiKeyFields: [
+  //     { name: 'api_key', label: 'API Key', type: 'text', required: true },
+  //     { name: 'api_secret', label: 'API Secret', type: 'password', required: true },
+  //     { name: 'application_id', label: 'Application ID (optional)', type: 'text', required: false },
+  //   ],
+  // },
   // Analytics / Observability
   langfuse: {
     slug: 'langfuse', name: 'Langfuse', icon: '🔭',

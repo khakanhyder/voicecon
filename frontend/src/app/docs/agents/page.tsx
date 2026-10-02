@@ -88,15 +88,15 @@ export default function AgentsPage() {
         widths={['w-[22%]']}
         rows={[
           [
-            <Strong>Activate / deactivate</Strong>,
+            <Strong key="c0">Activate / deactivate</Strong>,
             'An inactive agent stops taking calls. Numbers stay assigned, so reactivating restores service without reconfiguration.',
           ],
           [
-            <Strong>Clone</Strong>,
+            <Strong key="c0">Clone</Strong>,
             'Copies the full configuration into a new agent. The clone starts with no phone numbers attached, so it cannot accidentally take live traffic.',
           ],
           [
-            <Strong>Delete</Strong>,
+            <Strong key="c0">Delete</Strong>,
             'Soft-deletes the agent. Its call history is retained for reporting. Detach phone numbers first, or those numbers will have no agent to answer.',
           ],
         ]}

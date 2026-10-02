@@ -398,38 +398,39 @@ class TwilioService:
             logger.error(f"Error hanging up call {call_sid}: {e}")
             return {"success": False, "error": str(e)}
 
-    async def send_sms(
-        self,
-        to_number: str,
-        body: str,
-        from_number: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Send an SMS. Independent of any live call, so it does not affect an
-        in-progress conversation.
-
-        Args:
-            to_number: Recipient phone number (E.164)
-            body: Message text
-            from_number: Sender Twilio number (defaults to the configured number)
-
-        Returns:
-            Result dict with the message SID
-        """
-        try:
-            sender = from_number or self.phone_number
-            if not sender:
-                return {"success": False, "error": "No sender phone number configured"}
-            message = self.client.messages.create(
-                to=to_number,
-                from_=sender,
-                body=body,
-            )
-            logger.info(f"Sent SMS {message.sid} to {to_number}")
-            return {"success": True, "message_sid": message.sid, "to": to_number, "status": message.status}
-        except TwilioRestException as e:
-            logger.error(f"Error sending SMS to {to_number}: {e}")
-            return {"success": False, "error": str(e)}
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+    # async def send_sms(
+    #     self,
+    #     to_number: str,
+    #     body: str,
+    #     from_number: Optional[str] = None,
+    # ) -> Dict[str, Any]:
+    #     """
+    #     Send an SMS. Independent of any live call, so it does not affect an
+    #     in-progress conversation.
+    #
+    #     Args:
+    #         to_number: Recipient phone number (E.164)
+    #         body: Message text
+    #         from_number: Sender Twilio number (defaults to the configured number)
+    #
+    #     Returns:
+    #         Result dict with the message SID
+    #     """
+    #     try:
+    #         sender = from_number or self.phone_number
+    #         if not sender:
+    #             return {"success": False, "error": "No sender phone number configured"}
+    #         message = self.client.messages.create(
+    #             to=to_number,
+    #             from_=sender,
+    #             body=body,
+    #         )
+    #         logger.info(f"Sent SMS {message.sid} to {to_number}")
+    #         return {"success": True, "message_sid": message.sid, "to": to_number, "status": message.status}
+    #     except TwilioRestException as e:
+    #         logger.error(f"Error sending SMS to {to_number}: {e}")
+    #         return {"success": False, "error": str(e)}
 
     async def send_dtmf(self, call_sid: str, digits: str) -> Dict[str, Any]:
         """

@@ -497,7 +497,7 @@ export default function TermsOfServicePage() {
           <li>Voicecon is a business service for companies and the people who work in them.</li>
           <li>Trials last 14 days with no card. Paid plans renew automatically until you cancel, and cancellation takes effect at the end of the billing period.</li>
           <li>You own your data. We use it only to run the Service for you, and never to train AI models without your consent.</li>
-          <li>You are responsible for complying with calling, texting, recording, AI disclosure and privacy laws. No robocalls, spam or impersonation.</li>
+          <li>You are responsible for complying with calling, recording, AI disclosure and privacy laws. No robocalls, spam or impersonation.</li>
           <li>AI output can be wrong, so test and monitor your agents. Voicecon can&apos;t be used to call emergency services.</li>
         </ul>
       }

@@ -1167,21 +1167,23 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
-    "twilio": [
-        {
-            "action": "send_sms",
-            "label": "Send SMS",
-            "description": "Send an SMS via Twilio",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Destination phone number"},
-                    "message": {"type": "string", "description": "SMS content"},
-                },
-                "required": ["to", "message"],
-            },
-        },
-    ],
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now. This
+    # was the connector's only action, so it has no entry.
+    # "twilio": [
+    # {
+    #     "action": "send_sms",
+    #     "label": "Send SMS",
+    #     "description": "Send an SMS via Twilio",
+    #     "parameters": {
+    #         "type": "object",
+    #         "properties": {
+    #             "to": {"type": "string", "description": "Destination phone number"},
+    #             "message": {"type": "string", "description": "SMS content"},
+    #         },
+    #         "required": ["to", "message"],
+    #     },
+    # },
+    # ],
     "langfuse": [
         {
             "action": "create_trace",
@@ -1470,38 +1472,42 @@ INTEGRATION_ACTIONS: Dict[str, List[Dict[str, Any]]] = {
             },
         },
     ],
-    "vonage": [
-        {
-            "action": "send_sms",
-            "label": "Send SMS via Vonage",
-            "description": "Send an SMS using Vonage",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to_number": {"type": "string", "description": "Destination number"},
-                    "from_name": {"type": "string", "description": "Sender name or number"},
-                    "text": {"type": "string", "description": "Message content"},
-                },
-                "required": ["to_number", "from_name", "text"],
-            },
-        },
-    ],
-    "telnyx": [
-        {
-            "action": "send_message",
-            "label": "Send Message via Telnyx",
-            "description": "Send a message using Telnyx",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to_number": {"type": "string", "description": "Destination number"},
-                    "from_number": {"type": "string", "description": "Sender number"},
-                    "text": {"type": "string", "description": "Message content"},
-                },
-                "required": ["to_number", "from_number", "text"],
-            },
-        },
-    ],
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now. This
+    # was the connector's only action, so it has no entry.
+    # "vonage": [
+    # {
+    #     "action": "send_sms",
+    #     "label": "Send SMS via Vonage",
+    #     "description": "Send an SMS using Vonage",
+    #     "parameters": {
+    #         "type": "object",
+    #         "properties": {
+    #             "to_number": {"type": "string", "description": "Destination number"},
+    #             "from_name": {"type": "string", "description": "Sender name or number"},
+    #             "text": {"type": "string", "description": "Message content"},
+    #         },
+    #         "required": ["to_number", "from_name", "text"],
+    #     },
+    # },
+    # ],
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now. This
+    # was the connector's only action, so it has no entry.
+    # "telnyx": [
+    # {
+    #     "action": "send_message",
+    #     "label": "Send Message via Telnyx",
+    #     "description": "Send a message using Telnyx",
+    #     "parameters": {
+    #         "type": "object",
+    #         "properties": {
+    #             "to_number": {"type": "string", "description": "Destination number"},
+    #             "from_number": {"type": "string", "description": "Sender number"},
+    #             "text": {"type": "string", "description": "Message content"},
+    #         },
+    #         "required": ["to_number", "from_number", "text"],
+    #     },
+    # },
+    # ],
     "zapier": [
         {
             "action": "send_webhook",

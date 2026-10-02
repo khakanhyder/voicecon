@@ -1714,8 +1714,7 @@ class VoiceSession:
         """
         Route a telephony tool result to a real action.
 
-        SMS is sent immediately (it does not affect the live call). Call-control
-        actions (transfer/hang_up/dtmf/voicemail) are deferred until after the
+        Call-control actions (transfer/hang_up/dtmf/voicemail) are deferred until after the
         agent speaks its confirmation, because executing them ends or replaces
         the media stream — see _run_pending_telephony.
         """
@@ -1723,24 +1722,25 @@ class VoiceSession:
         cfg = inner.get("config", {}) or {}
         params = inner.get("parameters", {}) or {}
 
-        if action == "send_sms":
-            to_number = self._resolve_number(params.get("to") or cfg.get("to")) or self._caller_number()
-            body = params.get("message") or cfg.get("message") or ""
-            if not to_number:
-                return "Could not send the text: no recipient number available."
-            if not body:
-                return "Could not send the text: no message content provided."
-            try:
-                svc = self._get_twilio()
-                res = await svc.send_sms(
-                    to_number=to_number, body=body, from_number=self._agent_number()
-                )
-            except Exception as e:
-                logger.error(f"send_sms failed: {e}")
-                return f"The text message could not be sent ({e})."
-            if res.get("success"):
-                return f"Text message sent to {to_number}. Confirm this to the caller."
-            return f"The text message failed to send: {res.get('error', 'unknown error')}."
+        # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+        # if action == "send_sms":
+        #     to_number = self._resolve_number(params.get("to") or cfg.get("to")) or self._caller_number()
+        #     body = params.get("message") or cfg.get("message") or ""
+        #     if not to_number:
+        #         return "Could not send the text: no recipient number available."
+        #     if not body:
+        #         return "Could not send the text: no message content provided."
+        #     try:
+        #         svc = self._get_twilio()
+        #         res = await svc.send_sms(
+        #             to_number=to_number, body=body, from_number=self._agent_number()
+        #         )
+        #     except Exception as e:
+        #         logger.error(f"send_sms failed: {e}")
+        #         return f"The text message could not be sent ({e})."
+        #     if res.get("success"):
+        #         return f"Text message sent to {to_number}. Confirm this to the caller."
+        #     return f"The text message failed to send: {res.get('error', 'unknown error')}."
 
         if action in ("transfer_call", "hang_up", "dtmf", "leave_voicemail"):
             # Defer until the confirmation has been spoken.

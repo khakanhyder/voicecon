@@ -78,25 +78,25 @@ export default function ApiKeysPage() {
         headers={['Scope', 'Allows']}
         widths={['w-[30%]']}
         rows={[
-          [<C>agents:read</C>, 'List and view agents.'],
-          [<C>agents:write</C>, 'Create and update agents.'],
-          [<C>agents:delete</C>, 'Delete agents.'],
-          [<C>calls:read</C>, 'List calls, read transcripts and analysis.'],
-          [<C>calls:write</C>, 'Place outbound calls.'],
-          [<C>phone_numbers:read</C>, 'List numbers and their configuration.'],
-          [<C>phone_numbers:write</C>, 'Buy, configure, and release numbers.'],
-          [<C>workflows:read</C>, 'List workflows and their execution history.'],
-          [<C>workflows:write</C>, 'Create and update workflows.'],
-          [<C>workflows:execute</C>, 'Run workflows.'],
-          [<C>tools:read</C>, 'List tools.'],
-          [<C>tools:write</C>, 'Create and update tools.'],
-          [<C>knowledge:read</C>, 'Search knowledge bases and list documents.'],
-          [<C>knowledge:write</C>, 'Create knowledge bases and upload documents.'],
-          [<C>integrations:read</C>, 'List connections and their status.'],
-          [<C>integrations:write</C>, 'Create and update connections.'],
-          [<C>analytics:read</C>, 'Read aggregated metrics.'],
-          [<C>team:read</C>, 'List workspace members.'],
-          [<C>workspace:read</C>, 'Read workspace details.'],
+          [<C key="c0">agents:read</C>, 'List and view agents.'],
+          [<C key="c0">agents:write</C>, 'Create and update agents.'],
+          [<C key="c0">agents:delete</C>, 'Delete agents.'],
+          [<C key="c0">calls:read</C>, 'List calls, read transcripts and analysis.'],
+          [<C key="c0">calls:write</C>, 'Place outbound calls.'],
+          [<C key="c0">phone_numbers:read</C>, 'List numbers and their configuration.'],
+          [<C key="c0">phone_numbers:write</C>, 'Buy, configure, and release numbers.'],
+          [<C key="c0">workflows:read</C>, 'List workflows and their execution history.'],
+          [<C key="c0">workflows:write</C>, 'Create and update workflows.'],
+          [<C key="c0">workflows:execute</C>, 'Run workflows.'],
+          [<C key="c0">tools:read</C>, 'List tools.'],
+          [<C key="c0">tools:write</C>, 'Create and update tools.'],
+          [<C key="c0">knowledge:read</C>, 'Search knowledge bases and list documents.'],
+          [<C key="c0">knowledge:write</C>, 'Create knowledge bases and upload documents.'],
+          [<C key="c0">integrations:read</C>, 'List connections and their status.'],
+          [<C key="c0">integrations:write</C>, 'Create and update connections.'],
+          [<C key="c0">analytics:read</C>, 'Read aggregated metrics.'],
+          [<C key="c0">team:read</C>, 'List workspace members.'],
+          [<C key="c0">workspace:read</C>, 'Read workspace details.'],
         ]}
       />
       <Callout kind="note" title="Some scopes cannot be granted to a key at all">
@@ -133,9 +133,9 @@ Effective:         agents:read                                 ← write and del
         headers={['Action', 'Effect']}
         widths={['w-[22%]']}
         rows={[
-          [<Strong>Regenerate</Strong>, 'Issues a new secret for the same key. The old secret stops working immediately — update the consumer first, or expect downtime.'],
-          [<Strong>Disable</Strong>, 'Stops the key working without deleting it. The reversible option when you suspect a leak but are not sure.'],
-          [<Strong>Delete</Strong>, 'Removes it permanently.'],
+          [<Strong key="c0">Regenerate</Strong>, 'Issues a new secret for the same key. The old secret stops working immediately — update the consumer first, or expect downtime.'],
+          [<Strong key="c0">Disable</Strong>, 'Stops the key working without deleting it. The reversible option when you suspect a leak but are not sure.'],
+          [<Strong key="c0">Delete</Strong>, 'Removes it permanently.'],
         ]}
       />
       <UL>

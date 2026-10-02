@@ -19,12 +19,12 @@ export default function TriggersPage() {
         headers={['Trigger', 'Fires when', 'Typical use']}
         widths={['w-[20%]', 'w-[34%]']}
         rows={[
-          [<C>manual</C>, 'You run it, or a tool invokes it', 'Mid-call actions, one-off jobs'],
-          [<C>schedule</C>, 'A recurring time arrives', 'Nightly sync, daily digest'],
-          [<C>webhook</C>, 'An HTTP request hits its URL', 'External systems pushing events'],
-          [<C>call_started</C>, 'A call connects', 'Screen-pop, log the start'],
-          [<C>call_completed</C>, 'A call ends', 'Post-call CRM write, follow-up'],
-          [<C>integration_event</C>, 'A connected app emits an event', 'Deal moves stage, form submitted'],
+          [<C key="c0">manual</C>, 'You run it, or a tool invokes it', 'Mid-call actions, one-off jobs'],
+          [<C key="c0">schedule</C>, 'A recurring time arrives', 'Nightly sync, daily digest'],
+          [<C key="c0">webhook</C>, 'An HTTP request hits its URL', 'External systems pushing events'],
+          [<C key="c0">call_started</C>, 'A call connects', 'Screen-pop, log the start'],
+          [<C key="c0">call_completed</C>, 'A call ends', 'Post-call CRM write, follow-up'],
+          [<C key="c0">integration_event</C>, 'A connected app emits an event', 'Deal moves stage, form submitted'],
         ]}
       />
 
@@ -193,7 +193,7 @@ Content-Type: application/json
       <UL>
         <LI>Write the summary into the CRM against the contact.</LI>
         <LI>Create a task when the caller asked for a callback.</LI>
-        <LI>Send a follow-up SMS or email.</LI>
+        <LI>Send a follow-up email.</LI>
         <LI>Alert a supervisor when sentiment came back negative.</LI>
       </UL>
       <P>
@@ -217,17 +217,17 @@ Content-Type: application/json
         headers={['Reference', 'Is']}
         widths={['w-[34%]']}
         rows={[
-          [<C>{'{{trigger.call_id}}'}</C>, 'The call’s id in Voicecon.'],
-          [<C>{'{{trigger.call_sid}}'}</C>, 'The carrier’s own id for the call.'],
-          [<C>{'{{trigger.status}}'}</C>, 'How the call ended — completed, failed, no-answer, and so on.'],
-          [<C>{'{{trigger.duration}}'}</C>, 'Length in seconds.'],
-          [<C>{'{{trigger.agent_id}}'}</C>, 'Which agent handled it.'],
-          [<C>{'{{trigger.phone_number}}'}</C>, 'The number on the other end.'],
-          [<C>{'{{trigger.transcript}}'}</C>, 'The conversation as text.'],
-          [<C>{'{{trigger.intent}}'}</C>, 'The detected intent.'],
-          [<C>{'{{trigger.sentiment}}'}</C>, 'The detected sentiment.'],
-          [<C>{'{{trigger.metadata}}'}</C>, 'Any extra data attached to the call. Reach into it with dots.'],
-          [<C>{'{{trigger.triggered_at}}'}</C>, 'When the trigger fired, as an ISO 8601 timestamp.'],
+          [<C key="c0">{'{{trigger.call_id}}'}</C>, 'The call’s id in Voicecon.'],
+          [<C key="c0">{'{{trigger.call_sid}}'}</C>, 'The carrier’s own id for the call.'],
+          [<C key="c0">{'{{trigger.status}}'}</C>, 'How the call ended — completed, failed, no-answer, and so on.'],
+          [<C key="c0">{'{{trigger.duration}}'}</C>, 'Length in seconds.'],
+          [<C key="c0">{'{{trigger.agent_id}}'}</C>, 'Which agent handled it.'],
+          [<C key="c0">{'{{trigger.phone_number}}'}</C>, 'The number on the other end.'],
+          [<C key="c0">{'{{trigger.transcript}}'}</C>, 'The conversation as text.'],
+          [<C key="c0">{'{{trigger.intent}}'}</C>, 'The detected intent.'],
+          [<C key="c0">{'{{trigger.sentiment}}'}</C>, 'The detected sentiment.'],
+          [<C key="c0">{'{{trigger.metadata}}'}</C>, 'Any extra data attached to the call. Reach into it with dots.'],
+          [<C key="c0">{'{{trigger.triggered_at}}'}</C>, 'When the trigger fired, as an ISO 8601 timestamp.'],
         ]}
       />
 
@@ -242,14 +242,14 @@ Content-Type: application/json
         headers={['Filter', 'Matches when']}
         widths={['w-[24%]']}
         rows={[
-          [<C>status</C>, 'The call’s status is exactly this.'],
-          [<C>duration_min</C>, 'The call lasted at least this many seconds.'],
-          [<C>duration_max</C>, 'The call lasted no more than this many seconds.'],
-          [<C>agent_id</C>, 'This agent handled the call.'],
-          [<C>phone_number</C>, 'The number matches.'],
-          [<C>sentiment</C>, 'The detected sentiment matches.'],
-          [<C>intent</C>, 'The detected intent matches.'],
-          [<C>keywords</C>, 'The transcript contains the given words.'],
+          [<C key="c0">status</C>, 'The call’s status is exactly this.'],
+          [<C key="c0">duration_min</C>, 'The call lasted at least this many seconds.'],
+          [<C key="c0">duration_max</C>, 'The call lasted no more than this many seconds.'],
+          [<C key="c0">agent_id</C>, 'This agent handled the call.'],
+          [<C key="c0">phone_number</C>, 'The number matches.'],
+          [<C key="c0">sentiment</C>, 'The detected sentiment matches.'],
+          [<C key="c0">intent</C>, 'The detected intent matches.'],
+          [<C key="c0">keywords</C>, 'The transcript contains the given words.'],
         ]}
       />
       <Callout kind="note" title="No filters means every call">

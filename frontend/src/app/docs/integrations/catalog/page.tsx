@@ -51,11 +51,11 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions']}
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
-          [<Strong>HubSpot</Strong>, OAUTH, <Actions items={['create_contact', 'search_contacts', 'update_contact', 'create_deal']} />],
-          [<Strong>Pipedrive</Strong>, KEY, <Actions items={['create_person', 'search_persons', 'create_deal', 'add_note']} />],
-          [<Strong>Zendesk</Strong>, KEY, <Actions items={['create_ticket', 'add_comment', 'search_tickets']} />],
-          [<Strong>Intercom</Strong>, KEY, <Actions items={['create_contact', 'search_contacts', 'add_note', 'create_conversation']} />],
-          [<Strong>GoHighLevel</Strong>, KEY, <Actions items={['create_contact']} />],
+          [<Strong key="c0">HubSpot</Strong>, OAUTH, <Actions key="c1" items={['create_contact', 'search_contacts', 'update_contact', 'create_deal']} />],
+          [<Strong key="c0">Pipedrive</Strong>, KEY, <Actions key="c1" items={['create_person', 'search_persons', 'create_deal', 'add_note']} />],
+          [<Strong key="c0">Zendesk</Strong>, KEY, <Actions key="c1" items={['create_ticket', 'add_comment', 'search_tickets']} />],
+          [<Strong key="c0">Intercom</Strong>, KEY, <Actions key="c1" items={['create_contact', 'search_contacts', 'add_note', 'create_conversation']} />],
+          [<Strong key="c0">GoHighLevel</Strong>, KEY, <Actions key="c1" items={['create_contact']} />],
         ]}
       />
       <P>
@@ -73,15 +73,15 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions']}
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
-          [<Strong>Notion</Strong>, OAUTH, <Actions items={['search', 'create_page', 'append_text']} />],
-          [<Strong>ClickUp</Strong>, OAUTH, <Actions items={['create_task', 'list_tasks', 'add_comment']} />],
-          [<Strong>Monday.com</Strong>, OAUTH, <Actions items={['list_boards']} />],
-          [<Strong>Google Sheets</Strong>, OAUTH, <Actions items={['append_row']} />],
-          [<Strong>Google Drive</Strong>, OAUTH, <Actions items={['list_files']} />],
-          [<Strong>Trello</Strong>, KEY, <Actions items={['create_card', 'add_comment']} />],
-          [<Strong>Airtable</Strong>, KEY, <Actions items={['create_record']} />],
-          [<Strong>Zapier</Strong>, HOOK, <Actions items={['send_webhook']} />],
-          [<Strong>Make (Integromat)</Strong>, HOOK, <Actions items={['send_webhook']} />],
+          [<Strong key="c0">Notion</Strong>, OAUTH, <Actions key="c1" items={['search', 'create_page', 'append_text']} />],
+          [<Strong key="c0">ClickUp</Strong>, OAUTH, <Actions key="c1" items={['create_task', 'list_tasks', 'add_comment']} />],
+          [<Strong key="c0">Monday.com</Strong>, OAUTH, <Actions key="c1" items={['list_boards']} />],
+          [<Strong key="c0">Google Sheets</Strong>, OAUTH, <Actions key="c1" items={['append_row']} />],
+          [<Strong key="c0">Google Drive</Strong>, OAUTH, <Actions key="c1" items={['list_files']} />],
+          [<Strong key="c0">Trello</Strong>, KEY, <Actions key="c1" items={['create_card', 'add_comment']} />],
+          [<Strong key="c0">Airtable</Strong>, KEY, <Actions key="c1" items={['create_record']} />],
+          [<Strong key="c0">Zapier</Strong>, HOOK, <Actions key="c1" items={['send_webhook']} />],
+          [<Strong key="c0">Make (Integromat)</Strong>, HOOK, <Actions key="c1" items={['send_webhook']} />],
         ]}
       />
       <UL>
@@ -110,12 +110,12 @@ export default function CatalogPage() {
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
           [
-            <Strong>Google Calendar</Strong>,
+            <Strong key="c0">Google Calendar</Strong>,
             OAUTH,
-            <Actions items={['check_availability', 'find_available_slots', 'create_event', 'list_events']} />,
+            <Actions key="c1" items={['check_availability', 'find_available_slots', 'create_event', 'list_events']} />,
           ],
-          [<Strong>Calendly</Strong>, OAUTH, <Actions items={['list_scheduled_events']} />],
-          [<Strong>Cal.com</Strong>, KEY, <Actions items={['list_event_types']} />],
+          [<Strong key="c0">Calendly</Strong>, OAUTH, <Actions key="c1" items={['list_scheduled_events']} />],
+          [<Strong key="c0">Cal.com</Strong>, KEY, <Actions key="c1" items={['list_event_types']} />],
         ]}
       />
       <Callout kind="tip" title="Book properly, in three steps">
@@ -136,13 +136,13 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions']}
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
-          [<Strong>Slack</Strong>, OAUTH, <Actions items={['send_message']} />],
-          [<Strong>Microsoft Teams</Strong>, HOOK, <Actions items={['send_message']} />],
-          [<Strong>WhatsApp</Strong>, KEY, <Actions items={['send_message', 'send_template']} />],
-          [<Strong>SendGrid</Strong>, KEY, <Actions items={['send_email']} />],
-          [<Strong>Gmail SMTP</Strong>, KEY, <Actions items={['send_email']} />],
-          [<Strong>Outlook SMTP</Strong>, KEY, <Actions items={['send_email']} />],
-          [<Strong>Custom SMTP</Strong>, KEY, <Actions items={['send_email']} />],
+          [<Strong key="c0">Slack</Strong>, OAUTH, <Actions key="c1" items={['send_message']} />],
+          [<Strong key="c0">Microsoft Teams</Strong>, HOOK, <Actions key="c1" items={['send_message']} />],
+          [<Strong key="c0">WhatsApp</Strong>, KEY, <Actions key="c1" items={['send_message', 'send_template']} />],
+          [<Strong key="c0">SendGrid</Strong>, KEY, <Actions key="c1" items={['send_email']} />],
+          [<Strong key="c0">Gmail SMTP</Strong>, KEY, <Actions key="c1" items={['send_email']} />],
+          [<Strong key="c0">Outlook SMTP</Strong>, KEY, <Actions key="c1" items={['send_email']} />],
+          [<Strong key="c0">Custom SMTP</Strong>, KEY, <Actions key="c1" items={['send_email']} />],
         ]}
       />
       <UL>
@@ -174,23 +174,15 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions', 'Numbers?']}
         widths={['w-[16%]', 'w-[13%]', 'w-[30%]']}
         rows={[
-          [<Strong>Twilio</Strong>, KEY, <Actions items={['send_sms']} />, 'Yes'],
-          [<Strong>Telnyx</Strong>, KEY, <Actions items={['send_message']} />, 'Yes'],
-          [<Strong>Vonage (Nexmo)</Strong>, KEY, <Actions items={['send_sms']} />, '—'],
+          [<Strong key="c0">Twilio</Strong>, KEY, '—', 'Yes'],
+          [<Strong key="c0">Telnyx</Strong>, KEY, '—', 'Yes'],
         ]}
       />
       <P>
-        Twilio and Telnyx double as <A href="/docs/phone-numbers#providers">number
+        Twilio and Telnyx are <A href="/docs/phone-numbers#providers">number
         providers</A>: connect one and you can search for and buy phone numbers directly from
         Voicecon. See <A href="/docs/phone-numbers">Phone Numbers</A>.
       </P>
-      <Callout kind="note" title="Sending a text mid-call">
-        For an SMS the agent decides to send, the{' '}
-        <A href="/docs/tools/phone-call#send-sms">Send Text tool</A> is usually the better
-        route — it uses the number the call is already on, with nothing extra to connect.
-        Reach for these connectors when you need a different sender, or are texting somebody
-        who is not the caller.
-      </Callout>
 
       <H2 id="storage">File and object storage</H2>
       <P>
@@ -202,10 +194,10 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions']}
         widths={['w-[20%]', 'w-[14%]']}
         rows={[
-          [<Strong>AWS S3</Strong>, KEY, <Actions items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
-          [<Strong>Cloudflare R2</Strong>, KEY, <Actions items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
-          [<Strong>Google Cloud Storage</Strong>, KEY, <Actions items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
-          [<Strong>Azure Blob Storage</Strong>, KEY, <Actions items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
+          [<Strong key="c0">AWS S3</Strong>, KEY, <Actions key="c1" items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
+          [<Strong key="c0">Cloudflare R2</Strong>, KEY, <Actions key="c1" items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
+          [<Strong key="c0">Google Cloud Storage</Strong>, KEY, <Actions key="c1" items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
+          [<Strong key="c0">Azure Blob Storage</Strong>, KEY, <Actions key="c1" items={['upload_text', 'upload_from_url', 'list_objects', 'delete_object', 'generate_presigned_url']} />],
         ]}
       />
       <UL>
@@ -238,9 +230,9 @@ export default function CatalogPage() {
         headers={['App', 'Auth', 'Actions']}
         widths={['w-[18%]', 'w-[14%]']}
         rows={[
-          [<Strong>Supabase</Strong>, KEY, <Actions items={['fetch_table']} />],
-          [<Strong>Stripe</Strong>, KEY, <Actions items={['create_customer', 'find_customers', 'send_invoice', 'create_payment_link', 'create_subscription', 'create_refund']} />],
-          [<Strong>Langfuse</Strong>, KEY, <Actions items={['create_trace']} />],
+          [<Strong key="c0">Supabase</Strong>, KEY, <Actions key="c1" items={['fetch_table']} />],
+          [<Strong key="c0">Stripe</Strong>, KEY, <Actions key="c1" items={['create_customer', 'find_customers', 'send_invoice', 'create_payment_link', 'create_subscription', 'create_refund']} />],
+          [<Strong key="c0">Langfuse</Strong>, KEY, <Actions key="c1" items={['create_trace']} />],
         ]}
       />
       <UL>
@@ -251,7 +243,7 @@ export default function CatalogPage() {
         <LI>
           <Strong>Stripe</Strong> — look a customer up with <C>find_customers</C>, ask for
           payment with <C>send_invoice</C> (Stripe emails the caller a link to pay) or{' '}
-          <C>create_payment_link</C> (a link your agent shares in chat or by text), start a
+          <C>create_payment_link</C> (a link your agent shares in chat or by email), start a
           plan with <C>create_subscription</C>, or put it right with <C>create_refund</C>.
         </LI>
         <LI>

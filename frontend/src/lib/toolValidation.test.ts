@@ -24,7 +24,6 @@ describe('validateTool', () => {
     ['workflow', 'workflow_id'],
     ['connected_integration', 'connection_id'],
     ['leave_voicemail', 'message'],
-    ['send_sms', 'to'],
     ['dtmf', 'digits'],
     ['sip_request', 'sip_uri'],
     ['handoff', 'destination'],

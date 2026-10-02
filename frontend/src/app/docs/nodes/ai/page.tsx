@@ -145,15 +145,15 @@ Branch
         widths={['w-[26%]']}
         rows={[
           [
-            <Strong>AI Response</Strong>,
+            <Strong key="c0">AI Response</Strong>,
             'The reply depends on gathered data and cannot be written in advance.',
           ],
           [
-            <A href="/docs/nodes/conversation#speak">Speak</A>,
+            <A key="c0" href="/docs/nodes/conversation#speak">Speak</A>,
             'You know exactly what should be said. Cheaper, faster, and never surprising.',
           ],
           [
-            <A href="/docs/tools/assistant#query-knowledge-base">Query Knowledge Base</A>,
+            <A key="c0" href="/docs/tools/assistant#query-knowledge-base">Query Knowledge Base</A>,
             'The answer exists in your documents. Retrieval beats generation for facts.',
           ],
         ]}

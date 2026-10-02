@@ -29,7 +29,9 @@ from app.services.tools.config import ToolConfigError, as_header_map, as_mapping
 #: ``connected_integration`` and executes identically.
 CREATABLE_TOOL_TYPES = frozenset({
     "workflow",
-    "transfer_call", "hang_up", "leave_voicemail", "dtmf", "send_sms", "sip_request",
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+    # "send_sms" (Send Text) can no longer be created.
+    "transfer_call", "hang_up", "leave_voicemail", "dtmf", "sip_request",
     "handoff", "query_knowledge_base",
     "connected_integration", "integration",
     "api_request", "mcp", "slack", "custom_tool",
@@ -214,14 +216,15 @@ def validate_tool_config(tool_type: str, config: Optional[Dict[str, Any]]) -> Di
     elif tool_type == "leave_voicemail":
         _require(errors, cfg, "message", "Voicemail message")
 
-    elif tool_type == "send_sms":
-        to = _require(errors, cfg, "to", "Recipient number")
-        if to and not (_is_phone(to) or _TEMPLATE.match(to)):
-            errors["to"] = (
-                "Enter a phone number with country code (e.g. +15551234567) "
-                "or {{caller_number}}."
-            )
-        _require(errors, cfg, "message", "Message template")
+    # SMS is switched off (3 Oct 2026): Voicecon is voice-only for now.
+    # elif tool_type == "send_sms":
+    #     to = _require(errors, cfg, "to", "Recipient number")
+    #     if to and not (_is_phone(to) or _TEMPLATE.match(to)):
+    #         errors["to"] = (
+    #             "Enter a phone number with country code (e.g. +15551234567) "
+    #             "or {{caller_number}}."
+    #         )
+    #     _require(errors, cfg, "message", "Message template")
 
     elif tool_type == "dtmf":
         digits = _require(errors, cfg, "digits", "DTMF digits")

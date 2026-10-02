@@ -35,20 +35,20 @@ export default function CallsPage() {
         headers={['Direction', 'Meaning']}
         widths={['w-[20%]']}
         rows={[
-          [<C>inbound</C>, 'Someone called one of your numbers.'],
-          [<C>outbound</C>, 'Voicecon placed the call, via the API or a workflow.'],
-          [<C>test</C>, 'A browser test. No telephony involved and no carrier cost.'],
+          [<C key="c0">inbound</C>, 'Someone called one of your numbers.'],
+          [<C key="c0">outbound</C>, 'Voicecon placed the call, via the API or a workflow.'],
+          [<C key="c0">test</C>, 'A browser test. No telephony involved and no carrier cost.'],
         ]}
       />
       <Table
         headers={['Status', 'Meaning']}
         widths={['w-[20%]']}
         rows={[
-          [<C>initiated</C>, 'Created but not yet connected.'],
-          [<C>in_progress</C>, 'Live right now.'],
-          [<C>completed</C>, 'Ended normally.'],
-          [<C>missed</C>, 'Never answered.'],
-          [<C>failed</C>, 'Could not connect — bad number, carrier rejection, or a platform error.'],
+          [<C key="c0">initiated</C>, 'Created but not yet connected.'],
+          [<C key="c0">in_progress</C>, 'Live right now.'],
+          [<C key="c0">completed</C>, 'Ended normally.'],
+          [<C key="c0">missed</C>, 'Never answered.'],
+          [<C key="c0">failed</C>, 'Could not connect — bad number, carrier rejection, or a platform error.'],
         ]}
       />
       <Callout kind="tip" title="A rising failed count is a signal">
@@ -138,13 +138,13 @@ export default function CallsPage() {
         headers={['Field', 'What it holds']}
         widths={['w-[24%]']}
         rows={[
-          [<C>summary</C>, 'A short recap of what happened and what was agreed.'],
-          [<C>sentiment_score</C>, 'A numeric score. Requires sentiment analysis on the agent.'],
-          [<C>sentiment_label</C>, <>A readable label — <C>positive</C>, <C>neutral</C>, <C>negative</C>.</>],
-          [<C>emotions</C>, 'Finer-grained signals. Requires emotion detection on the agent.'],
-          [<C>intent</C>, 'What the caller wanted, in one phrase.'],
-          [<C>topics</C>, 'Subjects covered. Aggregate across calls to see what people actually ring about.'],
-          [<C>tags</C>, 'Your own labels, applied manually or by a workflow.'],
+          [<C key="c0">summary</C>, 'A short recap of what happened and what was agreed.'],
+          [<C key="c0">sentiment_score</C>, 'A numeric score. Requires sentiment analysis on the agent.'],
+          [<C key="c0">sentiment_label</C>, <>A readable label — <C>positive</C>, <C>neutral</C>, <C>negative</C>.</>],
+          [<C key="c0">emotions</C>, 'Finer-grained signals. Requires emotion detection on the agent.'],
+          [<C key="c0">intent</C>, 'What the caller wanted, in one phrase.'],
+          [<C key="c0">topics</C>, 'Subjects covered. Aggregate across calls to see what people actually ring about.'],
+          [<C key="c0">tags</C>, 'Your own labels, applied manually or by a workflow.'],
         ]}
       />
       <Callout kind="tip" title="Act on analysis automatically">
@@ -216,11 +216,11 @@ export default function CallsPage() {
         headers={['Field', 'Covers']}
         widths={['w-[24%]']}
         rows={[
-          [<C>cost_stt</C>, 'Transcribing caller audio.'],
-          [<C>cost_llm</C>, 'Model calls — usually the largest share on a conversational agent.'],
-          [<C>cost_tts</C>, 'Speech synthesis. Scales with how much the agent says.'],
-          [<C>cost_telephony</C>, 'Carrier charges. Zero on browser tests.'],
-          [<C>cost_total</C>, 'The sum.'],
+          [<C key="c0">cost_stt</C>, 'Transcribing caller audio.'],
+          [<C key="c0">cost_llm</C>, 'Model calls — usually the largest share on a conversational agent.'],
+          [<C key="c0">cost_tts</C>, 'Speech synthesis. Scales with how much the agent says.'],
+          [<C key="c0">cost_telephony</C>, 'Carrier charges. Zero on browser tests.'],
+          [<C key="c0">cost_total</C>, 'The sum.'],
         ]}
       />
       <UL>
