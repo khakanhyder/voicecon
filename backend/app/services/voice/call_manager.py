@@ -276,7 +276,7 @@ class CallSession:
                 context = llm.create_conversation(
                     conversation_id=conversation_id,
                     system_prompt=system_prompt,
-                    max_history=20,
+                    max_history=100,
                 )
 
             # Add user message to context

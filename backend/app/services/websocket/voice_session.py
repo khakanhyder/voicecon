@@ -354,7 +354,7 @@ class VoiceSession:
             self.conversation = self.llm_service.create_conversation(
                 conversation_id=f"call-{self.call_id}",
                 system_prompt=system_prompt,
-                max_history=20,
+                max_history=100,
             )
 
             # Note: the welcome message and Deepgram STT stream are started from

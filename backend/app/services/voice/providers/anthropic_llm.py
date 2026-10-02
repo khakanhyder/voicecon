@@ -193,7 +193,7 @@ class AnthropicLLM(BaseLLMProvider):
         """
         Claude rejects a tool_result whose tool_use is not in the turn right
         before it, and a tool_use with no tool_result right after. History is
-        trimmed to a window (a call keeps its last 20 messages), which can cut
+        trimmed to a window (a call keeps its last 100 messages), which can cut
         such a pair in half. An unpaired block becomes plain text instead, so
         the model still sees what happened and the request stays valid.
         """
