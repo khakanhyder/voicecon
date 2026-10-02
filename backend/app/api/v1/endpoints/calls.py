@@ -9,6 +9,7 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case, desc
 
@@ -29,7 +30,8 @@ from app.services.telephony.twilio_service import get_twilio_service_for_number
 from app.core.config import settings
 from app.core.entitlement_guard import require_entitlement
 from app.services.billing import catalog
-from app.core.time import utc_iso
+from app.core.time import utc_iso, utc_today
+from app.services.call.call_export import build_calls_csv
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -373,6 +375,66 @@ async def get_call_stats(
         "average_duration_seconds": round(total_duration / total_calls, 2) if total_calls > 0 else 0,
         "completion_rate": round(completed_calls / total_calls * 100, 2) if total_calls > 0 else 0,
     }
+
+
+@router.get("/export")
+async def export_calls(
+    agent_id: Optional[uuid.UUID] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=50, description="Part of a phone number"),
+    tz: Optional[str] = Query(None, max_length=64, description="IANA timezone for the Start Time column"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_id: uuid.UUID = Depends(get_current_org_id),
+):
+    """
+    The workspace's call log as a CSV download.
+
+    Takes the Calls page's filters and returns every call that matches, not
+    one page of them. Only the exported columns are selected — transcripts stay
+    in the database — so the whole log can be built in one response.
+    """
+    query = (
+        select(
+            Call.id,
+            Call.agent_id,
+            Agent.name.label("agent_name"),
+            Call.direction,
+            Call.from_number,
+            Call.to_number,
+            Call.status,
+            Call.call_metadata,
+            Call.sentiment_label,
+            Call.started_at,
+            Call.created_at,
+            Call.duration_seconds,
+            Call.cost_total,
+        )
+        .outerjoin(Agent, Agent.id == Call.agent_id)
+        .where(Call.organization_id == org_id)
+    )
+    if agent_id:
+        query = query.where(Call.agent_id == agent_id)
+    if status:
+        query = query.where(Call.status == status)
+    search = (search or "").strip()
+    if search:
+        query = query.where(
+            Call.from_number.contains(search, autoescape=True)
+            | Call.to_number.contains(search, autoescape=True)
+        )
+    query = query.order_by(Call.started_at.desc().nullslast(), Call.created_at.desc())
+
+    rows = (await db.execute(query)).mappings().all()
+
+    return Response(
+        content=build_calls_csv(rows, tz),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="calls-{utc_today().isoformat()}.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # Phone Number Management

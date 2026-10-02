@@ -5,6 +5,7 @@ In-app notification endpoints — back the header bell.
   GET  /notifications/unread-count    → badge count
   POST /notifications/{id}/read       → mark one read
   POST /notifications/read-all        → mark all read
+  DELETE /notifications/{id}          → remove one from the bell
 
 Invitation Accept/Reject from the bell is done against the /invitations
 endpoints using the token carried in the notification's ``data`` payload.
@@ -13,7 +14,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -92,4 +93,25 @@ async def mark_all_read(
         .where(Notification.user_id == current_user.id, Notification.is_read == False, _FOR_THE_APP)  # noqa: E712
         .values(is_read=True)
     )
+    await db.commit()
+
+
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification(
+    notification_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove one notification from the bell.
+
+    Only the notification goes: a pending invitation it announced stays
+    pending and can still be answered from its email link.
+    """
+    result = await db.execute(
+        delete(Notification).where(
+            Notification.id == notification_id, Notification.user_id == current_user.id, _FOR_THE_APP
+        )
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     await db.commit()

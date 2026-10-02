@@ -4,8 +4,9 @@
  * Notifications hook backing the header bell.
  *
  * Polls the unread count and the list on an interval (light, professional
- * near-real-time), and exposes mutations to mark read and to Accept/Reject a
- * team invitation directly from a notification (via its carried token).
+ * near-real-time), and exposes mutations to mark read, delete, and to
+ * Accept/Reject a team invitation directly from a notification (via its
+ * carried token).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api'
@@ -59,6 +60,11 @@ export function useNotifications() {
     onSuccess: invalidate,
   })
 
+  const remove = useMutation({
+    mutationFn: (id: string) => apiClient.delete(API_ENDPOINTS.NOTIFICATION(id)),
+    onSuccess: invalidate,
+  })
+
   const acceptInvite = useMutation({
     mutationFn: (token: string) => apiClient.post(API_ENDPOINTS.INVITATION_ACCEPT(token)),
     onSuccess: () => {
@@ -78,6 +84,7 @@ export function useNotifications() {
     isLoading: listQuery.isLoading,
     markRead,
     markAllRead,
+    remove,
     acceptInvite,
     rejectInvite,
     refetch: invalidate,

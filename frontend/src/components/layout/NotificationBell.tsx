@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Check, X, CheckCheck } from 'lucide-react'
+import { Bell, Check, X, CheckCheck, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNotifications, type AppNotification } from '@/hooks/useNotifications'
 import { getErrorMessage } from '@/lib/api'
@@ -17,6 +17,7 @@ export function NotificationBell() {
     isLoading,
     markRead,
     markAllRead,
+    remove,
     acceptInvite,
     rejectInvite,
   } = useNotifications()
@@ -64,6 +65,14 @@ export function NotificationBell() {
     }
   }
 
+  const handleDelete = async (n: AppNotification) => {
+    try {
+      await remove.mutateAsync(n.id)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
+    }
+  }
+
   const onOpen = () => {
     setOpen((v) => !v)
   }
@@ -89,13 +98,14 @@ export function NotificationBell() {
         <div className="absolute right-0 top-12 z-50 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
-            {unreadCount > 0 && (
+            {notifications.length > 0 && (
               <button
                 onClick={() => markAllRead.mutate()}
-                className="flex items-center gap-1 text-xs font-medium text-[#0F6A59] hover:text-[#0d5a4c]"
+                disabled={unreadCount === 0 || markAllRead.isPending}
+                className="flex items-center gap-1 text-xs font-medium text-[#0F6A59] hover:text-[#0d5a4c] disabled:cursor-default disabled:text-slate-400"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
-                Mark all read
+                Mark all as read
               </button>
             )}
           </div>
@@ -150,6 +160,15 @@ export function NotificationBell() {
                         <p className="mt-1.5 text-[11px] font-medium text-slate-400">Responded</p>
                       )}
                     </div>
+                    <button
+                      onClick={() => handleDelete(n)}
+                      disabled={remove.isPending}
+                      aria-label="Delete notification"
+                      title="Delete"
+                      className="-mr-1.5 -mt-1 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               ))

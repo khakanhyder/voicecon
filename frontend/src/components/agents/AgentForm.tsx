@@ -669,16 +669,6 @@ export function AgentTabContent({ tab, form, set }: {
           builtinVoices={currentVoices}
           onSelect={v => set('tts_voice_id', v)}
         />
-
-        {/* ElevenLabs — the only voice provider offered — accepts 0.7x-1.2x.
-            The old 0.5-2.0 range let people pick speeds that were silently
-            clamped. There is no Pitch control: ElevenLabs has no pitch
-            setting, so that slider saved a value nothing could use. */}
-        <div className="grid gap-5 sm:grid-cols-2">
-          <SliderField label="Speech Speed" value={form.tts_speed} min={0.7} max={1.2} step={0.05}
-            format={v => `${v.toFixed(2).replace(/0$/, '')}x`} onChange={v => set('tts_speed', v)}
-            hints={['0.7x · Slower', '1.2x · Faster']} help={HELP.speechSpeed}/>
-        </div>
       </SectionCard>
       </div>
     )
@@ -777,6 +767,13 @@ export function AgentTabContent({ tab, form, set }: {
         format={v => v < 1000 ? `${v}ms` : `${(v/1000).toFixed(1)}s`}
         onChange={v => set('silence_timeout', v)} hints={['500ms · Snappy', '5s · Patient']} help={HELP.silenceTimeout}/>
       <p className="text-xs text-slate-400 -mt-2">How long to wait after the caller stops speaking before responding.</p>
+      {/* ElevenLabs — the only voice provider offered — accepts 0.7x-1.2x.
+          The old 0.5-2.0 range let people pick speeds that were silently
+          clamped. There is no Pitch control: ElevenLabs has no pitch
+          setting, so that slider saved a value nothing could use. */}
+      <SliderField label="Speech Speed" value={form.tts_speed} min={0.7} max={1.2} step={0.05}
+        format={v => `${v.toFixed(2).replace(/0$/, '')}x`} onChange={v => set('tts_speed', v)}
+        hints={['0.7x · Slower', '1.2x · Faster']} help={HELP.speechSpeed}/>
       <SliderField label="Max Call Duration" value={form.max_call_duration} min={60} max={7200} step={60}
         format={v => `${Math.floor(v/60)}m`} onChange={v => set('max_call_duration', v)} hints={['1m', '120m']}
         help={HELP.maxCallDuration}/>

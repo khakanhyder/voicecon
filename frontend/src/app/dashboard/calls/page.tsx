@@ -6,10 +6,11 @@ import { formatDuration } from '@/lib/duration'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { filenameFromDisposition, saveBlob } from '@/lib/knowledge-files'
 import Link from 'next/link'
 import {
   Phone, Search,
-  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Download
+  Clock, DollarSign, Bot, ChevronDown, ArrowUpRight, Download, Loader2
 } from 'lucide-react'
 
 interface Call {
@@ -34,6 +35,7 @@ export default function CallsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     Promise.all([fetchCalls(), fetchStats()])
@@ -62,6 +64,33 @@ export default function CallsPage() {
         cost: d.total_cost || 0,
       })
     } catch { }
+  }
+
+  // The file is built by the server from the same filters, so it holds every
+  // matching call — the table above only ever has the first page loaded.
+  const exportCsv = async () => {
+    if (isExporting) return
+    setIsExporting(true)
+    try {
+      const res = await apiClient.get<Blob>(API_ENDPOINTS.CALL_EXPORT, {
+        responseType: 'blob',
+        params: {
+          ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+          ...(search.trim() ? { search: search.trim() } : {}),
+          // Start times are written in the viewer's own timezone.
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      })
+      saveBlob(
+        res.data,
+        filenameFromDisposition(res.headers['content-disposition']) ?? 'calls.csv',
+      )
+      toast.success('Calls exported')
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'We could not export your calls. Please try again.'))
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const filtered = calls.filter(c => {
@@ -134,9 +163,14 @@ export default function CallsPage() {
       {/* Table Export */}
       <div className="flex items-center justify-between mb-3 mt-2 pr-1">
         <div />
-        <button className="flex items-center gap-1.5 text-[14px] font-poppins font-medium text-black hover:text-[#106959] transition-colors">
-          Export CSV
-          <Download className="h-4 w-4" />
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={isExporting || isLoading || calls.length === 0}
+          className="flex items-center gap-1.5 text-[14px] font-poppins font-medium text-black hover:text-[#106959] transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-black"
+        >
+          {isExporting ? 'Exporting…' : 'Export CSV'}
+          {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
         </button>
       </div>
 

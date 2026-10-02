@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   CALLS: `${API_BASE}/api/v1/calls`,
   CALL: (id: string) => `${API_BASE}/api/v1/calls/${id}`,
   CALL_STATS: `${API_BASE}/api/v1/calls/stats`,
+  CALL_EXPORT: `${API_BASE}/api/v1/calls/export`,
   CALL_CONTACTS: `${API_BASE}/api/v1/calls/contacts`,
   CALL_CONTACT_CALLS: (number: string) => `${API_BASE}/api/v1/calls/contacts/${encodeURIComponent(number)}/calls`,
 
@@ -149,6 +150,7 @@ export const API_ENDPOINTS = {
   NOTIFICATIONS_UNREAD_COUNT: `${API_BASE}/api/v1/notifications/unread-count`,
   NOTIFICATION_READ: (id: string) => `${API_BASE}/api/v1/notifications/${id}/read`,
   NOTIFICATIONS_READ_ALL: `${API_BASE}/api/v1/notifications/read-all`,
+  NOTIFICATION: (id: string) => `${API_BASE}/api/v1/notifications/${id}`,
 
   // API keys
   API_KEYS: `${API_BASE}/api/v1/api-keys`,

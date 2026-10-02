@@ -278,3 +278,23 @@ class TestNotifications:
         assert res.status_code == 204
         count = (await as_user(client, invitee).get("/api/v1/notifications/unread-count")).json()
         assert count["count"] == 0
+
+    async def test_delete_removes_only_own_notification(self, client, owner, invitee, db_session):
+        # Seeded directly so the test does not depend on the invite endpoint.
+        mine = Notification(user_id=invitee.id, type="team_member_joined", title="Mine")
+        kept = Notification(user_id=invitee.id, type="team_member_joined", title="Kept")
+        db_session.add_all([mine, kept])
+        await db_session.commit()
+        nid = str(mine.id)
+
+        # Someone else's notification is not theirs to delete.
+        res = await as_user(client, owner).delete(f"/api/v1/notifications/{nid}")
+        assert res.status_code == 404
+
+        res = await as_user(client, invitee).delete(f"/api/v1/notifications/{nid}")
+        assert res.status_code == 204
+        left = (await as_user(client, invitee).get("/api/v1/notifications")).json()
+        assert [n["title"] for n in left] == ["Kept"]
+
+        res = await as_user(client, invitee).delete(f"/api/v1/notifications/{nid}")
+        assert res.status_code == 404
