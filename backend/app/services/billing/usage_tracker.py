@@ -129,6 +129,57 @@ class UsageTracker:
                 )
             calls_overage = 0
 
+            unit_price = plan.overage_rate_per_minute if minutes_overage > 0 else 0
+            total_amount = (
+                plan.overage_rate_per_minute * minutes_overage if minutes_overage > 0 else 0
+            )
+
+            # Pay As You Go: there is no allowance, every minute is paid for
+            # from the wallet. The debit is staged on this session, so it
+            # commits with the usage rows below or not at all — and its
+            # idempotency key is unique per call, so even two callbacks racing
+            # past the check above cannot charge the same call twice (the
+            # second commit fails and is rolled back).
+            movement = None
+            if ent.is_prepaid and minutes > 0:
+                from app.services.billing import wallet as wallet_service
+
+                cost_cents = wallet_service.call_cost_cents(minutes, ent.billing)
+                unit_price = Decimal(str(ent.billing.get("per_minute") or 0))
+                total_amount = Decimal(cost_cents) / 100
+                if cost_cents > 0:
+                    other_party = (
+                        call.from_number if call.direction == "inbound" else call.to_number
+                    )
+                    movement = await wallet_service.apply(
+                        db,
+                        organization_id,
+                        amount_cents=-cost_cents,
+                        type=wallet_service.TXN_USAGE,
+                        idempotency_key=f"usage:call:{call_id}",
+                        description=(
+                            f"{'Call from' if call.direction == 'inbound' else 'Call to'} "
+                            f"{other_party or 'unknown'}, {minutes} min"
+                        ),
+                        reference_type="call",
+                        reference_id=str(call_id),
+                        details={
+                            "minutes": minutes,
+                            "per_minute": str(unit_price),
+                            "duration_seconds": duration_seconds,
+                            "direction": call.direction,
+                        },
+                        low_balance_cents=wallet_service.to_cents(
+                            ent.billing.get("low_balance") or 0
+                        ),
+                    )
+                    if movement is None:
+                        # This call's charge is already in the ledger. Nothing
+                        # has been staged; the commit only releases the wallet
+                        # lock (a rollback would expire the caller's objects).
+                        await db.commit()
+                        return None
+
             # Record minutes usage
             if minutes > 0:
                 minutes_record = UsageRecord(
@@ -136,12 +187,8 @@ class UsageTracker:
                     organization_id=organization_id,
                     usage_type="minutes",
                     quantity=minutes,
-                    unit_price=plan.overage_rate_per_minute
-                    if minutes_overage > 0
-                    else 0,
-                    total_amount=plan.overage_rate_per_minute * minutes_overage
-                    if minutes_overage > 0
-                    else 0,
+                    unit_price=unit_price,
+                    total_amount=total_amount,
                     resource_type="call",
                     resource_id=call_id,
                     period_start=subscription.current_period_start,
@@ -189,6 +236,13 @@ class UsageTracker:
             logger.info(
                 f"Recorded usage for call {call_id}: {minutes} minutes, 1 call"
             )
+
+            if movement is not None:
+                # Only now that the charge is committed: the low-balance notice
+                # and, if the owner set it up, an automatic top-up.
+                from app.services.billing import wallet_notices
+
+                await wallet_notices.after_movement(db, movement)
             return call_record
 
         except Exception as e:

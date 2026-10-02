@@ -44,6 +44,9 @@ SOURCE_STRIPE = "stripe"  # a real Stripe subscription
 SOURCE_TRIAL = "trial"    # our own card-free trial; no Stripe object exists
 SOURCE_MANUAL = "manual"  # created by staff (enterprise deal, comp)
 SOURCE_POLAR = "polar"    # a Polar subscription (Polar is Merchant of Record)
+#: Pay As You Go: no recurring charge anywhere. Usage is paid from the
+#: organization's prepaid wallet (``app.models.wallet``).
+SOURCE_WALLET = "wallet"
 
 #: Sources billed by an external payment provider. Their usage counters roll on
 #: the provider's renewal webhook, not on our own clock.
@@ -166,7 +169,7 @@ class Subscription(Base):
     billing_period: Mapped[str] = mapped_column(
         String(20), default="monthly"
     )  # monthly, yearly
-    #: Where this subscription came from: stripe | polar | trial | manual.
+    #: Where this subscription came from: stripe | polar | trial | manual | wallet.
     source: Mapped[str] = mapped_column(String(20), default=SOURCE_STRIPE, nullable=False)
 
     # Dates

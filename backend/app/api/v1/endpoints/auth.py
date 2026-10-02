@@ -718,6 +718,10 @@ async def oauth_providers():
     """Report which social login providers are configured (for the frontend UI)."""
     return {
         "google": settings.google_oauth_enabled,
+        # The browser must open the popup with the same client this server
+        # redeems the code with, so it reads the id from here instead of its own
+        # build-time copy. A client id is public; the secret never leaves.
+        "google_client_id": (settings.GOOGLE_CLIENT_ID or "").strip() if settings.google_oauth_enabled else None,
         "apple": settings.apple_oauth_enabled,
     }
 

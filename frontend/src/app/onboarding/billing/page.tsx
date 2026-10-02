@@ -25,6 +25,9 @@ import { FREE_TRIAL_DAYS } from '@/lib/constants'
 import { Lock } from 'lucide-react'
 import { billingService, discountedPrice, useBillingConfig, type BillingConfig, type CouponQuote } from '@/lib/billing'
 import { CouponField } from '@/components/billing/CouponField'
+import { TopUpForm } from '@/components/billing/TopUpModal'
+import { isPrepaidPlan, perMinute } from '@/lib/pricing'
+import { useWallet } from '@/lib/wallet'
 import {
   Select,
   SelectContent,
@@ -493,6 +496,137 @@ function CheckoutForm({ config }: { config: BillingConfig }) {
   )
 }
 
+/**
+ * Choosing Pay As You Go: there is no subscription to pay for, so instead of
+ * the card form this asks how much credit to add. The first top-up is what
+ * starts the plan.
+ */
+function PrepaidCheckout() {
+  const router = useRouter()
+  const { selectedPlan, finish } = useOnboardingStore()
+  const { data: wallet, isLoading, isError } = useWallet()
+  const [agree, setAgree] = useState(false)
+  const [paying, setPaying] = useState(false)
+
+  const { data: entitlements } = useQuery({
+    queryKey: ['entitlements', 'onboarding'],
+    queryFn: () => entitlementService.get(true),
+    retry: false,
+  })
+  const trialUsed = entitlements?.trial_used ?? false
+
+  const trialMutation = useMutation({
+    mutationFn: () => onboardingService.startTrial({}),
+    onSuccess: () => {
+      finish()
+      toast.success(`Your ${FREE_TRIAL_DAYS}-day free trial has started!`)
+      router.push('/dashboard')
+    },
+    onError: (err: any) => toast.error(getErrorMessage(err)),
+  })
+
+  if (!selectedPlan) return null
+  const rate = wallet?.per_minute ?? selectedPlan.entitlements?.billing?.per_minute ?? 0
+  const busy = paying || trialMutation.isPending
+
+  return (
+    <div className="flex flex-col py-6 lg:px-10">
+      <div className="mb-5 flex items-center gap-2">
+        <VoiceconLogo className="h-7 w-7" />
+        <span className="text-xl font-bold text-slate-900">Voicecon</span>
+      </div>
+      <h1 className="text-[28px] font-medium md:font-bold text-slate-900">Add credit</h1>
+
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <span className="text-sm text-slate-600">Package Name</span>
+          <span className="text-sm font-bold text-slate-900">{selectedPlan.name}</span>
+        </div>
+        <div className="flex items-center justify-between border-b border-slate-200 py-3">
+          <span className="text-sm text-slate-600">Price</span>
+          <span className="text-sm font-semibold text-slate-900">{perMinute(rate)} per call minute</span>
+        </div>
+        <div className="flex items-center justify-between pt-3">
+          <span className="text-sm text-slate-600">Monthly fee</span>
+          <span className="text-sm font-bold text-slate-900">None</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => router.push('/onboarding/pricing')}
+          disabled={busy}
+          className="mt-2 text-xs font-medium text-brand-700 underline underline-offset-2 disabled:opacity-60"
+        >
+          Change plan
+        </button>
+      </div>
+
+      <label className="mt-5 flex cursor-pointer items-start gap-2.5 text-[12px] leading-snug text-slate-600">
+        <input
+          type="checkbox"
+          checked={agree}
+          onChange={(e) => setAgree(e.target.checked)}
+          disabled={busy}
+          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+        />
+        I promise to play by the rules, telemarketing and data privacy laws included. I own my
+        actions and let Voicecon off the hook for any mess I make.
+      </label>
+
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+        {isLoading ? (
+          <div className="flex h-24 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-600" />
+          </div>
+        ) : isError || !wallet || !wallet.available ? (
+          <p className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+            {selectedPlan.name} is not available right now. Choose another plan
+            {trialUsed ? '.' : ', or start the free trial below.'}
+          </p>
+        ) : !agree ? (
+          <p className="text-sm text-slate-500">Accept the agreement above to choose an amount and pay.</p>
+        ) : (
+          <TopUpForm
+            wallet={wallet}
+            activate
+            payLabel="Pay"
+            returnPath="/dashboard"
+            cancelPath="/onboarding/billing"
+            onBusyChange={setPaying}
+            onSuccess={async () => {
+              // Re-read the plan before leaving, as the card checkout does, so
+              // the dashboard does not open still showing the trial offer.
+              await useEntitlementStore.getState().refresh()
+              finish()
+              router.push('/dashboard')
+            }}
+          />
+        )}
+      </div>
+
+      <div className="mt-5">
+        <button
+          type="button"
+          onClick={() => trialMutation.mutate()}
+          disabled={busy || trialUsed}
+          title={trialUsed ? 'Your free trial has already been used' : undefined}
+          className="w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {trialUsed
+            ? 'Free trial already used'
+            : trialMutation.isPending
+              ? 'Starting…'
+              : `Try voicecon for ${FREE_TRIAL_DAYS} days first`}
+        </button>
+        <p className="mt-3 text-[11px] text-slate-400">
+          {trialUsed
+            ? 'Your free trial has already been used. Add credit to start making and answering calls.'
+            : 'The free trial needs no card and never charges you. You can add credit at any time afterwards.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function BillingPage() {
   const router = useRouter()
   const { selectedPlan, completed } = useOnboardingStore()
@@ -512,6 +646,16 @@ export default function BillingPage() {
   }, [selectedPlan, completed, router])
 
   if (!selectedPlan) return null
+  if (isPrepaidPlan(selectedPlan)) {
+    return (
+      <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-7xl grid-cols-1 items-stretch gap-4 overflow-hidden p-3 shadow-slate-200/60 md:rounded-3xl md:bg-white md:shadow-xl lg:grid-cols-2">
+        <PrepaidCheckout />
+        <div className="hidden lg:block">
+          <BrandPanel />
+        </div>
+      </div>
+    )
+  }
   if (!config) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">

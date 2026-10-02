@@ -40,6 +40,7 @@ from app.api.v1.endpoints import (
     voice_stream,
     voices,
     waitlist,
+    wallet,
     workflows,
     workspaces,
 )
@@ -135,6 +136,11 @@ api_router.include_router(
 # Money: admins may look at the plan and invoices, only the owner may change them.
 api_router.include_router(
     billing.router, prefix="/billing", tags=["billing"],
+    dependencies=_guard(perms.BILLING_READ, perms.BILLING_MANAGE),
+)
+# The prepaid wallet (Pay As You Go) is billing too: same readers, same owner.
+api_router.include_router(
+    wallet.router, prefix="/billing/wallet", tags=["billing"],
     dependencies=_guard(perms.BILLING_READ, perms.BILLING_MANAGE),
 )
 

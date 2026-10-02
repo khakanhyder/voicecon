@@ -248,6 +248,10 @@ class VoiceSession:
         # only the browser test enforced it).
         self._max_duration_task: Optional[asyncio.Task] = None
 
+        # Pay As You Go: ends the call when the credit reserved for it runs
+        # out and no more can be reserved. Does nothing on other plans.
+        self._balance_task: Optional[asyncio.Task] = None
+
         # Barge-in. Audio is streamed to Twilio faster than real time, so it
         # keeps playing from Twilio's buffer after _speak_response returns:
         # `_playing` stays true until Twilio has echoed back the mark that
@@ -442,6 +446,8 @@ class VoiceSession:
             self._silence_task = asyncio.create_task(self._silence_watchdog())
         if self._max_duration_task is None:
             self._max_duration_task = asyncio.create_task(self._max_duration_guard())
+        if getattr(self, "_balance_task", None) is None:
+            self._balance_task = asyncio.create_task(self._balance_guard())
 
     async def _handle_media(self, message: dict) -> None:
         """
@@ -912,8 +918,14 @@ class VoiceSession:
     async def _stop_call_timers(self) -> None:
         # Discard any reply still being drafted.
         self._turn_gen += 1
-        for attr in ("_silence_task", "_max_duration_task", "_carry_timer", "_held_timer"):
-            task = getattr(self, attr)
+        for attr in (
+            "_silence_task",
+            "_max_duration_task",
+            "_balance_task",
+            "_carry_timer",
+            "_held_timer",
+        ):
+            task = getattr(self, attr, None)
             if task is not None and task is not asyncio.current_task():
                 task.cancel()
                 try:
@@ -930,27 +942,81 @@ class VoiceSession:
             if self.state == SessionState.ENDED:
                 return
             logger.info(f"Max call duration ({limit}s) reached: call_id={self.call_id}")
-            # Let an in-flight turn finish its sentence rather than talking
-            # over it; if it is stuck, cut it off.
-            try:
-                await asyncio.wait_for(self._turn_lock.acquire(), timeout=10)
-                acquired = True
-            except asyncio.TimeoutError:
-                acquired = False
-                await self._barge_in()
-            try:
-                await self._speak_response(
-                    "We've reached the time limit for this call. Thank you for calling, goodbye."
-                )
-                await self._wait_playback()
-                await self.end_call()
-            finally:
-                if acquired:
-                    self._turn_lock.release()
+            await self._end_politely(
+                "We've reached the time limit for this call. Thank you for calling, goodbye."
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Max call duration guard error: {e}", exc_info=True)
+
+    async def _end_politely(self, goodbye: str, *, patience: float = 10) -> None:
+        """Say a closing line and hang up.
+
+        Lets an in-flight turn finish its sentence rather than talking over
+        it; if it is stuck for longer than ``patience`` seconds, cuts it off.
+        """
+        try:
+            await asyncio.wait_for(self._turn_lock.acquire(), timeout=patience)
+            acquired = True
+        except asyncio.TimeoutError:
+            acquired = False
+            await self._barge_in()
+        try:
+            await self._speak_response(goodbye)
+            await self._wait_playback()
+            await self.end_call()
+        finally:
+            if acquired:
+                self._turn_lock.release()
+
+    async def _balance_guard(self) -> None:
+        """End the call when the Pay As You Go credit reserved for it runs out.
+
+        The call starts with credit for some minutes reserved (see
+        ``billing/call_credit``). Shortly before those are used up it asks for
+        more; while the wallet has unreserved credit the call simply carries
+        on. When there is none left the agent says goodbye and hangs up, a few
+        seconds early so the goodbye fits inside the minutes already paid for.
+
+        A call on a subscription or a trial has nothing reserved and this
+        returns at once.
+        """
+        try:
+            from app.services.billing import call_credit
+            from app.services.billing.wallet import call_hold
+
+            allowed = int(call_hold(self.call).get("max_seconds") or 0)
+            if allowed <= 0:
+                return
+            # Past this the max-duration guard ends the call anyway.
+            cap = call_credit.max_call_seconds(self.agent)
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+
+            while self.state != SessionState.ENDED:
+                wait = allowed - call_credit.END_MARGIN_SECONDS - (loop.time() - started)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                if self.state == SessionState.ENDED or allowed >= cap:
+                    return
+                extended = await call_credit.extend(self.call.id, max_seconds=cap)
+                if extended > allowed:
+                    allowed = extended
+                    continue
+                logger.info(f"Reserved credit used up: call_id={self.call_id}")
+                # The caller is the business's customer: they are not told why.
+                # Less patience than the time-limit goodbye, because every
+                # second past the margin is a minute that was not paid for.
+                await self._end_politely(
+                    "I'm sorry, I have to end our call here. Thank you for calling, goodbye.",
+                    patience=4,
+                )
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Balance guard error: {e}", exc_info=True)
 
     async def _silence_watchdog(self) -> None:
         """

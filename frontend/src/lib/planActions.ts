@@ -54,3 +54,30 @@ export function isUpgradeTarget(input: PlanActionInput): boolean {
   const action = planActionFor(input)
   return action === 'upgrade' || action === 'get_started' || action === 'trial_upgrade' || action === 'subscribe'
 }
+
+/**
+ * What the Pay As You Go card's button should do. It sits beside the
+ * subscription cards but is not one of them — there is nothing to subscribe
+ * to — so it has its own rule, again one for every place plans are listed:
+ *
+ *   on Pay As You Go already       → current    (and "Add credit")
+ *   a move to it is queued         → scheduled  (says when; offers to stay)
+ *   a provider bills a subscription → switch     (at the end of the paid period)
+ *   a trial, a lapsed or new plan  → start      (the first top-up starts it)
+ */
+export type PaygAction = 'current' | 'scheduled' | 'switch' | 'start'
+
+export interface PaygActionInput {
+  /** The workspace is on the prepaid plan now. */
+  onPlan: boolean
+  /** A move to it is queued for the end of the paid period. */
+  switching: boolean
+  /** A payment provider is billing a live subscription. */
+  providerBilled: boolean
+}
+
+export function paygActionFor({ onPlan, switching, providerBilled }: PaygActionInput): PaygAction {
+  if (onPlan) return 'current'
+  if (switching) return 'scheduled'
+  return providerBilled ? 'switch' : 'start'
+}

@@ -24,7 +24,19 @@ export interface SubscriptionPlan {
   max_knowledge_bases: number
   features: { highlights?: string[] } & Record<string, unknown>
   /** The admin's feature toggles and limits — what the backend enforces. */
-  entitlements?: { features?: Record<string, boolean>; limits?: Record<string, number> }
+  entitlements?: {
+    features?: Record<string, boolean>
+    limits?: Record<string, number>
+    overage?: { allowed?: boolean; per_minute?: number }
+    /** Present on the Pay As You Go plan only. */
+    billing?: {
+      mode?: string
+      per_minute?: number
+      number_monthly_fee?: number
+      topup_min?: number
+      topup_presets?: number[]
+    }
+  }
   trial_days: number
   is_active: boolean
   is_public: boolean

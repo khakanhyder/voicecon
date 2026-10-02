@@ -38,6 +38,7 @@ import {
   inputClass,
 } from '@/components/admin/ui'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { OrgWalletPanel } from '@/components/admin/OrgWalletPanel'
 import { cn } from '@/lib/utils'
 
 type Action = 'suspend' | 'activate' | 'extend' | 'grant' | 'end' | 'reset' | null
@@ -400,6 +401,8 @@ export default function OrganizationDetailPage({ params }: { params: { id: strin
           </tbody>
         </Table>
       </Panel>
+
+      <OrgWalletPanel organizationId={org.id} onChanged={refresh} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Panel

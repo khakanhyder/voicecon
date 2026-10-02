@@ -12,6 +12,11 @@ Two dimensions, and they fail differently:
 * **limits** — how much of something the plan allows. ``-1`` is unlimited.
   Failing this means "you have used all of your allowance".
 
+A third section, **billing**, exists only on a prepaid plan (Pay As You Go). It
+says the plan has no monthly allowance at all: every call minute is paid for
+from the workspace's wallet, at the rate held here. Code asks
+:func:`is_prepaid` — it never compares a slug.
+
 The documents here are seeded onto ``SubscriptionPlan.entitlements`` and can be
 edited per-plan in the database afterwards; the code only ever reads the column,
 never this module, at request time. This is the default, not the authority.
@@ -323,6 +328,65 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# ---- Pay As You Go ----
+# No monthly fee and no monthly allowance: the workspace loads money into a
+# wallet and each call minute is deducted from it (see ``services/billing/
+# wallet``). Minutes are therefore "unlimited" as far as the allowance checks
+# are concerned — what stops a call is an empty wallet, not a counter.
+#
+# The rate sits above Starter's overage rate on purpose: a subscription has to
+# stay the cheaper way to buy minutes for anyone who uses them regularly.
+BILLING_PREPAID = "prepaid"
+
+#: Everything about how a prepaid plan charges. Amounts are in the plan's
+#: currency, as numbers an admin can read and edit; they are turned into whole
+#: cents with ``Decimal`` where money moves, never used as floats.
+PAYG_BILLING: Dict[str, Any] = {
+    "mode": BILLING_PREPAID,
+    #: Price of one call minute.
+    "per_minute": 0.35,
+    #: Monthly rent of each Voicecon phone number, taken from the wallet. ``0``
+    #: makes numbers free on this plan.
+    "number_monthly_fee": 2.00,
+    #: Amounts the top-up dialog offers, and the bounds for a custom amount.
+    "topup_presets": [10, 25, 50, 100],
+    "topup_min": 10,
+    "topup_max": 1000,
+    #: Owners are warned once the balance falls below this.
+    "low_balance": 5,
+}
+
+#: Slug of the prepaid plan the seeder creates. For seeding and migrations
+#: only — runtime code must ask :func:`is_prepaid`.
+PREPAID_PLAN_SLUG = "payg"
+
+#: Kept apart from :data:`PLAN_ENTITLEMENTS`, which is the ladder of
+#: subscriptions (each one includes the one before, and a 402 suggests the
+#: next rung). Pay As You Go is not a rung on it.
+PREPAID_PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {}
+
+PREPAID_PLAN_ENTITLEMENTS[PREPAID_PLAN_SLUG] = {
+    "features": _features(**_STARTER_FEATURES),
+    "limits": {
+        LIMIT_AGENTS: 1,
+        LIMIT_PHONE_NUMBERS: 1,
+        LIMIT_KNOWLEDGE_BASES: 1,
+        LIMIT_TEAM_MEMBERS: 2,
+        LIMIT_WORKFLOWS: 3,
+        LIMIT_API_KEYS: 0,
+        LIMIT_CUSTOM_VOICES: 0,
+        LIMIT_CONCURRENT_CALLS: 2,
+        LIMIT_MINUTES: UNLIMITED,
+        LIMIT_EMAILS: 500,
+    },
+    # Nothing is billed afterwards: a minute is paid for before it is used.
+    "overage": {"allowed": False},
+    "billing": dict(PAYG_BILLING),
+}
+
+#: Sections of an entitlement document, in the order they are merged.
+DOCUMENT_SECTIONS = ("features", "limits", "overage", "billing")
+
 #: The two launch plans the pricing sheet replaced. No longer sold (the seeder
 #: hides them), but customers already subscribed keep them — their entitlements
 #: resolve from the stored row, and these documents are the fallback for a row
@@ -393,6 +457,8 @@ def entitlements_for_plan(slug: str | None) -> Dict[str, Any]:
     """
     if slug and slug in PLAN_ENTITLEMENTS:
         return PLAN_ENTITLEMENTS[slug]
+    if slug and slug in PREPAID_PLAN_ENTITLEMENTS:
+        return PREPAID_PLAN_ENTITLEMENTS[slug]
     if slug and slug in LEGACY_PLAN_ENTITLEMENTS:
         return LEGACY_PLAN_ENTITLEMENTS[slug]
     return PLAN_ENTITLEMENTS[FALLBACK_PLAN_SLUG]
@@ -424,12 +490,25 @@ def merge_entitlements(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[
     a single feature does not wipe out the rest of the plan.
     """
     merged: Dict[str, Any] = {
-        "features": dict(base.get("features") or {}),
-        "limits": dict(base.get("limits") or {}),
-        "overage": dict(base.get("overage") or {}),
+        section: dict(base.get(section) or {}) for section in DOCUMENT_SECTIONS
     }
-    for section in ("features", "limits", "overage"):
+    for section in DOCUMENT_SECTIONS:
         section_overrides = (overrides or {}).get(section)
         if isinstance(section_overrides, dict):
             merged[section].update(section_overrides)
     return merged
+
+
+def is_prepaid(document: Dict[str, Any] | None) -> bool:
+    """Does this entitlement document describe a prepaid (wallet) plan?"""
+    return ((document or {}).get("billing") or {}).get("mode") == BILLING_PREPAID
+
+
+def billing_config(document: Dict[str, Any] | None) -> Dict[str, Any]:
+    """A prepaid plan's billing settings, with catalogue defaults filled in.
+
+    A stored document may predate a key added here later; reading through this
+    means such a plan keeps working instead of charging nothing.
+    """
+    stored = (document or {}).get("billing") or {}
+    return {**PAYG_BILLING, **stored}

@@ -1098,9 +1098,11 @@ class StripeService:
         subscription = await self._subscription_by_stripe_id(db, data.get("id"))
         if subscription is None:
             return
+        source_before = subscription.source
         await apply_stripe_subscription(db, subscription, data, event_id)
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
+        await _announce_prepaid_switch(db, subscription, source_before)
 
     async def _on_subscription_deleted(
         self, db: AsyncSession, data: Dict[str, Any], event_id: Optional[str]
@@ -1119,11 +1121,13 @@ class StripeService:
         subscription = await self._subscription_by_stripe_id(db, data.get("id"))
         if subscription is None:
             return
+        source_before = subscription.source
         await apply_stripe_subscription(
             db, subscription, {**_as_dict(data), "status": "canceled"}, event_id
         )
         await db.commit()
         invalidate_entitlements(subscription.organization_id)
+        await _announce_prepaid_switch(db, subscription, source_before)
 
 
     # ==================== Pricing helpers ====================
@@ -1424,6 +1428,16 @@ async def apply_stripe_subscription(
         subscription.current_period_end = min(subscription.current_period_end, ended)
         subscription.cancel_at_period_end = False
 
+        # The customer chose to move to Pay As You Go when this paid period
+        # ended. Switch now, in the same transaction, so the workspace never
+        # passes through "cancelled" on the way.
+        from app.services.billing import prepaid
+
+        if await prepaid.convert_if_scheduled(
+            db, subscription, actor_type=billing_events.ACTOR_STRIPE, event_key=event_id
+        ):
+            return
+
     if previous_status != subscription.status:
         await billing_events.record_event(
             db,
@@ -1439,6 +1453,18 @@ async def apply_stripe_subscription(
             actor_type=billing_events.ACTOR_STRIPE,
             stripe_event_id=event_id,
         )
+
+
+async def _announce_prepaid_switch(
+    db: AsyncSession, subscription: Subscription, source_before: str
+) -> None:
+    """Email the owners when a webhook just moved them onto Pay As You Go."""
+    from app.models.subscription import SOURCE_WALLET
+
+    if subscription.source == SOURCE_WALLET and source_before != SOURCE_WALLET:
+        from app.services.billing import prepaid
+
+        await prepaid.announce(db, subscription.organization_id)
 
 
 # Dependency for FastAPI

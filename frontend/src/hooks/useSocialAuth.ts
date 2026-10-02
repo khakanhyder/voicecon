@@ -19,13 +19,13 @@ import { useAuthStore } from '@/store/authStore'
 import { QUERY_KEYS } from '@/lib/constants'
 import { resolvePostAuthPath } from '@/lib/postAuthRedirect'
 import { getErrorMessage } from '@/lib/api'
-
-export const GOOGLE_ENABLED = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+import { useGoogleClientId } from '@/lib/googleClient'
 
 export function useSocialAuth() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const setUser = useAuthStore((s) => s.setUser)
+  const { clientId: googleClientId, isResolving: isGoogleResolving } = useGoogleClientId()
 
   const onAuthed = async (data: any) => {
     setUser(data.user)
@@ -81,7 +81,10 @@ export function useSocialAuth() {
     onGoogleCode: (code: string) => googleMutation.mutate(code),
     onGoogleError: () => toast.error('Google sign-in was cancelled'),
     signInWithApple: startAppleSignIn,
-    googleEnabled: GOOGLE_ENABLED,
+    googleEnabled: Boolean(googleClientId),
+    // The popup must not open on the build-time client id while the server's
+    // is still on its way.
+    isGoogleResolving,
     appleEnabled: isAppleConfigured(),
     isGoogleLoading: googleMutation.isPending,
     isAppleLoading: appleMutation.isPending,

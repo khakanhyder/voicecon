@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { authService } from '@/lib/auth'
 import { billingService, type CheckoutStatus } from '@/lib/billing'
+import { walletService } from '@/lib/wallet'
 import { VoiceconLogo } from '@/lib/icons'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { useOnboardingStore } from '@/store/onboardingStore'
@@ -33,6 +34,8 @@ export default function BillingReturnPage() {
   const router = useRouter()
   const [view, setView] = useState<View>('waiting')
   const [next, setNext] = useState('/dashboard')
+  // `kind=topup`: this was credit for the Pay As You Go balance, not a plan.
+  const [topup, setTopup] = useState(false)
 
   // Re-running (React strict mode mounts twice in development) is safe: the
   // cleanup cancels the earlier poll loop.
@@ -40,7 +43,9 @@ export default function BillingReturnPage() {
     const params = new URLSearchParams(window.location.search)
     const checkoutId = params.get('checkout_id')
     const target = safeNext(params.get('next'))
+    const isTopup = params.get('kind') === 'topup'
     setNext(target)
+    setTopup(isTopup)
 
     if (!authService.isAuthenticated()) {
       router.replace(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
@@ -68,7 +73,9 @@ export default function BillingReturnPage() {
       if (cancelled) return
       let status: CheckoutStatus | null = null
       try {
-        status = await billingService.checkoutStatus(checkoutId)
+        status = isTopup
+          ? await walletService.topupStatus(checkoutId)
+          : await billingService.checkoutStatus(checkoutId)
       } catch (err) {
         // 404: this checkout does not belong to the selected workspace (or
         // does not exist). Waiting will not change that — say so instead of
@@ -115,7 +122,9 @@ export default function BillingReturnPage() {
           <>
             <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
             <h1 className="mt-5 text-xl font-semibold text-slate-900">You&apos;re all set</h1>
-            <p className="mt-2 text-sm text-slate-500">Your subscription is active. Taking you back…</p>
+            <p className="mt-2 text-sm text-slate-500">
+              {topup ? 'Your credit has been added.' : 'Your subscription is active.'} Taking you back…
+            </p>
           </>
         )}
 
@@ -124,8 +133,10 @@ export default function BillingReturnPage() {
             <Clock className="mx-auto h-12 w-12 text-amber-500" />
             <h1 className="mt-5 text-xl font-semibold text-slate-900">Payment received</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Activating your plan is taking longer than usual. It will switch on automatically within a
-              few minutes. You don&apos;t need to pay again.
+              {topup
+                ? 'Adding your credit is taking longer than usual. It will appear on your balance automatically within a few minutes.'
+                : 'Activating your plan is taking longer than usual. It will switch on automatically within a few minutes.'}{' '}
+              You don&apos;t need to pay again.
             </p>
             <Link href={next} className="mt-6 inline-flex h-10 items-center rounded-lg bg-brand-600 px-5 text-sm font-semibold text-white hover:bg-brand-700">
               Continue
@@ -141,7 +152,9 @@ export default function BillingReturnPage() {
             </h1>
             <p className="mt-2 text-sm text-slate-500">
               {view === 'error'
-                ? 'We could not find this checkout. If you were charged, your plan will still activate automatically.'
+                ? topup
+                  ? 'We could not find this checkout. If you were charged, the credit will still be added automatically.'
+                  : 'We could not find this checkout. If you were charged, your plan will still activate automatically.'
                 : 'You have not been charged. You can try again whenever you are ready.'}
             </p>
             <Link

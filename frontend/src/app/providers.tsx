@@ -7,8 +7,8 @@ import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import { SECTION_PATHS } from '@/components/landing/sections'
 import { captureReferral } from '@/lib/referral'
+import { useGoogleClientId } from '@/lib/googleClient'
 
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
 const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', '/affiliate-program', ...Object.keys(SECTION_PATHS)])
 
 // Create a client
@@ -20,6 +20,15 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// Only mount GoogleOAuthProvider when a client id is configured. Google's GIS
+// script throws "Missing required parameter client_id" if initialized empty,
+// so the Google button component is likewise only rendered when configured.
+function GoogleProvider({ children }: { children: ReactNode }) {
+  const { clientId } = useGoogleClientId()
+  if (!clientId) return <>{children}</>
+  return <GoogleOAuthProvider clientId={clientId}>{children}</GoogleOAuthProvider>
+}
 
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
@@ -44,16 +53,9 @@ export function Providers({ children }: { children: ReactNode }) {
     return null
   }
 
-  // Only mount GoogleOAuthProvider when a client id is configured. Google's GIS
-  // script throws "Missing required parameter client_id" if initialized empty,
-  // so the Google button component is likewise only rendered when configured.
   return (
     <QueryClientProvider client={queryClient}>
-      {GOOGLE_CLIENT_ID ? (
-        <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{children}</GoogleOAuthProvider>
-      ) : (
-        children
-      )}
+      <GoogleProvider>{children}</GoogleProvider>
     </QueryClientProvider>
   )
 }

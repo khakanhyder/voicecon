@@ -31,6 +31,7 @@ from app.models.subscription import (
     SOURCE_POLAR,
     SOURCE_STRIPE,
     SOURCE_TRIAL,
+    SOURCE_WALLET,
     STATUS_ACTIVE,
     STATUS_CANCELED,
     STATUS_PAST_DUE,
@@ -45,6 +46,7 @@ from app.models.subscription import (
 )
 from app.services.billing import StripeService, catalog, get_stripe_service, get_usage_reader, events
 from app.services.billing import polar_service, providers
+from app.services.billing import prepaid, wallet as wallet_service, wallet_topups
 from app.services.billing.stripe_service import utc_from_timestamp
 from app.services.billing.entitlements import (
     get_entitlement_service,
@@ -100,6 +102,21 @@ def _require_checkout_provider(provider: str) -> None:
 def _polar_http_error(exc: "polar_service.PolarError") -> HTTPException:
     code = status.HTTP_503_SERVICE_UNAVAILABLE if isinstance(exc, polar_service.PolarNotConfigured) else status.HTTP_502_BAD_GATEWAY
     return HTTPException(status_code=code, detail=exc.public_message)
+
+
+#: A prepaid plan is not bought through a subscription checkout: there is
+#: nothing recurring to charge. The dashboard opens the top-up dialog instead.
+PREPAID_NO_CHECKOUT = (
+    "This plan has no subscription to pay for. Add credit to your balance to start using it."
+)
+
+
+def _refuse_prepaid_checkout(plan: SubscriptionPlan) -> None:
+    if wallet_service.plan_is_prepaid(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"detail": PREPAID_NO_CHECKOUT, "code": "topup_required"},
+        )
 
 
 def _is_provider_billed(subscription: Subscription) -> bool:
@@ -172,6 +189,12 @@ class UsageResponse(BaseModel):
     #: False on a trial: usage stops at the allowance instead of overflowing.
     overage_allowed: bool = False
     overage_rate_per_minute: float = 0.0
+    #: Pay As You Go: there is no allowance; minutes are paid from the wallet.
+    prepaid: bool = False
+    #: Price of a minute on a prepaid plan.
+    rate_per_minute: float = 0.0
+    #: What this period's calls have cost from the wallet so far.
+    period_spend: float = 0.0
 
 
 class InvoiceResponse(BaseModel):
@@ -442,6 +465,10 @@ async def cancel_subscription(
 
     now = datetime.utcnow()
     previous_status = subscription.status
+    # Cancelling outright replaces a queued move to Pay As You Go: the customer
+    # is leaving, not changing how they pay.
+    if await prepaid.scheduled_prepaid_plan(db, subscription) is not None:
+        subscription.scheduled_plan_id = None
     # Trials and staff comps have no provider object: they end here and now.
     trial_without_stripe = not _is_provider_billed(subscription)
 
@@ -542,6 +569,20 @@ async def get_current_usage(
             float(plan.overage_rate_per_minute) * usage["minutes_overage"], 2
         )
 
+    ent = await get_entitlement_service().resolve(db, org_id)
+    period_spend = 0.0
+    if ent.is_prepaid:
+        from sqlalchemy import func
+
+        spent = await db.scalar(
+            select(func.coalesce(func.sum(UsageRecord.total_amount), 0)).where(
+                UsageRecord.subscription_id == subscription.id,
+                UsageRecord.usage_type == "minutes",
+                UsageRecord.created_at >= subscription.current_period_start,
+            )
+        )
+        period_spend = round(float(spent or 0), 2)
+
     return UsageResponse(
         minutes_used=usage["minutes_used"],
         minutes_included=usage["minutes_included"],
@@ -552,6 +593,9 @@ async def get_current_usage(
         estimated_overage_cost=estimated_cost,
         overage_allowed=usage["overage_allowed"],
         overage_rate_per_minute=usage["overage_rate_per_minute"],
+        prepaid=ent.is_prepaid,
+        rate_per_minute=float(ent.billing.get("per_minute") or 0) if ent.is_prepaid else 0.0,
+        period_spend=period_spend,
     )
 
 
@@ -680,6 +724,20 @@ async def stripe_webhook(
     # A payment finished after 3-D Secure whose browser never called back.
     await adopt_paid_stripe_subscription(db, event)
 
+    # Wallet top-ups, and the refunds and disputes that reverse them. Run for
+    # every delivery, repeats included: each effect is idempotent in the wallet
+    # ledger, so a retry completes a credit that failed the first time instead
+    # of being skipped as "already processed".
+    try:
+        await wallet_topups.apply_stripe_event(db, event)
+    except Exception as exc:
+        await db.rollback()
+        logger.error(f"Wallet handling of Stripe event {event.get('id')} failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process webhook",
+        )
+
     return {"status": "success"}
 
 
@@ -769,6 +827,18 @@ class EntitlementsResponse(BaseModel):
     #: from ``not trial_available``, which is also false while a trial is *running*.
     trial_used: bool = False
 
+    #: Pay As You Go: calls are paid for from the wallet below.
+    prepaid: bool = False
+    #: The workspace's wallet balance, or ``None`` when it has never had one.
+    wallet_balance: Optional[float] = None
+    #: Prepaid and under the low-balance threshold (but not empty).
+    wallet_low: bool = False
+    #: Prepaid and unable to pay for a call minute: calls are blocked.
+    wallet_empty: bool = False
+    #: The paid subscription ends at the period end and the workspace then
+    #: moves to Pay As You Go, rather than being cancelled.
+    switching_to_prepaid: bool = False
+
 
 class SubscriptionEventResponse(BaseModel):
     """One entry from the subscription history."""
@@ -823,6 +893,24 @@ async def get_entitlements(
     if not ent.is_live:
         trial_used = await _trial_already_used(db, current_user, org_id) is not None
 
+    # The balance is read fresh on every call: it moves with each phone call,
+    # and the entitlement cache above must never be what decides "low".
+    wallet = await wallet_service.get_wallet(db, org_id)
+    wallet_balance = wallet_service.from_cents(wallet.balance_cents) if wallet else None
+    wallet_low = wallet_empty = False
+    if ent.is_prepaid:
+        cents = int(wallet.balance_cents) if wallet else 0
+        affordable = wallet_service.minutes_affordable(cents, ent.billing)
+        wallet_empty = affordable is not None and affordable < 1
+        wallet_low = not wallet_empty and cents < wallet_service.to_cents(
+            ent.billing.get("low_balance") or 0
+        )
+
+    switching_to_prepaid = False
+    if ent.cancel_at_period_end and ent.subscription_id:
+        live = await db.get(Subscription, ent.subscription_id)
+        switching_to_prepaid = await prepaid.scheduled_prepaid_plan(db, live) is not None
+
     return EntitlementsResponse(
         status=ent.status,
         plan_id=ent.plan_id,
@@ -849,6 +937,11 @@ async def get_entitlements(
         overage_allowed=ent.overage_allowed,
         trial_available=not ent.is_live and not trial_used,
         trial_used=trial_used,
+        prepaid=ent.is_prepaid,
+        wallet_balance=wallet_balance,
+        wallet_low=wallet_low,
+        wallet_empty=wallet_empty,
+        switching_to_prepaid=switching_to_prepaid,
     )
 
 
@@ -1347,6 +1440,7 @@ async def checkout(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found"
         )
+    _refuse_prepaid_checkout(plan)
 
     # The row we may be converting: a live trial, or the most recent lapsed one.
     existing = await _existing_live_subscription(db, org_id)
@@ -1588,7 +1682,10 @@ async def change_plan(
         select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
     )
     current_plan = result.scalar_one_or_none()
-    is_upgrade = target.tier >= (current_plan.tier if current_plan else 0)
+    target_prepaid = wallet_service.plan_is_prepaid(target)
+    # Moving to Pay As You Go is never an upgrade, whatever tier it was given:
+    # it waits for the end of the paid period and the workspace has to fit it.
+    is_upgrade = not target_prepaid and target.tier >= (current_plan.tier if current_plan else 0)
 
     if not is_upgrade:
         conflicts = await _downgrade_conflicts(db, org_id, target)
@@ -1611,6 +1708,86 @@ async def change_plan(
     # downgrade: the customer keeps the plan they have, and the provider is
     # told to keep billing it.
     undo_scheduled = target.id == subscription.plan_id
+
+    # ---- Pay As You Go ----
+    # Three cases the plan-to-plan logic below does not cover, because one side
+    # of the move has no provider subscription at all.
+    queued_prepaid = await prepaid.scheduled_prepaid_plan(db, subscription)
+
+    if not provider_billed and target_prepaid:
+        # A trial, a lapsed account or a staff comp: Pay As You Go starts with
+        # a top-up, which is what activates it. Nothing to change here.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"detail": PREPAID_NO_CHECKOUT, "code": "topup_required"},
+        )
+
+    if (
+        not provider_billed
+        and subscription.source == SOURCE_WALLET
+        and not target_prepaid
+    ):
+        # From Pay As You Go to a subscription: that plan has to be paid for,
+        # so it goes through checkout, which converts this subscription.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "detail": f"Subscribe to {target.name} at checkout to move to it.",
+                "code": "checkout_required",
+            },
+        )
+
+    if provider_billed and queued_prepaid is not None and not target_prepaid:
+        # A move to Pay As You Go was queued, which cancelled the paid
+        # subscription at period end. Choosing a subscription plan again —
+        # the current one or another — puts the subscription back first.
+        await _set_provider_cancel_at_period_end(subscription, False)
+        subscription.cancel_at_period_end = False
+        subscription.canceled_at = None
+        subscription.scheduled_plan_id = None
+        if undo_scheduled:
+            await events.record_event(
+                db,
+                organization_id=org_id,
+                event_type=events.PLAN_CHANGE_SCHEDULED,
+                subscription=subscription,
+                from_plan_id=previous_plan_id,
+                to_plan_id=target.id,
+                actor_type=events.ACTOR_USER,
+                actor_id=current_user.id,
+                payload={"direction": "cancel_scheduled_prepaid", "effective": "immediately"},
+            )
+            await db.commit()
+            await db.refresh(subscription)
+            invalidate_entitlements(org_id)
+            return await _subscription_response_with_schedule(db, subscription, current_plan)
+
+    if provider_billed and target_prepaid:
+        # The period already paid for runs out first. The provider is told to
+        # stop at its end; when it reports the subscription over, the row
+        # becomes a wallet subscription (``prepaid.convert_if_scheduled``).
+        await _set_provider_cancel_at_period_end(subscription, True)
+        subscription.cancel_at_period_end = True
+        subscription.canceled_at = subscription.canceled_at or datetime.utcnow()
+        subscription.scheduled_plan_id = target.id
+        await events.record_event(
+            db,
+            organization_id=org_id,
+            event_type=events.PLAN_CHANGE_SCHEDULED,
+            subscription=subscription,
+            from_plan_id=previous_plan_id,
+            to_plan_id=target.id,
+            actor_type=events.ACTOR_USER,
+            actor_id=current_user.id,
+            payload={
+                "direction": "to_prepaid",
+                "effective": utc_iso(subscription.current_period_end),
+            },
+        )
+        await db.commit()
+        await db.refresh(subscription)
+        invalidate_entitlements(org_id)
+        return await _subscription_response_with_schedule(db, subscription, current_plan)
 
     if not provider_billed:
         # A trial or a staff comp: no provider to bill, so a plan change is a
@@ -1723,6 +1900,30 @@ async def change_plan(
     return await _subscription_response_with_schedule(db, subscription, effective_plan)
 
 
+async def _set_provider_cancel_at_period_end(subscription: Subscription, cancel: bool) -> None:
+    """Tell the provider billing ``subscription`` to stop (or carry on) at the
+    end of the paid period."""
+    if subscription.source == SOURCE_POLAR:
+        try:
+            if cancel:
+                await polar_service.cancel(subscription, immediate=False)
+            else:
+                await polar_service.reactivate(subscription)
+        except polar_service.PolarError as exc:
+            raise _polar_http_error(exc)
+        return
+
+    import asyncio
+    import stripe
+
+    await get_stripe_service()  # configures the SDK key
+    await asyncio.to_thread(
+        stripe.Subscription.modify,
+        subscription.stripe_subscription_id,
+        cancel_at_period_end=cancel,
+    )
+
+
 async def _downgrade_conflicts(
     db: AsyncSession, org_id: uuid.UUID, target: SubscriptionPlan
 ) -> List[dict]:
@@ -1785,6 +1986,10 @@ async def reactivate_subscription(
 
     subscription.cancel_at_period_end = False
     subscription.canceled_at = None
+    # The cancellation may have been a queued move to Pay As You Go; keeping
+    # the subscription means that move is off.
+    if await prepaid.scheduled_prepaid_plan(db, subscription) is not None:
+        subscription.scheduled_plan_id = None
     await events.record_event(
         db,
         organization_id=org_id,
@@ -1954,6 +2159,7 @@ async def create_checkout_session(
     plan = await db.get(SubscriptionPlan, request.plan_id)
     if plan is None or not plan.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+    _refuse_prepaid_checkout(plan)
     product_id = polar_service.product_for(plan, request.billing_period)
     if not product_id:
         raise HTTPException(
@@ -2126,6 +2332,14 @@ async def polar_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     for organization_id in outcome.invalidate:
         invalidate_entitlements(organization_id)
+    # Wallet follow-ups, now that the delivery has committed: tell the owners,
+    # and switch numbers that were waiting on credit back on. None can fail
+    # the delivery.
+    await wallet_topups.run_followups(db, outcome.wallet_credits)
+    for refund in outcome.wallet_refunds:
+        await wallet_topups.after_refund(db, refund)
+    for organization_id in outcome.prepaid_started:
+        await prepaid.announce(db, organization_id)
     for email, plan_name in outcome.confirmations:
         try:
             import asyncio

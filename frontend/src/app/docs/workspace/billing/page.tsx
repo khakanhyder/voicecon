@@ -84,6 +84,55 @@ export default function BillingPage() {
         calls stop arriving.
       </Callout>
 
+      <H2 id="pay-as-you-go">Pay As You Go</H2>
+      <P>
+        Pay As You Go has no monthly fee. You add credit to a balance, and each call minute is
+        paid for from it at the rate shown on the plan card. Nothing renews, and credit you
+        have not used does not expire.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Starting.</Strong> Choose it under <Strong>Settings</Strong> →{' '}
+          <Strong>Billing</Strong> and add credit. The first top-up is what starts the plan,
+          whether you are on a free trial, a lapsed plan or a new workspace.
+        </LI>
+        <LI>
+          <Strong>What a call costs.</Strong> Calls are charged per started minute when they
+          end. The balance, every top-up and every call charge are listed under{' '}
+          <Strong>Balance</Strong> → <Strong>History</Strong>.
+        </LI>
+        <LI>
+          <Strong>Phone numbers.</Strong> A Voicecon number is charged monthly from the same
+          balance. If the balance cannot cover it the number is put on hold, and later
+          released, exactly as it is when a subscription lapses.
+        </LI>
+        <LI>
+          <Strong>Running out.</Strong> When the balance cannot pay for another minute, new
+          calls are not connected, and a call in progress is ended politely when the credit
+          set aside for it is used up. You are emailed when the balance runs low and again
+          when it runs out.
+        </LI>
+        <LI>
+          <Strong>Auto-recharge.</Strong> Where card payments are taken in the app, you can
+          save your card when adding credit and have the balance topped up automatically
+          below a level you choose.
+        </LI>
+      </UL>
+      <Table
+        headers={['Moving', 'What happens']}
+        widths={['w-[34%]']}
+        rows={[
+          [<Strong>Trial → Pay As You Go</Strong>, 'Takes effect with your first top-up.'],
+          [<Strong>Subscription → Pay As You Go</Strong>, 'Takes effect when the period you have paid for ends. Add credit before then so calls keep running. You can change your mind until that date.'],
+          [<Strong>Pay As You Go → subscription</Strong>, 'Takes effect at checkout. Your remaining credit is kept.'],
+        ]}
+      />
+      <Callout kind="warning" title="A low balance stops calls, including the one in progress">
+        Unlike a subscription, there is no allowance to go over and be billed for later. If
+        your agents answer calls you cannot afford to miss, turn on auto-recharge or keep the
+        balance comfortably above what a busy day uses.
+      </Callout>
+
       <H2 id="invoices">Invoices</H2>
       <P>
         Invoices are listed under <Strong>Settings</Strong> → <Strong>Billing</Strong> with

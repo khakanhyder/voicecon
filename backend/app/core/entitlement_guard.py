@@ -41,6 +41,8 @@ REASON_INACTIVE = "subscription_inactive"
 REASON_FEATURE = "feature_not_in_plan"
 REASON_LIMIT = "limit_exceeded"
 REASON_READ_ONLY = "read_only"
+#: A prepaid (Pay As You Go) workspace whose wallet cannot pay for a minute.
+REASON_BALANCE = "insufficient_balance"
 
 UPGRADE_URL = "/dashboard/settings/billing"
 
@@ -201,6 +203,25 @@ def assert_within_limit(ent: Entitlements, limit_key: str, requested: int = 1) -
     )
 
 
+async def assert_balance(db, ent: Entitlements) -> None:
+    """Raise unless a prepaid workspace can pay for at least one call minute.
+
+    Does nothing for a subscription or a trial — those are limited by their
+    minute allowance, which :func:`assert_within_limit` checks.
+    """
+    if not ent.is_prepaid:
+        return
+    from app.services.billing import wallet as wallet_service
+
+    if await wallet_service.can_start_call(db, ent.organization_id, ent.billing):
+        return
+    raise EntitlementError(
+        message=wallet_service.INSUFFICIENT_BALANCE,
+        reason=REASON_BALANCE,
+        entitlements=ent,
+    )
+
+
 async def entitlements_for_request(
     workspace: WorkspaceContext = Depends(get_workspace),
     db=Depends(get_db),
@@ -256,6 +277,9 @@ def require_entitlement(
                 count = await get_entitlement_service().count_for_limit(db, org_id, limit)
                 ent = ent.with_usage({limit: count})
             assert_within_limit(ent, limit, quantity)
+            if limit == catalog.LIMIT_MINUTES:
+                # Pay As You Go has no minute allowance; the wallet is the limit.
+                await assert_balance(db, ent)
 
         return ent
 
@@ -311,6 +335,8 @@ async def assert_runtime_allowed(
         ent = await resolve_entitlements(db, organization_id)
         if reason == REASON_FEATURE:
             assert_feature(ent, feature)
+        elif reason == REASON_BALANCE:
+            await assert_balance(db, ent)
         elif reason == REASON_LIMIT:
             from app.services.billing.entitlements import RUNTIME_USAGE_LIMITS
 

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Check, Clock, Pencil, RefreshCw, Users, X } from 'lucide-react'
 import { adminApi, type Catalog, type Plan } from '@/lib/admin'
+import { perMinute } from '@/lib/pricing'
 import {
   AdminButton,
   Badge,
@@ -37,6 +38,18 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
     polar_product_id: plan.polar_product_id ?? '',
     polar_product_id_yearly: plan.polar_product_id_yearly ?? '',
   })
+  // Pay As You Go has no monthly or yearly price and cannot carry a trial;
+  // what it charges lives in `billing` instead.
+  const prepaid = !!plan.prepaid
+  const [billing, setBilling] = useState({
+    per_minute: String(plan.billing?.per_minute ?? ''),
+    number_monthly_fee: String(plan.billing?.number_monthly_fee ?? ''),
+    topup_presets: (plan.billing?.topup_presets ?? []).join(', '),
+    topup_min: String(plan.billing?.topup_min ?? ''),
+    topup_max: String(plan.billing?.topup_max ?? ''),
+    low_balance: String(plan.billing?.low_balance ?? ''),
+  })
+  const setBill = (k: keyof typeof billing, v: string) => setBilling((b) => ({ ...b, [k]: v }))
   const [features, setFeatures] = useState<Record<string, boolean>>(plan.features)
   const [limits, setLimits] = useState<Record<string, string>>(
     Object.fromEntries(catalog.limits.map((l) => [l.key, plan.limits[l.key] == null ? '' : String(plan.limits[l.key])]))
@@ -44,29 +57,46 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
   const set = (k: keyof typeof form, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }))
 
   const priceChanged =
-    Number(form.price_monthly) !== plan.price_monthly ||
-    (form.price_yearly === '' ? null : Number(form.price_yearly)) !== plan.price_yearly
+    !prepaid &&
+    (Number(form.price_monthly) !== plan.price_monthly ||
+      (form.price_yearly === '' ? null : Number(form.price_yearly)) !== plan.price_yearly)
 
   const save = useMutation({
     mutationFn: () =>
       adminApi.updatePlan(plan.id, {
         name: form.name.trim(),
         description: form.description,
-        price_monthly: Number(form.price_monthly),
-        ...(form.price_yearly !== '' ? { price_yearly: Number(form.price_yearly) } : {}),
-        trial_days: Number(form.trial_days),
-        is_trialable: form.is_trialable,
+        ...(prepaid
+          ? {
+              billing: {
+                per_minute: Number(billing.per_minute),
+                number_monthly_fee: Number(billing.number_monthly_fee || 0),
+                topup_presets: billing.topup_presets
+                  .split(',')
+                  .map((v) => Number(v.trim()))
+                  .filter((v) => Number.isFinite(v) && v > 0),
+                topup_min: Number(billing.topup_min),
+                topup_max: Number(billing.topup_max),
+                low_balance: Number(billing.low_balance || 0),
+              },
+            }
+          : {
+              price_monthly: Number(form.price_monthly),
+              ...(form.price_yearly !== '' ? { price_yearly: Number(form.price_yearly) } : {}),
+              trial_days: Number(form.trial_days),
+              is_trialable: form.is_trialable,
+            }),
         is_active: form.is_active,
         is_public: form.is_public,
         sort_order: Number(form.sort_order),
         highlights: form.highlights.split('\n').map((s) => s.trim()).filter(Boolean),
         polar_product_id: form.polar_product_id.trim(),
-        polar_product_id_yearly: form.polar_product_id_yearly.trim(),
+        ...(prepaid ? {} : { polar_product_id_yearly: form.polar_product_id_yearly.trim() }),
         features,
         limits: Object.fromEntries(
           Object.entries(limits).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, Number(v)])
         ),
-      } as Partial<Plan>),
+      }),
     onSuccess: () => {
       toast.success(`${form.name} saved`)
       qc.invalidateQueries({ queryKey: ['admin', 'plans'] })
@@ -98,14 +128,47 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
           <div className="sm:col-span-2">
             <Field label="Description"><input className={inputClass} value={form.description} onChange={(e) => set('description', e.target.value)} /></Field>
           </div>
-          <Field label={`Monthly price (${plan.currency.toUpperCase()})`}>
-            <input type="number" min={0} step="0.01" className={inputClass} value={form.price_monthly} onChange={(e) => set('price_monthly', e.target.value)} />
-          </Field>
-          <Field label={`Yearly price (${plan.currency.toUpperCase()})`} hint="Leave empty to offer monthly only.">
-            <input type="number" min={0} step="0.01" className={inputClass} value={form.price_yearly} onChange={(e) => set('price_yearly', e.target.value)} />
-          </Field>
-          <Field label="Trial length (days)"><input type="number" min={1} max={365} className={inputClass} value={form.trial_days} onChange={(e) => set('trial_days', e.target.value)} /></Field>
+          {prepaid ? (
+            <>
+              <Field label={`Price per call minute (${plan.currency.toUpperCase()})`} hint="Charged from the balance for every started minute. Keep it above the subscriptions' overage rates.">
+                <input type="number" min={0} step="0.001" className={inputClass} value={billing.per_minute} onChange={(e) => setBill('per_minute', e.target.value)} />
+              </Field>
+              <Field label={`Phone number, per month (${plan.currency.toUpperCase()})`} hint="Charged from the balance for each Voicecon number. 0 makes numbers free.">
+                <input type="number" min={0} step="0.01" className={inputClass} value={billing.number_monthly_fee} onChange={(e) => setBill('number_monthly_fee', e.target.value)} />
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Top-up amounts" hint="Up to six, separated by commas. These are the buttons in the Add credit dialog.">
+                  <input className={inputClass} value={billing.topup_presets} onChange={(e) => setBill('topup_presets', e.target.value)} placeholder="10, 25, 50, 100" />
+                </Field>
+              </div>
+              <Field label="Smallest top-up">
+                <input type="number" min={1} step="1" className={inputClass} value={billing.topup_min} onChange={(e) => setBill('topup_min', e.target.value)} />
+              </Field>
+              <Field label="Largest top-up">
+                <input type="number" min={1} step="1" className={inputClass} value={billing.topup_max} onChange={(e) => setBill('topup_max', e.target.value)} />
+              </Field>
+              <Field label="Low-balance warning below" hint="Owners are emailed once when the balance falls under this.">
+                <input type="number" min={0} step="1" className={inputClass} value={billing.low_balance} onChange={(e) => setBill('low_balance', e.target.value)} />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label={`Monthly price (${plan.currency.toUpperCase()})`}>
+                <input type="number" min={0} step="0.01" className={inputClass} value={form.price_monthly} onChange={(e) => set('price_monthly', e.target.value)} />
+              </Field>
+              <Field label={`Yearly price (${plan.currency.toUpperCase()})`} hint="Leave empty to offer monthly only.">
+                <input type="number" min={0} step="0.01" className={inputClass} value={form.price_yearly} onChange={(e) => set('price_yearly', e.target.value)} />
+              </Field>
+              <Field label="Trial length (days)"><input type="number" min={1} max={365} className={inputClass} value={form.trial_days} onChange={(e) => set('trial_days', e.target.value)} /></Field>
+            </>
+          )}
         </div>
+
+        {prepaid && (
+          <Callout tone="info" title="How these changes apply">
+            A new rate applies to calls that end after you save. Credit customers have already bought keeps its value: only what a minute costs changes.
+          </Callout>
+        )}
 
         {priceChanged && (
           <Callout tone="info" title="How price changes apply">
@@ -120,7 +183,7 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
             ['is_active', 'Available', 'New customers can choose it'],
             ['is_public', 'Shown on pricing page', 'Hidden plans can still be granted'],
             ['is_trialable', 'Free trial allowed', 'Card-free trial on this plan'],
-          ] as const).map(([key, label, hint]) => (
+          ] as const).filter(([key]) => !(prepaid && key === 'is_trialable')).map(([key, label, hint]) => (
             <div key={key} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3">
               <div>
                 <p className="text-sm font-medium text-slate-800">{label}</p>
@@ -132,14 +195,23 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Polar products</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{prepaid ? 'Polar product' : 'Polar products'}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Monthly product ID" hint="From the Polar dashboard, or use Sync to Polar on the plan card.">
+            <Field
+              label={prepaid ? 'Credit product ID' : 'Monthly product ID'}
+              hint={
+                prepaid
+                  ? 'A one-time Polar product that top-ups are sold as. Use Create in Polar on the plan card to make it.'
+                  : 'From the Polar dashboard, or use Sync to Polar on the plan card.'
+              }
+            >
               <input className={`${inputClass} font-mono text-xs`} value={form.polar_product_id} onChange={(e) => set('polar_product_id', e.target.value)} placeholder="Not linked" />
             </Field>
-            <Field label="Yearly product ID" hint="Leave empty to offer monthly only through Polar.">
-              <input className={`${inputClass} font-mono text-xs`} value={form.polar_product_id_yearly} onChange={(e) => set('polar_product_id_yearly', e.target.value)} placeholder="Not linked" />
-            </Field>
+            {!prepaid && (
+              <Field label="Yearly product ID" hint="Leave empty to offer monthly only through Polar.">
+                <input className={`${inputClass} font-mono text-xs`} value={form.polar_product_id_yearly} onChange={(e) => set('polar_product_id_yearly', e.target.value)} placeholder="Not linked" />
+              </Field>
+            )}
           </div>
         </div>
 
@@ -280,13 +352,23 @@ export default function PlansPage() {
               {plan.admin_managed && <Badge tone="brand">Edited in admin</Badge>}
             </div>
             <p className="mt-0.5 text-sm text-slate-500">{plan.description}</p>
-            <p className="mt-3 text-2xl font-semibold text-slate-900">
-              {formatMoney(plan.price_monthly, plan.currency)}
-              <span className="text-sm font-normal text-slate-500"> / month</span>
-              {plan.price_yearly != null && (
-                <span className="ml-2 text-sm font-normal text-slate-500">· {formatMoney(plan.price_yearly, plan.currency)} / year</span>
-              )}
-            </p>
+            {plan.prepaid ? (
+              <p className="mt-3 text-2xl font-semibold text-slate-900">
+                {perMinute(plan.billing?.per_minute ?? 0)}
+                <span className="text-sm font-normal text-slate-500"> / minute · no monthly fee</span>
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  · phone number {formatMoney(plan.billing?.number_monthly_fee, plan.currency)} / month
+                </span>
+              </p>
+            ) : (
+              <p className="mt-3 text-2xl font-semibold text-slate-900">
+                {formatMoney(plan.price_monthly, plan.currency)}
+                <span className="text-sm font-normal text-slate-500"> / month</span>
+                {plan.price_yearly != null && (
+                  <span className="ml-2 text-sm font-normal text-slate-500">· {formatMoney(plan.price_yearly, plan.currency)} / year</span>
+                )}
+              </p>
+            )}
           </div>
           <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
             {data?.polar_configured && <PolarSyncButton plan={plan} disabled={false} />}
@@ -327,7 +409,13 @@ export default function PlansPage() {
           <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {plan.subscribers} live subscription{plan.subscribers === 1 ? '' : 's'}</span>
           <span>Trial: {plan.is_trialable ? `${plan.trial_days} days` : 'none'}</span>
           <span className="font-mono">{plan.slug}</span>
-          <span className="font-mono">{plan.stripe_price_id}</span>
+          {plan.prepaid ? (
+            <span>
+              Top-ups: {(plan.billing?.topup_presets ?? []).map((p) => formatMoney(p, plan.currency)).join(', ')}
+            </span>
+          ) : (
+            <span className="font-mono">{plan.stripe_price_id}</span>
+          )}
           <span>
             Polar:{' '}
             {plan.polar_product_id ? (

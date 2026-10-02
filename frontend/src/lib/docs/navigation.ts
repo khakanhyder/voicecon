@@ -718,6 +718,7 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'plans', title: 'Plans and entitlements' },
           { id: 'usage', title: 'Usage and limits' },
           { id: 'changing-plan', title: 'Changing or cancelling a plan' },
+          { id: 'pay-as-you-go', title: 'Pay As You Go' },
           { id: 'invoices', title: 'Invoices' },
           { id: 'what-costs-money', title: 'What a call costs' },
         ],

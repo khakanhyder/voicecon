@@ -214,6 +214,16 @@ async def _reclaim_for_org(
     organization = await db.get(Organization, organization_id)
     entitlements = await get_entitlement_service().resolve(db, organization_id, fresh=True)
     entitled = entitlements.is_live and bool(organization and organization.is_active)
+    # Pay As You Go has no monthly fee to cover a number, so each one is paid
+    # for from the wallet. This charges whatever rent is due; a number whose
+    # rent cannot be paid is held like any other nobody is paying for.
+    prepaid_unpaid = False
+    if entitled and entitlements.is_prepaid:
+        from app.services.billing import prepaid
+
+        if not await prepaid.numbers_covered(db, organization_id, numbers, now=now):
+            entitled = False
+            prepaid_unpaid = True
 
     held = [n for n in numbers if n.status == STATUS_SUSPENDED]
     if entitled:
@@ -248,7 +258,7 @@ async def _reclaim_for_org(
         )
         await db.commit()
         report.suspended += len(affected)
-        await _notify_held(db, organization_id, affected, date)
+        await _notify_held(db, organization_id, affected, date, prepaid=prepaid_unpaid)
         return 0  # the clock has only just started
 
     if not days:
@@ -276,7 +286,7 @@ async def _reclaim_for_org(
             _set_state(number, {**reclaim_state(number), "reminded": True})
         await db.commit()
         report.reminded += len(reminded)
-        await _notify_reminder(db, organization_id, reminded, earliest)
+        await _notify_reminder(db, organization_id, reminded, earliest, prepaid=prepaid_unpaid)
 
     # 3. Release what is due.
     released: List[str] = []
@@ -288,7 +298,7 @@ async def _reclaim_for_org(
         else:
             report.failed += 1
     if released:
-        await _notify_released(db, organization_id, released)
+        await _notify_released(db, organization_id, released, prepaid=prepaid_unpaid)
     return len(released)
 
 
@@ -395,8 +405,18 @@ async def restore_numbers(
             rows = rows[: max(0, entitlements.limit(limit) - others)]
         return rows
 
-    if not await restorable():
+    candidates = await restorable()
+    if not candidates:
         return 0
+
+    # On Pay As You Go a held number comes back once its rent is paid: this
+    # takes the rent that is due from the wallet, and leaves the numbers held
+    # if the wallet cannot cover it.
+    if entitlements.is_prepaid:
+        from app.services.billing import prepaid
+
+        if not await prepaid.numbers_covered(db, organization_id, candidates):
+            return 0
 
     # Restoring changes how many numbers the workspace holds, so it must not
     # interleave with a purchase. If one is in flight, the next pass (or the
@@ -464,6 +484,7 @@ async def _notify(
     bullets: Sequence[str] = (),
     notification_body: str,
     action_label: str = "Choose a plan",
+    action_path: str = "/dashboard/settings/billing",
 ) -> None:
     """Email the owners and leave an in-app notification. Never raises: the
     state change it reports has already been committed."""
@@ -494,7 +515,7 @@ async def _notify(
                 heading=heading,
                 intro=intro,
                 bullets=list(bullets),
-                action_url=f"{base}/dashboard/settings/billing",
+                action_url=f"{base}{action_path}",
                 action_label=action_label,
             )
     except Exception as exc:  # noqa: BLE001
@@ -502,19 +523,47 @@ async def _notify(
         logger.error(f"Could not send a phone number notice to org {organization_id}: {exc}")
 
 
+#: Where "Add credit" in a Pay As You Go notice lands.
+_WALLET_PATH = "/dashboard/settings/billing#wallet"
+
+
+def _fix(prepaid: bool) -> dict:
+    """The words that differ between a lapsed plan and an empty wallet."""
+    if prepaid:
+        return {
+            "cause": "Your balance does not cover the monthly fee for",
+            "remedy": "Add credit",
+            "action_label": "Add credit",
+            "action_path": _WALLET_PATH,
+        }
+    return {
+        "cause": "Your workspace no longer has an active plan, so",
+        "remedy": "Choose a plan",
+        "action_label": "Choose a plan",
+        "action_path": "/dashboard/settings/billing",
+    }
+
+
 async def _notify_held(
     db: AsyncSession,
     organization_id: uuid.UUID,
     phone_numbers: Sequence[str],
     date: Optional[datetime],
+    *,
+    prepaid: bool = False,
 ) -> None:
     many = len(phone_numbers) > 1
     listed = ", ".join(phone_numbers)
+    words = _fix(prepaid)
+    target = {"action_label": words["action_label"], "action_path": words["action_path"]}
     heading = f"Your {'phone numbers are' if many else 'phone number is'} on hold"
-    stopped = (
-        f"Your workspace no longer has an active plan, so {listed} "
-        f"{'have' if many else 'has'} stopped taking calls."
-    )
+    if prepaid:
+        stopped = (
+            f"{words['cause']} {listed}, so {'they have' if many else 'it has'} "
+            "stopped taking calls."
+        )
+    else:
+        stopped = f"{words['cause']} {listed} {'have' if many else 'has'} stopped taking calls."
     if date is None:
         await _notify(
             db,
@@ -522,10 +571,11 @@ async def _notify_held(
             subject=heading,
             heading=heading,
             intro=(
-                f"{stopped} Choose a plan and "
+                f"{stopped} {words['remedy']} and "
                 f"{'they switch' if many else 'it switches'} back on."
             ),
-            notification_body="Choose a plan to switch your phone number back on.",
+            notification_body=f"{words['remedy']} to switch your phone number back on.",
+            **target,
         )
         return
     await _notify(
@@ -538,15 +588,17 @@ async def _notify_held(
         heading=heading,
         intro=f"{stopped} We will keep {'them' if many else 'it'} for you until {_day(date)}.",
         bullets=[
-            f"Choose a plan before {_day(date)} and "
+            f"{words['remedy']} before {_day(date)} and "
             f"{'they switch' if many else 'it switches'} back on, unchanged.",
             f"After that {'the numbers are' if many else 'the number is'} released "
             "and cannot be recovered.",
             "Your agents, workflows and call history are not affected.",
         ],
         notification_body=(
-            f"{listed} will be released on {_day(date)} unless you choose a plan."
+            f"{listed} will be released on {_day(date)} unless you "
+            f"{words['remedy'].lower()}."
         ),
+        **target,
     )
 
 
@@ -555,9 +607,12 @@ async def _notify_reminder(
     organization_id: uuid.UUID,
     phone_numbers: Sequence[str],
     date: datetime,
+    *,
+    prepaid: bool = False,
 ) -> None:
     many = len(phone_numbers) > 1
     listed = ", ".join(phone_numbers)
+    words = _fix(prepaid)
     await _notify(
         db,
         organization_id,
@@ -570,30 +625,45 @@ async def _notify_reminder(
             f"{listed} {'are' if many else 'is'} still on hold and will be released "
             f"on {_day(date)}. Once released, {'they' if many else 'it'} cannot be recovered."
         ),
-        bullets=[f"Choose a plan before {_day(date)} to keep {'them' if many else 'it'}."],
+        bullets=[f"{words['remedy']} before {_day(date)} to keep {'them' if many else 'it'}."],
         notification_body=(
-            f"{listed} will be released on {_day(date)} unless you choose a plan."
+            f"{listed} will be released on {_day(date)} unless you "
+            f"{words['remedy'].lower()}."
         ),
+        action_label=words["action_label"],
+        action_path=words["action_path"],
     )
 
 
 async def _notify_released(
-    db: AsyncSession, organization_id: uuid.UUID, phone_numbers: Sequence[str]
+    db: AsyncSession,
+    organization_id: uuid.UUID,
+    phone_numbers: Sequence[str],
+    *,
+    prepaid: bool = False,
 ) -> None:
     many = len(phone_numbers) > 1
     listed = ", ".join(phone_numbers)
+    words = _fix(prepaid)
+    reason = (
+        "your balance did not cover the monthly fee"
+        if prepaid
+        else "your workspace has no active plan"
+    )
     await _notify(
         db,
         organization_id,
         subject=f"Your {'phone numbers have' if many else 'phone number has'} been released",
         heading=f"Your {'phone numbers have' if many else 'phone number has'} been released",
         intro=(
-            f"{listed} {'were' if many else 'was'} on hold because your workspace has "
-            f"no active plan, and {'have' if many else 'has'} now been released."
+            f"{listed} {'were' if many else 'was'} on hold because {reason}, "
+            f"and {'have' if many else 'has'} now been released."
         ),
         bullets=[
             "Your agents, workflows and call history are still here.",
-            "Choose a plan and you can pick a new number under Phone Numbers.",
+            f"{words['remedy']} and you can pick a new number under Phone Numbers.",
         ],
         notification_body=f"{listed} {'were' if many else 'was'} released.",
+        action_label=words["action_label"],
+        action_path=words["action_path"],
     )

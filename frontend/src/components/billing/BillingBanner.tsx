@@ -44,6 +44,10 @@ const TONES: Record<
 }
 
 const DISMISS_KEY = 'voicecon:dismissed-billing-banner'
+/** The balance card on the billing page (see WalletCard). */
+const WALLET_ANCHOR = 'wallet'
+/** How often the plan state is re-read while a Pay As You Go workspace is open. */
+const PREPAID_REFRESH_MS = 60_000
 
 export function BillingBanner() {
   const router = useRouter()
@@ -56,6 +60,26 @@ export function BillingBanner() {
   }, [])
 
   const banner = useMemo(() => billingBanner(entitlements), [entitlements])
+
+  // A Pay As You Go balance moves whenever a call ends, with nobody at the
+  // screen doing anything. Re-read the plan state on a slow timer and when the
+  // tab regains focus, so "your balance has run out" appears (and clears after
+  // a top-up elsewhere) without a page reload. Other plans change only when
+  // the customer acts, and are left alone.
+  const prepaid = !!entitlements?.prepaid
+  const refresh = useEntitlementStore((s) => s.refresh)
+  useEffect(() => {
+    if (!prepaid) return
+    const tick = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    const timer = window.setInterval(tick, PREPAID_REFRESH_MS)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [prepaid, refresh])
 
   if (!banner) return null
   if (banner.dismissible && dismissed === banner.key) return null
@@ -87,6 +111,12 @@ export function BillingBanner() {
         </p>
         <button
           onClick={() => {
+            if (banner.target === 'wallet') {
+              // Pay As You Go: the fix is credit, not a plan. Go to the balance.
+              const card = pathname === BILLING_PATH ? document.getElementById(WALLET_ANCHOR) : null
+              if (card) return card.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              return router.push(`${BILLING_PATH}#${WALLET_ANCHOR}`)
+            }
             // Already on Billing: a push to the same URL would do nothing.
             if (pathname === BILLING_PATH && scrollToPlanCards()) return
             router.push(`${BILLING_PATH}${PLANS_HASH}`)

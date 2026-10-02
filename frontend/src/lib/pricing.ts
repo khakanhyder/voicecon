@@ -27,6 +27,19 @@ export interface PricingPlan {
   popular?: boolean
   /** The plan's support level, e.g. "Priority email support". */
   support?: string | null
+  /** Set on a Pay As You Go plan: what it charges instead of a monthly price. */
+  prepaid?: PrepaidTerms | null
+}
+
+/** What a prepaid (Pay As You Go) plan charges. Mirrors `catalog.PAYG_BILLING`. */
+export interface PrepaidTerms {
+  /** Price of one call minute. */
+  per_minute: number
+  /** Monthly fee for each Voicecon phone number; 0 when numbers are free. */
+  number_monthly_fee: number
+  /** Smallest amount that can be added to the balance. */
+  topup_min: number
+  topup_presets: number[]
 }
 
 export interface TrialOffer {
@@ -36,8 +49,11 @@ export interface TrialOffer {
 }
 
 export interface PricingData {
+  /** The subscriptions, in display order. Pay As You Go is not among them. */
   plans: PricingPlan[]
   trial: TrialOffer
+  /** The Pay As You Go plan, when it is on sale. */
+  payg?: PricingPlan | null
 }
 
 // Used only when the API cannot be reached (for example during a Docker build
@@ -58,6 +74,20 @@ const FALLBACK: PricingData = {
       minutes_per_month: 30, emails_per_month: 100, concurrent_calls: 2, custom_voices: 1,
     },
     payment_provider: 'polar',
+  },
+  payg: {
+    slug: 'payg',
+    name: 'Pay As You Go',
+    description: 'No monthly fee. Add credit and pay only for the minutes you use.',
+    price_monthly: 0,
+    price_yearly: null,
+    features: STARTER_FEATURES,
+    limits: {
+      agents: 1, phone_numbers: 1, knowledge_bases: 1, team_members: 2, workflows: 3, api_keys: 0, custom_voices: 0,
+      concurrent_calls: 2, minutes_per_month: -1, emails_per_month: 500,
+    },
+    support: 'Email support',
+    prepaid: { per_minute: 0.35, number_monthly_fee: 2, topup_min: 10, topup_presets: [10, 25, 50, 100] },
   },
   plans: [
     {
@@ -159,10 +189,52 @@ export interface ApiPlan {
     features?: Record<string, boolean>
     limits?: Limits
     overage?: { allowed?: boolean; per_minute?: number }
+    /** Present on a prepaid plan only. */
+    billing?: {
+      mode?: string
+      per_minute?: number
+      number_monthly_fee?: number
+      topup_min?: number
+      topup_presets?: number[]
+    }
   }
   /** Marketing column: `support` and `popular` feed the cards. */
   features?: Record<string, unknown>
   overage_rate_per_minute?: number
+}
+
+/**
+ * Is this the Pay As You Go plan? Decided by what the plan's entitlements say,
+ * never by its slug or its price, so a renamed plan still counts.
+ */
+export function isPrepaidPlan(p: { entitlements?: { billing?: { mode?: string } } } | null | undefined): boolean {
+  return p?.entitlements?.billing?.mode === 'prepaid'
+}
+
+/**
+ * Subscriptions and the prepaid plan, apart. Every plan list shows the
+ * subscriptions as a row of cards and Pay As You Go as its own card: it has no
+ * monthly price to line up with theirs, and "Everything in Starter, plus"
+ * must keep pointing at the subscription before it.
+ */
+export function splitPlans<T extends { entitlements?: { billing?: { mode?: string } } }>(
+  plans: T[]
+): { subscriptions: T[]; prepaid: T | null } {
+  return {
+    subscriptions: plans.filter((p) => !isPrepaidPlan(p)),
+    prepaid: plans.find((p) => isPrepaidPlan(p)) ?? null,
+  }
+}
+
+function prepaidTerms(p: ApiPlan): PrepaidTerms | null {
+  const billing = p.entitlements?.billing
+  if (billing?.mode !== 'prepaid') return null
+  return {
+    per_minute: Number(billing.per_minute ?? 0),
+    number_monthly_fee: Number(billing.number_monthly_fee ?? 0),
+    topup_min: Number(billing.topup_min ?? 0),
+    topup_presets: (billing.topup_presets ?? []).map(Number),
+  }
 }
 
 /** Normalise an API plan into the shape the card copy is built from. */
@@ -171,6 +243,7 @@ export function toPricingPlan(p: ApiPlan): PricingPlan {
   const rate = overage?.per_minute ?? p.overage_rate_per_minute
   const support = p.features?.support
   return {
+    prepaid: prepaidTerms(p),
     slug: p.slug ?? null,
     name: p.name,
     description: p.description,
@@ -194,7 +267,15 @@ export function toPricingPlan(p: ApiPlan): PricingPlan {
  */
 export function planCardBullets(plans: ApiPlan[]): string[][] {
   const normalised = plans.map(toPricingPlan)
-  return normalised.map((plan, i) => planBullets(plan, normalised[i - 1]))
+  let previous: PricingPlan | undefined
+  return normalised.map((plan) => {
+    // Pay As You Go is not a rung on the ladder: it gets its own copy and is
+    // never the plan a subscription claims to include "everything in".
+    if (plan.prepaid) return paygBullets(plan)
+    const lines = planBullets(plan, previous)
+    previous = plan
+    return lines
+  })
 }
 
 /**
@@ -216,8 +297,13 @@ export async function getPricing(): Promise<PricingData> {
     getJson<ApiPlan[]>('/billing/plans'),
     getJson<TrialOffer>('/billing/trial-offer'),
   ])
+  if (!plans?.length) return { ...FALLBACK, trial: trial ?? FALLBACK.trial }
+  const { subscriptions, prepaid } = splitPlans(plans)
   return {
-    plans: plans?.length ? plans.map(toPricingPlan) : FALLBACK.plans,
+    plans: subscriptions.map(toPricingPlan),
+    // Only what the API returned: when the admin takes the plan off sale, the
+    // card goes too rather than falling back to the built-in copy.
+    payg: prepaid ? toPricingPlan(prepaid) : null,
     trial: trial ?? FALLBACK.trial,
   }
 }
@@ -341,6 +427,42 @@ export function planBullets(plan: PricingPlan, previous?: PricingPlan): string[]
     includesPrevious ? null : 'Appointment booking with Google Calendar',
     ...featureLines(shown, l),
     f.api_access && l.api_keys === UNLIMITED ? 'Unlimited API keys' : f.api_access && l.api_keys > 0 ? `API access, up to ${l.api_keys.toLocaleString('en-US')} keys` : null,
+    plan.support,
+  ].filter(Boolean) as string[]
+}
+
+/** "$10", "$2.50" — whole amounts without the cents. */
+export function dollars(amount: number): string {
+  return `$${amount.toLocaleString('en-US', {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+/**
+ * Bullet points for the Pay As You Go card, built from the plan's live rate,
+ * limits and features like every other card.
+ */
+export function paygBullets(plan: PricingPlan): string[] {
+  const { limits: l, features: f, prepaid } = plan
+  if (!prepaid) return planBullets(plan)
+  const lines = l.concurrent_calls
+  return [
+    `${perMinute(prepaid.per_minute)} per call minute, paid from your balance`,
+    'No monthly fee and nothing to cancel',
+    prepaid.topup_min > 0
+      ? `Add credit from ${dollars(prepaid.topup_min)}; it does not expire`
+      : 'Credit does not expire',
+    joinList([
+      count(l.agents, 'AI agent'),
+      count(l.phone_numbers, 'phone number'),
+      f.workflows && count(l.workflows, 'workflow'),
+    ]),
+    l.phone_numbers !== 0 && prepaid.number_monthly_fee > 0
+      ? `Phone number ${dollars(prepaid.number_monthly_fee)} a month`
+      : null,
+    lines === UNLIMITED ? 'Unlimited calls at once' : lines > 0 ? `${count(lines, 'call')} at once` : null,
+    ...featureLines(f, l),
     plan.support,
   ].filter(Boolean) as string[]
 }

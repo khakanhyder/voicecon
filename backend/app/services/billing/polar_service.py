@@ -268,6 +268,12 @@ class WebhookOutcome:
     invalidate: set = field(default_factory=set)
     #: (email, plan name) confirmations to send.
     confirmations: List[Tuple[str, str]] = field(default_factory=list)
+    #: Wallet top-ups credited by this delivery (``wallet_topups.CreditResult``).
+    wallet_credits: List[Any] = field(default_factory=list)
+    #: Wallet refunds applied by this delivery (``wallet.Movement``).
+    wallet_refunds: List[Any] = field(default_factory=list)
+    #: Organizations this delivery moved onto the prepaid plan.
+    prepaid_started: List[uuid.UUID] = field(default_factory=list)
 
 
 def _utcnow() -> datetime:
@@ -354,7 +360,7 @@ async def handle_webhook_event(db: AsyncSession, event_id: str, payload: dict) -
     elif event_type == "order.paid":
         await _on_order_paid(db, data, outcome, event_key=claim_key)
     elif event_type == "order.refunded":
-        await _on_order_refunded(db, data)
+        await _on_order_refunded(db, data, outcome)
     else:
         logger.debug("Ignoring Polar event %s", event_type)
 
@@ -430,6 +436,17 @@ async def sync_subscription(
         # may still be in the future.
         local.current_period_end = min(local.current_period_end, ended)
         local.cancel_at_period_end = False
+
+        # The customer chose to move to Pay As You Go when this paid period
+        # ended: switch in the same transaction, with no cancelled gap between.
+        from app.services.billing import prepaid
+
+        if await prepaid.convert_if_scheduled(
+            db, local, actor_type=events.ACTOR_POLAR, event_key=event_key
+        ):
+            outcome.invalidate.add(local.organization_id)
+            outcome.prepaid_started.append(local.organization_id)
+            return local
 
     if plan is not None and plan.id != local.plan_id:
         previous_plan = local.plan_id
@@ -644,7 +661,14 @@ async def _on_order_paid(db: AsyncSession, data: dict, outcome: WebhookOutcome, 
 
     polar_subscription_id = data.get("subscription_id")
     if not polar_subscription_id:
-        return  # a one-off purchase; nothing this app sells
+        # A one-off purchase: the only thing sold that way is wallet credit.
+        from app.services.billing import wallet_topups
+
+        credit = await wallet_topups.credit_polar_order(db, data, event_key=event_key)
+        if credit is not None:
+            outcome.wallet_credits.append(credit)
+            outcome.invalidate.add(credit.organization_id)
+        return
 
     local = await _subscription_by_polar_id(db, polar_subscription_id)
     if local is None:
@@ -786,7 +810,15 @@ async def _upsert_invoice(db: AsyncSession, subscription: Subscription, order: d
     return invoice
 
 
-async def _on_order_refunded(db: AsyncSession, data: dict) -> None:
+async def _on_order_refunded(db: AsyncSession, data: dict, outcome: WebhookOutcome) -> None:
+    # A refunded wallet top-up comes back out of the wallet. It has no invoice.
+    from app.services.billing import wallet_topups
+
+    refund = await wallet_topups.refund_polar_order(db, data)
+    if refund is not None:
+        outcome.wallet_refunds.append(refund)
+        outcome.invalidate.add(refund.organization_id)
+
     result = await db.execute(select(Invoice).where(Invoice.polar_order_id == data.get("id")))
     invoice = result.scalar_one_or_none()
     if invoice is None:

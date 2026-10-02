@@ -10,7 +10,17 @@ import { Check, ArrowUpRight } from 'lucide-react'
 import { VoiceconLogo, SalesChatbotIcon, VoiceAiIcon } from '@/lib/icons'
 import { FREE_TRIAL_DAYS, QUERY_KEYS } from '@/lib/constants'
 import { onboardingService, type SubscriptionPlan } from '@/lib/onboarding'
-import { ENTERPRISE, periodPrice, planCardBullets, yearlySavingPercent } from '@/lib/pricing'
+import {
+  ENTERPRISE,
+  isPrepaidPlan,
+  paygBullets,
+  perMinute,
+  periodPrice,
+  planCardBullets,
+  splitPlans,
+  toPricingPlan,
+  yearlySavingPercent,
+} from '@/lib/pricing'
 import { useOnboardingStore } from '@/store/onboardingStore'
 import { billingService } from '@/lib/billing'
 
@@ -46,10 +56,13 @@ export default function PricingPage() {
   })
   const trialUsed = entitlements?.trial_used ?? false
 
-  const { data: plans = [], isLoading } = useQuery({
+  const { data: allPlans = [], isLoading } = useQuery({
     queryKey: QUERY_KEYS.BILLING_PLANS,
     queryFn: onboardingService.getPlans,
   })
+  // The subscriptions are the row of cards; Pay As You Go, which has no
+  // monthly price, is a card of its own underneath.
+  const { subscriptions: plans, prepaid: paygPlan } = useMemo(() => splitPlans(allPlans), [allPlans])
 
   // Default-select the "Most popular" plan (the last plan if none is marked).
   const popularId = useMemo(
@@ -57,9 +70,11 @@ export default function PricingPage() {
     [plans]
   )
   const activePlan = useMemo(() => {
-    if (selectedPlan) return plans.find((p) => p.id === selectedPlan.id) ?? selectedPlan
+    if (selectedPlan) return allPlans.find((p) => p.id === selectedPlan.id) ?? selectedPlan
     return plans.find((p) => p.id === popularId) ?? null
-  }, [plans, selectedPlan, popularId])
+  }, [allPlans, plans, selectedPlan, popularId])
+  const paygSelected = isPrepaidPlan(activePlan)
+  const paygRate = paygPlan?.entitlements?.billing?.per_minute ?? 0
 
   const trialDays = activePlan?.trial_days ?? FREE_TRIAL_DAYS
   // Card copy, prices and the yearly saving all come from the admin's plans.
@@ -245,6 +260,50 @@ export default function PricingPage() {
         </div>
       )}
 
+      {/* Pay As You Go: no monthly price, so it sits apart from the cards above. */}
+      {!isLoading && paygPlan && (
+        <div
+          data-testid="payg-plan-card"
+          className={`mt-6 flex flex-col gap-5 rounded-2xl border border-slate-200 bg-[#F7F7F7] p-7 text-slate-900 transition-all lg:flex-row lg:items-center lg:justify-between ${
+            paygSelected ? 'ring-2 ring-brand-500 ring-offset-2' : ''
+          }`}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-base font-medium text-brand-700">{paygPlan.name}</p>
+              <p>
+                <span className="text-[26px] font-bold">{perMinute(paygRate)}</span>
+                <span className="ml-1 text-base text-[#333333]">/minute</span>
+                <span className="ml-3 rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+                  No monthly fee
+                </span>
+              </p>
+            </div>
+            {paygPlan.description && <p className="mt-2 text-sm text-slate-500">{paygPlan.description}</p>}
+            <ul className="mt-4 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+              {paygBullets(toPricingPlan(paygPlan)).map((b) => (
+                <li key={b} className="flex items-start gap-2 text-sm leading-snug md:text-base">
+                  <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-600" />
+                  <span className="text-slate-600">{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSelect(paygPlan)}
+            className={`flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-8 py-4 text-sm font-semibold transition-colors lg:w-[200px] ${
+              paygSelected
+                ? 'border-brand-600 bg-brand-50 text-brand-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {paygSelected ? 'Selected' : 'Select'}
+            <ArrowUpRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {!isLoading && plans.length > 0 && (
         <p className="mt-6 text-center text-sm text-slate-500">
           Need custom minute rates, higher concurrency or volume pricing?{' '}
@@ -298,18 +357,28 @@ export default function PricingPage() {
           </div>
           <div className="flex items-center justify-between border-b border-slate-200 py-4">
             <span className="text-sm text-slate-600">Price</span>
-            <span className="text-sm font-semibold text-slate-900">${price.toFixed(0)}</span>
+            <span className="text-sm font-semibold text-slate-900">
+              {paygSelected ? `${perMinute(paygRate)} per minute` : `$${price.toFixed(0)}`}
+            </span>
           </div>
           <div className="flex items-start justify-between pt-4">
             <div>
-              <p className="text-sm text-slate-600">Total Amount</p>
+              <p className="text-sm text-slate-600">{paygSelected ? 'Credit to add' : 'Total Amount'}</p>
               <p className="mt-1 text-xs text-slate-400">
-                Your next payment will be on{' '}
-                {nextPaymentDate(billedYearly(activePlan, billingPeriod) ? 'yearly' : 'monthly')}.
+                {paygSelected ? (
+                  'You choose how much credit to add on the next step. Nothing renews.'
+                ) : (
+                  <>
+                    Your next payment will be on{' '}
+                    {nextPaymentDate(billedYearly(activePlan, billingPeriod) ? 'yearly' : 'monthly')}.
+                  </>
+                )}
               </p>
             </div>
             <div className="flex flex-col items-end gap-3">
-              <span className="text-lg font-bold text-brand-700">${price.toFixed(0)}</span>
+              <span className="text-lg font-bold text-brand-700">
+                {paygSelected ? 'No monthly fee' : `$${price.toFixed(0)}`}
+              </span>
               <button
                 type="button"
                 onClick={handleNext}

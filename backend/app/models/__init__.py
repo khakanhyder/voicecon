@@ -32,6 +32,7 @@ from app.models.notification import Notification
 from app.models.verification import VerificationCode
 from app.models.platform import PlatformSetting, AdminAuditLog
 from app.models.voice import CustomVoice
+from app.models.wallet import Wallet, WalletTransaction
 from app.models.affiliate import (
     AffiliateProgram, Affiliate, AffiliateApplication, AffiliateClick, AffiliateReferral,
     AffiliateCommission, AffiliatePayout,
@@ -39,6 +40,9 @@ from app.models.affiliate import (
 
 __all__ = [
     "Base",
+    # Prepaid wallet (Pay As You Go)
+    "Wallet",
+    "WalletTransaction",
     # Chat widget models
     "ChatWidget",
     "ChatSession",

@@ -21,7 +21,7 @@ import { apiClient, getErrorMessage } from '@/lib/api'
 import { entitlementService } from '@/lib/entitlements'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
-import { yearlySavingPercent } from '@/lib/pricing'
+import { isPrepaidPlan, perMinute, yearlySavingPercent } from '@/lib/pricing'
 import { isUpgradeTarget } from '@/lib/planActions'
 import { useEntitlementStore } from '@/store/entitlementStore'
 import { CheckoutModal, type CheckoutPlan } from './CheckoutModal'
@@ -37,7 +37,10 @@ interface Plan {
   price_yearly: number | null
   trial_days?: number
   max_phone_numbers: number
-  entitlements?: { limits?: Record<string, number> }
+  entitlements?: {
+    limits?: Record<string, number>
+    billing?: { mode?: string; per_minute?: number; number_monthly_fee?: number }
+  }
   is_public: boolean
   is_active: boolean
 }
@@ -62,7 +65,10 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null)
   // A paying workspace is only ever offered plans above its own — never the
   // one it is on, or a cheaper one.
-  const offered = plans.filter((plan) =>
+  // Subscriptions only: Pay As You Go has no price to show here and is not
+  // bought through checkout. It is offered as a link to the billing page below.
+  const paygPlan = plans.find(isPrepaidPlan) ?? null
+  const offered = plans.filter((plan) => !isPrepaidPlan(plan)).filter((plan) =>
     isUpgradeTarget({
       planId: plan.id,
       planTier: plan.tier,
@@ -245,6 +251,19 @@ export function PhoneNumberPaywall({ onUpgraded }: { onUpgraded?: () => void }) 
               )
             })}
           </div>
+        )}
+        {paygPlan && !loading && (
+          <p className="mt-4 text-[13px] leading-[1.6] text-black/60">
+            Prefer not to subscribe?{' '}
+            <a href="/dashboard/settings/billing#plans" className="font-semibold text-[#106959] underline underline-offset-2">
+              {paygPlan.name}
+            </a>{' '}
+            has no monthly fee: calls cost {perMinute(paygPlan.entitlements?.billing?.per_minute ?? 0)} a minute
+            {(paygPlan.entitlements?.billing?.number_monthly_fee ?? 0) > 0
+              ? ` and a phone number $${paygPlan.entitlements?.billing?.number_monthly_fee} a month`
+              : ''}
+            , paid from credit you add.
+          </p>
         )}
       </div>
 

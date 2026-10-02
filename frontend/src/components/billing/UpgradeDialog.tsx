@@ -35,6 +35,11 @@ function copyFor(body: EntitlementErrorBody): { title: string; message: string }
         title: `You've reached your ${body.limit_label ?? 'plan'} limit`,
         message: body.detail,
       }
+    case 'insufficient_balance':
+      return {
+        title: 'Your balance is too low',
+        message: body.detail,
+      }
     case 'subscription_inactive':
       return {
         title:
@@ -76,9 +81,13 @@ export function UpgradeDialog() {
   const trialOfSuggested =
     !!suggested && !!entitlements?.is_trial && entitlements.plan_slug === suggested
 
+  // Pay As You Go ran out of credit: the answer is a top-up, not another plan.
+  const needsCredit = blocked.reason === 'insufficient_balance'
+
   const goToBilling = () => {
     setBlocked(null)
-    router.push(blocked.upgrade_url || '/dashboard/settings/billing')
+    const billing = blocked.upgrade_url || '/dashboard/settings/billing'
+    router.push(needsCredit ? `${billing}#wallet` : billing)
   }
 
   return (
@@ -141,9 +150,13 @@ export function UpgradeDialog() {
             onClick={goToBilling}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
           >
-            {suggested && canManage
-              ? `${trialOfSuggested ? 'Subscribe to' : 'Upgrade to'} ${planLabel(suggested)}`
-              : 'View plans'}
+            {needsCredit
+              ? canManage
+                ? 'Add credit'
+                : 'View balance'
+              : suggested && canManage
+                ? `${trialOfSuggested ? 'Subscribe to' : 'Upgrade to'} ${planLabel(suggested)}`
+                : 'View plans'}
             <ArrowRight className="h-4 w-4" />
           </button>
           <button

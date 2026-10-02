@@ -124,9 +124,10 @@ async def plans_by_slug(db: AsyncSession) -> dict:
 
 class TestSeeding:
     async def test_empty_database_gets_the_four_plans(self, db):
-        assert await seed_default_plans(db) == 4
+        # The four subscriptions, plus Pay As You Go (see test_payg_wallet).
+        assert await seed_default_plans(db) == 5
         plans = await plans_by_slug(db)
-        assert set(plans) == {"starter", "growth", "scale", "agency"}
+        assert set(plans) == {"starter", "growth", "scale", "agency", "payg"}
 
         growth = plans["growth"]
         assert (growth.price_monthly, growth.price_yearly) == (Decimal("149.00"), Decimal("1428.00"))
@@ -140,7 +141,7 @@ class TestSeeding:
     async def test_seeding_twice_creates_nothing_new(self, db):
         await seed_default_plans(db)
         assert await seed_default_plans(db) == 0
-        assert len(await plans_by_slug(db)) == 4
+        assert len(await plans_by_slug(db)) == 5
 
     async def test_existing_install_gets_the_new_plans_and_retires_the_old(self, db):
         for slug in LEGACY_PLAN_SLUGS:

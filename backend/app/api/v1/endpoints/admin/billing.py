@@ -54,6 +54,9 @@ def _plan_view(plan: SubscriptionPlan, subscribers: int = 0) -> Dict[str, Any]:
         "highlights": list((plan.features or {}).get("highlights") or []),
         "features": dict(document.get("features") or {}),
         "limits": dict(document.get("limits") or {}),
+        #: Pay As You Go: no monthly price; ``billing`` holds what it charges.
+        "prepaid": catalog.is_prepaid(document),
+        "billing": catalog.billing_config(document) if catalog.is_prepaid(document) else None,
         "subscribers": subscribers,
         "created_at": iso(plan.created_at),
     }
@@ -135,6 +138,63 @@ class PlanPatch(BaseModel):
     #: Polar product ids; an empty string clears one.
     polar_product_id: Optional[str] = Field(None, max_length=255)
     polar_product_id_yearly: Optional[str] = Field(None, max_length=255)
+    #: A prepaid plan's charges: ``per_minute``, ``number_monthly_fee``,
+    #: ``topup_presets``, ``topup_min``, ``topup_max``, ``low_balance``. Only
+    #: the keys sent are changed. Refused on a subscription plan.
+    billing: Optional[Dict[str, Any]] = None
+
+
+#: Billing keys an admin may edit, and the most each may be. ``mode`` is not
+#: among them: a plan does not change between subscription and prepaid.
+_BILLING_NUMBERS = {
+    "per_minute": 100,
+    "number_monthly_fee": 1_000,
+    "topup_min": 100_000,
+    "topup_max": 100_000,
+    "low_balance": 100_000,
+}
+
+
+def _validated_billing(changes: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    """The plan's billing section with ``changes`` applied, or a 422."""
+    unknown = [k for k in changes if k not in _BILLING_NUMBERS and k != "topup_presets"]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown billing setting: {', '.join(unknown)}")
+
+    merged = dict(current)
+    for key, ceiling in _BILLING_NUMBERS.items():
+        if key not in changes:
+            continue
+        try:
+            value = Decimal(str(changes[key]))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"{key} must be a number.")
+        if value < 0 or value > ceiling:
+            raise HTTPException(status_code=422, detail=f"{key} must be between 0 and {ceiling:,}.")
+        merged[key] = float(value)
+
+    if "topup_presets" in changes:
+        presets = changes["topup_presets"]
+        if not isinstance(presets, list) or not 1 <= len(presets) <= 6:
+            raise HTTPException(status_code=422, detail="Give between one and six top-up amounts.")
+        try:
+            merged["topup_presets"] = sorted({float(Decimal(str(p))) for p in presets})
+        except Exception:
+            raise HTTPException(status_code=422, detail="Top-up amounts must be numbers.")
+
+    if Decimal(str(merged["per_minute"])) <= 0:
+        raise HTTPException(status_code=422, detail="The price per minute must be more than zero.")
+    if merged["topup_min"] < 1:
+        raise HTTPException(status_code=422, detail="The smallest top-up must be at least 1.")
+    if merged["topup_max"] < merged["topup_min"]:
+        raise HTTPException(status_code=422, detail="The largest top-up cannot be below the smallest.")
+    outside = [p for p in merged["topup_presets"] if not merged["topup_min"] <= p <= merged["topup_max"]]
+    if outside:
+        raise HTTPException(
+            status_code=422,
+            detail="Every top-up amount must sit between the smallest and largest top-up.",
+        )
+    return merged
 
 
 async def _sync_stripe_price(plan: SubscriptionPlan, interval: str, amount: Decimal) -> Optional[str]:
@@ -178,6 +238,25 @@ async def update_plan(
         raise HTTPException(status_code=422, detail="Limits must be -1 (unlimited) or a positive number.")
 
     before = _plan_view(plan)
+    is_prepaid = catalog.is_prepaid(plan.entitlements or {})
+
+    if "billing" in changes and not is_prepaid:
+        raise HTTPException(status_code=422, detail="Only a prepaid plan has billing settings.")
+    if is_prepaid and (
+        Decimal(str(changes.get("price_monthly") or 0)) != 0 or changes.get("price_yearly")
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="A prepaid plan has no monthly or yearly price. Set its price per minute instead.",
+        )
+    if is_prepaid and changes.get("is_trialable"):
+        raise HTTPException(status_code=422, detail="A free trial cannot be attached to a prepaid plan.")
+    # Validated before anything is written, so a bad value changes nothing.
+    new_billing = (
+        _validated_billing(changes["billing"] or {}, catalog.billing_config(plan.entitlements or {}))
+        if "billing" in changes
+        else None
+    )
 
     from app.services.billing import polar_service
 
@@ -259,6 +338,13 @@ async def update_plan(
             plan.max_knowledge_bases = limits.get(catalog.LIMIT_KNOWLEDGE_BASES, plan.max_knowledge_bases)
         plan.entitlements = document
 
+    if new_billing is not None:
+        document = dict(plan.entitlements or {})
+        document["billing"] = new_billing
+        plan.entitlements = document  # JSON column: reassign
+        # The legacy column the plan list shows as the per-minute price.
+        plan.overage_rate_per_minute = Decimal(str(new_billing["per_minute"]))
+
     # From now on the startup backfill leaves this row alone.
     plan.admin_managed = True
 
@@ -291,6 +377,26 @@ async def sync_plan_to_polar(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add the Polar access token under API Keys & Providers first.")
 
     before = {"monthly": plan.polar_product_id, "yearly": plan.polar_product_id_yearly}
+
+    if catalog.is_prepaid(plan.entitlements or {}):
+        # A prepaid plan is sold as top-ups: one one-time "credit" product,
+        # kept in ``polar_product_id``, instead of a recurring one per period.
+        from app.services.billing import wallet_topups
+
+        try:
+            product_id = await wallet_topups.sync_polar_credit_product(plan)
+        except polar_service.PolarError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"{exc.public_message} {exc.detail}".strip(),
+            )
+        plan.polar_product_id = product_id
+        audit(db, admin, "plan.polar_sync", target_type="plan", target_id=plan.id,
+              summary=f"Synced the {plan.name} credit product to Polar",
+              details={"before": before, "after": {"credit": product_id}}, request=request)
+        await db.commit()
+        return _plan_view(plan)
+
     try:
         products = await polar_service.sync_plan_products(plan)
     except polar_service.PolarError as exc:

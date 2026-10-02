@@ -8,7 +8,9 @@ import { Reveal } from './Reveal'
 import {
   ENTERPRISE,
   type PricingData,
+  paygBullets,
   paymentProviderName,
+  perMinute,
   planBullets,
   trialBullets,
   yearlySavingPercent,
@@ -30,7 +32,7 @@ interface Card {
 /** Plans, prices and limits come from the admin console via `getPricing`. */
 export function Pricing({ pricing }: { pricing: PricingData }) {
   const [yearly, setYearly] = useState(false)
-  const { plans, trial } = pricing
+  const { plans, trial, payg } = pricing
   const saving = yearlySavingPercent(plans)
   const offersYearly = plans.some((p) => p.price_yearly)
   const provider = paymentProviderName(trial.payment_provider)
@@ -45,6 +47,8 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
     features: planBullets(plan, plans[i - 1]),
   }))
   const trialFeatures = trialBullets(trial)
+  // Pay As You Go sits with the other ways in that have no monthly price.
+  const paygFeatures = payg?.prepaid ? paygBullets(payg) : []
 
   return (
     <Section id="pricing" labelledBy="pricing-title">
@@ -144,7 +148,7 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
           )
         })}
       </div>
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <div className={cn('mt-5 grid gap-5', payg?.prepaid ? 'lg:grid-cols-3' : 'lg:grid-cols-2')}>
         <Reveal>
           <div className="flex h-full flex-col rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-7 sm:p-8">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -154,7 +158,7 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
               </p>
             </div>
             <p className="mt-1.5 text-sm leading-relaxed text-white/60">Build and test a working agent before you pay.</p>
-            <ul className="mt-5 grid flex-1 gap-2.5 sm:grid-cols-2">
+            <ul className={cn('mt-5 grid flex-1 content-start gap-2.5', !payg?.prepaid && 'sm:grid-cols-2')}>
               {trialFeatures.map((f) => (
                 <li key={f} className="flex items-start gap-2.5 text-[15px] leading-snug text-white/75">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-300" aria-hidden="true" />
@@ -167,7 +171,31 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
             </a>
           </div>
         </Reveal>
-        <Reveal delay={90}>
+        {payg?.prepaid && (
+          <Reveal delay={90}>
+            <div className="flex h-full flex-col rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-7 sm:p-8">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <h3 className="text-lg font-semibold text-white">{payg.name}</h3>
+                <p className="text-sm text-white/60">
+                  <span className="text-2xl font-bold text-white">{perMinute(payg.prepaid.per_minute)}</span> / minute
+                </p>
+              </div>
+              <p className="mt-1.5 text-sm leading-relaxed text-white/60">{payg.description}</p>
+              <ul className="mt-5 flex-1 space-y-2.5">
+                {paygFeatures.map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-[15px] leading-snug text-white/75">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-300" aria-hidden="true" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <a href={ROUTES.register} className={buttonClass('ghost', 'md', 'mt-6 w-full sm:w-auto sm:self-start')}>
+                Get started
+              </a>
+            </div>
+          </Reveal>
+        )}
+        <Reveal delay={payg?.prepaid ? 180 : 90}>
           <div className="flex h-full flex-col rounded-3xl border border-white/[0.08] bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-7 sm:p-8">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h3 className="text-lg font-semibold text-white">{ENTERPRISE.name}</h3>
@@ -189,7 +217,8 @@ export function Pricing({ pricing }: { pricing: PricingData }) {
         </Reveal>
       </div>
       <p className="mt-8 text-center text-sm text-white/50">
-        Prices in USD. Minutes past a plan&apos;s allowance are billed at its per-minute rate. Secure checkout{provider ? ` by ${provider}` : ''}, and promo codes are applied at checkout.
+        Prices in USD. Minutes past a plan&apos;s allowance are billed at its per-minute rate.
+        {payg?.prepaid ? ` ${payg.name} has no allowance: every minute is paid from credit you add.` : ''} Secure checkout{provider ? ` by ${provider}` : ''}, and promo codes are applied at checkout.
       </p>
     </Section>
   )

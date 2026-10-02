@@ -21,8 +21,13 @@ import { CheckoutModal, type CheckoutPlan } from '@/components/billing/CheckoutM
 import { entitlementService, FEATURE_LABELS, LIMITS, UNSHIPPED_FEATURES } from '@/lib/entitlements';
 import { useEntitlementStore } from '@/store/entitlementStore';
 import { billingService } from '@/lib/billing';
-import { planActionFor } from '@/lib/planActions';
-import { ENTERPRISE, perMinute, planCardBullets, yearlySavingPercent } from '@/lib/pricing';
+import { paygActionFor, planActionFor } from '@/lib/planActions';
+import { ENTERPRISE, perMinute, planCardBullets, splitPlans, yearlySavingPercent } from '@/lib/pricing';
+import { WALLET_TRANSACTIONS_KEY, formatMoney, useWallet } from '@/lib/wallet';
+import { PaygPlanCard } from '@/components/billing/PaygPlanCard';
+import { TopUpModal } from '@/components/billing/TopUpModal';
+import { WALLET_CARD_ID, WalletCard } from '@/components/billing/WalletCard';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useConfirm } from '@/hooks/use-confirm';
 import { formatDate as formatDay } from '@/lib/datetime';
@@ -48,6 +53,8 @@ interface SubscriptionPlan {
   entitlements: {
     features?: Record<string, boolean>;
     limits?: Record<string, number>;
+    /** Present on the Pay As You Go plan only. */
+    billing?: { mode?: string; per_minute?: number; number_monthly_fee?: number; topup_min?: number; topup_presets?: number[] };
   };
   trial_days: number;
   is_trialable: boolean;
@@ -82,6 +89,10 @@ interface Usage {
   /** False on a trial: usage stops at the allowance instead of overflowing. */
   overage_allowed?: boolean;
   overage_rate_per_minute?: number;
+  /** Pay As You Go: no allowance; minutes are paid from the balance. */
+  prepaid?: boolean;
+  rate_per_minute?: number;
+  period_spend?: number;
 }
 
 interface Invoice {
@@ -166,6 +177,12 @@ export default function BillingPage() {
   const [openingPortal, setOpeningPortal] = useState(false);
   // Admins see this page (billing:read) but only the owner may change the plan.
   const { canManage } = useBillingAccess();
+
+  // The Pay As You Go balance. `topUp` is the open top-up dialog; `activate`
+  // when that top-up is also what starts the plan.
+  const queryClient = useQueryClient();
+  const { data: wallet, refetch: refetchWallet, isFetching: walletFetching } = useWallet();
+  const [topUp, setTopUp] = useState<{ activate: boolean } | null>(null);
 
   const entitlements = useEntitlementStore((s) => s.entitlements);
   const refreshEntitlements = useEntitlementStore((s) => s.refresh);
@@ -304,6 +321,64 @@ export default function BillingPage() {
     scrollToPlanCards();
   };
 
+  const refreshWallet = async () => {
+    await Promise.all([
+      refetchWallet(),
+      queryClient.invalidateQueries({ queryKey: WALLET_TRANSACTIONS_KEY }),
+    ]);
+  };
+
+  /**
+   * Moving a paid subscription to Pay As You Go. The period already paid for
+   * runs out first, so this only queues the move; nothing is charged and the
+   * current plan keeps working until then.
+   */
+  const switchToPayg = async (plan: SubscriptionPlan) => {
+    const when = subscription ? formatDate(subscription.current_period_end) : null;
+    const ok = await confirm({
+      title: `Switch to ${plan.name}`,
+      description: `Your ${subscription?.plan_name ?? 'current'} plan stays active until ${
+        when ?? 'the end of the period you paid for'
+      } and will not renew. From then on there is no monthly fee and calls cost ${perMinute(
+        plan.entitlements?.billing?.per_minute ?? 0
+      )} a minute from your balance. Add credit before that date so calls keep running.`,
+      confirmText: `Switch to ${plan.name}`,
+      cancelText: 'Keep my plan',
+    });
+    if (!ok) return;
+    setActionBusy(true);
+    try {
+      await entitlementService.changePlan(plan.id);
+      toast.success(`You move to ${plan.name}${when ? ` on ${when}` : ' when your paid period ends'}`);
+      await Promise.all([fetchAll(), refreshWallet()]);
+    } catch (err: any) {
+      const body = err?.response?.data;
+      const payload = body?.code ? body : body?.detail;
+      if (payload?.code === 'downgrade_blocked') {
+        const lines = (payload.conflicts ?? [])
+          .map((c: any) => `${c.current} ${c.label} (max ${c.allowed})`)
+          .join(', ');
+        toast.error(`${payload.detail} You have ${lines}.`, { duration: 8000 });
+      } else {
+        toast.error(getErrorMessage(err));
+      }
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Arriving with #wallet (from the "Add credit" banner or an email): scroll to
+  // the balance once it has rendered.
+  const walletShown =
+    !!wallet?.available && (wallet.on_plan || !!wallet.switching_at || wallet.balance !== 0);
+  useEffect(() => {
+    if (loading || !walletShown || window.location.hash !== `#${WALLET_CARD_ID}`) return;
+    const id = requestAnimationFrame(() =>
+      document.getElementById(WALLET_CARD_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+    return () => cancelAnimationFrame(id);
+  }, [loading, walletShown]);
+
   // Arriving with #plans (from the "Choose a plan" banner elsewhere): wait for
   // the data so the cards exist and the layout has settled, then scroll to them.
   useEffect(() => {
@@ -344,7 +419,12 @@ export default function BillingPage() {
     formatDay(dateString);
 
   const currentPlan = plans.find((p) => p.id === subscription?.plan_id);
-  const visiblePlans = plans.filter((p) => p.is_active && p.is_public);
+  // Subscriptions are the row of cards; Pay As You Go is a card of its own.
+  const { subscriptions: visiblePlans, prepaid: paygPlan } = splitPlans(
+    plans.filter((p) => p.is_active && p.is_public)
+  );
+  const onPayg = !!entitlements?.prepaid;
+  const switchingToPayg = !!entitlements?.switching_to_prepaid;
   const yearlySaving = yearlySavingPercent(visiblePlans);
   const bulletsByPlanId: Record<string, string[]> = Object.fromEntries(
     planCardBullets(visiblePlans).map((lines, i) => [visiblePlans[i].id, lines])
@@ -397,9 +477,11 @@ export default function BillingPage() {
                 </div>
                 {currentPlan && !entitlements?.is_trial && (
                   <div className="text-[14px] font-poppins text-black/60">
-                    {subscription.billing_period === 'yearly' && currentPlan.price_yearly
-                      ? `$${currentPlan.price_yearly}/year`
-                      : `$${currentPlan.price_monthly}/month`}
+                    {onPayg
+                      ? `${perMinute(usage?.rate_per_minute ?? currentPlan.entitlements?.billing?.per_minute ?? 0)} a minute, no monthly fee`
+                      : subscription.billing_period === 'yearly' && currentPlan.price_yearly
+                        ? `$${currentPlan.price_yearly}/year`
+                        : `$${currentPlan.price_monthly}/month`}
                   </div>
                 )}
                 {subscription.scheduled_plan_name && (
@@ -411,7 +493,7 @@ export default function BillingPage() {
               </div>
               <div>
                 <div className="text-[14px] font-poppins text-black/60 mb-1">
-                  {entitlements?.is_trial ? 'Trial period' : 'Current Period'}
+                  {entitlements?.is_trial ? 'Trial period' : onPayg ? 'Usage period' : 'Current Period'}
                 </div>
                 <div className="text-[14px] font-medium font-poppins text-[#000000]">
                   {formatDate(subscription.current_period_start)} -{' '}
@@ -429,20 +511,26 @@ export default function BillingPage() {
                       } left`
                     : entitlements?.status === 'expired'
                       ? 'Ended'
-                      : entitlements?.cancel_at_period_end
-                        ? `Ends ${formatDate(subscription.current_period_end)}`
-                        : `Renews ${formatDate(subscription.current_period_end)}`}
+                      : onPayg
+                        ? 'Nothing renews: you only pay for what you use'
+                        : entitlements?.cancel_at_period_end
+                          ? `Ends ${formatDate(subscription.current_period_end)}`
+                          : `Renews ${formatDate(subscription.current_period_end)}`}
                 </div>
               </div>
               <div>
-                <div className="text-[14px] font-poppins text-black/60 mb-1">Billing Period</div>
+                <div className="text-[14px] font-poppins text-black/60 mb-1">
+                  {onPayg ? 'Balance' : 'Billing Period'}
+                </div>
                 <div className="flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-black/40" />
                   <span className="text-[14px] font-medium font-poppins text-[#000000] capitalize">
-                    {subscription.billing_period}
+                    {onPayg ? formatMoney(wallet?.balance ?? entitlements?.wallet_balance ?? 0) : subscription.billing_period}
                   </span>
                 </div>
-                {subscription.canceled_at && !entitlements?.is_trial && (
+                {/* A queued move to Pay As You Go is not a cancellation; the
+                    "Switching to…" line beside the plan name already says it. */}
+                {subscription.canceled_at && !entitlements?.is_trial && !switchingToPayg && !onPayg && (
                   <div className="text-xs text-red-600 mt-1">
                     Cancels {formatDate(subscription.current_period_end)}
                   </div>
@@ -462,7 +550,7 @@ export default function BillingPage() {
           {subscription && canManage && (
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={scrollToPlans} disabled={actionBusy}>
-                {needsCheckout ? 'Choose a plan' : 'Change Plan'}
+                {needsCheckout && !onPayg ? 'Choose a plan' : 'Change Plan'}
               </Button>
 
               {/* Card, receipts and invoices live with the provider that bills
@@ -486,13 +574,26 @@ export default function BillingPage() {
                 </Button>
               )}
 
+              {onPayg && (
+                <Button
+                  className="bg-[#106959] text-white hover:bg-[#0c5044]"
+                  onClick={() => setTopUp({ activate: false })}
+                  disabled={actionBusy || !wallet}
+                >
+                  Add credit
+                </Button>
+              )}
+
               {entitlements?.cancel_at_period_end && entitlements.is_live ? (
                 <Button onClick={reactivateSubscription} disabled={actionBusy}>
-                  Reactivate subscription
+                  {switchingToPayg ? `Stay on ${subscription.plan_name}` : 'Reactivate subscription'}
                 </Button>
               ) : (
-                // Nothing to end once a trial is already over (grace).
+                // Nothing to end once a trial is already over (grace), and
+                // nothing to cancel on Pay As You Go: there is no recurring
+                // charge, and unused credit simply stays.
                 entitlements?.is_live &&
+                !onPayg &&
                 entitlements.status !== 'grace' && (
                   <Button
                     variant="outline"
@@ -524,6 +625,16 @@ export default function BillingPage() {
           )}
         </div>
 
+        {/* Pay As You Go balance */}
+        {wallet && walletShown && (
+          <WalletCard
+            wallet={wallet}
+            refreshing={walletFetching}
+            onTopUp={() => setTopUp({ activate: false })}
+            onChanged={refreshWallet}
+          />
+        )}
+
         {/* Usage This Period */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_-4px_rgba(16,105,89,0.1)]">
           <div className="mb-6">
@@ -531,7 +642,9 @@ export default function BillingPage() {
               {entitlements?.is_trial ? 'Trial Usage' : 'Usage This Period'}
             </h2>
             <p className="text-[14px] font-poppins text-black/60 mt-1">
-              {usage && usage.minutes_included >= 0
+              {usage?.prepaid
+                ? `Every call minute costs ${perMinute(usage.rate_per_minute ?? 0)} from your balance`
+                : usage && usage.minutes_included >= 0
                 ? usage.overage_allowed
                   ? `Minutes past your allowance are billed at ${perMinute(usage.overage_rate_per_minute ?? 0)} each`
                   : 'Calls stop when the allowance is used up — choose a plan for more'
@@ -559,6 +672,11 @@ export default function BillingPage() {
                 used={usage.minutes_used}
                 included={usage.minutes_included}
                 unit="minutes"
+                note={
+                  usage.prepaid
+                    ? `${formatMoney(usage.period_spend ?? 0)} spent on calls this period`
+                    : undefined
+                }
               />
               <UsageTile
                 icon={<Phone className="w-5 h-5 text-[#106959]" />}
@@ -804,6 +922,26 @@ export default function BillingPage() {
                 })}
             </div>
 
+            {/* Pay As You Go: no monthly price, so a card of its own. */}
+            {paygPlan && (
+              <PaygPlanCard
+                className="mt-5"
+                plan={paygPlan}
+                action={paygActionFor({
+                  onPlan: onPayg,
+                  switching: switchingToPayg,
+                  providerBilled: !!providerBilled && !!entitlements?.is_live,
+                })}
+                periodEnd={subscription?.current_period_end}
+                currentPlanName={subscription?.plan_name}
+                canManage={canManage}
+                busy={actionBusy || !wallet}
+                onTopUp={(activate) => setTopUp({ activate })}
+                onSwitch={() => switchToPayg(paygPlan)}
+                onStay={reactivateSubscription}
+              />
+            )}
+
             {/* Enterprise is sold by contract, so it has no checkout. */}
             <div className="mt-5 flex flex-col gap-4 rounded-[10px] border border-slate-200 bg-[#0F6A590A] p-6 md:flex-row md:items-center md:justify-between">
               <div>
@@ -939,6 +1077,20 @@ export default function BillingPage() {
           onSuccess={async () => {
             setCheckoutPlan(null);
             await fetchAll();
+          }}
+        />
+      )}
+      {topUp && wallet && (
+        <TopUpModal
+          wallet={wallet}
+          activate={topUp.activate}
+          returnPath="/dashboard/settings/billing"
+          onClose={() => setTopUp(null)}
+          onSuccess={async () => {
+            setTopUp(null);
+            // The plan may have just changed (a first top-up starts Pay As You
+            // Go), so re-read everything, not only the balance.
+            await Promise.all([fetchAll(), refreshWallet()]);
           }}
         />
       )}

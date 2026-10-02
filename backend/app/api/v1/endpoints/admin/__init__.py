@@ -20,6 +20,7 @@ from . import (
     settings,
     system,
     users,
+    wallet,
 )
 
 router = APIRouter(dependencies=[Depends(require_platform_admin)])
@@ -29,6 +30,7 @@ router.include_router(settings.router)
 router.include_router(organizations.router)
 router.include_router(users.router)
 router.include_router(billing.router)
+router.include_router(wallet.router)
 router.include_router(operations.router)
 router.include_router(notifications.router)
 # Before ``affiliates``: its ``/affiliates/{affiliate_id}`` would swallow ``/affiliates/applications``.

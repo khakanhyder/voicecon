@@ -120,6 +120,7 @@ export const PLAN_LABELS: Record<string, string> = {
   growth: 'Growth',
   scale: 'Scale',
   agency: 'Agency',
+  payg: 'Pay As You Go',
   // Retired launch plans, still held by earlier subscribers.
   'sales-chatbot': 'Sales Chatbot',
   'voice-ai': 'Voice AI',
@@ -157,13 +158,30 @@ export interface Entitlements {
   trial_available: boolean
   /** The one free trial has been spent — by this workspace or this person. */
   trial_used: boolean
+
+  /** Pay As You Go: calls are paid for from the wallet, not an allowance. */
+  prepaid?: boolean
+  /** The wallet balance; null when the workspace has never had a wallet. */
+  wallet_balance?: number | null
+  /** Prepaid and under the low-balance threshold, but not empty. */
+  wallet_low?: boolean
+  /** Prepaid and unable to pay for a call minute: calls are blocked. */
+  wallet_empty?: boolean
+  /** The paid plan ends at the period end and Pay As You Go takes over. */
+  switching_to_prepaid?: boolean
 }
 
 /** The structured body a 402 carries. See `app/core/entitlement_guard.py`. */
 export interface EntitlementErrorBody {
   detail: string
   code: 'entitlement_required'
-  reason: 'subscription_inactive' | 'feature_not_in_plan' | 'limit_exceeded' | 'read_only'
+  reason:
+    | 'subscription_inactive'
+    | 'feature_not_in_plan'
+    | 'limit_exceeded'
+    | 'read_only'
+    /** Pay As You Go: the wallet cannot pay for a call minute. */
+    | 'insufficient_balance'
   status: SubscriptionStatus
   current_plan: string | null
   current_plan_name: string | null
@@ -254,7 +272,12 @@ export interface BillingBanner {
   cta: string
   dismissible: boolean
   key: string
+  /** Where the button goes. `wallet` opens the balance card instead of the plans. */
+  target?: 'plans' | 'wallet'
 }
+
+const usd = (amount: number) =>
+  `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function billingBanner(ent: Entitlements | null): BillingBanner | null {
   if (!ent) return null
@@ -312,6 +335,32 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
     }
   }
 
+  // Pay As You Go. An empty wallet means the product has stopped working, so
+  // like the expired banners it cannot be dismissed; running low can.
+  if (ent.prepaid && ent.wallet_empty) {
+    return {
+      key: 'wallet_empty',
+      tone: 'danger',
+      dismissible: false,
+      target: 'wallet',
+      title: 'Your balance has run out',
+      body: 'Your agents have stopped making and answering calls. Add credit and they start again straight away.',
+      cta: 'Add credit',
+    }
+  }
+
+  if (ent.prepaid && ent.wallet_low) {
+    return {
+      key: 'wallet_low',
+      tone: 'warning',
+      dismissible: true,
+      target: 'wallet',
+      title: 'Your balance is running low',
+      body: `You have ${usd(ent.wallet_balance ?? 0)} of credit left. Calls stop when it runs out.`,
+      cta: 'Add credit',
+    }
+  }
+
   if (ent.status === 'past_due') {
     return {
       key: 'past_due',
@@ -340,6 +389,24 @@ export function billingBanner(ent: Entitlements | null): BillingBanner | null {
           : `Your free trial ends in ${days} days`,
       body: 'Add a payment method to keep your phone number, your agents and everything you have built.',
       cta: 'Choose a plan',
+    }
+  }
+
+  if (ent.cancel_at_period_end && ent.current_period_end && ent.switching_to_prepaid) {
+    // Not a cancellation: the customer asked to move to Pay As You Go when the
+    // period they paid for ends. Said once, quietly.
+    const when = formatDate(ent.current_period_end, { withYear: false, month: 'long' })
+    return {
+      key: 'switching_to_prepaid',
+      tone: 'info',
+      dismissible: true,
+      target: 'wallet',
+      title: `You move to Pay As You Go on ${when}`,
+      body:
+        (ent.wallet_balance ?? 0) > 0
+          ? 'Your current plan runs until then. After that, calls are paid for from your balance.'
+          : 'Your current plan runs until then. Add credit before that date so calls keep running.',
+      cta: (ent.wallet_balance ?? 0) > 0 ? 'View balance' : 'Add credit',
     }
   }
 

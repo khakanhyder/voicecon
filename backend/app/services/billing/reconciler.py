@@ -82,6 +82,11 @@ class ReconcileReport:
         self.plan_changes_applied = 0
         self.stale_active = 0
         self.resynced = 0
+        self.wallet_mismatches = 0
+        self.auto_recharges = 0
+        #: Organizations moved onto the prepaid plan this pass; they are told
+        #: once the pass has committed.
+        self.prepaid_started: list = []
 
     @property
     def changed(self) -> int:
@@ -100,7 +105,8 @@ class ReconcileReport:
             f"past_due→expired={self.past_due_to_expired} "
             f"canceled→expired={self.canceled_to_expired} "
             f"plan_changes={self.plan_changes_applied} notices={self.notices_sent} "
-            f"stale_active={self.stale_active} resynced={self.resynced}"
+            f"stale_active={self.stale_active} resynced={self.resynced} "
+            f"wallet_mismatches={self.wallet_mismatches} auto_recharges={self.auto_recharges}"
         )
 
 
@@ -118,11 +124,49 @@ async def reconcile_subscriptions(db: AsyncSession, *, now: Optional[datetime] =
     await _send_trial_notices(db, now, report)
 
     await db.commit()
-    if report.changed or report.notices_sent:
+
+    await _wallet_housekeeping(db, now, report)
+    if report.changed or report.notices_sent or report.wallet_mismatches or report.auto_recharges:
         logger.info(f"Subscription reconcile: {report}")
 
     await _reclaim_numbers(db, now)
     return report
+
+
+async def _wallet_housekeeping(db: AsyncSession, now: datetime, report: ReconcileReport) -> None:
+    """The prepaid wallet's share of the sweep. Never undoes a reconcile pass.
+
+    * Tells owners whose paid plan just gave way to Pay As You Go.
+    * Checks every wallet's balance against its ledger. A mismatch is logged
+      for a person to look at; nothing is corrected automatically, because
+      either side could be the wrong one.
+    * Retries automatic top-ups that are still due.
+
+    Phone number rent is settled by the number sweep that runs next.
+    """
+    from app.services.billing import prepaid, wallet as wallet_service, wallet_topups
+
+    for organization_id in report.prepaid_started:
+        await prepaid.announce(db, organization_id)
+
+    try:
+        mismatches = await wallet_service.ledger_mismatches(db)
+        report.wallet_mismatches = len(mismatches)
+        for row in mismatches:
+            logger.error(
+                "Wallet %s (org %s) balance is %s cents but its ledger sums to %s cents. "
+                "Needs a manual look; nothing was changed.",
+                row["wallet_id"], row["organization_id"], row["balance_cents"], row["ledger_cents"],
+            )
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.error(f"Wallet ledger check failed: {exc}", exc_info=True)
+
+    try:
+        report.auto_recharges = await wallet_topups.sweep_auto_recharges(db, now=now)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.error(f"Auto-recharge sweep failed: {exc}", exc_info=True)
 
 
 async def _reclaim_numbers(db: AsyncSession, now: datetime) -> None:
@@ -295,7 +339,18 @@ async def _expire_canceled(db: AsyncSession, now: datetime, report: ReconcileRep
             Subscription.expired_at.is_(None),
         )
     )
+    from app.services.billing import prepaid
+
     for subscription in result.scalars().all():
+        # Queued to become Pay As You Go when the paid period ran out. The
+        # provider's webhook normally makes the switch; this catches one that
+        # was missed, instead of expiring a customer who asked to stay.
+        if await prepaid.convert_if_scheduled(db, subscription):
+            invalidate_entitlements(subscription.organization_id)
+            report.plan_changes_applied += 1
+            report.prepaid_started.append(subscription.organization_id)
+            continue
+
         subscription.status = STATUS_EXPIRED
         subscription.expired_at = now
         await events.record_event(
@@ -338,7 +393,15 @@ async def _apply_scheduled_plan_changes(
             Subscription.status.in_((STATUS_ACTIVE, STATUS_PAST_DUE)),
         )
     )
+    from app.services.billing import prepaid
+
     for subscription in result.scalars().all():
+        # A move to Pay As You Go is not a plan swap on a running subscription:
+        # it happens when the provider reports the paid subscription over (see
+        # ``prepaid.convert_if_scheduled``). Swapping the plan here would leave
+        # a provider-billed row on a plan with nothing to bill.
+        if await prepaid.scheduled_prepaid_plan(db, subscription) is not None:
+            continue
         previous_plan_id = subscription.plan_id
         subscription.plan_id = subscription.scheduled_plan_id
         subscription.scheduled_plan_id = None

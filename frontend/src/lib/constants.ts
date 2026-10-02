@@ -105,6 +105,17 @@ export const API_ENDPOINTS = {
   BILLING_COUPON: `${API_BASE}/api/v1/billing/coupon`,
   BILLING_COUPON_APPLY: `${API_BASE}/api/v1/billing/coupon/apply`,
 
+  // Prepaid wallet (Pay As You Go)
+  WALLET: `${API_BASE}/api/v1/billing/wallet`,
+  WALLET_TRANSACTIONS: `${API_BASE}/api/v1/billing/wallet/transactions`,
+  WALLET_TOPUP: `${API_BASE}/api/v1/billing/wallet/topup`,
+  WALLET_TOPUP_CONFIRM: `${API_BASE}/api/v1/billing/wallet/topup/confirm`,
+  WALLET_TOPUP_SESSION: `${API_BASE}/api/v1/billing/wallet/topup-session`,
+  WALLET_TOPUP_STATUS: (id: string) =>
+    `${API_BASE}/api/v1/billing/wallet/topup-session/${encodeURIComponent(id)}`,
+  WALLET_AUTO_RECHARGE: `${API_BASE}/api/v1/billing/wallet/auto-recharge`,
+  WALLET_CARD: `${API_BASE}/api/v1/billing/wallet/card`,
+
   // Onboarding
   ONBOARDING_STATUS: `${API_BASE}/api/v1/onboarding/status`,
   ONBOARDING_COMPANY: `${API_BASE}/api/v1/onboarding/company`,

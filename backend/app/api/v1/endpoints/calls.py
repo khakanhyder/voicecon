@@ -214,6 +214,11 @@ async def create_call(
     await db.commit()
     await db.refresh(call)
 
+    # Pay As You Go: reserve credit before the carrier is asked to dial.
+    from app.services.billing import call_credit
+
+    await call_credit.reserve_or_refuse(db, call, agent)
+
     # Integrate with Twilio to initiate call
     try:
         # Credentials follow the number: platform-bought numbers dial on the

@@ -167,6 +167,22 @@ async def reserve_voicecon_purchase(
     """
     cap = max(0, int(settings.VOICECON_NUMBER_DAILY_PURCHASE_CAP))
 
+    # Pay As You Go pays each number's monthly fee from the wallet. Refuse the
+    # purchase up front when the wallet cannot cover the first month, rather
+    # than buying a number that goes on hold at the next sweep.
+    if entitlements.is_prepaid:
+        from app.services.billing import prepaid, wallet as wallet_service
+
+        fee = prepaid.number_fee_cents(entitlements.billing)
+        if fee > 0 and await wallet_service.available_cents(db, organization_id) < fee:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"A phone number costs {wallet_service.format_money(fee)} a month on your plan, "
+                    "and your balance does not cover it. Add credit, then try again."
+                ),
+            )
+
     if not await _lock(db, "voicecon:numbers:platform", wait=PLATFORM_LOCK_WAIT_SECONDS):
         raise HTTPException(status_code=503, detail=VOICECON_UNAVAILABLE)
 

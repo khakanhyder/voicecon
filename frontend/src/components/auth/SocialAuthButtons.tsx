@@ -47,7 +47,7 @@ function GoogleButton({
 export function SocialAuthButtons({ verb }: { verb: 'Login' | 'Sign up' }) {
   const {
     onGoogleCode, onGoogleError, signInWithApple,
-    googleEnabled, isGoogleLoading, isAppleLoading,
+    googleEnabled, isGoogleResolving, isGoogleLoading, isAppleLoading,
   } = useSocialAuth()
   const busy = isGoogleLoading || isAppleLoading
 
@@ -58,7 +58,7 @@ export function SocialAuthButtons({ verb }: { verb: 'Login' | 'Sign up' }) {
           label={`${verb} With Google`}
           onCode={onGoogleCode}
           onError={onGoogleError}
-          disabled={busy}
+          disabled={busy || isGoogleResolving}
           loading={isGoogleLoading}
         />
       ) : (

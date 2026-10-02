@@ -281,8 +281,57 @@ export interface Plan {
   highlights: string[]
   features: Record<string, boolean>
   limits: Record<string, number>
+  /** Pay As You Go: no monthly price; `billing` holds what it charges. */
+  prepaid?: boolean
+  billing?: PlanBilling | null
   subscribers: number
   created_at: string
+}
+
+/** What a prepaid plan charges. Amounts are in the plan's currency. */
+export interface PlanBilling {
+  mode: string
+  per_minute: number
+  number_monthly_fee: number
+  topup_presets: number[]
+  topup_min: number
+  topup_max: number
+  low_balance: number
+}
+
+export interface WalletLedgerRow {
+  id: string
+  type: string
+  amount: number
+  balance_after: number
+  description: string | null
+  reference_type: string | null
+  reference_id: string | null
+  actor_type: string
+  reason: string | null
+  admin_email: string | null
+  created_at: string
+}
+
+export interface OrgWallet {
+  exists: boolean
+  /** The organization is on the prepaid plan now. */
+  prepaid: boolean
+  balance: number
+  held: number
+  currency: string
+  per_minute: number
+  /** False when the balance and the ledger disagree. */
+  ledger_matches: boolean
+  auto_recharge: {
+    enabled: boolean
+    threshold: number | null
+    amount: number | null
+    card_brand: string | null
+    card_last4: string | null
+    failures: number
+  }
+  transactions: Page<WalletLedgerRow>
 }
 
 export interface PaymentFailureRow {
@@ -701,6 +750,10 @@ export const adminApi = {
     body: { features: Record<string, boolean>; limits: Record<string, number>; reason?: string; expires_at?: string | null }
   ) => send('put', `/organizations/${id}/override`, body),
   resetUsage: (id: string, reason?: string) => send('post', `/organizations/${id}/reset-usage`, { reason }),
+  organizationWallet: (id: string, params?: Query) => get<OrgWallet>(`/organizations/${id}/wallet`, params),
+  /** `amount` is signed: positive adds credit, negative removes it. */
+  adjustWallet: (id: string, amount: number, reason: string) =>
+    send<{ balance: number }>('post', `/organizations/${id}/wallet/adjust`, { amount, reason }),
   catalog: () => get<Catalog>('/catalog'),
 
   /** `retention_days`: how long a deactivated account is kept before permanent deletion. */
@@ -717,7 +770,8 @@ export const adminApi = {
   plans: () =>
     get<{ plans: Plan[]; stripe_configured: boolean; polar_configured: boolean; payment_provider: 'stripe' | 'polar' }>('/plans'),
   syncPlanToPolar: (id: string) => send<Plan>('post', `/plans/${id}/polar-sync`),
-  updatePlan: (id: string, body: Partial<Plan>) => send<Plan>('patch', `/plans/${id}`, body),
+  updatePlan: (id: string, body: Partial<Omit<Plan, 'billing'>> & { billing?: Partial<PlanBilling> }) =>
+    send<Plan>('patch', `/plans/${id}`, body),
   setTrialLength: (days: number) => send<{ days: number; plans_updated: number }>('put', '/plans/trial', { days }),
 
   paymentFailures: (params: Query) => get<Page<PaymentFailureRow>>('/billing/payment-failures', params),

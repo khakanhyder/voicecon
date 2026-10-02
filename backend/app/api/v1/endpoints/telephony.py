@@ -30,7 +30,7 @@ from app.services.telephony.twilio_service import (
 from app.core.dependencies import get_current_user, get_current_active_user, get_current_org_id
 from app.core.entitlement_guard import require_entitlement
 from app.models.user import User
-from app.services.billing import catalog
+from app.services.billing import call_credit, catalog
 from app.services.billing.entitlements import concurrency_allows, runtime_allows
 from app.services.billing.usage_tracker import UsageTracker
 
@@ -385,6 +385,13 @@ BUSY_MESSAGE = (
     "We're sorry, all of our lines are busy right now. Please try again in a few minutes."
 )
 
+#: Said to a caller when the workspace cannot take the call for a billing
+#: reason. Deliberately says nothing about why: that is between us and the
+#: business, not for its customer to hear.
+NOT_TAKING_CALLS_MESSAGE = (
+    "We're sorry, this number is not currently taking calls. Please try again later."
+)
+
 
 async def _line_available(db: AsyncSession, call: Call) -> bool:
     """Is there a free line under the plan's concurrent-call limit?
@@ -703,6 +710,12 @@ async def handle_inbound_call(
             twiml = build_twiml_error(BUSY_MESSAGE)
             return Response(content=twiml, media_type="application/xml")
 
+        # Pay As You Go: set credit aside for this call before it connects, so
+        # calls running together cannot spend the same balance twice.
+        if not await call_credit.reserve(db, call, agent):
+            twiml = build_twiml_error(NOT_TAKING_CALLS_MESSAGE)
+            return Response(content=twiml, media_type="application/xml")
+
         # Generate WebSocket URL for media streaming
         # The WebSocket endpoint will be at /api/v1/voice/stream/{call_id}
         websocket_url = urljoin(
@@ -902,6 +915,9 @@ async def initiate_outbound_call(
         await db.commit()
         await db.refresh(call)
 
+        # Pay As You Go: reserve credit before the carrier is asked to dial.
+        await call_credit.reserve_or_refuse(db, call, agent)
+
         # Dial out from the account that owns the number, not necessarily the
         # platform one.
         twilio_service = await get_twilio_service_for_number(db, from_number)
@@ -926,7 +942,10 @@ async def initiate_outbound_call(
 
         call.provider_call_sid = call_details["call_sid"]
         call.status = normalize_call_status(call_details["status"]) or call.status
+        # Merged, not replaced: the row may already carry the credit reserved
+        # for this call.
         call.call_metadata = {
+            **(call.call_metadata or {}),
             "twilio_call_sid": call_details["call_sid"],
             "direction_type": call_details["direction"],
         }
@@ -1092,6 +1111,13 @@ async def handle_telnyx_inbound_call(
         if not await _line_available(db, call):
             return Response(
                 content=build_error_response(BUSY_MESSAGE),
+                media_type="application/xml",
+            )
+
+        # Same as the Twilio path: reserve Pay As You Go credit before connecting.
+        if not await call_credit.reserve(db, call, agent):
+            return Response(
+                content=build_error_response(NOT_TAKING_CALLS_MESSAGE),
                 media_type="application/xml",
             )
 

@@ -28,10 +28,15 @@ from app.services.billing import catalog
 logger = logging.getLogger(__name__)
 
 
-# From "VoiceCon Pricing Packages — Final" (29 Sep 2026). Pay-As-You-Go is not
-# offered (the free trial covers trying the product) and Enterprise is sold by
-# contract, so neither is a row here. Yearly prices are the per-month yearly
+# From "VoiceCon Pricing Packages — Final" (29 Sep 2026). Enterprise is sold by
+# contract, so it is not a row here. Yearly prices are the per-month yearly
 # rate times twelve.
+#
+# Pay As You Go (added 2 Oct 2026) is the last entry: no monthly price, no
+# yearly price, and a ``billing`` section in its entitlement document that
+# makes it prepaid — see ``catalog.PAYG_BILLING``. It sorts after the
+# subscriptions and sits on tier 0, below all of them, so moving from it to
+# any subscription reads as an upgrade.
 #
 # ``features`` is the marketing column. Plan cards build their bullets from the
 # entitlements document, not from ``highlights``; ``support`` and ``popular``
@@ -111,6 +116,26 @@ DEFAULT_PLANS = [
             "highlights": [
                 "Everything in Scale, plus:",
                 "Unlimited AI agents",
+            ],
+        },
+    },
+    {
+        "slug": catalog.PREPAID_PLAN_SLUG,
+        "name": "Pay As You Go",
+        "tier": 0,
+        "description": "No monthly fee. Add credit and pay only for the minutes you use.",
+        "price_monthly": Decimal("0.00"),
+        "price_yearly": None,
+        "included_minutes": 0,
+        # Mirrors the document's per-minute rate, for the admin plan list.
+        "overage_rate_per_minute": Decimal(str(catalog.PAYG_BILLING["per_minute"])),
+        "sort_order": 5,
+        "features": {
+            "support": "Email support",
+            "highlights": [
+                "No monthly fee, no commitment",
+                "Pay per minute from a prepaid balance",
+                "Inbound calls, 24/7 answering",
             ],
         },
     },
@@ -237,7 +262,7 @@ def _relax_stored_document(plan: SubscriptionPlan) -> bool:
     # Text messages are not part of the current plans (29 Sep 2026). Rows
     # seeded before that carry an SMS allowance; drop it. Retired plans keep
     # theirs for the customers still on them.
-    if plan.slug in catalog.PLAN_ENTITLEMENTS:
+    if plan.slug in catalog.PLAN_ENTITLEMENTS or plan.slug in catalog.PREPAID_PLAN_ENTITLEMENTS:
         if catalog.LIMIT_SMS in limits:
             del limits[catalog.LIMIT_SMS]
             changed = True
@@ -266,7 +291,7 @@ def _fill_missing_keys(plan: SubscriptionPlan) -> bool:
     default = catalog.entitlements_for_plan(plan.slug)
     document = dict(plan.entitlements)
     changed = False
-    for section in ("features", "limits", "overage"):
+    for section in catalog.DOCUMENT_SECTIONS:
         stored = dict(document.get(section) or {})
         missing = {k: v for k, v in (default.get(section) or {}).items() if k not in stored}
         if missing:
@@ -379,7 +404,11 @@ async def _create_plan(spec: dict, stripe_service) -> SubscriptionPlan:
     product_id = f"local_{slug}"
     price_id = f"local_{slug}_monthly"
 
-    if stripe_service is not None:
+    entitlements = catalog.entitlements_for_plan(slug)
+
+    # A prepaid plan has no recurring price to create at Stripe: top-ups are
+    # one-off payments. It keeps the placeholder ids the columns require.
+    if stripe_service is not None and not catalog.is_prepaid(entitlements):
         try:
             import asyncio
             import stripe
@@ -403,8 +432,14 @@ async def _create_plan(spec: dict, stripe_service) -> SubscriptionPlan:
                 f"Failed to create Stripe product for {slug}, using placeholder: {exc}"
             )
 
-    entitlements = catalog.entitlements_for_plan(slug)
     limits = entitlements["limits"]
+    document = {
+        "features": dict(entitlements["features"]),
+        "limits": dict(limits),
+        "overage": dict(entitlements["overage"]),
+    }
+    if entitlements.get("billing"):
+        document["billing"] = dict(entitlements["billing"])
     return SubscriptionPlan(
         slug=slug,
         name=spec["name"],
@@ -423,11 +458,7 @@ async def _create_plan(spec: dict, stripe_service) -> SubscriptionPlan:
         overage_rate_per_minute=spec["overage_rate_per_minute"],
         overage_rate_per_call=Decimal("0"),
         features=spec["features"],
-        entitlements={
-            "features": dict(entitlements["features"]),
-            "limits": dict(limits),
-            "overage": dict(entitlements["overage"]),
-        },
+        entitlements=document,
         trial_days=catalog.DEFAULT_TRIAL_DAYS,
         is_trialable=slug == TRIAL_PLAN_SLUG,
         sort_order=spec["sort_order"],

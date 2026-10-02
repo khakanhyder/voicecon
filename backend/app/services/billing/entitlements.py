@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Dict, Mapping, Optional
@@ -107,8 +107,20 @@ class Entitlements:
     limits: Mapping[str, int] = field(default_factory=dict)
     usage: Mapping[str, int] = field(default_factory=dict)
     overage_allowed: bool = False
+    #: A prepaid plan's billing settings (rate per minute, top-up bounds); empty
+    #: on every other plan. See ``catalog.PAYG_BILLING``.
+    billing: Mapping[str, Any] = field(default_factory=dict)
 
     # ---- Derived state ----
+
+    @property
+    def is_prepaid(self) -> bool:
+        """Pay As You Go: minutes are paid from the wallet, not an allowance.
+
+        Only while the account is live — an expired prepaid subscription has
+        the expired document, which carries no billing section.
+        """
+        return self.billing.get("mode") == catalog.BILLING_PREPAID
 
     @property
     def is_trial(self) -> bool:
@@ -200,26 +212,7 @@ class Entitlements:
     def with_usage(self, usage: Mapping[str, int]) -> "Entitlements":
         """A copy carrying live resource counts, for limit checks and the UI."""
         merged = {**self.usage, **usage}
-        return Entitlements(
-            organization_id=self.organization_id,
-            status=self.status,
-            stored_status=self.stored_status,
-            subscription_id=self.subscription_id,
-            plan_id=self.plan_id,
-            plan_slug=self.plan_slug,
-            plan_name=self.plan_name,
-            plan_tier=self.plan_tier,
-            source=self.source,
-            billing_period=self.billing_period,
-            trial_end=self.trial_end,
-            grace_period_end=self.grace_period_end,
-            current_period_end=self.current_period_end,
-            cancel_at_period_end=self.cancel_at_period_end,
-            features=self.features,
-            limits=self.limits,
-            usage=merged,
-            overage_allowed=self.overage_allowed,
-        )
+        return replace(self, usage=merged)
 
 
 def effective_grace_end(
@@ -401,6 +394,7 @@ class EntitlementService:
             limits=limits,
             usage=usage,
             overage_allowed=bool(overage.get("allowed", False)),
+            billing=catalog.billing_config(document) if catalog.is_prepaid(document) else {},
         )
 
     # ---- Queries ----
@@ -589,6 +583,22 @@ class EntitlementService:
             # has no card on file, so it stops dead instead.
             if not ent.overage_allowed:
                 return False, "limit_exceeded"
+
+        # A prepaid plan has no allowance to run out; what stops a call is a
+        # wallet that cannot pay for one more minute. Read fresh, never from
+        # the cached entitlements: the balance moves with every call.
+        if ent.is_prepaid and usage_limit == catalog.LIMIT_MINUTES:
+            from app.services.billing import wallet as wallet_service
+
+            try:
+                funded = await wallet_service.can_start_call(db, organization_id, ent.billing)
+            except Exception as exc:  # pragma: no cover - defensive
+                # Fails closed, unlike the allowance checks: with no balance
+                # there is nothing to bill the call to afterwards.
+                logger.error(f"Could not read the wallet of org {organization_id}: {exc}")
+                funded = False
+            if not funded:
+                return False, "insufficient_balance"
         return True, None
 
     # ---- Concurrent calls ----

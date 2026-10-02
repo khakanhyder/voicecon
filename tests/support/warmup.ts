@@ -45,6 +45,9 @@ const ROUTES = [
   '/dashboard/integrations/twilio',
   '/dashboard/settings',
   '/dashboard/settings/profile',
+  // Billing and the page a hosted payment returns to (payg-wallet.spec).
+  '/dashboard/settings/billing',
+  '/billing/return',
   // The not-found page, which the 404 test relies on.
   '/this-route-does-not-exist',
 ]
