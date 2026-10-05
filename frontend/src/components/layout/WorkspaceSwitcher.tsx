@@ -18,9 +18,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Building2, Check, ChevronsUpDown, Plus , Settings} from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { getErrorMessage } from '@/lib/api'
-import { workspaceService } from '@/lib/workspace'
+import type { WorkspaceDetail } from '@/lib/workspace'
 import { useWorkspaceStore } from '@/store/workspaceStore'
+import { NewWorkspaceDialog } from './NewWorkspaceDialog'
 
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Owner',
@@ -70,19 +70,11 @@ export function WorkspaceSwitcher({ collapsed, panelBackground }: WorkspaceSwitc
     window.location.reload()
   }
 
-  const handleCreate = async () => {
-    const name = window.prompt('Name your new workspace')?.trim()
-    if (!name) return
-    setCreating(true)
-    try {
-      const created = await workspaceService.create(name)
-      toast.success(`Created ${created.name}`)
-      window.location.reload()
-    } catch (e) {
-      toast.error(getErrorMessage(e))
-    } finally {
-      setCreating(false)
-    }
+  const handleCreated = (created: WorkspaceDetail) => {
+    toast.success(`Created ${created.name}`)
+    // The API makes the new workspace the current one; reload for the same
+    // reason a switch does.
+    window.location.reload()
   }
 
   if (isLoading && !current) {
@@ -175,15 +167,19 @@ export function WorkspaceSwitcher({ collapsed, panelBackground }: WorkspaceSwitc
           </Link>
           <button
             type="button"
-            onClick={handleCreate}
-            disabled={creating}
-            className="flex w-full items-center gap-2.5 border-t border-white/10 px-3 py-2.5 font-poppins text-[13px] text-white/85 transition-colors hover:bg-white/10 disabled:opacity-60"
+            onClick={() => {
+              setOpen(false)
+              setCreating(true)
+            }}
+            className="flex w-full items-center gap-2.5 border-t border-white/10 px-3 py-2.5 font-poppins text-[13px] text-white/85 transition-colors hover:bg-white/10 "
           >
             <Plus className="h-4 w-4" />
-            {creating ? 'Creating…' : 'New workspace'}
+            New workspace
           </button>
         </div>
       )}
+
+      <NewWorkspaceDialog open={creating} onClose={() => setCreating(false)} onCreated={handleCreated} />
     </div>
   )
 }
