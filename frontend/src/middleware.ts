@@ -22,12 +22,10 @@ const CANONICAL_LANDING_HOST = LANDING_HOSTS[0]
 // Public pages the landing hosts serve themselves; they need no session.
 // '/' is the full marketing site and each of its sections has a clean URL
 // (/pricing, /faq, ...; see SECTION_PATHS) served by app/[section].
-// '/coming-soon' is kept reachable but is no longer the root.
 // '/affiliate-program' is the public request form; the partner portal itself
 // ('/affiliate/...') is an app-host page.
 const MARKETING_PATHS = new Set([
   '/',
-  '/coming-soon',
   '/privacy',
   '/terms',
   '/affiliate-program',
@@ -83,15 +81,6 @@ export function middleware(request: NextRequest) {
     url.pathname = '/'
     return NextResponse.redirect(url, 308)
   }
-
-  // The coming-soon page used to be served at the root here. It is switched off
-  // so '/' renders the full marketing site (src/app/page.tsx). Uncomment to
-  // bring the coming-soon page back.
-  // if (pathname === '/') {
-  //   const url = request.nextUrl.clone()
-  //   url.pathname = '/coming-soon'
-  //   return NextResponse.rewrite(url)
-  // }
 
   if (LANDING_HOSTS.includes(host) && !MARKETING_PATHS.has(pathname)) {
     return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 307)

@@ -47,15 +47,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Google tag (gtag.js) — the SEO team asked for it first in <head> on every page. */}
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZC5PPBD3B6"></script>
+        {/* Google tag (gtag.js) — the SEO team asked for it first in <head>.
+            It loads on the marketing hosts only: the app host (login, dashboard,
+            admin, ...) is signed-in product usage and must not show up in the
+            site's Analytics. Same host list as middleware.ts LANDING_HOSTS. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-
-gtag('config', 'G-ZC5PPBD3B6');`,
+            __html: `if (['voicecon.ai', 'www.voicecon.ai'].indexOf(location.hostname) !== -1) {
+  var s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://www.googletagmanager.com/gtag/js?id=G-ZC5PPBD3B6';
+  document.head.appendChild(s);
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function(){dataLayer.push(arguments);};
+  gtag('js', new Date());
+  gtag('config', 'G-ZC5PPBD3B6');
+}`,
           }}
         />
       </head>

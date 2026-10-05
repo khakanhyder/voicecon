@@ -5,7 +5,7 @@ import { Reveal } from './Reveal'
 /**
  * Shared building blocks for the marketing page. The visual language (deep
  * teal night sky, glass cards, brand-green pill buttons, gradient accent text)
- * follows the voicecon.ai coming-soon page.
+ * is shared by every section.
  */
 
 // App routes. On the landing hosts the middleware forwards these to the app
@@ -41,7 +41,7 @@ export function buttonClass(
   return cn(BUTTON_BASE, BUTTON_SIZES[size], BUTTON_VARIANTS[variant], className)
 }
 
-/** Mic mark + wordmark, matching the coming-soon page. */
+/** Mic mark + wordmark. */
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-2.5 text-white', className)}>
@@ -144,7 +144,7 @@ export function SectionHeading({
   )
 }
 
-/** Glass card with the soft green hover glow from the coming-soon features. */
+/** Glass card with a soft green hover glow. */
 export function GlassCard({
   children,
   className,

@@ -5,7 +5,7 @@ import { SmoothScroll } from './SmoothScroll'
 
 /**
  * Page chrome shared by every public marketing page (landing, privacy, terms):
- * the coming-soon page's deep-teal sky with its grid and glow orbs, a skip
+ * the deep-teal sky with its grid and glow orbs, a skip
  * link, the navbar, the footer and smooth scrolling.
  */
 export function MarketingShell({ children }: { children: ReactNode }) {

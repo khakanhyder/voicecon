@@ -9,7 +9,7 @@ import { SECTION_PATHS } from '@/components/landing/sections'
 import { captureReferral } from '@/lib/referral'
 import { useGoogleClientId } from '@/lib/googleClient'
 
-const PUBLIC_PAGES = new Set(['/', '/coming-soon', '/privacy', '/terms', '/affiliate-program', ...Object.keys(SECTION_PATHS)])
+const PUBLIC_PAGES = new Set(['/', '/privacy', '/terms', '/affiliate-program', ...Object.keys(SECTION_PATHS)])
 
 // Create a client
 const queryClient = new QueryClient({
