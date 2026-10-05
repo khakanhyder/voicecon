@@ -1,14 +1,9 @@
-import { DM_Sans } from 'next/font/google'
 import type { Metadata } from 'next'
 import './globals.css'
 import { Providers } from './providers'
 import { Toaster } from 'sonner'
 
-const dmSans = DM_Sans({ 
-  subsets: ['latin'],
-  variable: '--font-dm-sans',
-  display: 'swap',
-})
+// DM Sans is self-hosted through @font-face in globals.css (see the note there).
 // Poppins (the sidebar/nav face in the brand spec) is resolved through a plain
 // CSS stack in globals.css rather than next/font — fetching it from Google
 // Fonts stalls every cold compile on machines without network access to them,
@@ -65,8 +60,9 @@ export default function RootLayout({
 }`,
           }}
         />
+        <link rel="preload" href="/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
       </head>
-      <body className={`${dmSans.variable} font-sans`}>
+      <body className="font-sans">
         <Providers>
           {children}
           <Toaster position="top-right" richColors />
