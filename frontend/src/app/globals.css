@@ -400,3 +400,90 @@
   outline: 3px solid #2f9b7e;
   outline-offset: 2px;
 }
+
+/* Tables in the editor (Tiptap wraps each in .tableWrapper). */
+.blog-editor .tableWrapper {
+  overflow-x: auto;
+  margin: 1.25em 0;
+}
+.blog-editor table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+.blog-editor th,
+.blog-editor td {
+  position: relative;
+  min-width: 6rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+}
+.blog-editor th {
+  background: #f1f5f9;
+  text-align: left;
+}
+.blog-editor th > p,
+.blog-editor td > p {
+  margin: 0;
+}
+.blog-editor .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(47, 155, 126, 0.15);
+  pointer-events: none;
+}
+
+/* Tables in a published post (components/blog/ArticleView.tsx wraps each in
+   .blog-table). Cells hold <p>s from the editor, so their margins are reset. */
+.blog-article .blog-table {
+  margin: 2em 0;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  -webkit-overflow-scrolling: touch;
+}
+.blog-article .blog-table table {
+  width: 100%;
+  min-width: 32rem;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.blog-article .blog-table th,
+.blog-article .blog-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  vertical-align: top;
+  color: rgba(255, 255, 255, 0.75);
+}
+.blog-article .blog-table th {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-weight: 600;
+}
+.blog-article .blog-table tr:last-child > td {
+  border-bottom: 0;
+}
+.blog-article .blog-table th + th,
+.blog-article .blog-table th + td,
+.blog-article .blog-table td + td,
+.blog-article .blog-table td + th {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.blog-article .blog-table th > p,
+.blog-article .blog-table td > p {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.blog-article .blog-table th > p + p,
+.blog-article .blog-table td > p + p {
+  margin-top: 0.5em;
+}

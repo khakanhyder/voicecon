@@ -212,6 +212,22 @@ class TestPosts:
         assert post["author"]["name"] == "Editor"
         assert post["excerpt"]  # generated from the body
 
+    async def test_tables_survive_sanitising(self, client, editor):
+        post = await _create(
+            as_user(client, editor),
+            title="Comparison",
+            content_html=(
+                '<table style="min-width:50px"><colgroup><col style="min-width:25px"></colgroup><tbody>'
+                '<tr><th colspan="1" rowspan="1" onclick="x()"><p>Capability</p></th><th colspan="2"><p>AI</p></th></tr>'
+                '<tr><td rowspan="2"><p>Yes</p></td></tr></tbody></table>'
+            ),
+        )
+        html = post["content_html"]
+        assert "<table>" in html and "<tbody>" in html and "<th colspan=\"2\">" in html
+        assert "<td rowspan=\"2\">" in html
+        assert "onclick" not in html and "min-width" not in html
+        assert post["excerpt"] == ""  # cell text is not used as a summary
+
     async def test_duplicate_titles_get_distinct_slugs_but_explicit_clash_is_409(self, client, editor):
         as_user(client, editor)
         first = await _create(client)

@@ -23,6 +23,7 @@ ALLOWED_TAGS = {
     "strong", "b", "em", "i", "u", "s", "code", "pre", "mark", "sub", "sup",
     "blockquote", "ul", "ol", "li",
     "a", "img", "figure", "figcaption",
+    "table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "th", "td",
 }
 
 ALLOWED_ATTRIBUTES = {
@@ -35,6 +36,11 @@ ALLOWED_ATTRIBUTES = {
     "h2": {"style"},
     "h3": {"style"},
     "h4": {"style"},
+    # Merged cells from the editor's table tool. Column widths (inline styles
+    # on table/col) are dropped: the public page lays tables out itself.
+    "th": {"colspan", "rowspan"},
+    "td": {"colspan", "rowspan"},
+    "col": {"span"},
 }
 
 MAX_TAGS = 10
@@ -44,6 +50,7 @@ WORDS_PER_MINUTE = 220
 _TAGS_RE = re.compile(r"<[^>]+>")
 _SPACE_RE = re.compile(r"\s+")
 _H1_RE = re.compile(r"<(/?)h1(?=[\s>])", re.IGNORECASE)
+_TABLE_RE = re.compile(r"<table[\s>].*?</table>", re.IGNORECASE | re.DOTALL)
 
 
 def sanitize_html(html: Optional[str]) -> str:
@@ -84,8 +91,9 @@ def reading_minutes(html: Optional[str]) -> int:
 
 
 def excerpt_from(html: Optional[str], limit: int = 200) -> str:
-    """A fallback summary: the opening of the body, cut at a word boundary."""
-    text = plain_text(html)
+    """A fallback summary: the opening of the body, cut at a word boundary.
+    Tables are skipped: their cells read as a run of disconnected words."""
+    text = plain_text(_TABLE_RE.sub(" ", html or ""))
     if len(text) <= limit:
         return text
     cut = text[:limit].rsplit(" ", 1)[0].rstrip(",.;:-")

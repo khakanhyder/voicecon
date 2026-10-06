@@ -23,7 +23,7 @@ export interface ArticleData {
  * is sanitised by the API (services/blog/content.py) before it is stored.
  */
 export const ARTICLE_BODY_CLASS = cn(
-  'prose prose-invert prose-lg max-w-none',
+  'blog-article prose prose-invert prose-lg max-w-none',
   'prose-headings:scroll-mt-24 prose-headings:font-semibold prose-headings:tracking-[-0.015em] prose-headings:text-white',
   'prose-h2:mt-12 prose-h2:text-[1.75rem] prose-h3:text-[1.35rem]',
   'prose-p:leading-[1.8] prose-p:text-white/75 prose-li:text-white/75 prose-li:marker:text-brand-300',
@@ -34,6 +34,15 @@ export const ARTICLE_BODY_CLASS = cn(
   'prose-pre:border prose-pre:border-white/10 prose-pre:bg-black/30',
   'prose-figcaption:text-center prose-figcaption:text-white/50'
 )
+
+/**
+ * Wraps each table in a scroll container (styled in globals.css) so a wide
+ * table scrolls sideways on a phone instead of widening the page. The API's
+ * sanitiser strips every table attribute, so the opening tag is always bare.
+ */
+function withTableWrappers(html: string): string {
+  return html.replace(/<table>/g, '<div class="blog-table"><table>').replace(/<\/table>/g, '</table></div>')
+}
 
 /**
  * A full article: header, featured image, body, tags, sharing and related
@@ -111,7 +120,7 @@ export function ArticleView({
       )}
 
       <div className="mx-auto mt-12 max-w-3xl">
-        <div className={ARTICLE_BODY_CLASS} dangerouslySetInnerHTML={{ __html: article.content_html }} />
+        <div className={ARTICLE_BODY_CLASS} dangerouslySetInnerHTML={{ __html: withTableWrappers(article.content_html) }} />
 
         {(article.tags.length > 0 || shareUrl) && (
           <footer className="mt-14 flex flex-col gap-6 border-t border-white/10 pt-8 sm:flex-row sm:items-center sm:justify-between">

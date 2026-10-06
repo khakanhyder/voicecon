@@ -4,13 +4,16 @@
  * The article body editor (Tiptap). Produces HTML limited to what the API's
  * sanitiser keeps (services/blog/content.py): h2–h4, paragraphs with text
  * alignment, bold/italic/underline/strike, inline code, code blocks, quotes,
- * lists, links, rules and images. Pasted content is reduced to the same set.
+ * lists, links, rules, images and tables. Pasted content is reduced to the same
+ * set; without the table extension a pasted table was flattened into one
+ * paragraph per cell.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
+import { TableKit } from '@tiptap/extension-table'
 import { Placeholder } from '@tiptap/extensions'
 import { toast } from 'sonner'
 import {
@@ -34,6 +37,7 @@ import {
   Redo2,
   SquareCode,
   Strikethrough,
+  Table2,
   Underline,
   Undo2,
   type LucideIcon,
@@ -70,6 +74,9 @@ export function RichTextEditor({
         },
       }),
       Image.configure({ inline: false, allowBase64: false }),
+      // Column widths are not kept: the API drops them and the public page sizes
+      // tables to their content.
+      TableKit.configure({ table: { resizable: false } }),
       TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right'] }),
       Placeholder.configure({ placeholder: 'Write your article… Use the toolbar for headings, lists, links and images.' }),
     ],
@@ -113,7 +120,7 @@ export function RichTextEditor({
         <span>
           {words.toLocaleString()} word{words === 1 ? '' : 's'} · about {Math.max(1, Math.ceil(words / 220))} min read
         </span>
-        {!readOnly && <span className="hidden sm:inline">Tip: paste from Google Docs or Word keeps headings, lists and links.</span>}
+        {!readOnly && <span className="hidden sm:inline">Tip: paste from Google Docs or Word keeps headings, lists, links and tables.</span>}
       </div>
     </div>
   )
@@ -153,6 +160,7 @@ function Toolbar({ editor }: { editor: Editor }) {
   }
 
   const imageSelected = editor.isActive('image')
+  const inTable = editor.isActive('table')
   const sep = <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
 
   return (
@@ -178,6 +186,13 @@ function Toolbar({ editor }: { editor: Editor }) {
         <Tool icon={AlignLeft} label="Align left" active={editor.isActive({ textAlign: 'left' })} onClick={() => chain().setTextAlign('left').run()} />
         <Tool icon={AlignCenter} label="Align centre" active={editor.isActive({ textAlign: 'center' })} onClick={() => chain().setTextAlign('center').run()} />
         <Tool icon={AlignRight} label="Align right" active={editor.isActive({ textAlign: 'right' })} onClick={() => chain().setTextAlign('right').run()} />
+        <Tool
+          icon={Table2}
+          label="Insert table"
+          active={inTable}
+          disabled={inTable}
+          onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+        />
         {sep}
         <Tool icon={Link2} label="Link" active={editor.isActive('link') || panel === 'link'} onClick={openLink} />
         <Tool
@@ -239,6 +254,22 @@ function Toolbar({ editor }: { editor: Editor }) {
         </ToolPanel>
       )}
 
+      {inTable && panel !== 'link' && (
+        <ToolPanel>
+          <span className="whitespace-nowrap text-xs font-medium text-slate-600">Table</span>
+          <span className="flex flex-wrap items-center gap-1">
+            <TableAction label="Row above" onClick={() => chain().addRowBefore().run()} />
+            <TableAction label="Row below" onClick={() => chain().addRowAfter().run()} />
+            <TableAction label="Column left" onClick={() => chain().addColumnBefore().run()} />
+            <TableAction label="Column right" onClick={() => chain().addColumnAfter().run()} />
+            <TableAction label="Header row" onClick={() => chain().toggleHeaderRow().run()} />
+            <TableAction label="Delete row" danger onClick={() => chain().deleteRow().run()} />
+            <TableAction label="Delete column" danger onClick={() => chain().deleteColumn().run()} />
+            <TableAction label="Delete table" danger onClick={() => chain().deleteTable().run()} />
+          </span>
+        </ToolPanel>
+      )}
+
       {imageSelected && panel !== 'link' && (
         <ToolPanel>
           <span className="whitespace-nowrap text-xs font-medium text-slate-600">Image alt text</span>
@@ -258,6 +289,22 @@ function Toolbar({ editor }: { editor: Editor }) {
 
 function ToolPanel({ children }: { children: ReactNode }) {
   return <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50 px-3 py-2">{children}</div>
+}
+
+function TableAction({ label, danger, onClick }: { label: string; danger?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className={cn(
+        'h-7 rounded-md border px-2 text-xs font-medium',
+        danger ? 'border-rose-200 text-rose-600 hover:bg-rose-50' : 'border-slate-200 text-slate-700 hover:bg-white'
+      )}
+    >
+      {label}
+    </button>
+  )
 }
 
 function Tool({
