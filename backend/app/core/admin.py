@@ -5,6 +5,11 @@ The admin API sits outside every workspace: it reads and changes data across
 all tenants and manages the platform's own credentials. Access therefore rests
 on one flag, ``User.is_platform_admin``, and never on a workspace role.
 
+The one exception is the blog section. ``User.blog_role`` (``editor`` or
+``viewer``) lets someone who is not a platform admin sign in to the console and
+reach ``/admin/me`` and ``/admin/blog/*``, and nothing else: every other admin
+route still depends on :func:`require_platform_admin`.
+
 Two rules the dependency enforces:
 
 * **Login sessions only.** An API key is a long-lived credential meant for a
@@ -31,12 +36,41 @@ from app.core.dependencies import get_current_user, get_optional_api_key
 logger = logging.getLogger(__name__)
 
 
-async def require_platform_admin(
-    request: Request,
-    current_user=Depends(get_current_user),
-    api_key=Depends(get_optional_api_key),
-):
-    """The acting platform admin, or 403."""
+#: Blog roles for console users who are not platform admins (``User.blog_role``).
+BLOG_EDITOR = "editor"
+BLOG_VIEWER = "viewer"
+BLOG_ROLES = (BLOG_EDITOR, BLOG_VIEWER)
+
+#: What each console role may do. The console's sidebar and routes are built
+#: from this list (``GET /admin/me``), but it is the dependencies below that
+#: enforce it — hiding a menu item is not access control.
+PERM_ADMIN = "admin"  # every platform-admin page and endpoint
+PERM_BLOG_READ = "blog:read"
+PERM_BLOG_WRITE = "blog:write"  # create, edit, publish, unpublish, delete posts
+PERM_BLOG_TEAM = "blog:team"  # add blog users and change their roles
+
+_ROLE_PERMISSIONS = {
+    "admin": [PERM_ADMIN, PERM_BLOG_READ, PERM_BLOG_WRITE, PERM_BLOG_TEAM],
+    "blog_editor": [PERM_BLOG_READ, PERM_BLOG_WRITE],
+    "blog_viewer": [PERM_BLOG_READ],
+}
+
+
+def console_role(user) -> Optional[str]:
+    """``admin``, ``blog_editor``, ``blog_viewer``, or None for no console access."""
+    if getattr(user, "is_platform_admin", False):
+        return "admin"
+    role = getattr(user, "blog_role", None)
+    if role in BLOG_ROLES:
+        return f"blog_{role}"
+    return None
+
+
+def console_permissions(user) -> list[str]:
+    return list(_ROLE_PERMISSIONS.get(console_role(user) or "", []))
+
+
+def _refuse_non_console_credentials(request: Request, api_key) -> None:
     if api_key is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -52,12 +86,52 @@ async def require_platform_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sign in through the admin console to use the admin API.",
         )
+
+
+async def require_platform_admin(
+    request: Request,
+    current_user=Depends(get_current_user),
+    api_key=Depends(get_optional_api_key),
+):
+    """The acting platform admin, or 403."""
+    _refuse_non_console_credentials(request, api_key)
     if not getattr(current_user, "is_platform_admin", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Platform admin access required",
         )
     return current_user
+
+
+async def require_console_user(
+    request: Request,
+    current_user=Depends(get_current_user),
+    api_key=Depends(get_optional_api_key),
+):
+    """Anyone allowed into the staff console at all: a platform admin or a blog user."""
+    _refuse_non_console_credentials(request, api_key)
+    if console_role(current_user) is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Console access required")
+    return current_user
+
+
+def _require_permission(permission: str, message: str):
+    async def dependency(user=Depends(require_console_user)):
+        # Read from the row loaded for this request, so a role change or a
+        # revoked role applies on the very next call, not at token expiry.
+        if permission not in console_permissions(user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
+        return user
+
+    return dependency
+
+
+#: Read the blog dashboard, posts and categories (every console role).
+require_blog_reader = _require_permission(PERM_BLOG_READ, "Blog access required")
+#: Write posts, categories and images (platform admins and blog editors).
+require_blog_editor = _require_permission(
+    PERM_BLOG_WRITE, "Your blog role is view-only. Ask an admin for editor access."
+)
 
 
 def _client_ip(request: Optional[Request]) -> Optional[str]:

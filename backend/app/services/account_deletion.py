@@ -299,6 +299,8 @@ async def purge_account(db: AsyncSession, user: User, now: Optional[datetime] = 
     user.deletion_scheduled_at = None
     user.token_version = (user.token_version or 0) + 1
     user.active_organization_id = None
+    # Their posts keep the byline copied onto them (BlogPost.author_name).
+    user.blog_role = None
     # Free the unique email and the social ids, and drop everything personal.
     user.email = tombstone_email(user)
     user.google_id = None

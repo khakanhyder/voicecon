@@ -189,6 +189,27 @@ def store_avatar(
     return _store_local(key, data, public_base)
 
 
+def store_public_file(
+    key: str,
+    data: bytes,
+    content_type: str,
+    public_base: Optional[str] = None,
+) -> str:
+    """Persist already-validated bytes under ``key`` and return their public URL.
+
+    For files meant to be public (blog images). The caller has normalised the
+    bytes itself; nothing is checked here. ``key`` must be fresh per upload, for
+    the same caching reason as avatars.
+    """
+    if s3_enabled():
+        try:
+            return _store_s3(key, data, content_type)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the caller as 400
+            logger.error(f"Could not upload {key} to S3: {exc}")
+            raise StorageError("Could not save the image. Please try again.") from exc
+    return _store_local(key, data, public_base)
+
+
 def delete_avatar(url: Optional[str]) -> None:
     """
     Best-effort removal of a previously stored avatar.

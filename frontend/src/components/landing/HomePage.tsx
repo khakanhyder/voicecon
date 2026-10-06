@@ -8,6 +8,8 @@ import { Integrations, UseCases } from '@/components/landing/Integrations'
 import { Pricing } from '@/components/landing/Pricing'
 import { Faq, FinalCta } from '@/components/landing/Closing'
 import { SECTION_META } from '@/components/landing/sections'
+import { BlogHighlights } from '@/components/landing/BlogHighlights'
+import { fetchBlogHighlights } from '@/lib/blog'
 import { getPricing } from '@/lib/pricing'
 
 /**
@@ -63,7 +65,7 @@ const structuredData = (description: string, plans: { name: string; price_monthl
 })
 
 export async function HomePage() {
-  const pricing = await getPricing()
+  const [pricing, posts] = await Promise.all([getPricing(), fetchBlogHighlights(3)])
   const days = pricing.trial.days
   return (
     <MarketingShell>
@@ -81,6 +83,7 @@ export async function HomePage() {
       <Integrations />
       <UseCases trialDays={days} />
       <Pricing pricing={pricing} />
+      <BlogHighlights posts={posts ?? []} />
       <Faq trial={pricing.trial} />
       <FinalCta trialDays={days} />
     </MarketingShell>

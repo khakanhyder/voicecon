@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { SECTION_PATHS } from '@/components/landing/sections'
+import { SECTION_PATHS, isBlogPath } from '@/components/landing/sections'
 
 // One frontend deployment answers on two kinds of host:
 //   - landing hosts (voicecon.ai, www.voicecon.ai) serve only the marketing page
@@ -61,7 +61,7 @@ export function middleware(request: NextRequest) {
     }
     // Section URLs (/pricing, /faq, ...) are marketing pages; the app host
     // never served them, so send them to the site that does.
-    if (SECTION_PATHS[pathname]) {
+    if (SECTION_PATHS[pathname] || isBlogPath(pathname)) {
       return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${pathname}${search}`, 308)
     }
     return NextResponse.next()
@@ -71,7 +71,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 308)
   }
 
-  if (LANDING_HOSTS.includes(host) && host !== CANONICAL_LANDING_HOST && MARKETING_PATHS.has(pathname)) {
+  // The blog is marketing too, as a prefix: /blog and every /blog/<slug>.
+  const isMarketing = MARKETING_PATHS.has(pathname) || isBlogPath(pathname)
+
+  if (LANDING_HOSTS.includes(host) && host !== CANONICAL_LANDING_HOST && isMarketing) {
     return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${pathname}${search}`, 308)
   }
 
@@ -82,7 +85,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308)
   }
 
-  if (LANDING_HOSTS.includes(host) && !MARKETING_PATHS.has(pathname)) {
+  if (LANDING_HOSTS.includes(host) && !isMarketing) {
     return NextResponse.redirect(`https://${APP_HOST}${pathname}${search}`, 307)
   }
 

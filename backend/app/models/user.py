@@ -46,6 +46,11 @@ class User(Base):
     is_platform_admin: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
     )
+    #: Access to the blog section of the staff console, for people who are not
+    #: platform admins: ``editor`` (write and publish) or ``viewer`` (read
+    #: only). NULL for everyone else. A platform admin needs no role here —
+    #: they can do everything a blog editor can. See app.core.admin.
+    blog_role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     # Bumped to invalidate every token already issued for this account.
     #

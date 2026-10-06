@@ -12,6 +12,7 @@ const LINKS = [
   { label: 'Workflows', href: '/workflows' },
   { label: 'Integrations', href: '/integrations' },
   { label: 'Pricing', href: '/pricing' },
+  { label: 'Blog', href: '/blog' },
   { label: 'FAQ', href: '/faq' },
 ]
 

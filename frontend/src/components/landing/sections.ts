@@ -67,3 +67,13 @@ export const SECTION_META: Record<string, { title: string; description: string }
     description: 'Answers to common questions about Voicecon: setup, the free trial, integrations, billing and data.',
   },
 }
+
+/**
+ * The blog: /blog and every /blog/<slug>. Marketing pages like the sections,
+ * but a prefix rather than a fixed list, since posts are added in the console.
+ */
+export const BLOG_PATH = '/blog'
+
+export function isBlogPath(pathname: string): boolean {
+  return pathname === BLOG_PATH || pathname.startsWith(BLOG_PATH + '/')
+}

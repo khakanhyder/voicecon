@@ -41,6 +41,17 @@ async function send<T>(method: 'post' | 'put' | 'patch' | 'delete', path: string
 
 // ---------- Types ----------
 
+/** The signed-in console user. Blog editors and viewers get only the blog section. */
+export interface ConsoleMe {
+  id: string
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+  role: 'admin' | 'blog_editor' | 'blog_viewer'
+  /** `admin` (every page), `blog:read`, `blog:write`, `blog:team`. */
+  permissions: string[]
+}
+
 export interface SubscriptionView {
   id: string
   status: string
@@ -728,7 +739,7 @@ export interface AffiliateReferral {
 // ---------- Client ----------
 
 export const adminApi = {
-  me: () => get<{ id: string; email: string; full_name: string | null }>('/me'),
+  me: () => get<ConsoleMe>('/me'),
   overview: () => get<Overview>('/overview'),
 
   settings: () => get<SettingsResponse>('/settings'),

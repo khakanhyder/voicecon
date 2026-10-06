@@ -42,6 +42,7 @@ def _user_view(user: User, orgs: int = 0) -> dict:
         "deletion_scheduled_at": iso(user.deletion_scheduled_at),
         "is_verified": user.is_verified,
         "is_platform_admin": user.is_platform_admin,
+        "blog_role": user.blog_role,
         "organizations": orgs,
         "locked_for_seconds": login_throttle.seconds_until_unlocked(user.email),
         "created_at": iso(user.created_at),

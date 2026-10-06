@@ -386,3 +386,17 @@
   }
 }
 
+
+/* Blog editor (components/admin/blog/RichTextEditor.tsx). Tiptap marks the
+   empty first paragraph; the placeholder is drawn from its data attribute. */
+.blog-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: #94a3b8;
+}
+.blog-editor img.ProseMirror-selectednode {
+  outline: 3px solid #2f9b7e;
+  outline-offset: 2px;
+}

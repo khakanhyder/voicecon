@@ -83,7 +83,9 @@ const nextConfig = {
               // file to the browser's own PDF viewer in an iframe.
               "frame-src blob: https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: https:",
+              // The dev API (http://localhost:8001) serves uploaded blog images
+              // and avatars from local disk; production uploads are https.
+              ["img-src 'self' data: https:", ...devApiOrigins.filter((o) => o.startsWith('http:'))].join(' '),
               "font-src 'self' data: https:",
               // Without this, media falls back to default-src 'self': the test
               // call plays the agent's voice from blob: URLs and call recordings

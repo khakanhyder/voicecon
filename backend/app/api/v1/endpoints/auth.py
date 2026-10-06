@@ -18,6 +18,7 @@ from app.services.account_deletion import inactive_account_message
 from app.database import get_db
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.core.admin import console_role
 from app.core.security import (
     EMAIL_VERIFICATION_TOKEN_MINUTES,
     SCOPE_ADMIN,
@@ -484,7 +485,8 @@ async def admin_login(
     to probe.
     """
     user = await _authenticate_password(db, credentials)
-    if not user.is_platform_admin:
+    # Platform admins, and blog editors/viewers (who reach only the blog pages).
+    if console_role(user) is None:
         logger.warning(
             f"Admin console sign-in refused for non-admin account {user.email}"
         )

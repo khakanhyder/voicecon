@@ -17,6 +17,7 @@ from app.core import permissions as perms
 from app.core.dependencies import workspace_guard
 from app.core.entitlement_guard import entitlement_guard
 from app.api.v1.endpoints import admin as platform_admin
+from app.api.v1.endpoints import blog
 from app.api.v1.endpoints import (
     affiliate_portal,
     agents,
@@ -148,6 +149,11 @@ api_router.include_router(
 # Guarded by ``require_platform_admin`` at the router level, never by a
 # workspace role — see app.core.admin.
 api_router.include_router(platform_admin.router, prefix="/admin", tags=["platform-admin"])
+# The console's blog section and ``/admin/me``: also open to blog editors and
+# viewers, so it sits outside the platform-admin router and every route names
+# its own guard (see app.core.admin). Still under /admin, so only a console
+# session reaches it.
+api_router.include_router(blog.admin.router, prefix="/admin", tags=["blog-admin"])
 
 # ---- Affiliate portal: partners only, no workspace ----
 # Reached only with an affiliate-scoped session; see _enforce_session_scope.
@@ -159,6 +165,7 @@ api_router.include_router(
 )
 api_router.include_router(telephony.public_router, prefix="/telephony", tags=["telephony"])
 api_router.include_router(billing.public_router, prefix="/billing", tags=["billing"])
+api_router.include_router(blog.public.router, prefix="/blog", tags=["blog"])
 api_router.include_router(chat.public_router, prefix="/chat", tags=["chat-widget"])
 api_router.include_router(marketplace.public_router, prefix="/marketplace", tags=["marketplace"])
 api_router.include_router(workflows.public_router, prefix="/workflows", tags=["workflows"])

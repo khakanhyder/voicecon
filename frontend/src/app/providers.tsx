@@ -5,7 +5,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google'
 import { ReactNode, useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
-import { SECTION_PATHS } from '@/components/landing/sections'
+import { SECTION_PATHS, isBlogPath } from '@/components/landing/sections'
 import { captureReferral } from '@/lib/referral'
 import { useGoogleClientId } from '@/lib/googleClient'
 
@@ -45,7 +45,7 @@ export function Providers({ children }: { children: ReactNode }) {
   // Public marketing pages need no query client, session or Google script,
   // and must server-render in full for search engines and first paint, so
   // they skip the mount gate below.
-  if (pathname && PUBLIC_PAGES.has(pathname)) {
+  if (pathname && (PUBLIC_PAGES.has(pathname) || isBlogPath(pathname))) {
     return <>{children}</>
   }
 

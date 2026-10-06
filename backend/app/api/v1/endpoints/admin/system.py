@@ -20,9 +20,7 @@ from .overview import provider_summary
 router = APIRouter()
 
 
-@router.get("/me")
-async def admin_me(admin=Depends(require_platform_admin)):
-    return {"id": str(admin.id), "email": admin.email, "full_name": admin.full_name}
+# ``GET /admin/me`` lives in endpoints/blog/admin.py: blog users call it too.
 
 
 async def _check_db(db: AsyncSession) -> dict:

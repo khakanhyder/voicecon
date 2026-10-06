@@ -85,7 +85,7 @@ export default function AdminLoginPage() {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
       setError(
         status === 401
-          ? 'Incorrect email or password, or this account does not have admin access.'
+          ? 'Incorrect email or password, or this account does not have console access.'
           : getErrorMessage(err, 'Sign-in failed.'),
       )
     } finally {
@@ -116,7 +116,7 @@ export default function AdminLoginPage() {
 
         <div className="rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
           <h1 className="text-xl font-semibold text-slate-900">Sign in</h1>
-          <p className="mt-1 text-sm text-slate-500">Restricted to Voicecon platform administrators.</p>
+          <p className="mt-1 text-sm text-slate-500">For Voicecon administrators and the blog team.</p>
 
           <SignedOutNotice className="mt-5" />
           <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">

@@ -11,6 +11,8 @@ import {
   Coins,
   CreditCard,
   FileClock,
+  FileText,
+  FolderTree,
   Gauge,
   Hash,
   HeartHandshake,
@@ -19,22 +21,34 @@ import {
   Layers,
   LogOut,
   Menu,
+  Newspaper,
+  PenSquare,
   Phone,
   Plug,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  UserCog,
   Users,
   X,
   type LucideIcon,
 } from 'lucide-react'
 import { useAdminSession } from '@/hooks/useAdminSession'
-import { adminApi } from '@/lib/admin'
+import { adminApi, type ConsoleMe } from '@/lib/admin'
 import { AdminNotificationBell } from '@/components/admin/AdminNotificationBell'
 import { authService } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
-const NAV: { section: string; items: { name: string; href: string; icon: LucideIcon; exact?: boolean }[] }[] = [
+type NavItem = {
+  name: string
+  href: string
+  icon: LucideIcon
+  exact?: boolean
+  /** Who sees it (see GET /admin/me). Defaults to platform admins only. */
+  perm?: string
+}
+
+const NAV: { section: string; items: NavItem[] }[] = [
   { section: '', items: [{ name: 'Overview', href: '/admin', icon: Gauge, exact: true }] },
   {
     section: 'Configuration',
@@ -62,6 +76,16 @@ const NAV: { section: string; items: { name: string; href: string; icon: LucideI
     ],
   },
   {
+    section: 'Content',
+    items: [
+      { name: 'Blog Dashboard', href: '/admin/blog', icon: Newspaper, exact: true, perm: 'blog:read' },
+      { name: 'All Posts', href: '/admin/blog/posts', icon: FileText, perm: 'blog:read' },
+      { name: 'New Post', href: '/admin/blog/new', icon: PenSquare, exact: true, perm: 'blog:write' },
+      { name: 'Categories', href: '/admin/blog/categories', icon: FolderTree, perm: 'blog:read' },
+      { name: 'Blog Team', href: '/admin/blog/team', icon: UserCog, perm: 'blog:team' },
+    ],
+  },
+  {
     section: 'Operations',
     items: [
       { name: 'Calls', href: '/admin/calls', icon: Phone },
@@ -77,6 +101,22 @@ const NAV: { section: string; items: { name: string; href: string; icon: LucideI
     ],
   },
 ]
+
+const BLOG_HOME = '/admin/blog'
+
+/**
+ * Pages a console user may open. Platform admins: all of them. Blog editors
+ * and viewers: the blog section only, and within it what their role allows.
+ * This only decides what the browser shows — the API refuses the same
+ * requests on its own (app/core/admin.py).
+ */
+function canOpen(pathname: string, permissions: string[]): boolean {
+  if (permissions.includes('admin')) return true
+  if (pathname !== BLOG_HOME && !pathname.startsWith(BLOG_HOME + '/')) return false
+  if (pathname.startsWith('/admin/blog/team')) return permissions.includes('blog:team')
+  if (pathname === '/admin/blog/new') return permissions.includes('blog:write')
+  return permissions.includes('blog:read')
+}
 
 /**
  * Ends the console session and returns to the admin sign-in page.
@@ -102,24 +142,36 @@ function useAdminSignOut() {
 /** Sidebar entries that show a count of things waiting for staff. */
 const REQUESTS_HREF = '/admin/affiliates/requests'
 
+const ROLE_LABEL: Record<ConsoleMe['role'], string> = {
+  admin: 'Platform admin',
+  blog_editor: 'Blog Editor',
+  blog_viewer: 'Blog Viewer',
+}
+
 function Sidebar({
-  email,
+  me,
   onNavigate,
   showBell = false,
 }: {
-  email?: string
+  me: ConsoleMe
   onNavigate?: () => void
   /** The desktop sidebar carries the bell; on phones it sits in the top bar instead. */
   showBell?: boolean
 }) {
   const signOut = useAdminSignOut()
   const pathname = usePathname()
+  const isAdmin = me.permissions.includes('admin')
   const requests = useQuery({
     queryKey: ['admin', 'affiliate-applications', 'count'],
     queryFn: adminApi.affiliateApplicationCount,
     refetchInterval: 60_000,
     retry: false,
+    enabled: isAdmin,
   })
+  const nav = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => me.permissions.includes(item.perm ?? 'admin')),
+  })).filter((group) => group.items.length > 0)
   const badges: Record<string, number> = { [REQUESTS_HREF]: requests.data?.pending ?? 0 }
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname === href || pathname?.startsWith(href + '/')
@@ -132,9 +184,11 @@ function Sidebar({
         </span>
         <div className="leading-tight">
           <p className="text-sm font-semibold text-white">Voicecon</p>
-          <p className="text-[11px] uppercase tracking-wider text-slate-400">Admin Console</p>
+          <p className="text-[11px] uppercase tracking-wider text-slate-400">
+            {isAdmin ? 'Admin Console' : 'Content Console'}
+          </p>
         </div>
-        {showBell && (
+        {showBell && isAdmin && (
           <div className="ml-auto">
             <AdminNotificationBell />
           </div>
@@ -142,7 +196,7 @@ function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-        {NAV.map((group) => (
+        {nav.map((group) => (
           <div key={group.section || 'root'}>
             {group.section && (
               <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -182,7 +236,8 @@ function Sidebar({
       </nav>
 
       <div className="flex-shrink-0 border-t border-white/10 p-3">
-        <p className="truncate px-3 pb-2 text-xs text-slate-500">{email}</p>
+        <p className="truncate px-3 text-xs text-slate-500">{me.email}</p>
+        <p className="px-3 pb-2 text-[11px] text-slate-600">{ROLE_LABEL[me.role]}</p>
         <button
           type="button"
           onClick={signOut}
@@ -230,6 +285,13 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     staleTime: 5 * 60 * 1000,
   })
 
+  const allowed = !me.data || canOpen(pathname || '/admin', me.data.permissions)
+  useEffect(() => {
+    // A blog user who lands on an admin page (the default after sign-in is
+    // /admin) goes to the blog dashboard instead of a wall of 403s.
+    if (me.data && !allowed) router.replace(BLOG_HOME)
+  }, [me.data, allowed, router])
+
   if (isLoading || (isAuthenticated && me.isLoading)) {
     return (
       <FullScreen>
@@ -248,11 +310,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             <ShieldAlert className="h-6 w-6" />
           </span>
           <h1 className="mt-4 text-lg font-semibold text-slate-900">
-            {forbidden ? 'Admin access required' : 'Could not open the admin console'}
+            {forbidden ? 'Console access required' : 'Could not open the admin console'}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
             {forbidden
-              ? 'This area is for Voicecon platform administrators. Ask an existing admin to grant you access.'
+              ? 'This area is for Voicecon administrators and the blog team. Ask an admin to grant you access.'
               : 'The server did not respond. Check that the backend is running and try again.'}
           </p>
           <button
@@ -267,10 +329,19 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     )
   }
 
+  if (!me.data || !allowed) {
+    return (
+      <FullScreen>
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-100 border-t-brand" />
+      </FullScreen>
+    )
+  }
+  const isAdmin = me.data.permissions.includes('admin')
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <aside className="hidden w-64 flex-shrink-0 lg:block">
-        <Sidebar email={me.data?.email} showBell />
+        <Sidebar me={me.data} showBell />
       </aside>
 
       {mobileOpen && (
@@ -285,7 +356,7 @@ function AdminShell({ children }: { children: React.ReactNode }) {
             >
               <X className="h-5 w-5" />
             </button>
-            <Sidebar email={me.data?.email} onNavigate={() => setMobileOpen(false)} />
+            <Sidebar me={me.data} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
@@ -300,10 +371,12 @@ function AdminShell({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="text-sm font-semibold text-slate-900">Admin Console</span>
-          <div className="ml-auto">
-            <AdminNotificationBell align="right" tone="light" />
-          </div>
+          <span className="text-sm font-semibold text-slate-900">{isAdmin ? 'Admin Console' : 'Content Console'}</span>
+          {isAdmin && (
+            <div className="ml-auto">
+              <AdminNotificationBell align="right" tone="light" />
+            </div>
+          )}
         </header>
         {/* relative: keeps hidden, absolutely positioned form controls (Radix
             Select) inside this scroller. See dashboard/layout.tsx. */}

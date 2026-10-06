@@ -140,6 +140,7 @@ const FOOTER_COLUMNS = [
   {
     title: 'Resources',
     links: [
+      { label: 'Blog', href: '/blog' },
       { label: 'Documentation', href: ROUTES.docs },
       { label: 'Quickstart', href: ROUTES.quickstart },
       { label: 'Integrations catalog', href: '/docs/integrations/catalog' },
