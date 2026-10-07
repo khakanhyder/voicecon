@@ -26,7 +26,7 @@ from app.models.template import (
     AgentTemplate, WorkflowTemplate, TemplateInstallation,
     TemplateReview, TemplateVersion
 )
-from app.models.chat import ChatWidget, ChatSession, ChatMessage
+from app.models.chat import ChatWidget, ChatSession, ChatMessage, DeviceToken
 from app.models.invitation import Invitation
 from app.models.notification import Notification
 from app.models.verification import VerificationCode
@@ -51,6 +51,7 @@ __all__ = [
     "ChatWidget",
     "ChatSession",
     "ChatMessage",
+    "DeviceToken",
     # Team invitations & notifications
     "Invitation",
     # Platform administration

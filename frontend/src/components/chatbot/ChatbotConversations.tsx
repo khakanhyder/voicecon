@@ -49,6 +49,13 @@ export function ChatbotConversations({ chatbotId }: { chatbotId: string }) {
     setTranscriptLoading(true)
     try {
       setTranscript(await chatbotService.transcript(session.id))
+      if (session.unread_count > 0) {
+        // Viewers can't mark read (a write); the list just keeps the badge.
+        chatbotService.markRead(session.id).then(
+          () => setSessions((list) => list.map((s) => (s.id === session.id ? { ...s, unread_count: 0 } : s))),
+          () => {}
+        )
+      }
     } catch {
       setTranscript([])
     } finally {
@@ -104,7 +111,15 @@ export function ChatbotConversations({ chatbotId }: { chatbotId: string }) {
                   <MessageSquare className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13.5px] font-semibold text-slate-800">{when(s.started_at)}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-[13.5px] font-semibold text-slate-800">{when(s.started_at)}</span>
+                    {s.mode === 'human' && (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-px text-[10.5px] font-semibold text-amber-800">Team</span>
+                    )}
+                    {s.unread_count > 0 && (
+                      <span className="ml-auto rounded-full bg-[#0F6A59] px-1.5 py-px text-[10.5px] font-semibold text-white">{s.unread_count}</span>
+                    )}
+                  </span>
                   <span className="mt-0.5 block truncate text-[12px] text-slate-500">
                     {s.message_count} messages{s.source_url ? ` · ${s.source_url}` : ''}
                   </span>
@@ -136,7 +151,10 @@ export function ChatbotConversations({ chatbotId }: { chatbotId: string }) {
         ) : transcript && transcript.length > 0 ? (
           <div className="space-y-2.5">
             {transcript.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div key={m.id ?? i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                {m.role === 'human' && (
+                  <span className="mb-0.5 px-1 text-[11px] font-medium text-slate-500">{m.sender?.name ?? 'Team member'} · team reply</span>
+                )}
                 <div
                   className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
                     m.role === 'user' ? 'rounded-br-sm bg-[#0F6A59] text-white' : 'rounded-bl-sm border border-slate-200 bg-white text-slate-800'

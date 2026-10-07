@@ -12,6 +12,9 @@ Design notes / security:
   client id) and issuer via google-auth.
 - Apple sends an ID token from the JS popup. We verify its signature against
   Apple's published JWKS, plus audience (our Services ID) and issuer.
+- The mobile app sends ID tokens straight from the native Google / Apple
+  SDKs; those may be addressed to the app's own client / bundle id, so the
+  accepted audiences are the web ids plus the mobile ones from settings.
 - Accounts are linked by *verified* email only. We never trust an unverified
   email to take over an existing account.
 """
@@ -91,6 +94,18 @@ class OAuthService:
             raise OAuthError("Google did not return an identity token.")
 
         # 2) Cryptographically verify the ID token (signature, aud, iss, exp).
+        return await self.verify_google_id_token(id_token_str)
+
+    async def verify_google_id_token(self, id_token_str: str) -> OAuthProfile:
+        """Profile from a Google ID token — what native (mobile) SDKs return.
+
+        No code exchange, so no client secret is involved; the token is
+        verified against Google's certs and must be addressed to one of our
+        client ids (web or mobile, see ``settings.google_audiences``).
+        """
+        if not settings.google_audiences:
+            raise OAuthError("Google sign-in is not configured on the server.")
+
         claims = await self._verify_google_id_token(id_token_str)
 
         if not claims.get("email"):
@@ -114,7 +129,7 @@ class OAuthService:
             return google_id_token.verify_oauth2_token(
                 id_token_str,
                 google_requests.Request(),
-                settings.GOOGLE_CLIENT_ID,
+                settings.google_audiences,
                 clock_skew_in_seconds=10,
             )
 
@@ -137,7 +152,7 @@ class OAuthService:
         full_name: Optional[str] = None,
         nonce: Optional[str] = None,
     ) -> OAuthProfile:
-        if not settings.apple_oauth_enabled:
+        if not settings.apple_audiences:
             raise OAuthError("Apple sign-in is not configured on the server.")
 
         claims = await self._verify_apple_id_token(id_token_str, nonce=nonce)
@@ -181,12 +196,19 @@ class OAuthService:
                 id_token_str,
                 key,
                 algorithms=["RS256"],
-                audience=settings.APPLE_CLIENT_ID,
                 issuer=APPLE_ISSUER,
-                options={"verify_at_hash": False},
+                # python-jose takes a single audience; the web Services ID and
+                # the iOS bundle ids are all valid, so check the list below.
+                options={"verify_at_hash": False, "verify_aud": False},
             )
         except Exception as e:
             logger.warning(f"Apple ID token verification failed: {e}")
+            raise OAuthError("Apple sign-in could not be verified.")
+
+        aud = claims.get("aud")
+        token_audiences = aud if isinstance(aud, list) else [aud]
+        if not any(a in settings.apple_audiences for a in token_audiences):
+            logger.warning(f"Apple ID token audience not accepted: {aud}")
             raise OAuthError("Apple sign-in could not be verified.")
 
         if nonce is not None and claims.get("nonce") != nonce:

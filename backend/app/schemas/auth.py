@@ -152,10 +152,21 @@ class RefreshTokenRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    """Google sign-in request (authorization-code flow)."""
-    code: str = Field(..., description="Authorization code from Google (popup auth-code flow)")
+    """Google sign-in request.
+
+    The web app sends ``code`` (popup auth-code flow); the mobile app sends the
+    ``id_token`` its native Google SDK returns. Exactly one is required.
+    """
+    code: Optional[str] = Field(default=None, description="Authorization code from Google (popup auth-code flow)")
+    id_token: Optional[str] = Field(default=None, description="ID token from a native Google Sign-In SDK (mobile app)")
     redirect_uri: str = Field(default="postmessage", description="Redirect URI used by the client")
     referral_code: Optional[str] = Field(default=None, max_length=60, description="Affiliate referral code, if any")
+
+    @model_validator(mode="after")
+    def _one_credential(self):
+        if not (self.code or self.id_token):
+            raise ValueError("Send either code or id_token")
+        return self
 
 
 class AppleAuthRequest(BaseModel):

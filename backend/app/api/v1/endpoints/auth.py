@@ -679,12 +679,16 @@ async def google_auth(
     """
     Sign in / sign up with Google.
 
-    Accepts an authorization code (popup auth-code flow), verifies it with
-    Google, then finds-or-creates the matching user and returns our own tokens.
+    Accepts an authorization code (web popup auth-code flow) or an ID token
+    (native mobile SDK), verifies it with Google, then finds-or-creates the
+    matching user and returns our own tokens.
     """
     oauth = get_oauth_service()
     try:
-        profile = await oauth.verify_google_code(payload.code, redirect_uri=payload.redirect_uri)
+        if payload.code:
+            profile = await oauth.verify_google_code(payload.code, redirect_uri=payload.redirect_uri)
+        else:
+            profile = await oauth.verify_google_id_token(payload.id_token)
         user, is_new = await oauth.resolve_user(db, profile, referral_code=payload.referral_code)
     except OAuthError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.public_message)

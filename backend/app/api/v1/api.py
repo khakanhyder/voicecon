@@ -27,6 +27,7 @@ from app.api.v1.endpoints import (
     billing,
     calls,
     chat,
+    devices,
     integrations,
     invitations,
     knowledge_base,
@@ -68,6 +69,7 @@ def _guard(read_permission: str, write_permission: str):
 api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
 api_router.include_router(invitations.router, prefix="/invitations", tags=["invitations"])
 api_router.include_router(waitlist.router, prefix="/waitlist", tags=["waitlist"])
 api_router.include_router(voice_stream.router, prefix="/voice", tags=["voice-stream"])
@@ -171,3 +173,4 @@ api_router.include_router(marketplace.public_router, prefix="/marketplace", tags
 api_router.include_router(workflows.public_router, prefix="/workflows", tags=["workflows"])
 # WebSockets authenticate from a ``token`` query param inside the handler.
 api_router.include_router(agents.ws_router, prefix="/agents", tags=["agents"])
+api_router.include_router(chat.ws_router, prefix="/chat", tags=["chat-widget"])

@@ -498,6 +498,10 @@ APPLE_CLIENT_ID=com.yourcompany.web
 APPLE_TEAM_ID=...
 APPLE_KEY_ID=...
 APPLE_PRIVATE_KEY=...
+# Mobile app (chat inbox): push notifications + native sign-in audiences
+FIREBASE_SERVICE_ACCOUNT_JSON=<service-account JSON, base64 of it, or a file path>
+APPLE_BUNDLE_IDS=ai.voicecon.app
+GOOGLE_MOBILE_CLIENT_IDS=   # optional; see docs/mobile-app
 ```
 
 Google sign-in activates only when **both** ID and secret are set; Apple needs only

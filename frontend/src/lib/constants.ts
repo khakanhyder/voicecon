@@ -171,6 +171,7 @@ export const API_ENDPOINTS = {
   CHATBOT: (id: string) => `${API_BASE}/api/v1/chat/chatbots/${id}`,
   CHATBOT_SESSIONS: (id: string) => `${API_BASE}/api/v1/chat/chatbots/${id}/sessions`,
   CHAT_SESSION_MESSAGES: (sessionId: string) => `${API_BASE}/api/v1/chat/sessions/${sessionId}/messages`,
+  CHAT_SESSION_READ: (sessionId: string) => `${API_BASE}/api/v1/chat/sessions/${sessionId}/read`,
 
   // Health
   HEALTH: `${API_BASE}/health`,

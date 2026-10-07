@@ -182,6 +182,32 @@ class Settings(BaseSettings):
     APPLE_KEY_ID: Optional[str] = None
     APPLE_PRIVATE_KEY: Optional[str] = None
 
+    # Mobile app sign-in. Native SDKs issue ID tokens for the app's own ids, so
+    # these are accepted as extra token audiences next to the web ones above.
+    #   GOOGLE_MOBILE_CLIENT_IDS: comma-separated Android/iOS OAuth client ids
+    #     (not needed when the app passes GOOGLE_CLIENT_ID as serverClientId)
+    #   APPLE_BUNDLE_IDS: comma-separated iOS bundle ids (e.g. ai.voicecon.app)
+    GOOGLE_MOBILE_CLIENT_IDS: Optional[str] = None
+    APPLE_BUNDLE_IDS: Optional[str] = None
+
+    # Mobile push (Firebase Cloud Messaging, HTTP v1). The service account JSON
+    # from Firebase console → Project settings → Service accounts: the raw
+    # JSON, the same base64-encoded, or a path to the file. Unset: push is off
+    # and everything else in the mobile API still works.
+    FIREBASE_SERVICE_ACCOUNT_JSON: Optional[str] = None
+
+    @staticmethod
+    def _csv(value: Optional[str]) -> list:
+        return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+    @property
+    def google_audiences(self) -> list:
+        return [a for a in [(self.GOOGLE_CLIENT_ID or "").strip()] if a] + self._csv(self.GOOGLE_MOBILE_CLIENT_IDS)
+
+    @property
+    def apple_audiences(self) -> list:
+        return [a for a in [(self.APPLE_CLIENT_ID or "").strip()] if a] + self._csv(self.APPLE_BUNDLE_IDS)
+
     @property
     def google_oauth_enabled(self) -> bool:
         return bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET)
