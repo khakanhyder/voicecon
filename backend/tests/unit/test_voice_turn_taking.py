@@ -445,6 +445,39 @@ async def test_mm_hm_pauses_then_resumes_and_is_not_answered(monkeypatch):
     assert session._false_pauses == 0  # they did say something
 
 
+async def test_a_short_sentence_while_paused_takes_the_floor(monkeypatch):
+    # Three words needed to cut in mid-sentence; "Wait." is one.
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, interrupt_sensitivity=0.0)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.6)
+    await session._on_deepgram_message(SPEECH_STARTED)
+    await caller_says(session, "Wait.")
+    await asyncio.sleep(0.3)
+
+    # Not resumed: the rest of the reply is dropped and "Wait." answered now,
+    # not after the whole reply has played.
+    assert session.llm_service.asked == ["What do you have this week?", "Wait."]
+    await settle(session)
+    assert assistant_messages(session)[0] != LONG_REPLY
+
+
+async def test_pausing_comes_back_after_a_real_interruption(monkeypatch):
+    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.1)
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
+
+    await caller_says(session, "What do you have this week?")
+    for _ in range(2):  # noise twice: pausing on sound is switched off
+        await asyncio.sleep(0.3)
+        await session._on_deepgram_message(SPEECH_STARTED)
+    await asyncio.sleep(0.3)
+    assert session._false_pauses == 2
+    await caller_says(session, "Book it for Tuesday please.")  # words still interrupt
+    await asyncio.sleep(0.1)
+
+    assert session._false_pauses == 0
+
+
 async def test_an_interruption_mixed_with_echo_still_interrupts(monkeypatch):
     session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
 

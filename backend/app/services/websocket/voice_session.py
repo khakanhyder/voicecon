@@ -66,7 +66,8 @@ CARRY_FLUSH_SECONDS = 2.5
 PAUSE_CONFIRM_SECONDS = 1.2
 
 #: Pauses that turn out to be nothing (line noise, echo) before the agent
-#: stops pausing on sound alone for the rest of the call.
+#: stops pausing on sound alone — until the caller next really interrupts.
+#: Words still interrupt either way.
 MAX_FALSE_PAUSES = 2
 
 #: Slack on top of the estimated playback time before giving up on Twilio's
@@ -794,8 +795,15 @@ class VoiceSession:
     def _end_of_speech(self) -> None:
         """The caller has stopped: hand everything they said to a turn."""
         if self._held:
-            # They finished without saying enough to interrupt.
-            self._spawn(self._resume_playback())
+            said = " ".join(self._utterance_parts).strip()
+            if self.agent.interrupt_enabled and said and not is_backchannel(said):
+                # Too few words to cut the agent off mid-sentence, but a
+                # finished sentence of their own ("Wait", "Hold on"): they
+                # have the floor. Resuming queued it behind the whole reply.
+                self._spawn(self._barge_in())
+            else:
+                # Nothing said, or only "mm-hm": carry on.
+                self._spawn(self._resume_playback())
         utterance = " ".join([self._carry] + self._utterance_parts).strip()
         if not utterance:
             return
@@ -881,6 +889,9 @@ class VoiceSession:
             turn.interrupted = True
             turn.heard = self._heard_text(turn.segments, now)
         self._interrupted = True
+        # A real caller on the line: pausing at the first sound is worth
+        # doing again, even if noise had switched it off earlier.
+        self._false_pauses = 0
         if self._held_timer is not None:
             self._held_timer.cancel()
             self._held_timer = None

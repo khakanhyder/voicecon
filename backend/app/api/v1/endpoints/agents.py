@@ -37,13 +37,12 @@ from app.schemas.agent import (
     AgentCloneRequest,
 )
 from app.services.agent_service import get_agent_service, AgentVersionConflict
-from app.services.voice.llm_service import get_llm_service, ChatMessage, cap_stream, trim_to_tokens
+from app.services.voice.llm_service import get_llm_service, ChatMessage, cap_stream
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
 from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
 from app.services.voice import languages
-from app.services.voice.turn_taking import pop_sentences
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.core.time import UTCDatetime, utc_iso
 
@@ -839,114 +838,103 @@ async def agent_respond(
                     logger.error(f"Tool '{name}' execution error: {e}", exc_info=True)
                     return f"The tool '{name}' encountered an error."
 
-            if func_defs:
-                # ── Function-calling path ──────────────────────────────────────
-                # Resolve tool calls with a non-streaming loop, then emit the final
-                # answer through the same sentence/TTS pipeline. Use the agent's
-                # configured model (function-calling capable) rather than the voice
-                # nano override.
-                # None (not an OpenAI-specific literal) lets llm_service resolve
-                # its own per-provider default — "gpt-4o-mini" sent to Anthropic
-                # failed outright (M2).
-                tool_model = agent.llm_model or None
-                resolved_text = ""
-                for _ in range(5):
-                    completion = await llm_service.chat(
-                        messages=messages,
-                        provider=agent.llm_provider,
-                        model=tool_model,
-                        temperature=float(agent.llm_temperature),
-                        max_tokens=max_tokens_cap,
-                        functions=func_defs,
-                    )
-                    fcall = getattr(completion, "function_call", None)
-                    if fcall:
-                        try:
-                            args = json.loads(fcall.arguments or "{}")
-                        except Exception:
-                            args = {}
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': fcall.name})}\n\n"
-                        # Any text alongside the function call (a "let me
-                        # check…" filler) is never actually spoken — only the
-                        # LOOP'S FINAL completion is sent to TTS. Carrying it
-                        # into history anyway gave the model its own unspoken
-                        # line to restate, so the real answer repeated it
-                        # verbatim once the tool result came back (m4).
-                        messages.append(ChatMessage(
-                            role="assistant", content="",
-                            function_call={"name": fcall.name, "arguments": fcall.arguments},
-                        ))
-                        tool_result = await _execute_tool_call(fcall.name, args)
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': fcall.name, 'result': _tool_note(tool_result)})}\n\n"
-                        messages.append(ChatMessage(
-                            role="function", name=fcall.name, content=tool_result,
-                        ))
-                        continue
-                    resolved_text = trim_to_tokens(completion.content or "", max_tokens_cap)
-                    break
-
-                full_response = resolved_text
-                for sent in pop_sentences(resolved_text.strip(), final=True)[0]:
-                    task = _start_tts(sent)
+            def _split_sentences() -> None:
+                """Start TTS for every sentence (or long clause) now complete."""
+                nonlocal sentence_buffer
+                while True:
+                    # Sentence marks of every script the agent can speak:
+                    # Chinese and Japanese ones have no space after them,
+                    # so a whole reply used to wait to be spoken at once.
+                    m = re.search(r'(?<=[.!?؟।])\s+|(?<=[。！？])\s*', sentence_buffer)
+                    if m:
+                        piece = sentence_buffer[:m.start()]
+                        sentence_buffer = sentence_buffer[m.end():]
+                    elif len(sentence_buffer) >= 25 and (m2 := re.search(r'(?<=[,;])\s+', sentence_buffer)):
+                        piece = sentence_buffer[:m2.start() + 1]
+                        sentence_buffer = sentence_buffer[m2.end():]
+                    else:
+                        return
+                    task = _start_tts(piece)
                     if task:
                         pending_tts.append(task)
-                for task in pending_tts:
-                    payload = await task
-                    if payload:
-                        yield f"data: {payload}\n\n"
-            else:
-                # ── No tools: original low-latency streaming path (unchanged) ──
+
+            # Both paths stream, so the first sentence is voiced while the
+            # model is still writing the rest. With tools this used to wait for
+            # the whole answer and all of its audio before a word was played —
+            # most of the silence after a question on an agent with tools.
+            # Phone calls (voice_session) already streamed.
+            #
+            # With tools, the agent's configured model (function-calling
+            # capable) rather than the voice nano override. None (not an
+            # OpenAI-specific literal) lets llm_service resolve its own
+            # per-provider default — "gpt-4o-mini" sent to Anthropic failed
+            # outright (M2).
+            stream_model = (agent.llm_model or None) if func_defs else llm_model
+            for _ in range(5 if func_defs else 1):
+                fcall = None
+                said = ""
                 async for chunk in cap_stream(llm_service.chat_stream(
                     messages=messages,
                     provider=agent.llm_provider,
-                    model=llm_model,
+                    model=stream_model,
                     temperature=float(agent.llm_temperature),
                     max_tokens=max_tokens_cap,
+                    functions=func_defs or None,
                 ), max_tokens_cap):
-                    full_response += chunk
+                    if isinstance(chunk, dict):
+                        if "function_call" in chunk:
+                            fcall = chunk["function_call"]
+                        continue
+                    said += chunk
                     sentence_buffer += chunk
-
-                    flush_chunks = []
-                    while True:
-                        # Sentence marks of every script the agent can speak:
-                        # Chinese and Japanese ones have no space after them,
-                        # so a whole reply used to wait to be spoken at once.
-                        m = re.search(r'(?<=[.!?؟।])\s+|(?<=[。！？])\s*', sentence_buffer)
-                        if m:
-                            flush_chunks.append(sentence_buffer[:m.start()])
-                            sentence_buffer = sentence_buffer[m.end():]
-                            continue
-                        if len(sentence_buffer) >= 25:
-                            m2 = re.search(r'(?<=[,;])\s+', sentence_buffer)
-                            if m2:
-                                flush_chunks.append(sentence_buffer[:m2.start() + 1])
-                                sentence_buffer = sentence_buffer[m2.end():]
-                                continue
-                        break
-
-                    # Launch TTS for each new sentence — non-blocking
-                    for fc in flush_chunks:
-                        task = _start_tts(fc)
-                        if task:
-                            pending_tts.append(task)
-
-                    # Immediately drain any tasks that already finished (preserving order)
+                    _split_sentences()
+                    # Send whatever is already synthesized (in order).
                     while pending_tts and pending_tts[0].done():
                         payload = await pending_tts.pop(0)
                         if payload:
                             yield f"data: {payload}\n\n"
 
-                # Flush remaining sentence buffer
+                # Speak the rest: the end of the answer, or a lead-in ("Let
+                # me check that") ahead of a tool.
+                full_response = f"{full_response} {said}".strip() if said.strip() else full_response
                 if sentence_buffer.strip():
                     task = _start_tts(sentence_buffer.strip())
                     if task:
                         pending_tts.append(task)
+                sentence_buffer = ""
+                if not fcall:
+                    break
 
-                # Drain remaining TTS tasks in order
+                # The lead-in plays while the tool runs, not after it.
                 for task in pending_tts:
                     payload = await task
                     if payload:
                         yield f"data: {payload}\n\n"
+                pending_tts = []
+
+                name = fcall.get("name") or ""
+                try:
+                    args = json.loads(fcall.get("arguments") or "{}")
+                except Exception:
+                    args = {}
+                yield f"data: {json.dumps({'type': 'tool_call', 'name': name})}\n\n"
+                # A lead-in the caller heard stays on the record, so the model
+                # does not say it again with the answer (m4: it repeated an
+                # unspoken one verbatim). The request goes before its result,
+                # or OpenAI receives an orphan tool message.
+                messages.append(ChatMessage(
+                    role="assistant", content=said.strip() or None,
+                    function_call={"name": name, "arguments": fcall.get("arguments") or "{}"},
+                ))
+                tool_result = await _execute_tool_call(name, args)
+                yield f"data: {json.dumps({'type': 'tool_result', 'name': name, 'result': _tool_note(tool_result)})}\n\n"
+                messages.append(ChatMessage(role="function", name=name, content=tool_result))
+
+            # Drain remaining TTS tasks in order
+            for task in pending_tts:
+                payload = await task
+                if payload:
+                    yield f"data: {payload}\n\n"
 
             # Fallback when LLM returned nothing
             if not full_response.strip():

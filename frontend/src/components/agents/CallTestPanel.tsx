@@ -55,7 +55,8 @@ const HISTORY_SENT = 40
 const MIN_CHECK_IN_MS = 15000
 // After pausing for a sound from the caller, how long to wait for words before
 // carrying on; and how many pauses for nothing (noise) before no longer pausing
-// on sound alone. Same values as voice_session.py.
+// on sound alone (until the caller next really interrupts). Same values as
+// voice_session.py.
 const PAUSE_CONFIRM_MS = 1200
 const MAX_FALSE_PAUSES = 2
 
@@ -109,7 +110,9 @@ export function CallTestPanel({
   const maxDurRef         = useRef(1800)
   const idleTimeoutRef    = useRef(8000)
   const streamRef         = useRef<MediaStream | null>(null)
-  const audioQueueRef     = useRef<{ audio_base64: string; format: string; text: string }[]>([])
+  // `logged`: already in the transcript (the greeting), so not re-added as
+  // the heard part of an interrupted reply.
+  const audioQueueRef     = useRef<{ audio_base64: string; format: string; text: string; logged?: boolean }[]>([])
   // One reply at a time. Bumped whenever a reply is started or cancelled, so
   // a /respond stream that is no longer the current one cannot speak.
   const respGenRef        = useRef(0)
@@ -265,7 +268,7 @@ export function CallTestPanel({
         const audio = new Audio(url)
         currentAudioRef.current = audio
         replyAudibleRef.current = true
-        replyHeardRef.current.push(item.text)
+        if (!item.logged) replyHeardRef.current.push(item.text)
         await new Promise<void>(resolve => {
           const done = () => { drainResolveRef.current = null; resolve() }
           drainResolveRef.current = done
@@ -418,8 +421,16 @@ export function CallTestPanel({
    *  from the relay, which applies the same rules as a phone call. */
   const endOfSpeech = (holdMs = 0, backchannel = false) => {
     if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
-    // They finished without saying enough to interrupt.
-    resumeReply()
+    const said = finalBufRef.current.slice(bufAtPauseRef.current.length).trim()
+    if (pausedRef.current && interruptRef.current && !backchannel && wordCount(said) > 0) {
+      // Too few words to cut the agent off mid-sentence, but a finished
+      // sentence of their own ("Wait", "Hold on"): they have the floor.
+      // Resuming queued it until the whole reply had played.
+      cancelReply(false)
+    } else {
+      // Nothing said, or only "mm-hm": carry on.
+      resumeReply()
+    }
     if (backchannel && agentBusy()) {
       // A listening noise over the agent is not a turn.
       finalBufRef.current = bufAtPauseRef.current
@@ -437,6 +448,9 @@ export function CallTestPanel({
    *  keeps only the part of the reply that was played. */
   const cancelReply = (merge: boolean) => {
     respGenRef.current++
+    // A real caller on the line: pausing at the first sound is worth doing
+    // again, even if noise had switched it off earlier.
+    if (!merge) falsePausesRef.current = 0
     streamOpenRef.current = false
     if (abortCtrlRef.current) { abortCtrlRef.current.abort(); abortCtrlRef.current = null }
     const heard = replyHeardRef.current.join(' ').trim()
@@ -530,7 +544,9 @@ export function CallTestPanel({
             mediaRecRef.current = rec
             rec.ondataavailable = ev2 => { if (ev2.data.size > 0 && ws.readyState === WebSocket.OPEN) ws.send(ev2.data) }
             rec.start(100)
-            setSttMode('deepgram'); setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current()
+            setSttMode('deepgram')
+            // Opened during the greeting: it is still the agent's turn.
+            if (!agentBusy()) { setCallState('listening'); callStateRef.current = 'listening'; resetIdleRef.current() }
           } catch { ws.close(); dgAvailRef.current = false; setSttMode('webspeech'); startWebSpeechRef.current() }
         } else if (ev.type === 'transcript') {
           const { text, is_final, speech_final, hold_ms, backchannel } = ev
@@ -586,7 +602,7 @@ export function CallTestPanel({
     const r = new SR()
     recognitionRef.current = r
     r.continuous = false; r.interimResults = true; r.lang = 'en-US'
-    r.onstart = () => { setCallState('listening'); resetIdleRef.current() }
+    r.onstart = () => { if (!agentBusy()) { setCallState('listening'); resetIdleRef.current() } }
     r.onresult = (e: any) => {
       let interim = '', final = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -625,22 +641,32 @@ export function CallTestPanel({
   useEffect(() => { startDgRef.current          = startDeepgramSession }, [startDeepgramSession])
   useEffect(() => { streamRespRef.current       = streamResponse },       [streamResponse])
 
-  const streamGreeting = async (text: string) => {
+  /** The opening line, played like any reply. Listening starts at the same
+   *  moment, so the caller is heard from the first second and can talk over
+   *  it; it used to open only after the greeting had been fetched and played
+   *  in full, and everything said until then was lost. */
+  const playGreeting = async (text: string) => {
+    const gen = ++respGenRef.current
+    const stale = () => gen !== respGenRef.current || !isActiveRef.current
+    setCallState('speaking'); callStateRef.current = 'speaking'
+    replyAudibleRef.current = false
+    replyHeardRef.current   = []
+    if (!textOnlyRef.current) startListening()
     try {
       const r = await apiClient.post<{ audio_base64: string; audio_format: string }>(
         `${API_ENDPOINTS.AGENT(agentId)}/speak`, { text }
       )
-      const mime  = r.data.audio_format === 'mp3' ? 'audio/mpeg' : `audio/${r.data.audio_format}`
-      const bytes = atob(r.data.audio_base64)
-      const buf   = new Uint8Array(bytes.length)
-      for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
-      const audio = new Audio(URL.createObjectURL(new Blob([buf], { type: mime })))
-      currentAudioRef.current = audio
-      replyAudibleRef.current = true
-      await audio.play()
-      await new Promise<void>(r2 => { audio.onended = () => r2() })
-    } catch {}
-    if (isActiveRef.current) startListening()
+      // The caller spoke first: they are answered instead.
+      if (stale()) return
+      addMessage('agent', text)
+      audioQueueRef.current.push({ audio_base64: r.data.audio_base64, format: r.data.audio_format, text, logged: true })
+      drainQueue()
+    } catch {
+      if (stale()) return
+      addMessage('agent', text)
+      setCallState('listening'); callStateRef.current = 'listening'
+      startListening()
+    }
   }
 
   const startCall = async () => {
@@ -675,9 +701,7 @@ export function CallTestPanel({
       }, maxDurRef.current * 1000)
     }
     if (agent.first_message) {
-      setCallState('speaking')
-      addMessage('agent', agent.first_message)
-      await streamGreeting(agent.first_message)
+      await playGreeting(agent.first_message)
     } else {
       startListening()
     }

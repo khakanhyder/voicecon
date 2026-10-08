@@ -183,13 +183,13 @@ async def test_tool_results_are_streamed_so_the_client_can_keep_them(monkeypatch
     calls = {"n": 0}
 
     class _LLM:
-        async def chat(self, **_kwargs):
+        async def chat_stream(self, **_kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
-                return types.SimpleNamespace(
-                    content="", function_call=types.SimpleNamespace(name="check_available_times", arguments="{}"),
-                )
-            return types.SimpleNamespace(content="One or two o'clock is free.", function_call=None)
+                yield "Let me check. "
+                yield {"function_call": {"name": "check_available_times", "arguments": "{}"}}
+                return
+            yield "One or two o'clock is free."
 
     _patch_common(monkeypatch, _Executor(), _LLM())
     body = await _run([], "Anything free?")
@@ -198,3 +198,11 @@ async def test_tool_results_are_streamed_so_the_client_can_keep_them(monkeypatch
     results = [e for e in events if e["type"] == "tool_result"]
     assert results and results[0]["name"] == "check_available_times"
     assert "13:00" in results[0]["result"]
+    # Streamed like a phone call: the lead-in is voiced before the tool runs,
+    # the answer after it.
+    order = [(e["type"], e.get("text")) for e in events if e["type"] in ("sentence", "tool_call")]
+    assert order == [
+        ("sentence", "Let me check."), ("tool_call", None), ("sentence", "One or two o'clock is free."),
+    ]
+    done = [e for e in events if e["type"] == "done"][0]
+    assert done["full_text"] == "Let me check. One or two o'clock is free."
