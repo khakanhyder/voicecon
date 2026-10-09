@@ -78,7 +78,8 @@ const nextConfig = {
               // (its API calls to api.stripe.com are covered by connect-src https:).
               // Google Analytics (gtag.js) loads from googletagmanager.com; its hits go
               // out over connect-src/img-src https:, which already allow them.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com https://www.googletagmanager.com",
+              // DataFast analytics loads from datafa.st (marketing hosts only).
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://appleid.cdn-apple.com https://accounts.google.com https://static.cloudflareinsights.com https://js.stripe.com https://www.googletagmanager.com https://datafa.st",
               // blob: is the knowledge-base PDF preview, which hands the fetched
               // file to the browser's own PDF viewer in an iframe.
               "frame-src blob: https://appleid.apple.com https://accounts.google.com https://js.stripe.com https://hooks.stripe.com",

@@ -57,6 +57,14 @@ export default function RootLayout({
   window.gtag = function(){dataLayer.push(arguments);};
   gtag('js', new Date());
   gtag('config', 'G-ZC5PPBD3B6');
+
+  // DataFast analytics (lead's request) — same marketing-hosts-only rule.
+  var d = document.createElement('script');
+  d.defer = true;
+  d.setAttribute('data-website-id', 'dfid_kbJtmTY2MRZC7hqrZX8Rd');
+  d.setAttribute('data-domain', 'voicecon.ai');
+  d.src = 'https://datafa.st/js/script.js';
+  document.head.appendChild(d);
 }`,
           }}
         />
