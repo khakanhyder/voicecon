@@ -22,12 +22,14 @@ export function LegalDocument({
   summary,
   sections,
   related,
+  lastUpdated = { date: LEGAL.lastUpdated, iso: LEGAL.lastUpdatedIso },
 }: {
   title: string
   description: string
   summary: ReactNode
   sections: LegalSection[]
   related: { label: string; href: string }
+  lastUpdated?: { date: string; iso: string }
 }) {
   return (
     <MarketingShell>
@@ -48,7 +50,7 @@ export function LegalDocument({
             <div className="flex gap-2">
               <dt className="text-white/45">Last updated</dt>
               <dd className="font-medium text-white/85">
-                <time dateTime={LEGAL.lastUpdatedIso}>{LEGAL.lastUpdated}</time>
+                <time dateTime={lastUpdated.iso}>{lastUpdated.date}</time>
               </dd>
             </div>
           </dl>

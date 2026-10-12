@@ -889,6 +889,12 @@ class IntegrationManager:
         """
         connection.status = "disconnected"
         connection.is_active = False
+        # The privacy policy promises disconnecting deletes the stored OAuth
+        # tokens (Google Limited Use). Reconnecting runs OAuth again and writes
+        # new ones. API-key credentials are left alone: own-number telephony
+        # still reads them and explains how to reconnect.
+        connection.access_token_encrypted = None
+        connection.refresh_token_encrypted = None
         connection.updated_at = datetime.utcnow()
 
         await db.commit()

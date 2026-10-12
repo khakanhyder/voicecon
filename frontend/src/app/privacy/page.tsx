@@ -181,6 +181,76 @@ const SECTIONS: LegalSection[] = [
     ),
   },
   {
+    id: 'google-user-data',
+    title: 'Google user data',
+    body: (
+      <>
+        <P>
+          You can connect Google Calendar, Google Sheets and Google Drive on the Integrations page so your agents
+          and workflows can work with them. Each connection uses Google OAuth: you choose the Google account, see
+          the permissions on Google&apos;s consent screen and approve them yourself. Voicecon never sees your
+          Google password.
+        </P>
+        <H3>What we access and why</H3>
+        <Table
+          headers={['Google service and permission', 'What Voicecon accesses', 'What it is used for']}
+          rows={[
+            [
+              'Google Calendar (calendar)',
+              'Your list of calendars, free/busy times, and events in the calendar you select',
+              'Letting you choose the calendar bookings go to; letting your agent check availability, offer open times, and book, find, reschedule and cancel appointments when a caller asks',
+            ],
+            [
+              'Google Sheets (spreadsheets)',
+              'The contents of the spreadsheet you link to Voicecon',
+              'Letting your agent and workflows add rows (for example a new caller), look up a row (for example by phone number), update cells and delete a row when asked',
+            ],
+            [
+              'Google Drive (drive.file)',
+              'Only files that Voicecon creates or that you open with Voicecon, not the rest of your Drive',
+              'Letting your workflows list those files when you set up a Drive action',
+            ],
+          ]}
+        />
+        <P>
+          Voicecon reads or changes your Google data only when one of your agents or workflows runs an action you
+          have configured, or when you use the Integrations page. We do not scan your calendars or spreadsheets in
+          the background.
+        </P>
+        <H3>Storage, sharing and deletion</H3>
+        <UL>
+          <li>
+            We store the OAuth tokens for each connection encrypted at rest. We do not copy your calendars or
+            spreadsheets into Voicecon. The results of an action, such as the time of a booked appointment, can
+            appear in that call&apos;s transcript, tool log or workflow run history in your workspace.
+          </li>
+          <li>
+            During a call, the data an action returns is sent to the language model provider that powers your
+            agent (see <A href="#sharing">How we share information</A>), only so the agent can answer the caller.
+            We do not share Google user data with anyone else, except where the law requires it.
+          </li>
+          <li>
+            You can disconnect an integration at any time on the Integrations page. This deletes the stored
+            tokens. You can also remove Voicecon&apos;s access in your{' '}
+            <A href="https://myaccount.google.com/connections">Google Account settings</A>. To delete call and
+            workflow records that contain Google data, delete them in the application or email {privacyMail}.
+          </li>
+        </UL>
+        <Callout title="Limited Use">
+          Voicecon&apos;s use and transfer to any other app of information received from Google APIs will adhere
+          to the{' '}
+          <A href="https://developers.google.com/terms/api-services-user-data-policy">
+            Google API Services User Data Policy
+          </A>
+          , including the Limited Use requirements. In particular, we use Google user data only to provide and
+          improve the features you use; we do not use it for advertising; we do not sell it; we do not let humans
+          read it unless you ask us to, it is needed for security or to comply with the law; and we do not use it,
+          or data derived from it, to develop, improve or train generalized AI or machine learning models.
+        </Callout>
+      </>
+    ),
+  },
+  {
     id: 'sharing',
     title: 'How we share information',
     body: (
@@ -428,12 +498,14 @@ export default function PrivacyPolicyPage() {
       title="Privacy Policy"
       description="How Voicecon collects, uses, shares and protects personal information, for our customers and for the people who talk to their AI agents."
       related={{ label: 'Terms of Service', href: '/terms' }}
+      lastUpdated={{ date: LEGAL.privacyLastUpdated, iso: LEGAL.privacyLastUpdatedIso }}
       sections={SECTIONS}
       summary={
         <ul>
           <li>We collect the account, billing and workspace details needed to run your account, plus the calls, transcripts and content your agents handle.</li>
           <li>For calls and chats with your agents, you control the data and we process it on your behalf.</li>
           <li>We send conversation content to AI, speech and telephony providers only to deliver the service. We don&apos;t sell personal information, and we don&apos;t train AI models on your data without your consent.</li>
+          <li>If you connect Google Calendar, Sheets or Drive, we use that data only to run the actions you set up, and we follow Google&apos;s Limited Use requirements.</li>
           <li>We don&apos;t use advertising cookies or third-party analytics trackers.</li>
           <li>You can access, correct, export or delete your information. Email {LEGAL.privacyEmail}.</li>
         </ul>

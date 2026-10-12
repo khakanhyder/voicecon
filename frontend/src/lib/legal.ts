@@ -27,4 +27,7 @@ export const LEGAL = {
   effectiveDateIso: '2026-09-18',
   lastUpdated: 'September 18, 2026',
   lastUpdatedIso: '2026-09-18',
+  /** The Privacy Policy changes separately from the Terms (Google user data section). */
+  privacyLastUpdated: 'October 12, 2026',
+  privacyLastUpdatedIso: '2026-10-12',
 } as const
