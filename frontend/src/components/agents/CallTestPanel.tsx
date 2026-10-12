@@ -135,6 +135,11 @@ export function CallTestPanel({
   const pauseTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pauseHeardRef     = useRef(false)
   const falsePausesRef    = useRef(0)
+  // The greeting is playing: not paused for a sound alone. The microphone's
+  // first second (echo cancellation still adapting to the speaker, gain
+  // settling) reads as a voice starting, and each such pause cut the
+  // greeting off for over a second. Words still interrupt it.
+  const greetingAudioRef  = useRef(false)
   const currentAudioRef   = useRef<HTMLAudioElement | null>(null)
   const abortCtrlRef      = useRef<AbortController | null>(null)
   const drainResolveRef   = useRef<(() => void) | null>(null)
@@ -268,6 +273,7 @@ export function CallTestPanel({
         const audio = new Audio(url)
         currentAudioRef.current = audio
         replyAudibleRef.current = true
+        greetingAudioRef.current = !!item.logged
         if (!item.logged) replyHeardRef.current.push(item.text)
         await new Promise<void>(resolve => {
           const done = () => { drainResolveRef.current = null; resolve() }
@@ -280,6 +286,7 @@ export function CallTestPanel({
     }
     drainResolveRef.current = null
     isPlayingRef.current = false
+    greetingAudioRef.current = false
     currentAudioRef.current = null
     // Not while the reply is still arriving: the gap before its next sentence
     // is the agent mid-reply, not the caller's turn.
@@ -491,6 +498,7 @@ export function CallTestPanel({
    *  over the caller for a second or two. */
   const pauseReply = () => {
     if (!interruptRef.current || pausedRef.current || falsePausesRef.current >= MAX_FALSE_PAUSES) return
+    if (greetingAudioRef.current) return
     if (!agentBusy() || !replyAudibleRef.current || !currentAudioRef.current) return
     pausedRef.current = true
     pauseHeardRef.current = false

@@ -535,6 +535,46 @@ async def test_speech_during_the_greeting_waits_for_it_rather_than_overlapping(m
     assert session.tts_service.spoken[1] == "Sure, I can help."
 
 
+async def test_noise_at_the_start_of_the_call_does_not_cut_the_greeting_off(monkeypatch):
+    # "Hello, I am..." — stop — "...Ava": line noise and echo in the first
+    # seconds read as a voice starting, and each one paused the greeting.
+    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.1)
+    session, twilio = make_session(
+        monkeypatch, lambda m: LONG_REPLY,
+        first_message="Hello, this is Ava from Pearl Dental, how can I help you today?",
+    )
+
+    session._spawn(session._greet(session.agent.first_message))
+    for _ in range(3):
+        await asyncio.sleep(0.15)
+        await session._on_deepgram_message(SPEECH_STARTED)
+    await settle(session)
+
+    assert twilio.cleared == 0
+    # The pause budget is left for the conversation itself.
+    assert session._false_pauses == 0
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(SPEECH_STARTED)
+    assert twilio.cleared == 1
+    await settle(session)
+
+
+async def test_words_still_interrupt_the_greeting(monkeypatch):
+    session, twilio = make_session(
+        monkeypatch, lambda m: "Sure, I can help.",
+        first_message="Hello, this is Ava from Pearl Dental, how can I help you today?",
+    )
+
+    session._spawn(session._greet(session.agent.first_message))
+    await asyncio.sleep(0.3)
+    await caller_says(session, "I want to book an appointment.")
+    await settle(session)
+
+    assert twilio.cleared == 1
+    assert session.llm_service.asked == ["I want to book an appointment."]
+
+
 async def test_a_caller_who_is_still_talking_counts_as_active(monkeypatch):
     session, _ = make_session(monkeypatch, lambda m: "Okay.")
     session._silence_checkins = 1

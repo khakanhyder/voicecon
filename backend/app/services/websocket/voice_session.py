@@ -283,6 +283,10 @@ class VoiceSession:
         self._held_timer: Optional[asyncio.Task] = None
         self._held_heard_words = False
         self._false_pauses = 0
+        # The opening line is playing. It is not paused for a sound alone:
+        # the first seconds of a call are line noise and the agent's own
+        # echo, and each such pause cut the greeting off for over a second.
+        self._greeting = False
         self._echo_hits = 0
         # The agent's last full line, which decides how patiently to wait
         # for the answer (a phone number takes longer than a yes).
@@ -652,6 +656,9 @@ class VoiceSession:
             return
         if self._false_pauses >= MAX_FALSE_PAUSES or not self._audible():
             return
+        if self._greeting:
+            # Words still interrupt the greeting (see _should_barge_in).
+            return
         await self._stop_audio(drop=False)
         self._held_heard_words = False
         self._restart_held_timer()
@@ -930,8 +937,12 @@ class VoiceSession:
         """Speak the opening line as a turn of its own, so a reply cannot
         start on top of it."""
         async with self._turn_lock:
-            await self._send_welcome_message(text)
-            await self._wait_playback()
+            self._greeting = True
+            try:
+                await self._send_welcome_message(text)
+                await self._wait_playback()
+            finally:
+                self._greeting = False
 
     async def _handle_stop(self, message: dict) -> None:
         """

@@ -280,19 +280,15 @@
             "connection_id": "cb721dfb-e695-48b0-af95-1565a4f05173",
             "action": "append_row",
             "parameters": {
-              "spreadsheet_id": "1QCjaEXt2bh5wIlPUy_NOcCXizw9-bBtWKzrUCa0lUGU",
-              "range_name": "Sheet1!A:I",
+              "spreadsheet_id": "1MLmvEk4C-JuDvPPixbzSV13oSaTtbrIIgkiF42V-dr0",
+              "range_name": "Sheet1!A:E",
               "values": [
                 [
                   "{{trigger.patient_name}}",
                   "{{trigger.phone}}",
                   "{{trigger.email}}",
-                  "{{trigger.service}}",
-                  "{{trigger.date}}",
-                  "{{trigger.time}}",
-                  "{{priority}}",
-                  "{{trigger.notes}}",
-                  "{{steps.book_calendar.html_link}}"
+                  "{{trigger.date}} {{trigger.time}}",
+                  "Booked"
                 ]
               ]
             }
