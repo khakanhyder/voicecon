@@ -41,7 +41,11 @@ from app.services.voice.llm_service import get_llm_service, ChatMessage, cap_str
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import KB_CONTEXT_INTRO, VOICE_RULES, strip_for_speech
-from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
+from app.services.voice.conversation_context import (
+    current_time_note,
+    normalize_spoken_emails,
+    tidy_email_arguments,
+)
 from app.services.voice import languages
 from app.services.knowledge_base.agent_context import get_agent_kb_context
 from app.core.time import UTCDatetime, utc_iso
@@ -914,7 +918,7 @@ async def agent_respond(
 
                 name = fcall.get("name") or ""
                 try:
-                    args = json.loads(fcall.get("arguments") or "{}")
+                    args = tidy_email_arguments(json.loads(fcall.get("arguments") or "{}"))
                 except Exception:
                     args = {}
                 yield f"data: {json.dumps({'type': 'tool_call', 'name': name})}\n\n"

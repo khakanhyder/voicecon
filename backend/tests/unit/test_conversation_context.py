@@ -11,6 +11,7 @@ from app.services.voice.conversation_context import (
     datetime_note,
     normalize_spoken_emails,
     resolve_timezone,
+    tidy_email_arguments,
 )
 from app.services.voice.guardrails import CONDUCT_RULES, VOICE_RULES
 
@@ -86,9 +87,12 @@ async def test_a_failed_lookup_never_takes_the_call_down():
 def test_every_channel_gets_the_date_rules_and_voice_also_gets_the_email_rules():
     assert "CURRENT DATE AND TIME" in CONDUCT_RULES
     assert "full date and time" in CONDUCT_RULES
-    assert "read it back one letter at a time" in VOICE_RULES
-    assert "never spell out the word one" in VOICE_RULES
+    assert "spell only the part before the @" in VOICE_RULES
+    assert "never o n e for the" in VOICE_RULES
     assert "at the rate" in VOICE_RULES
+    # A correction fixes one part; the caller never starts over.
+    assert "never make them repeat the whole address" in VOICE_RULES
+    assert "spell it again from the start" not in VOICE_RULES
     # The platform rules must stay speakable: this is the pre-existing guard.
     assert "emoji" not in CONDUCT_RULES.lower()
 
@@ -111,6 +115,35 @@ def test_every_channel_gets_the_date_rules_and_voice_also_gets_the_email_rules()
         ("Yes. My email is a l I one two three four a s a d at g mail dot com.", "Yes. My email is ali1234asad@gmail.com."),
         ("a l i 1 2 3 4 a s a d at g mail dot com", "ali1234asad@gmail.com"),
         ("John Dot Smith AT Gmail DOT com", "john.smith@gmail.com"),  # case is noise from speech-to-text
+        # How callers say @, and how speech-to-text mishears it.
+        ("Sajid Ali at the rate gmail.com", "sajidali@gmail.com"),
+        ("Sajid Ali at the of rate gmail.com", "sajidali@gmail.com"),
+        ("Sajid Ali at gmail.com", "sajidali@gmail.com"),
+        ("Sajid Ali at the red gmail.com", "sajidali@gmail.com"),
+        ("It is sajid ali at the rate of gmail dot com", "It is sajidali@gmail.com"),
+        ("sajid at rate gmail dot com", "sajid@gmail.com"),
+        ("Sajid Ali @ gmail.com", "sajidali@gmail.com"),
+        # Dots in the name, said or written.
+        ("sajid dot techzoid at the rate gmail dot com", "sajid.techzoid@gmail.com"),
+        ("sajid.techzoid at gmail.com", "sajid.techzoid@gmail.com"),
+        ("Yes, sajid full stop techzoid at gmail dot com", "Yes, sajid.techzoid@gmail.com"),
+        # Digits as numerals, and domains speech-to-text broke up.
+        ("sajid 123 at gmail dot com", "sajid123@gmail.com"),
+        ("Sajid Ali at the rate Gmail. Com.", "sajidali@gmail.com."),
+        ("sajid ali at gmail com", "sajidali@gmail.com"),
+        ("sajid at hot mail dot com", "sajid@hotmail.com"),
+        # The name said first stays out of the address.
+        (
+            "My name is Sajid Ali. My email is sajid ali at the rate gmail dot com.",
+            "My name is Sajid Ali. My email is sajidali@gmail.com.",
+        ),
+        ("sajid ali at gmail.com and my number is 555", "sajidali@gmail.com and my number is 555"),
+        # Filler words before the address stay out of it.
+        ("or maybe pat at the rate acme dot com", "or maybe pat@acme.com"),
+        ("my work one is sajid ali at gmail dot com", "my work one is sajidali@gmail.com"),
+        ("let me give you my gmail sajid ali at gmail dot com", "let me give you my gmail sajidali@gmail.com"),
+        # A phrase that is not an address keeps its words.
+        ("Sajid Ali at the red gmail.com, at the right time", "sajidali@gmail.com, at the right time"),
     ],
 )
 def test_a_spoken_address_becomes_an_address(spoken, written):
@@ -130,6 +163,9 @@ def test_a_spoken_address_becomes_an_address(spoken, written):
         "a b at c mail is down",              # a split domain still needs its dot
         "is that at gmail dot com",           # a question, not an address
         "at gmail dot com",                   # nothing before the "at"
+        "I will be there at the right time",
+        "we can meet at the rate you like",
+        "is that at the rate gmail dot com",  # a question, not an address
         "",
         "no address here",
     ],
@@ -141,3 +177,28 @@ def test_ordinary_speech_is_left_alone(text):
 def test_none_and_empty_are_safe():
     assert normalize_spoken_emails("") == ""
     assert normalize_spoken_emails(None) is None
+
+
+# ---------- emails in tool calls ----------
+def test_tool_email_arguments_are_written_out():
+    args = {
+        "email": "Sajid Ali at the rate gmail dot com",
+        "customer_email": "sajid ali@gmail.com",
+        "Email": "SAJID.TECHZOID@GMAIL.COM",
+        "name": "Sajid Ali at gmail dot com",   # not an email field
+    }
+    assert tidy_email_arguments(args) == {
+        "email": "sajidali@gmail.com",
+        "customer_email": "sajidali@gmail.com",
+        "Email": "sajid.techzoid@gmail.com",
+        "name": "Sajid Ali at gmail dot com",
+    }
+
+
+@pytest.mark.parametrize("value", ["not sure yet", "", "sajid at gmail", 42, None])
+def test_tool_email_arguments_that_are_not_an_address_pass_through(value):
+    assert tidy_email_arguments({"email": value}) == {"email": value}
+
+
+def test_tool_arguments_that_are_not_a_dict_pass_through():
+    assert tidy_email_arguments([]) == []

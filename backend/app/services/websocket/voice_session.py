@@ -21,7 +21,11 @@ from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
-from app.services.voice.conversation_context import current_time_note, normalize_spoken_emails
+from app.services.voice.conversation_context import (
+    current_time_note,
+    normalize_spoken_emails,
+    tidy_email_arguments,
+)
 from app.services.voice.turn_taking import (
     extra_wait_seconds,
     is_backchannel,
@@ -1596,7 +1600,7 @@ class VoiceSession:
 
             # Execute function
             function_name = function_call.get("name")
-            function_args = json.loads(function_call.get("arguments", "{}"))
+            function_args = tidy_email_arguments(json.loads(function_call.get("arguments", "{}")))
 
             logger.info(f"Executing function: {function_name} with args: {function_args}")
 

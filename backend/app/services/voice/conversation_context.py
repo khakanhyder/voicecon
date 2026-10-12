@@ -113,22 +113,64 @@ _CONNECTORS = {
     "dot": ".", "period": ".", "point": ".",
     "underscore": "_", "dash": "-", "hyphen": "-", "plus": "+",
 }
+_DOT_WORDS = ("dot", "period", "point")
 _DIGIT_WORDS = {
     "zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4",
     "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
 }
-#: "at the rate (of)" is how many callers say @.
-_AT_THE_RATE = re.compile(r"\bat\s+the\s+rate(?:\s+of)?\b", re.IGNORECASE)
+#: Everything a caller says, or speech-to-text hears, for "@". "at the rate
+#: (of)" is how many callers say it; "at the red", "at the of rate", "at rate"
+#: and "add the rate" are how speech-to-text mishears it. A match only counts
+#: when a real domain follows, so "at the right time" is never touched.
+_AT_PHRASE = re.compile(
+    r"\b(?:at|add|ad|et)\s+(?:(?:the|da|de|d|a)\s+)?(?:of\s+)?"
+    r"(?:rate|rates|rated|red|rat|right|raid|read|ret|reat)(?:\s+of)?\b"
+    r"|\bat\s+(?:sign|symbol)\b"
+    r"|\s+@\s*|@\s+",  # "@" that speech-to-text wrote with spaces round it
+    re.IGNORECASE,
+)
+#: "full stop" is how many callers say the dot in a name ("sajid full stop ali").
+_DOT_PHRASE = re.compile(r"\bfull\s+stop\b", re.IGNORECASE)
+#: Mail providers callers name without the dot ("gmail com") or that
+#: speech-to-text splits in two ("hot mail").
+_PROVIDERS = {
+    "gmail", "googlemail", "yahoo", "ymail", "hotmail", "outlook", "live", "msn",
+    "icloud", "aol", "protonmail", "proton", "zoho", "gmx", "yandex",
+}
+#: Endings safe to join to a label across sentence punctuation ("Gmail. Com.").
+#: Kept short on purpose: "in" or "me" there is far more often the next sentence.
+_SPOKEN_TLDS = {
+    "com", "net", "org", "co", "io", "ai", "edu", "gov", "pk", "uk", "us", "ca",
+    "au", "de", "info", "biz",
+}
 _TRAILING_PUNCT = ".,;:!?"
-#: Words that stand right before "at" in ordinary speech ("is that at gmail dot
-#: com?"), never as the end of an address. Without this a question about gmail
-#: became "is that@gmail.com".
+#: Words that stand before an address in ordinary speech ("my email is ...",
+#: "yes it's ...") and are never part of it. The local part is read backwards
+#: from the "at" and stops at the first of these.
 _NOT_A_LOCAL_PART = {
     "is", "that", "this", "it", "its", "it's", "the", "a", "an", "me", "my", "you",
     "your", "we", "they", "he", "she", "and", "or", "to", "of", "on", "in", "for",
     "so", "if", "then", "there", "here", "who", "what", "was", "are", "am", "be",
-    "from", "with", "email", "mail", "address", "id", "emailed", "mailed",
+    "from", "with", "email", "e-mail", "mail", "address", "id", "emailed", "mailed",
+    "i'm", "im", "yes", "yeah", "yep", "sure", "okay", "ok", "um", "uh", "hmm",
+    "well", "please", "just", "actually", "no", "not", "sorry", "but", "also",
+    "use", "try", "send", "reach", "contact", "write", "note", "down", "name",
+    "called", "spelled", "spell", "like", "correct", "right", "by", "via", "at",
+    "maybe", "perhaps", "probably", "think", "guess", "mean", "meant", "now",
+    "again", "instead", "rather", "change", "update", "new", "old", "other",
+    "another", "let", "let's", "lets", "give", "take", "have", "has", "had", "got",
+    "need", "want", "wanna", "gonna", "can", "could", "will", "would", "should",
+    "do", "does", "did", "be", "been", "being", "say", "said", "type", "typed",
+    "put", "make", "go", "should've", "work", "personal", "business", "office",
+    "official", "gmail", "hotmail", "outlook", "yahoo", "account", "one's",
 }
+#: At most this many plain words make up a local part ("sajid ali khan at …").
+_MAX_LOCAL_WORDS = 3
+_LOCAL_WORD = re.compile(r"[a-z0-9][a-z0-9._+-]*")
+_EMAIL = re.compile(r"[a-z0-9][a-z0-9._%+-]*@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}")
+#: Stand-ins for the phrases above while a sentence is being read. A phrase
+#: that does not end up inside an address is put back exactly as it was said.
+_MARK = ""
 
 
 def _strip(token: str) -> str:
@@ -136,11 +178,15 @@ def _strip(token: str) -> str:
 
 
 def _kind(token: str) -> str:
-    """CONNECTOR, DIGIT, CHAR (one letter/digit), or WORD."""
+    """AT, CONNECTOR, DIGIT, CHAR (one letter/digit), or WORD."""
+    if token.startswith(_MARK):
+        return "AT" if token.endswith("@") else "CONNECTOR"
     low = _strip(token).lower()
+    if low == "at":
+        return "AT"
     if low in _CONNECTORS:
         return "CONNECTOR"
-    if low in _DIGIT_WORDS:
+    if low in _DIGIT_WORDS or (low.isdigit() and low.isascii()):
         return "DIGIT"
     if len(low) == 1 and low.isalnum():
         return "CHAR"
@@ -148,6 +194,8 @@ def _kind(token: str) -> str:
 
 
 def _render(token: str) -> str:
+    if token.startswith(_MARK):
+        return "."
     low = _strip(token).lower()
     if low in _CONNECTORS:
         return _CONNECTORS[low]
@@ -188,22 +236,38 @@ def _domain(tokens: list[str], start: int) -> Optional[tuple[str, int]]:
                 i + 1 < len(tokens)
                 and _kind(tokens[i]) == "WORD"
                 and re.fullmatch(r"[a-z0-9-]+", _strip(tokens[i]).lower())
-                and _strip(tokens[i + 1]).lower() in ("dot", "period", "point")
+                and _strip(tokens[i + 1]).lower() in _DOT_WORDS
             ):
                 label += _strip(tokens[i]).lower()
                 i += 1
         elif re.fullmatch(r"[a-z0-9-]+", low) and _kind(tokens[i]) == "WORD":
             label = low
             i += 1
+            # "hot mail", "proton mail": a provider split in two.
+            if (
+                i < len(tokens)
+                and tokens[i - 1] == _strip(tokens[i - 1])
+                and low + _strip(tokens[i]).lower() in _PROVIDERS
+            ):
+                label = low + _strip(tokens[i]).lower()
+                i += 1
         else:
             break
         labels.append(label)
 
-        # Sentence punctuation on the label's last token ends the address.
+        nxt = _strip(tokens[i]).lower() if i < len(tokens) else ""
         if tokens[i - 1] != _strip(tokens[i - 1]):
+            # Speech-to-text punctuates "gmail dot com" as "Gmail. Com.": a
+            # full stop followed by a common ending is still the address.
+            if tokens[i - 1].endswith(".") and nxt in _SPOKEN_TLDS:
+                continue
+            # Any other sentence punctuation ends the address.
             break
-        if i < len(tokens) and _strip(tokens[i]).lower() in ("dot", "period", "point"):
+        if nxt in _DOT_WORDS:
             i += 1
+            continue
+        # "gmail com": a known provider and an ending, with the dot not heard.
+        if label in _PROVIDERS and nxt in _SPOKEN_TLDS:
             continue
         break
 
@@ -214,25 +278,46 @@ def _domain(tokens: list[str], start: int) -> Optional[tuple[str, int]]:
 
 def normalize_spoken_emails(text: str) -> str:
     """
-    Rewrite an email address that was spoken ("john dot smith at gmail dot com")
-    as written (``john.smith@gmail.com``). Text with no spoken address, and
-    addresses already written out, are returned unchanged.
+    Rewrite an email address that was spoken ("sajid dot ali at the rate gmail
+    dot com") as written (``sajid.ali@gmail.com``). Text with no spoken
+    address, and addresses already written out, are returned unchanged.
 
-    Deliberately conservative: it only acts around the word "at" when what
-    follows is a domain ending in a real TLD, so "meet me at five dot" or "at
-    the clinic" are left alone. The local part takes spelled-out letters,
-    digit words and "dot/underscore/dash" connectors, plus at most one plain
-    word glued on by a connector or standing right before "at".
+    Deliberately conservative: it only acts around an "at" (or "at the rate",
+    or what speech-to-text makes of it) when what follows is a domain ending in
+    a real TLD, so "meet me at five dot" or "at the clinic" are left alone. The
+    local part is read backwards from the "at": spelled-out letters, digits,
+    "dot/underscore/dash" connectors and up to three plain words, which are
+    joined ("sajid ali" becomes "sajidali"). It stops at sentence punctuation
+    and at words that introduce an address ("my email is").
     """
-    if not text or not re.search(r"\bat\b", text, re.IGNORECASE):
+    if not text:
         return text
 
-    text = _AT_THE_RATE.sub("at", text)
-    tokens = text.split()
+    phrases: list[tuple[str, str]] = []
+
+    def _stand_in(meaning: str):
+        def replace(match: re.Match) -> str:
+            phrases.append((match.group(0).strip(), meaning))
+            return f" {_MARK}{len(phrases) - 1}{meaning} "
+        return replace
+
+    work = _AT_PHRASE.sub(_stand_in("@"), text)
+    work = _DOT_PHRASE.sub(_stand_in("."), work)
+    # A stand-in token is the mark, its index, then its meaning ("@" or ".").
+    tokens = work.split()
+    if not any(_kind(t) == "AT" for t in tokens):
+        return text
+
+    def _original(token: str) -> str:
+        if token.startswith(_MARK):
+            return phrases[int(token[1:-1])][0]
+        return token
+
     out: list[str] = []
+    changed = False
     i = 0
     while i < len(tokens):
-        if _strip(tokens[i]).lower() != "at" or not out:
+        if _kind(tokens[i]) != "AT" or not out:
             out.append(tokens[i])
             i += 1
             continue
@@ -245,40 +330,28 @@ def normalize_spoken_emails(text: str) -> str:
 
         # Walk back over the local part already emitted to `out`.
         j = len(out)
-        taken = 0
+        words = 0
         while j > 0:
-            kind = _kind(out[j - 1])
+            token = out[j - 1]
+            # Sentence punctuation before the address ends it ("Yes. sajid at …").
+            if j < len(out) and not token.startswith(_MARK) and token != _strip(token):
+                break
+            kind = _kind(token)
             if kind in ("CHAR", "DIGIT", "CONNECTOR"):
                 j -= 1
-                taken += 1
                 continue
-            if kind == "WORD":
-                nearest = j == len(out)
-                after_connector = j < len(out) and _kind(out[j]) == "CONNECTOR"
-                before_connector = j > 1 and _kind(out[j - 2]) == "CONNECTOR"
-                before_digits = j < len(out) and _kind(out[j]) == "DIGIT"
-                if nearest and _strip(out[j - 1]).lower() in _NOT_A_LOCAL_PART:
-                    break
-                if nearest or after_connector or before_connector or before_digits:
-                    j -= 1
-                    taken += 1
-                    # A plain word only ever joins to a neighbour by a
-                    # connector, so a second bare word ends the walk.
-                    if not (before_connector or after_connector or before_digits) and j > 0 and _kind(out[j - 1]) == "WORD":
-                        break
-                    continue
-            break
-
-        if taken == 0:
-            out.append(tokens[i])
-            i += 1
-            continue
+            if kind != "WORD":
+                break
+            low = _strip(token).lower()
+            if low in _NOT_A_LOCAL_PART or not _LOCAL_WORD.fullmatch(low) or words == _MAX_LOCAL_WORDS:
+                break
+            words += 1
+            j -= 1
 
         # Lowercased: speech-to-text capitalises letters at random ("a l I"), and
-        # nobody's address depends on case.
-        local = "".join(_render(t) for t in out[j:]).lower()
-        # A local part cannot start or end on a connector.
-        local = local.strip("._-+")
+        # nobody's address depends on case. A local part cannot start or end on
+        # a connector.
+        local = "".join(_render(t) for t in out[j:]).lower().strip("._-+")
         if not local:
             out.append(tokens[i])
             i += 1
@@ -289,5 +362,32 @@ def normalize_spoken_emails(text: str) -> str:
             trailing = last[-1]
         del out[j:]
         out.append(f"{local}@{domain[0]}{trailing}")
+        changed = True
         i = domain[1]
-    return " ".join(out)
+
+    if not changed:
+        return text
+    return " ".join(_original(t) for t in out)
+
+
+def tidy_email_arguments(arguments: dict) -> dict:
+    """
+    Clean the email values in a tool call before the tool runs.
+
+    The model sometimes passes an address the way it heard it ("Sajid Ali at
+    gmail dot com", "sajid ali@gmail.com"). A booking or CRM tool then stores
+    an address that bounces. Any string argument whose name mentions "email"
+    is normalised and its spaces removed, but only when the result is one
+    valid address; anything else is passed through untouched.
+    """
+    if not isinstance(arguments, dict):
+        return arguments
+    tidied = dict(arguments)
+    for key, value in arguments.items():
+        if "email" not in str(key).lower() or not isinstance(value, str) or not value.strip():
+            continue
+        candidate = re.sub(r"\s+", "", normalize_spoken_emails(value.strip())).lower()
+        candidate = candidate.strip(_TRAILING_PUNCT)
+        if _EMAIL.fullmatch(candidate):
+            tidied[key] = candidate
+    return tidied

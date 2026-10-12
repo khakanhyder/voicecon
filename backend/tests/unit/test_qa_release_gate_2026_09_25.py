@@ -323,7 +323,7 @@ async def test_respond_tells_the_agent_the_date_and_hands_it_a_written_email(mon
 
     system = seen["messages"][0].content
     assert "CURRENT DATE AND TIME" in system
-    assert "read it back one letter at a time" in system
+    assert "spell only the part before the @" in system
 
     user_turns = [m.content for m in seen["messages"] if m.role == "user"]
     assert user_turns == ["or maybe pat@acme.com", "it's sam.lee@gmail.com"]
