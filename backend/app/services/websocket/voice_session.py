@@ -61,13 +61,13 @@ ECHO_WINDOW_WORDS = 30
 #: wait for the rest of their sentence before answering what there is.
 CARRY_FLUSH_SECONDS = 2.5
 
-#: After pausing for a sound from the caller, how long to wait for words
+#: After pausing for the caller's first word, how long to wait for more
 #: before deciding it was not an interruption and carrying on.
 PAUSE_CONFIRM_SECONDS = 1.2
 
-#: Pauses that turn out to be nothing (line noise, echo) before the agent
-#: stops pausing on sound alone — until the caller next really interrupts.
-#: Words still interrupt either way.
+#: Pauses in which nothing at all was said before the agent stops pausing
+#: — until the caller next really interrupts. Since pauses start on a word
+#: rather than a sound, this is a safety net. Enough words interrupt anyway.
 MAX_FALSE_PAUSES = 2
 
 #: Slack on top of the estimated playback time before giving up on Twilio's
@@ -283,9 +283,9 @@ class VoiceSession:
         self._held_timer: Optional[asyncio.Task] = None
         self._held_heard_words = False
         self._false_pauses = 0
-        # The opening line is playing. It is not paused for a sound alone:
-        # the first seconds of a call are line noise and the agent's own
-        # echo, and each such pause cut the greeting off for over a second.
+        # The opening line is playing. Only enough words to interrupt stop
+        # it — not a first word, which at the start of a call is as often
+        # the caller's "hello?" as anything meant to cut in.
         self._greeting = False
         self._echo_hits = 0
         # The agent's last full line, which decides how patiently to wait
@@ -632,6 +632,11 @@ class VoiceSession:
         """The agent's own words picked up by the caller's microphone (a
         speakerphone), rather than the caller speaking. Only what has just
         been played can echo — not words the agent has yet to say."""
+        played = self._recently_played()
+        return bool(played) and is_echo(transcript, played)
+
+    def _recently_played(self) -> str:
+        """The agent's words the caller has just heard — what can echo."""
         now = asyncio.get_running_loop().time()
         played: List[str] = []
         for seg in self._recent_speech:
@@ -639,30 +644,43 @@ class VoiceSession:
                 continue
             # A few words of slack: the timeline is an estimate.
             played.extend(seg.played_words(now, slack=3))
-        return bool(played) and is_echo(transcript, " ".join(played[-ECHO_WINDOW_WORDS:]))
+        return " ".join(played[-ECHO_WINDOW_WORDS:])
 
     async def _on_speech_started(self) -> None:
         """
-        Deepgram heard a voice begin — a fraction of a second in, well before
-        any words. If the agent is talking, stop talking at once and listen.
-
-        Whether it was an interruption is decided by the words that follow:
-        enough of them and the rest of the reply is dropped; a cough, an
-        "mm-hm" or nothing at all and the agent carries on from where it
-        stopped. Waiting for the words before stopping left the agent
-        talking over the caller for one to two seconds.
+        Deepgram heard a sound begin. Not acted on: it fires just as readily
+        for a breath, a cough, background noise or the agent's own echo, and
+        pausing on it made the agent stop dead mid-sentence for over a second
+        whenever the line was noisy. The agent pauses on the caller's first
+        real word instead (see _should_pause).
         """
-        if not self.agent.interrupt_enabled or self._held:
-            return
+
+    def _should_pause(self, transcript: str) -> bool:
+        """
+        A real word from the caller over the agent: stop talking and listen.
+        Enough words then interrupt; a finished sentence takes the floor;
+        nothing more and the agent carries on from where it stopped.
+
+        Not for "mm-hm"/"uh" (listening noises), and not for words the agent
+        has just said itself — one echoed word is too short for _is_own_echo
+        to call it echo.
+        """
+        if not self.agent.interrupt_enabled or self._held or self._greeting:
+            return False
         if self._false_pauses >= MAX_FALSE_PAUSES or not self._audible():
-            return
-        if self._greeting:
-            # Words still interrupt the greeting (see _should_barge_in).
-            return
+            return False
+        heard = " ".join(self._utterance_parts + [transcript])
+        if not word_count(heard) or is_backchannel(heard):
+            return False
+        played = set(w.lower().strip(".,!?;:'\"…") for w in self._recently_played().split())
+        words = [w.lower().strip(".,!?;:'\"…") for w in transcript.split()]
+        return not (played and all(w in played for w in words if w))
+
+    async def _pause_for_words(self) -> None:
         await self._stop_audio(drop=False)
-        self._held_heard_words = False
+        self._held_heard_words = True
         self._restart_held_timer()
-        logger.info(f"Caller made a sound; agent paused: call_id={self.call_id}")
+        logger.info(f"Caller started speaking; agent paused: call_id={self.call_id}")
 
     def _restart_held_timer(self) -> None:
         if self._held_timer is not None:
@@ -762,6 +780,8 @@ class VoiceSession:
             logger.info(f"Caller carried on speaking; reply discarded: call_id={self.call_id}")
         elif self._should_barge_in(transcript):
             await self._barge_in()
+        elif self._should_pause(transcript):
+            await self._pause_for_words()
         elif self._held:
             self._held_heard_words = True
             if is_backchannel(" ".join(self._utterance_parts + [transcript])):

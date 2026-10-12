@@ -369,80 +369,83 @@ async def test_the_agents_own_echo_neither_interrupts_nor_becomes_a_turn(monkeyp
 SPEECH_STARTED = {"type": "SpeechStarted"}
 
 
-async def test_the_agent_stops_as_soon_as_the_callers_voice_is_heard(monkeypatch):
-    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
-
-    await caller_says(session, "What do you have this week?")
-    await asyncio.sleep(0.8)
-    await session._on_deepgram_message(SPEECH_STARTED)
-
-    # Silent at once — before a single word has been transcribed.
-    assert twilio.cleared == 1 and not session._audible()
-
-    await asyncio.sleep(0.2)
-    await caller_says(session, "Yes, book it for Tuesday.")
-    await settle(session)
-
-    # The rest of the old reply was never played, and the new request was
-    # answered knowing only what had been heard.
-    remembered = assistant_messages(session)
-    assert remembered[0] != LONG_REPLY and LONG_REPLY.startswith(remembered[0].rstrip("…"))
-    assert session.llm_service.asked == ["What do you have this week?", "Yes, book it for Tuesday."]
-
-
-async def test_a_sound_that_is_not_an_interruption_only_pauses_the_agent(monkeypatch):
-    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.2)
+async def test_a_sound_without_words_never_stops_the_agent(monkeypatch):
+    # A breath, a cough, line noise, echo: Deepgram reports "speech started"
+    # for all of them. Pausing on it stopped the agent dead mid-sentence.
     session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, end_call_phrases=["goodbye"])
-    loop = asyncio.get_running_loop()
-    started = loop.time()
-
-    await caller_says(session, "What do you have this week?")
-    await asyncio.sleep(0.8)
-    await session._on_deepgram_message(SPEECH_STARTED)  # a cough: no words follow
-    await settle(session)
-
-    # It picked up where it stopped, without synthesizing anything again,
-    # and the whole reply was heard: remembered in full, and acted on.
-    assert twilio.cleared == 1
-    assert len(session.tts_service.spoken) == 3
-    assert assistant_messages(session) == [LONG_REPLY]
-    assert len(session.ended) == 1
-    words = len(LONG_REPLY.split())
-    assert loop.time() - started >= words * BYTES_PER_WORD / 8000 + 0.2
-    assert session._false_pauses == 1
-
-
-async def test_a_line_that_keeps_triggering_pauses_stops_being_paused_for(monkeypatch):
-    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.1)
-    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
 
     await caller_says(session, "What do you have this week?")
     for _ in range(4):
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         await session._on_deepgram_message(SPEECH_STARTED)
+        assert session._audible()
     await settle(session)
 
-    assert twilio.cleared == 2  # twice, then no more
+    assert twilio.cleared == 0
     assert assistant_messages(session) == [LONG_REPLY]
+    assert len(session.ended) == 1
+    assert session._false_pauses == 0
 
 
-async def test_mm_hm_pauses_then_resumes_and_is_not_answered(monkeypatch):
+async def test_the_agent_pauses_at_the_callers_first_real_word(monkeypatch):
+    # Three words needed to interrupt, but the first one already pauses.
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, interrupt_sensitivity=0.0)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(results("Actually"))
+
+    assert twilio.cleared == 1 and not session._audible()
+
+    await caller_says(session, "Actually, book it for Tuesday.")
+    await settle(session)
+
+    remembered = assistant_messages(session)
+    assert remembered[0] != LONG_REPLY and LONG_REPLY.startswith(remembered[0].rstrip("…"))
+    assert session.llm_service.asked == ["What do you have this week?", "Actually, book it for Tuesday."]
+
+
+async def test_a_word_that_goes_nowhere_only_pauses_the_agent(monkeypatch):
+    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.2)
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, end_call_phrases=["goodbye"])
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(results("So"))  # never finalised
+    assert twilio.cleared == 1
+    await settle(session)
+
+    # Picked up where it stopped, without synthesizing anything again.
+    assert len(session.tts_service.spoken) == 3
+    assert assistant_messages(session) == [LONG_REPLY]
+    assert len(session.ended) == 1
+
+
+async def test_a_listening_noise_neither_pauses_nor_is_answered(monkeypatch):
     session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY, interrupt_sensitivity=0.0)
 
     await caller_says(session, "What do you have this week?")
     await asyncio.sleep(0.6)
     await session._on_deepgram_message(SPEECH_STARTED)
-    await asyncio.sleep(0.1)
-    assert not session._audible()
-    await session._on_deepgram_message(results("Mhmm."))
-    # Carried on at the first sign it was only a listening noise.
+    await caller_says(session, "Mhmm.")
     assert session._audible()
-    await session._on_deepgram_message(results("Mhmm.", is_final=True, speech_final=True))
     await settle(session)
 
+    assert twilio.cleared == 0
     assert assistant_messages(session) == [LONG_REPLY]
     assert session.llm_service.asked == ["What do you have this week?"]
-    assert session._false_pauses == 0  # they did say something
+
+
+async def test_one_echoed_word_of_the_agents_does_not_pause_it(monkeypatch):
+    session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
+
+    await caller_says(session, "What do you have this week?")
+    await asyncio.sleep(0.8)
+    await session._on_deepgram_message(results("options"))
+    await asyncio.sleep(0.05)
+
+    assert twilio.cleared == 0 and session._audible()
+    await settle(session)
 
 
 async def test_a_short_sentence_while_paused_takes_the_floor(monkeypatch):
@@ -463,19 +466,17 @@ async def test_a_short_sentence_while_paused_takes_the_floor(monkeypatch):
 
 
 async def test_pausing_comes_back_after_a_real_interruption(monkeypatch):
-    monkeypatch.setattr(voice_session, "PAUSE_CONFIRM_SECONDS", 0.1)
     session, twilio = make_session(monkeypatch, lambda m: LONG_REPLY)
 
     await caller_says(session, "What do you have this week?")
-    for _ in range(2):  # noise twice: pausing on sound is switched off
-        await asyncio.sleep(0.3)
-        await session._on_deepgram_message(SPEECH_STARTED)
     await asyncio.sleep(0.3)
-    assert session._false_pauses == 2
+    session._false_pauses = voice_session.MAX_FALSE_PAUSES
     await caller_says(session, "Book it for Tuesday please.")  # words still interrupt
     await asyncio.sleep(0.1)
 
+    assert twilio.cleared == 1
     assert session._false_pauses == 0
+    await settle(session)
 
 
 async def test_an_interruption_mixed_with_echo_still_interrupts(monkeypatch):
@@ -551,11 +552,10 @@ async def test_noise_at_the_start_of_the_call_does_not_cut_the_greeting_off(monk
     await settle(session)
 
     assert twilio.cleared == 0
-    # The pause budget is left for the conversation itself.
     assert session._false_pauses == 0
     await caller_says(session, "What do you have this week?")
     await asyncio.sleep(0.8)
-    await session._on_deepgram_message(SPEECH_STARTED)
+    await session._on_deepgram_message(results("Actually"))
     assert twilio.cleared == 1
     await settle(session)
 

@@ -1137,12 +1137,12 @@ async def agent_stt_websocket(
     transcript events as JSON. Auth via 'token' query param (browser WS can't set headers).
 
     End-of-speech events carry the same turn-taking verdicts a phone call
-    acts on (app.services.voice.turn_taking): `speech_started`, the caller's
-    voice beginning, which pauses the agent before any words exist; `hold_ms`, how much longer to
+    acts on (app.services.voice.turn_taking): `hold_ms`, how much longer to
     wait before answering, and `backchannel`, a listening noise that is not a
     turn. The client reports each line the agent speaks as a text frame
     ({"type": "agent_said", "text": ...}) so the wait can depend on what was
-    just asked.
+    just asked. `speech_started` is still relayed but not acted on: the agent
+    pauses on the caller's first transcribed word, not on a sound.
     """
     await websocket.accept()
 

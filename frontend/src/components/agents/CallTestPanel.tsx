@@ -34,6 +34,10 @@ export interface TestCallAgent {
 const interruptMinWords = (sensitivity: number) => Math.max(1, Math.round(3 - 2 * sensitivity))
 // In any script: a Chinese or Japanese sentence has no spaces to split on.
 const wordCount = spokenWordCount
+/** Lower-cased words without punctuation, for telling the agent's own words
+ *  coming back (echo) from the caller's. */
+const wordsOf = (text: string) =>
+  text.toLowerCase().split(/\s+/).map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean)
 
 interface Message {
   id: string
@@ -135,10 +139,8 @@ export function CallTestPanel({
   const pauseTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pauseHeardRef     = useRef(false)
   const falsePausesRef    = useRef(0)
-  // The greeting is playing: not paused for a sound alone. The microphone's
-  // first second (echo cancellation still adapting to the speaker, gain
-  // settling) reads as a voice starting, and each such pause cut the
-  // greeting off for over a second. Words still interrupt it.
+  // The greeting is playing: only enough words to interrupt stop it, not a
+  // first word (at the start of a call, as often a "hello?" as a cut-in).
   const greetingAudioRef  = useRef(false)
   const currentAudioRef   = useRef<HTMLAudioElement | null>(null)
   const abortCtrlRef      = useRef<AbortController | null>(null)
@@ -493,17 +495,23 @@ export function CallTestPanel({
     currentAudioRef.current?.play().catch(() => {})
   }
 
-  /** The caller's voice has started — before any words are transcribed. Stop
-   *  talking at once and listen; waiting for the words left the agent talking
-   *  over the caller for a second or two. */
-  const pauseReply = () => {
-    if (!interruptRef.current || pausedRef.current || falsePausesRef.current >= MAX_FALSE_PAUSES) return
-    if (greetingAudioRef.current) return
-    if (!agentBusy() || !replyAudibleRef.current || !currentAudioRef.current) return
+  /** The caller's first real word over the agent: stop talking and listen.
+   *  Enough words then interrupt; nothing more and the agent carries on.
+   *  Not on Deepgram's "speech started" — that fires for a breath, a cough,
+   *  background noise or the agent's own echo, and stopped the agent dead
+   *  mid-sentence. Not on words the agent has just said either (echo). */
+  const pauseReply = (heardSoFar: string): boolean => {
+    if (!interruptRef.current || pausedRef.current || falsePausesRef.current >= MAX_FALSE_PAUSES) return false
+    if (greetingAudioRef.current) return false
+    if (!agentBusy() || !replyAudibleRef.current || !currentAudioRef.current) return false
+    const said = wordsOf(heardSoFar)
+    const played = new Set(wordsOf(replyHeardRef.current.join(' ')))
+    if (said.length === 0 || (played.size > 0 && said.every(w => played.has(w)))) return false
     pausedRef.current = true
-    pauseHeardRef.current = false
+    pauseHeardRef.current = true
     currentAudioRef.current.pause()
     pauseTimerRef.current = setTimeout(resumeReply, PAUSE_CONFIRM_MS)
+    return true
   }
 
   /** The caller is speaking (interim transcripts included). */
@@ -525,7 +533,7 @@ export function CallTestPanel({
     }
     // Heard over the agent but not acted on: "the agent would not stop" is
     // otherwise impossible to tell apart from words that never arrived.
-    else console.info('[test call] heard over the agent, not interrupting:', heardSoFar.trim(),
+    else if (backchannelSoFar || !pauseReply(heardSoFar)) console.info('[test call] heard over the agent, not interrupting:', heardSoFar.trim(),
       { words: wordCount(heardSoFar), needed: interruptWordsRef.current, interruptions: interruptRef.current })
   }
 
@@ -572,8 +580,6 @@ export function CallTestPanel({
             setLiveText(is_final ? finalBufRef.current : `${finalBufRef.current} ${text}`.trim())
           }
           if (speech_final) endOfSpeech(hold_ms, backchannel)
-        } else if (ev.type === 'speech_started') {
-          pauseReply()
         } else if (ev.type === 'utterance_end') {
           // Deepgram's fallback end-of-turn, for when noise kept speech_final
           // from ever arriving.
