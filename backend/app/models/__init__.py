@@ -33,7 +33,7 @@ from app.models.verification import VerificationCode
 from app.models.platform import PlatformSetting, AdminAuditLog
 from app.models.voice import CustomVoice
 from app.models.wallet import Wallet, WalletTransaction
-from app.models.blog import BlogCategory, BlogPost
+from app.models.blog import BlogCategory, BlogPost, BlogSlugRedirect
 from app.models.affiliate import (
     AffiliateProgram, Affiliate, AffiliateApplication, AffiliateClick, AffiliateReferral,
     AffiliateCommission, AffiliatePayout,
@@ -44,6 +44,7 @@ __all__ = [
     # Marketing blog
     "BlogCategory",
     "BlogPost",
+    "BlogSlugRedirect",
     # Prepaid wallet (Pay As You Go)
     "Wallet",
     "WalletTransaction",

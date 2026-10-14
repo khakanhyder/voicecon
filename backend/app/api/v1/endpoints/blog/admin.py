@@ -21,7 +21,7 @@ from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import extract, func, or_, select
+from sqlalchemy import delete, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.admin import (
@@ -39,7 +39,7 @@ from app.core.security import get_password_hash
 from app.core.time import utc_iso
 from app.core.urls import public_base_url
 from app.database import get_db
-from app.models.blog import POST_DRAFT, POST_PUBLISHED, BlogCategory, BlogPost
+from app.models.blog import POST_DRAFT, POST_PUBLISHED, BlogCategory, BlogPost, BlogSlugRedirect
 from app.models.user import User
 from app.services.auth.verification import normalize_email
 from app.services.blog.content import excerpt_from, normalize_tags, reading_minutes, sanitize_html, slugify
@@ -111,6 +111,18 @@ async def _slug_taken(db: AsyncSession, slug: str, exclude_id: Optional[uuid.UUI
     if exclude_id is not None:
         query = query.where(BlogPost.id != exclude_id)
     return (await db.execute(query.limit(1))).first() is not None
+
+
+async def _move_slug(db: AsyncSession, post: BlogPost, old_slug: Optional[str], was_published: bool) -> None:
+    """Bookkeeping after ``post.slug`` changed: keep the old URL working.
+
+    A post that was published may have been indexed or linked, so its old slug
+    becomes a 301 to the new one. A redirect for the slug the post now uses is
+    dropped (from any post): a live article always wins over a redirect.
+    """
+    await db.execute(delete(BlogSlugRedirect).where(BlogSlugRedirect.old_slug == post.slug))
+    if old_slug and was_published and post.id is not None:
+        db.add(BlogSlugRedirect(old_slug=old_slug, post_id=post.id))
 
 
 async def _free_slug(db: AsyncSession, base: str, exclude_id: Optional[uuid.UUID] = None) -> str:
@@ -320,6 +332,7 @@ async def _apply(db: AsyncSession, post: BlogPost, body: PostBody, actor: User, 
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The title cannot be empty.")
         put("title", body.title)
 
+    old_slug, was_published = post.slug, post.status == POST_PUBLISHED
     if "slug" in fields or creating:
         wanted = slugify(body.slug or "") if body.slug else ""
         if wanted:
@@ -331,6 +344,8 @@ async def _apply(db: AsyncSession, post: BlogPost, body: PostBody, actor: User, 
             put("slug", wanted)
         elif creating or not post.slug:
             put("slug", await _free_slug(db, slugify(post.title), post.id))
+        if "slug" in changed:
+            await _move_slug(db, post, old_slug, was_published)
 
     if "content_html" in fields:
         html = sanitize_html(body.content_html)

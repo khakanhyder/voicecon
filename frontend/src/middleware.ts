@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { SECTION_PATHS, isBlogPath } from '@/components/landing/sections'
+import { BLOG_PATH, SECTION_PATHS, isBlogPath } from '@/components/landing/sections'
+import { blogRedirectFor } from '@/lib/blog-redirects'
 
 // One frontend deployment answers on two kinds of host:
 //   - landing hosts (voicecon.ai, www.voicecon.ai) serve only the marketing page
@@ -43,7 +44,7 @@ function requestHost(request: NextRequest): string {
   return raw.split(',')[0].trim().split(':')[0].toLowerCase()
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const host = requestHost(request)
   const { pathname, search } = request.nextUrl
 
@@ -76,6 +77,22 @@ export function middleware(request: NextRequest) {
 
   if (LANDING_HOSTS.includes(host) && host !== CANONICAL_LANDING_HOST && isMarketing) {
     return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${pathname}${search}`, 308)
+  }
+
+  // A renamed article: its old URL 301s to the new one (SEO keeps the link).
+  const article = pathname.startsWith(BLOG_PATH + '/') ? pathname.slice(BLOG_PATH.length + 1).replace(/\/$/, '') : ''
+  if (article && !article.includes('/')) {
+    let slug = article
+    try { slug = decodeURIComponent(article) } catch { /* malformed %-escape: look it up as typed */ }
+    const to = await blogRedirectFor(slug)
+    if (to) {
+      const target = `${BLOG_PATH}/${encodeURIComponent(to)}${search}`
+      // Behind Traefik nextUrl carries the internal host, so name the public one.
+      if (LANDING_HOSTS.includes(host)) return NextResponse.redirect(`https://${CANONICAL_LANDING_HOST}${target}`, 301)
+      const url = request.nextUrl.clone()
+      url.pathname = `${BLOG_PATH}/${encodeURIComponent(to)}`
+      return NextResponse.redirect(url, 301)
+    }
   }
 
   // The marketing site lives at the root now; send the old URL there.

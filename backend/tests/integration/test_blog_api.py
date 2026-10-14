@@ -317,3 +317,50 @@ class TestPublic:
         assert slugs[1] not in {p["slug"] for p in detail["related"]}
         assert len(detail["related"]) == 2
         assert "content_html" not in highlights[0]
+
+
+# ---------- Renamed URLs ----------
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestSlugRedirects:
+    async def _redirects(self, client):
+        res = await client.get("/api/v1/blog/redirects")
+        assert res.status_code == 200
+        return {r["from"]: r["to"] for r in res.json()}
+
+    async def test_renaming_a_published_post_redirects_the_old_url(self, client, editor):
+        post = await _create(as_user(client, editor), slug="long-old-url", status="published")
+        res = await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "short"})
+        assert res.status_code == 200, res.text
+        assert (await client.get("/api/v1/blog/posts/long-old-url")).status_code == 404
+        assert await self._redirects(client) == {"long-old-url": "short"}
+
+        # A second rename re-points the first redirect instead of chaining it.
+        await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "shorter"})
+        assert await self._redirects(client) == {"long-old-url": "shorter", "short": "shorter"}
+
+        # Renaming back to an old slug drops that redirect: the article wins.
+        await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "long-old-url"})
+        assert await self._redirects(client) == {"short": "long-old-url", "shorter": "long-old-url"}
+
+    async def test_renaming_a_draft_leaves_no_redirect(self, client, editor):
+        post = await _create(as_user(client, editor), slug="draft-one")
+        await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "draft-two"})
+        await client.post(f"/api/v1/admin/blog/posts/{post['id']}/publish")
+        assert await self._redirects(client) == {}
+
+    async def test_unpublished_or_deleted_posts_are_not_redirect_targets(self, client, editor):
+        post = await _create(as_user(client, editor), slug="first", status="published")
+        await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "second"})
+        await client.post(f"/api/v1/admin/blog/posts/{post['id']}/unpublish")
+        assert await self._redirects(client) == {}
+        await client.post(f"/api/v1/admin/blog/posts/{post['id']}/publish")
+        assert await self._redirects(client) == {"first": "second"}
+        await client.delete(f"/api/v1/admin/blog/posts/{post['id']}")
+        assert await self._redirects(client) == {}
+
+    async def test_a_new_post_taking_an_old_slug_replaces_the_redirect(self, client, editor):
+        post = await _create(as_user(client, editor), slug="taken", status="published")
+        await client.put(f"/api/v1/admin/blog/posts/{post['id']}", json={"slug": "moved"})
+        await _create(client, slug="taken", status="published")
+        assert await self._redirects(client) == {}

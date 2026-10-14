@@ -106,3 +106,21 @@ class BlogPost(Base):
 
     def __repr__(self) -> str:
         return f"<BlogPost(slug={self.slug}, status={self.status})>"
+
+
+class BlogSlugRedirect(Base):
+    """A URL a post used to live at. ``/blog/<old_slug>`` 301s to the post's current slug.
+
+    Written when a published post's slug changes, so links and search results
+    pointing at the old URL keep working. It points at the post, not at a slug,
+    so renaming twice never builds a chain of redirects.
+    """
+
+    __tablename__ = "blog_slug_redirects"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    old_slug: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("blog_posts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

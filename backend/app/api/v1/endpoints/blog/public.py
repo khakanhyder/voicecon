@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utc_iso
 from app.database import get_db
-from app.models.blog import POST_PUBLISHED, BlogCategory, BlogPost
+from app.models.blog import POST_PUBLISHED, BlogCategory, BlogPost, BlogSlugRedirect
 
 from ..admin._common import like, utcnow
 from ._views import category_view, public_card, public_detail
@@ -100,6 +100,22 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 async def sitemap(db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(BlogPost.slug, BlogPost.updated_at).where(*_live()).order_by(*_NEWEST))).all()
     return [{"slug": slug, "updated_at": utc_iso(updated)} for slug, updated in rows]
+
+
+@router.get("/redirects")
+async def redirects(db: AsyncSession = Depends(get_db)):
+    """Old article URLs and where they live now, for the site's 301s.
+
+    Only live posts: a redirect to a draft would land on a 404 anyway.
+    """
+    rows = (
+        await db.execute(
+            select(BlogSlugRedirect.old_slug, BlogPost.slug)
+            .join(BlogPost, BlogPost.id == BlogSlugRedirect.post_id)
+            .where(*_live())
+        )
+    ).all()
+    return [{"from": old, "to": new} for old, new in rows]
 
 
 @router.get("/posts/{slug}")
