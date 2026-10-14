@@ -49,25 +49,26 @@ class OpenAILLM(BaseLLMProvider):
     - Token counting and cost tracking
     """
 
-    # Pricing per 1M tokens (as of 2025-2026, estimated)
+    # Price per 1M tokens (developers.openai.com/api/docs/pricing, checked
+    # 2026-10-14). The -pro rows were not on the page and are left as they were.
     PRICING = {
         # GPT-5.5 series (Apr 2026)
-        "gpt-5.5":             {"prompt": 15.00, "completion": 60.00},
+        "gpt-5.5":             {"prompt": 5.00,  "completion": 30.00},
         "gpt-5.5-pro":         {"prompt": 30.00, "completion": 120.00},
         # GPT-5.4 series (Mar 2026)
-        "gpt-5.4":             {"prompt": 8.00,  "completion": 32.00},
-        "gpt-5.4-mini":        {"prompt": 0.60,  "completion": 2.40},
-        "gpt-5.4-nano":        {"prompt": 0.12,  "completion": 0.48},
+        "gpt-5.4":             {"prompt": 2.50,  "completion": 15.00},
+        "gpt-5.4-mini":        {"prompt": 0.75,  "completion": 4.50},
+        "gpt-5.4-nano":        {"prompt": 0.20,  "completion": 1.25},
         "gpt-5.4-pro":         {"prompt": 20.00, "completion": 80.00},
         # GPT-5.2 series (Dec 2025)
-        "gpt-5.2":             {"prompt": 8.00,  "completion": 32.00},
+        "gpt-5.2":             {"prompt": 1.75,  "completion": 14.00},
         "gpt-5.2-pro":         {"prompt": 20.00, "completion": 80.00},
         # GPT-5.1 series (Nov 2025)
-        "gpt-5.1":             {"prompt": 7.00,  "completion": 28.00},
+        "gpt-5.1":             {"prompt": 1.25,  "completion": 10.00},
         # GPT-5 base (Aug 2025)
-        "gpt-5":               {"prompt": 5.00,  "completion": 20.00},
-        "gpt-5-mini":          {"prompt": 0.50,  "completion": 2.00},
-        "gpt-5-nano":          {"prompt": 0.12,  "completion": 0.48},
+        "gpt-5":               {"prompt": 1.25,  "completion": 10.00},
+        "gpt-5-mini":          {"prompt": 0.25,  "completion": 2.00},
+        "gpt-5-nano":          {"prompt": 0.05,  "completion": 0.40},
         "gpt-5-pro":           {"prompt": 15.00, "completion": 60.00},
         # GPT-4.1 series (Apr 2025)
         "gpt-4.1":             {"prompt": 2.00,  "completion": 8.00},
@@ -78,7 +79,7 @@ class OpenAILLM(BaseLLMProvider):
         "gpt-4o-mini":         {"prompt": 0.15,  "completion": 0.60},
         # Reasoning models
         "o4-mini":             {"prompt": 1.10,  "completion": 4.40},
-        "o3":                  {"prompt": 10.00, "completion": 40.00},
+        "o3":                  {"prompt": 2.00,  "completion": 8.00},
         "o3-mini":             {"prompt": 1.10,  "completion": 4.40},
         "o1-pro":              {"prompt": 150.00, "completion": 600.00},
         "o1":                  {"prompt": 15.00, "completion": 60.00},
@@ -128,7 +129,13 @@ class OpenAILLM(BaseLLMProvider):
     #: for one, returns a 400 for any temperature but 1 — and the agent form
     #: lets a user pick both that model and any temperature, so every turn of
     #: such an agent failed with "technical issue".
-    _SAMPLING_PARAMS = ("temperature", "top_p", "frequency_penalty", "presence_penalty", "reasoning_effort")
+    #: Optional params dropped (and remembered per model) when a model or an
+    #: OpenAI-compatible gateway rejects them. ``stream_options`` only asks for
+    #: usage in the stream; losing it costs cost accuracy, not the reply.
+    _SAMPLING_PARAMS = (
+        "temperature", "top_p", "frequency_penalty", "presence_penalty",
+        "reasoning_effort", "stream_options",
+    )
 
     _REASONING_HEADROOM = 4000
 
@@ -299,6 +306,7 @@ class OpenAILLM(BaseLLMProvider):
                 model=response.model,
                 prompt_tokens=response.usage.prompt_tokens,
                 completion_tokens=response.usage.completion_tokens,
+                cached_tokens=self._cached_tokens(response.usage),
             )
 
             # Track usage
@@ -380,6 +388,9 @@ class OpenAILLM(BaseLLMProvider):
                 "frequency_penalty": kwargs.get("frequency_penalty", self.frequency_penalty),
                 "presence_penalty": kwargs.get("presence_penalty", self.presence_penalty),
                 "stream": True,
+                # The last chunk then carries the real token counts (incl.
+                # cached prompt tokens), which a call's model cost is built from.
+                "stream_options": {"include_usage": True},
             }
 
             if self.stop:
@@ -405,10 +416,15 @@ class OpenAILLM(BaseLLMProvider):
             # previously this loop only ever looked at delta.content, so a tool
             # call was silently dropped and no tool could run on a live call.
             tool_calls: Dict[int, Dict[str, Any]] = {}
+            stream_usage = None
+            stream_model = model_id
 
             async for chunk in stream:
                 chunk: ChatCompletionChunk
 
+                if getattr(chunk, "usage", None):
+                    stream_usage = chunk.usage
+                    stream_model = getattr(chunk, "model", None) or model_id
                 if not chunk.choices:
                     continue
 
@@ -448,7 +464,24 @@ class OpenAILLM(BaseLLMProvider):
 
             # Note: We can't get exact token counts in streaming mode
             # This is an approximation
-            logger.info(f"OpenAI streaming completed: ~{completion_tokens} tokens")
+            if stream_usage is not None:
+                cost = self._calculate_cost(
+                    model=stream_model,
+                    prompt_tokens=stream_usage.prompt_tokens,
+                    completion_tokens=stream_usage.completion_tokens,
+                    cached_tokens=self._cached_tokens(stream_usage),
+                )
+                self._track_usage(
+                    model=stream_model,
+                    prompt_tokens=stream_usage.prompt_tokens,
+                    completion_tokens=stream_usage.completion_tokens,
+                    cost=cost,
+                )
+                logger.info(
+                    f"OpenAI streaming completed: {stream_usage.total_tokens} tokens, ${cost:.4f}"
+                )
+            else:
+                logger.info(f"OpenAI streaming completed: ~{completion_tokens} tokens")
 
         except Exception as e:
             error_msg = str(e)
@@ -461,24 +494,56 @@ class OpenAILLM(BaseLLMProvider):
                 logger.error(f"OpenAI streaming error: {error_msg}")
                 raise ProviderError(f"OpenAI streaming error: {error_msg}")
 
-    def _calculate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    #: Share of the input price OpenAI charges for prompt tokens served from
+    #: its automatic prompt cache (prompts of 1,024+ tokens), by model prefix.
+    #: Longest prefix first. developers.openai.com/api/docs/pricing, 2026-10-14.
+    _CACHED_INPUT_SHARE = (
+        ("gpt-5", 0.10),
+        ("gpt-4.1", 0.25),
+        ("gpt-4o", 0.50),
+        ("o4", 0.25),
+        ("o3", 0.25),
+        ("o1", 0.50),
+    )
+
+    @staticmethod
+    def _cached_tokens(usage: Any) -> int:
+        details = getattr(usage, "prompt_tokens_details", None)
+        return int(getattr(details, "cached_tokens", 0) or 0)
+
+    def _calculate_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+    ) -> float:
         """
         Calculate cost based on token usage.
 
         Args:
             model: Model used
-            prompt_tokens: Number of prompt tokens
+            prompt_tokens: Prompt tokens, cached ones included (OpenAI counts
+                them in ``prompt_tokens``)
             completion_tokens: Number of completion tokens
+            cached_tokens: Prompt tokens read from OpenAI's prompt cache
 
         Returns:
             Cost in USD
         """
-        # Get base model name (remove -0125, -0613, etc. suffixes)
-        base_model = model.split("-20")[0] if "-20" in model else model
+        # Gateway ids ("openai/gpt-5.5") and dated ids ("gpt-4o-2024-08-06").
+        base_model = model.rsplit("/", 1)[-1]
+        base_model = base_model.split("-20")[0] if "-20" in base_model else base_model
 
-        pricing = self.PRICING.get(base_model, self.PRICING["gpt-3.5-turbo"])
+        # Unknown model: the dearest current row, so cost is never understated.
+        pricing = self.PRICING.get(base_model, self.PRICING["gpt-5.5"])
+        share = next(
+            (value for prefix, value in self._CACHED_INPUT_SHARE if base_model.startswith(prefix)),
+            1.0,
+        )
+        cached = min(max(int(cached_tokens or 0), 0), int(prompt_tokens or 0))
 
-        prompt_cost = (prompt_tokens / 1_000_000) * pricing["prompt"]
+        prompt_cost = ((prompt_tokens - cached) + cached * share) / 1_000_000 * pricing["prompt"]
         completion_cost = (completion_tokens / 1_000_000) * pricing["completion"]
 
         return prompt_cost + completion_cost

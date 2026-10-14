@@ -22,6 +22,7 @@ from app.main import app
 from app.models.agent import Agent
 from app.models.call import Call
 from app.models.user import Organization, OrganizationMember, User
+from app.services.billing import call_pricing
 from app.services.call.call_export import build_calls_csv
 
 
@@ -93,8 +94,18 @@ async def export(db):
     return _export
 
 
+@pytest.fixture
+def pay_as_you_go(monkeypatch):
+    """The workspace pays per call, so the export carries what each call cost."""
+
+    async def _prepaid(db, organization_id):
+        return True
+
+    monkeypatch.setattr(call_pricing, "shows_call_prices", _prepaid)
+
+
 @pytest.mark.asyncio
-async def test_export_downloads_the_call_log_as_the_page_shows_it(db, export):
+async def test_export_downloads_the_call_log_as_the_page_shows_it(db, export, pay_as_you_go):
     org = await _organization(db)
     agent = Agent(user_id=org.owner_id, organization_id=org.id, name="Diamant Versatile")
     db.add(agent)
@@ -104,7 +115,10 @@ async def test_export_downloads_the_call_log_as_the_page_shows_it(db, export):
         agent_id=agent.id,
         started_at=datetime(2026, 10, 2, 9, 30, 0),
         duration_seconds=186,
+        # What the providers charged us; never in the customer's file.
         cost_total=Decimal("0.0261"),
+        # What the customer was charged: 4 minutes at $0.35.
+        billed_amount=Decimal("1.40"),
         sentiment_label="neutral",
         call_metadata={"disconnection_reason": "customer_hung_up"},
     )
@@ -127,8 +141,18 @@ async def test_export_downloads_the_call_log_as_the_page_shows_it(db, export):
         # Stored as naive UTC; 09:30 UTC is 14:30 in Karachi.
         "Start Time (Asia/Karachi)": "2026-10-02 14:30:00",
         "Duration (seconds)": "186",
-        "Cost (USD)": "0.0261",
+        "Cost (USD)": "1.40",
     }]
+
+
+@pytest.mark.asyncio
+async def test_a_subscription_workspace_export_has_no_cost_column(db, export):
+    org = await _organization(db)
+    await _call(db, org, duration_seconds=60, cost_total=Decimal("0.0500"))
+
+    _, rows = await export(org)
+
+    assert "Cost (USD)" not in rows[0]
 
 
 @pytest.mark.asyncio
@@ -192,7 +216,7 @@ async def test_export_orders_newest_first_and_names_a_missing_agent(db, export):
     assert [r["Customer Phone Number"] for r in rows] == ["+12222222222", "+11111111111", "Web Test"]
     assert {r["Assistant"] for r in rows} == {"Unknown"}
     assert rows[0]["Start Time (UTC)"] == "2026-10-02 08:00:00"
-    assert rows[0]["Duration (seconds)"] == "" and rows[0]["Cost (USD)"] == ""
+    assert rows[0]["Duration (seconds)"] == "" and "Cost (USD)" not in rows[0]
 
 
 def _only_row(call: dict, tz=None) -> dict:

@@ -23,6 +23,8 @@ export interface PricingPlan {
   limits: Limits
   /** Price of a minute past the allowance; null when usage never overflows. */
   overage_per_minute?: number | null
+  /** Minutes on a premium AI model count this many times (1 = no difference). */
+  premium_multiplier?: number
   /** Badged "Most popular" on the pricing cards. */
   popular?: boolean
   /** The plan's support level, e.g. "Priority email support". */
@@ -87,7 +89,8 @@ const FALLBACK: PricingData = {
       concurrent_calls: 2, minutes_per_month: -1, emails_per_month: 500,
     },
     support: 'Email support',
-    prepaid: { per_minute: 0.35, number_monthly_fee: 2, topup_min: 10, topup_presets: [10, 25, 50, 100] },
+    premium_multiplier: 1.5,
+    prepaid: { per_minute: 0.29, number_monthly_fee: 2, topup_min: 10, topup_presets: [10, 25, 50, 100] },
   },
   plans: [
     {
@@ -101,7 +104,8 @@ const FALLBACK: PricingData = {
         agents: 1, phone_numbers: 1, knowledge_bases: 1, team_members: 2, workflows: 3, api_keys: 0, custom_voices: 0,
         concurrent_calls: 3, minutes_per_month: 200, emails_per_month: 500,
       },
-      overage_per_minute: 0.3,
+      overage_per_minute: 0.25,
+      premium_multiplier: 1.5,
       support: 'Email support',
     },
     {
@@ -115,7 +119,8 @@ const FALLBACK: PricingData = {
         agents: 3, phone_numbers: 2, knowledge_bases: 5, team_members: 5, workflows: 15, api_keys: 3, custom_voices: 0,
         concurrent_calls: 5, minutes_per_month: 750, emails_per_month: 2000,
       },
-      overage_per_minute: 0.25,
+      overage_per_minute: 0.22,
+      premium_multiplier: 1.5,
       popular: true,
       support: 'Priority email support',
     },
@@ -130,7 +135,8 @@ const FALLBACK: PricingData = {
         agents: 10, phone_numbers: 5, knowledge_bases: -1, team_members: 10, workflows: -1, api_keys: 10, custom_voices: 2,
         concurrent_calls: 15, minutes_per_month: 2000, emails_per_month: 5000,
       },
-      overage_per_minute: 0.2,
+      overage_per_minute: 0.19,
+      premium_multiplier: 1.5,
       support: 'Chat support and an onboarding call',
     },
     {
@@ -144,7 +150,8 @@ const FALLBACK: PricingData = {
         agents: -1, phone_numbers: 20, knowledge_bases: -1, team_members: 25, workflows: -1, api_keys: 25, custom_voices: 10,
         concurrent_calls: 30, minutes_per_month: 3000, emails_per_month: 20000,
       },
-      overage_per_minute: 0.15,
+      overage_per_minute: 0.17,
+      premium_multiplier: 1.5,
       support: 'Slack support and an account manager',
     },
   ],
@@ -189,6 +196,7 @@ export interface ApiPlan {
     features?: Record<string, boolean>
     limits?: Limits
     overage?: { allowed?: boolean; per_minute?: number }
+    premium?: { multiplier?: number }
     /** Present on a prepaid plan only. */
     billing?: {
       mode?: string
@@ -252,6 +260,7 @@ export function toPricingPlan(p: ApiPlan): PricingPlan {
     features: p.entitlements?.features ?? {},
     limits: p.entitlements?.limits ?? {},
     overage_per_minute: overage?.allowed && rate ? Number(rate) : null,
+    premium_multiplier: Math.max(1, Number(p.entitlements?.premium?.multiplier ?? 1) || 1),
     popular: p.features?.popular === true,
     support: typeof support === 'string' && support.trim() ? support.trim() : null,
   }
@@ -423,12 +432,24 @@ export function planBullets(plan: PricingPlan, previous?: PricingPlan): string[]
     ]),
     joinList([f.knowledge_base && count(l.knowledge_bases, 'knowledge base'), count(l.team_members, 'team seat')]),
     ...usageLines(l, f, plan.overage_per_minute),
+    premiumLine(plan),
     // Only Google Calendar books today; Calendly and Cal.com are read-only.
     includesPrevious ? null : 'Appointment booking with Google Calendar',
     ...featureLines(shown, l),
     f.api_access && l.api_keys === UNLIMITED ? 'Unlimited API keys' : f.api_access && l.api_keys > 0 ? `API access, up to ${l.api_keys.toLocaleString('en-US')} keys` : null,
     plan.support,
   ].filter(Boolean) as string[]
+}
+
+/**
+ * "Premium AI models use minutes at 1.5×". Shown wherever the plan's price is,
+ * so nobody finds out from their bill. The models are listed in
+ * `catalog.is_premium_model` (backend) and badged in the agent editor.
+ */
+export function premiumLine(plan: Pick<PricingPlan, 'premium_multiplier'>): string | null {
+  const m = plan.premium_multiplier ?? 1
+  if (m <= 1) return null
+  return `Premium AI models (GPT-5.5, GPT-4o, Claude Sonnet and Opus) use minutes at ${m.toLocaleString('en-US')}×`
 }
 
 /** "$10", "$2.50" — whole amounts without the cents. */
@@ -449,6 +470,7 @@ export function paygBullets(plan: PricingPlan): string[] {
   const lines = l.concurrent_calls
   return [
     `${perMinute(prepaid.per_minute)} per call minute, paid from your balance`,
+    premiumLine(plan),
     'No monthly fee and nothing to cancel',
     prepaid.topup_min > 0
       ? `Add credit from ${dollars(prepaid.topup_min)}; it does not expire`

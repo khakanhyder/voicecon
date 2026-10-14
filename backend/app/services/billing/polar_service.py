@@ -171,6 +171,16 @@ class PolarClient:
     async def create_discount(self, body: dict) -> dict:
         return await self._request("POST", "/v1/discounts/", json_body=body)
 
+    # -- usage billing (overage) --
+    async def list_meters(self) -> dict:
+        return await self._request("GET", "/v1/meters/", params={"limit": 100})
+
+    async def create_meter(self, body: dict) -> dict:
+        return await self._request("POST", "/v1/meters/", json_body=body)
+
+    async def ingest_events(self, events: List[dict]) -> dict:
+        return await self._request("POST", "/v1/events/ingest", json_body={"events": events})
+
 
 def _error_detail(response: httpx.Response) -> str:
     try:
@@ -918,14 +928,99 @@ def _price_body(amount: Any, currency: str) -> dict:
     }
 
 
+#: Overage is billed through one Polar meter that sums the cents each overage
+#: event carries, and a metered price of one cent per unit on every recurring
+#: product. The rate therefore lives in Voicecon (the plan's overage rate), not
+#: in Polar: changing it in /admin/plans needs no Polar change.
+OVERAGE_EVENT_NAME = "voicecon_overage"
+OVERAGE_METER_NAME = "Voicecon overage minutes"
+_OVERAGE_METER_TAG = "voicecon_overage_cents"
+_overage_meter_id: Optional[str] = None
+
+
+async def overage_meter_id() -> str:
+    """The id of the overage meter, created on first use."""
+    global _overage_meter_id
+    if _overage_meter_id:
+        return _overage_meter_id
+    client = get_polar_client()
+    listing = await client.list_meters()
+    for meter in listing.get("items") or []:
+        if (meter.get("metadata") or {}).get("voicecon") == _OVERAGE_METER_TAG and not meter.get("archived_at"):
+            _overage_meter_id = meter["id"]
+            return _overage_meter_id
+    created = await client.create_meter(
+        {
+            "name": OVERAGE_METER_NAME,
+            "filter": {
+                "conjunction": "and",
+                "clauses": [{"property": "name", "operator": "eq", "value": OVERAGE_EVENT_NAME}],
+            },
+            "aggregation": {"func": "sum", "property": "amount_cents"},
+            "metadata": {"voicecon": _OVERAGE_METER_TAG},
+        }
+    )
+    _overage_meter_id = created["id"]
+    return _overage_meter_id
+
+
+def _metered_price_body(meter_id: str, currency: str) -> dict:
+    return {
+        "amount_type": "metered_unit",
+        "meter_id": meter_id,
+        # One unit is one cent of overage.
+        "unit_amount": "1",
+        "price_currency": (currency or "usd").lower(),
+    }
+
+
+async def _product_prices(product_id: str, amount: Any, currency: str) -> List[dict]:
+    """The full price list to send for a recurring product: the new fixed
+    price plus the overage price.
+
+    Polar replaces a product's prices with whatever list a PATCH sends, so a
+    PATCH carrying only the fixed price would archive the overage price and
+    stop overage billing for every new subscriber. The existing overage price
+    is kept by id; a product without one gets one.
+    """
+    meter_id = await overage_meter_id()
+    prices: List[dict] = [_price_body(amount, currency)]
+    product = await get_polar_client().get_product(product_id)
+    existing = [
+        p for p in product.get("prices") or []
+        if p.get("amount_type") == "metered_unit"
+        and p.get("meter_id") == meter_id
+        and not p.get("is_archived")
+    ]
+    if existing:
+        prices.append({"id": existing[0]["id"]})
+    else:
+        prices.append(_metered_price_body(meter_id, currency))
+    return prices
+
+
+def subscription_bills_overage(polar_subscription: dict, meter_id: str) -> bool:
+    """Does this Polar subscription carry the overage price?
+
+    Polar keeps a subscriber on the prices they bought, so a subscription that
+    started before its product had the overage price does not have it.
+    """
+    for price in polar_subscription.get("prices") or []:
+        if price.get("amount_type") == "metered_unit" and price.get("meter_id") == meter_id:
+            return True
+    return False
+
+
 async def sync_plan_products(plan: SubscriptionPlan) -> Dict[str, str]:
     """Create the plan's Polar products if missing, else refresh name and price.
 
     Returns ``{"monthly": id, "yearly": id}`` for the products that exist
     afterwards. Price changes are pushed as a new price on the product; Polar
-    keeps existing subscribers on the price they bought.
+    keeps existing subscribers on the price they bought. Every product also
+    carries the overage price (see :data:`OVERAGE_EVENT_NAME`).
     """
     client = get_polar_client()
+    meter_id = await overage_meter_id()
     out: Dict[str, str] = {}
     for period, interval, amount in (
         ("monthly", "month", plan.price_monthly),
@@ -940,7 +1035,11 @@ async def sync_plan_products(plan: SubscriptionPlan) -> Dict[str, str]:
         if existing_id:
             await client.update_product(
                 existing_id,
-                {"name": name, "description": plan.description or None, "prices": [_price_body(amount, plan.currency)]},
+                {
+                    "name": name,
+                    "description": plan.description or None,
+                    "prices": await _product_prices(existing_id, amount, plan.currency),
+                },
             )
             out[period] = existing_id
         else:
@@ -949,7 +1048,10 @@ async def sync_plan_products(plan: SubscriptionPlan) -> Dict[str, str]:
                     "name": name,
                     "description": plan.description or None,
                     "recurring_interval": interval,
-                    "prices": [_price_body(amount, plan.currency)],
+                    "prices": [
+                        _price_body(amount, plan.currency),
+                        _metered_price_body(meter_id, plan.currency),
+                    ],
                     "metadata": {"voicecon_plan": plan.slug or str(plan.id), "billing_period": period},
                 }
             )
@@ -958,4 +1060,6 @@ async def sync_plan_products(plan: SubscriptionPlan) -> Dict[str, str]:
 
 
 async def push_price(product_id: str, amount: Any, currency: str) -> None:
-    await get_polar_client().update_product(product_id, {"prices": [_price_body(amount, currency)]})
+    await get_polar_client().update_product(
+        product_id, {"prices": await _product_prices(product_id, amount, currency)}
+    )

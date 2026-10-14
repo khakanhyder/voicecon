@@ -38,14 +38,20 @@ class ElevenLabsTTS(BaseTTSProvider):
     # API Configuration
     BASE_URL = "https://api.elevenlabs.io/v1"
 
-    # Pricing (per 1,000 characters)
+    # API price per 1,000 characters, by model (elevenlabs.io/pricing/api,
+    # checked 2026-10-14). The rate is the same on every plan; plans differ
+    # only in how many characters are included. Flash/Turbo are half the
+    # price of Multilingual/v3.
     PRICING = {
-        "free": 0.00,  # Free tier (10,000 chars/month)
-        "starter": 0.30,  # $0.30 per 1,000 chars
-        "creator": 0.24,  # $0.24 per 1,000 chars (volume discount)
-        "pro": 0.18,  # $0.18 per 1,000 chars (volume discount)
-        "scale": 0.15,  # $0.15 per 1,000 chars (enterprise)
+        "eleven_flash_v2_5": 0.04,
+        "eleven_flash_v2": 0.04,
+        "eleven_turbo_v2_5": 0.04,
+        "eleven_turbo_v2": 0.04,
+        "eleven_multilingual_v2": 0.08,
+        "eleven_v3": 0.08,
     }
+    #: Unknown models are priced as the dearer family, so cost is never understated.
+    DEFAULT_PRICE_PER_1K = 0.08
 
     # Default voices
     DEFAULT_VOICES = {
@@ -245,7 +251,7 @@ class ElevenLabsTTS(BaseTTSProvider):
             self._add_to_cache(text, voice_id, cache_settings, audio_data)
 
             # Track usage
-            cost = self._calculate_cost(len(text))
+            cost = self._calculate_cost(len(text), kwargs.get("model_id", self.model_id))
             self._track_usage(len(text), cost, voice_id)
 
             logger.info(f"Synthesized {len(text)} characters with voice {voice_id}")
@@ -311,7 +317,7 @@ class ElevenLabsTTS(BaseTTSProvider):
                         yield chunk
 
                 # Track usage
-                cost = self._calculate_cost(len(text))
+                cost = self._calculate_cost(len(text), kwargs.get("model_id", self.model_id))
                 self._track_usage(len(text), cost, voice_id)
 
                 logger.info(
@@ -375,17 +381,18 @@ class ElevenLabsTTS(BaseTTSProvider):
             logger.error(f"Error getting voice settings: {e}")
             raise ProviderError(f"Network error: {e}")
 
-    def _calculate_cost(self, character_count: int) -> float:
+    def _calculate_cost(self, character_count: int, model_id: Optional[str] = None) -> float:
         """
         Calculate cost based on character count.
 
         Args:
             character_count: Number of characters synthesized
+            model_id: Model the characters were synthesized with
 
         Returns:
             Cost in USD
         """
-        price_per_1k = self.PRICING.get(self.tier, self.PRICING["starter"])
+        price_per_1k = self.PRICING.get(model_id or self.model_id, self.DEFAULT_PRICE_PER_1K)
         return (character_count / 1000.0) * price_per_1k
 
     def _track_usage(self, character_count: int, cost: float, voice_id: str):

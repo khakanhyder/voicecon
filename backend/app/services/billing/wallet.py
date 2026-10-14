@@ -488,6 +488,19 @@ async def reserve_for_call(
     if not ent.is_prepaid:
         return None
     billing = ent.billing
+    # A premium-model call is charged its minutes times the plan's premium
+    # multiplier, so it may only run as long as the credit covers at that rate.
+    if call.agent_id and ent.premium_multiplier > 1:
+        from app.models.agent import Agent
+
+        agent = await db.get(Agent, call.agent_id)
+        if agent is not None and catalog.is_premium_model(agent.llm_provider, agent.llm_model):
+            billing = {
+                **billing,
+                "per_minute": float(
+                    Decimal(str(billing.get("per_minute") or 0)) * Decimal(str(ent.premium_multiplier))
+                ),
+            }
     rate = rate_cents(billing)
     if rate <= 0:
         return None

@@ -107,6 +107,13 @@ class Entitlements:
     limits: Mapping[str, int] = field(default_factory=dict)
     usage: Mapping[str, int] = field(default_factory=dict)
     overage_allowed: bool = False
+    #: Price of one minute past the allowance, from the plan document (or an
+    #: org override); ``None`` when the document carries none and the plan
+    #: column applies.
+    overage_per_minute: Optional[float] = None
+    #: How many times a minute on a premium model counts (``catalog.
+    #: is_premium_model``); 1 means premium models cost the same.
+    premium_multiplier: float = 1.0
     #: A prepaid plan's billing settings (rate per minute, top-up bounds); empty
     #: on every other plan. See ``catalog.PAYG_BILLING``.
     billing: Mapping[str, Any] = field(default_factory=dict)
@@ -394,6 +401,10 @@ class EntitlementService:
             limits=limits,
             usage=usage,
             overage_allowed=bool(overage.get("allowed", False)),
+            overage_per_minute=(
+                float(overage["per_minute"]) if overage.get("per_minute") is not None else None
+            ),
+            premium_multiplier=catalog.premium_multiplier(document),
             billing=catalog.billing_config(document) if catalog.is_prepaid(document) else {},
         )
 

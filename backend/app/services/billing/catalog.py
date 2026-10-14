@@ -159,6 +159,58 @@ def _features(**overrides: bool) -> Dict[str, bool]:
     return doc
 
 
+# ---- Premium models ----
+# An agent on a flagship LLM (GPT-5.5, GPT-5.4, GPT-4o, Claude Sonnet/Opus)
+# costs us several times what one on a small model does: about $0.10-0.15 of
+# model tokens per call minute against under $0.01. Those minutes count
+# ``premium.multiplier`` times — against a subscription's allowance (and so
+# its overage), and on the Pay As You Go per-minute charge. 1.5x is the
+# multiplier on the original pricing sheet. Each plan carries its own value,
+# editable in /admin/plans; ``1`` switches it off for that plan.
+PREMIUM_MULTIPLIER = 1.5
+
+#: A model is "standard" when its id carries one of these; every other model
+#: of a metered provider is premium. Small models are named consistently
+#: (gpt-5.4-mini, gpt-5.4-nano, gpt-4o-mini, o4-mini, claude-haiku-4-5), and
+#: an unrecognised model being premium errs on the side of not losing money.
+STANDARD_MODEL_MARKERS = ("mini", "nano", "haiku", "gpt-3.5")
+
+#: Providers whose models are priced by tier. A self-hosted or custom LLM is
+#: not ours to pay for.
+PREMIUM_PRICED_PROVIDERS = ("openai", "anthropic", "openrouter")
+
+
+def is_premium_model(provider: str | None, model: str | None) -> bool:
+    """Does an agent on this LLM use minutes at the premium multiplier?"""
+    if not model:
+        return False
+    if (provider or "openai").lower() not in PREMIUM_PRICED_PROVIDERS:
+        return False
+    name = model.lower().rsplit("/", 1)[-1]  # gateway ids: "openai/gpt-5.5"
+    return not any(marker in name for marker in STANDARD_MODEL_MARKERS)
+
+
+def premium_multiplier(document: Dict[str, Any] | None) -> float:
+    """The plan's premium multiplier; never below 1 (a discount is not a thing)."""
+    try:
+        value = float(((document or {}).get("premium") or {}).get("multiplier", 1))
+    except (TypeError, ValueError):
+        return 1.0
+    return max(1.0, value)
+
+
+def billable_minutes(minutes: int, multiplier: float, premium: bool) -> int:
+    """Minutes a call is charged as: whole minutes, times the multiplier on a
+    premium model, rounded up."""
+    if minutes <= 0:
+        return 0
+    if not premium or multiplier <= 1:
+        return int(minutes)
+    from decimal import ROUND_CEILING, Decimal
+
+    return int((Decimal(int(minutes)) * Decimal(str(multiplier))).to_integral_value(rounding=ROUND_CEILING))
+
+
 # ---- Free trial ----
 #: How long a card-free trial runs, in days. The single source of truth: plans
 #: are seeded with it, existing plans are re-synced to it on startup (see
@@ -210,6 +262,7 @@ TRIAL_ENTITLEMENTS: Dict[str, Any] = {
         LIMIT_CUSTOM_VOICES: 1,
     },
     "overage": {"allowed": False},
+    "premium": {"multiplier": PREMIUM_MULTIPLIER},
 }
 
 # ---- Nothing live: expired trial, lapsed subscription, no subscription ----
@@ -276,7 +329,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_MINUTES: 200,
             LIMIT_EMAILS: 500,
         },
-        "overage": {"allowed": True, "per_minute": 0.30},
+        "overage": {"allowed": True, "per_minute": 0.25},
+        "premium": {"multiplier": PREMIUM_MULTIPLIER},
     },
     "growth": {
         "features": _features(**_GROWTH_FEATURES),
@@ -292,7 +346,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_MINUTES: 750,
             LIMIT_EMAILS: 2000,
         },
-        "overage": {"allowed": True, "per_minute": 0.25},
+        "overage": {"allowed": True, "per_minute": 0.22},
+        "premium": {"multiplier": PREMIUM_MULTIPLIER},
     },
     "scale": {
         "features": _features(**_SCALE_FEATURES),
@@ -308,7 +363,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_MINUTES: 2000,
             LIMIT_EMAILS: 5000,
         },
-        "overage": {"allowed": True, "per_minute": 0.20},
+        "overage": {"allowed": True, "per_minute": 0.19},
+        "premium": {"multiplier": PREMIUM_MULTIPLIER},
     },
     "agency": {
         "features": _features(**_AGENCY_FEATURES),
@@ -324,7 +380,8 @@ PLAN_ENTITLEMENTS: Dict[str, Dict[str, Any]] = {
             LIMIT_MINUTES: 3000,
             LIMIT_EMAILS: 20000,
         },
-        "overage": {"allowed": True, "per_minute": 0.15},
+        "overage": {"allowed": True, "per_minute": 0.17},
+        "premium": {"multiplier": PREMIUM_MULTIPLIER},
     },
 }
 
@@ -343,8 +400,10 @@ BILLING_PREPAID = "prepaid"
 #: cents with ``Decimal`` where money moves, never used as floats.
 PAYG_BILLING: Dict[str, Any] = {
     "mode": BILLING_PREPAID,
-    #: Price of one call minute.
-    "per_minute": 0.35,
+    #: Price of one call minute. 2026-10-14 pricing review: $0.29 keeps a ~75%
+    #: gross margin on the standard stack (~$0.045/min) and stays above every
+    #: subscription's overage rate, so a regular caller is better off subscribing.
+    "per_minute": 0.29,
     #: Monthly rent of each Voicecon phone number, taken from the wallet. ``0``
     #: makes numbers free on this plan.
     "number_monthly_fee": 2.00,
@@ -381,11 +440,12 @@ PREPAID_PLAN_ENTITLEMENTS[PREPAID_PLAN_SLUG] = {
     },
     # Nothing is billed afterwards: a minute is paid for before it is used.
     "overage": {"allowed": False},
+    "premium": {"multiplier": PREMIUM_MULTIPLIER},
     "billing": dict(PAYG_BILLING),
 }
 
 #: Sections of an entitlement document, in the order they are merged.
-DOCUMENT_SECTIONS = ("features", "limits", "overage", "billing")
+DOCUMENT_SECTIONS = ("features", "limits", "overage", "premium", "billing")
 
 #: The two launch plans the pricing sheet replaced. No longer sold (the seeder
 #: hides them), but customers already subscribed keep them — their entitlements

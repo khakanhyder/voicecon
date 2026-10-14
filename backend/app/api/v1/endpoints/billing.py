@@ -189,6 +189,8 @@ class UsageResponse(BaseModel):
     #: False on a trial: usage stops at the allowance instead of overflowing.
     overage_allowed: bool = False
     overage_rate_per_minute: float = 0.0
+    #: Minutes on a premium model count this many times (1 = no premium rate).
+    premium_multiplier: float = 1.0
     #: Pay As You Go: there is no allowance; minutes are paid from the wallet.
     prepaid: bool = False
     #: Price of a minute on a prepaid plan.
@@ -557,31 +559,23 @@ async def get_current_usage(
     # Get usage
     usage = await stripe_service.get_current_usage(db=db, subscription_id=subscription.id)
 
-    # Calculate estimated overage cost
-    result = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.id == subscription.plan_id)
-    )
-    plan = result.scalar_one_or_none()
-
-    estimated_cost = 0.0
-    if plan and usage["overage_allowed"]:
-        estimated_cost = round(
-            float(plan.overage_rate_per_minute) * usage["minutes_overage"], 2
-        )
-
     ent = await get_entitlement_service().resolve(db, org_id)
-    period_spend = 0.0
-    if ent.is_prepaid:
-        from sqlalchemy import func
 
-        spent = await db.scalar(
-            select(func.coalesce(func.sum(UsageRecord.total_amount), 0)).where(
-                UsageRecord.subscription_id == subscription.id,
-                UsageRecord.usage_type == "minutes",
-                UsageRecord.created_at >= subscription.current_period_start,
-            )
+    from sqlalchemy import func
+
+    # What this period's calls have been priced at, summed from the usage
+    # rows: each was priced at the rate the plan had when the call ended, so
+    # this is what the next invoice carries (prepaid: what the wallet paid).
+    priced = await db.scalar(
+        select(func.coalesce(func.sum(UsageRecord.total_amount), 0)).where(
+            UsageRecord.subscription_id == subscription.id,
+            UsageRecord.usage_type == "minutes",
+            UsageRecord.created_at >= subscription.current_period_start,
         )
-        period_spend = round(float(spent or 0), 2)
+    )
+    priced = round(float(priced or 0), 2)
+    estimated_cost = priced if usage["overage_allowed"] and not ent.is_prepaid else 0.0
+    period_spend = priced if ent.is_prepaid else 0.0
 
     return UsageResponse(
         minutes_used=usage["minutes_used"],
@@ -596,6 +590,7 @@ async def get_current_usage(
         prepaid=ent.is_prepaid,
         rate_per_minute=float(ent.billing.get("per_minute") or 0) if ent.is_prepaid else 0.0,
         period_spend=period_spend,
+        premium_multiplier=ent.premium_multiplier,
     )
 
 
@@ -838,6 +833,8 @@ class EntitlementsResponse(BaseModel):
     #: The paid subscription ends at the period end and the workspace then
     #: moves to Pay As You Go, rather than being cancelled.
     switching_to_prepaid: bool = False
+    #: Minutes on a premium AI model count this many times (1 = no difference).
+    premium_multiplier: float = 1.0
 
 
 class SubscriptionEventResponse(BaseModel):
@@ -942,6 +939,7 @@ async def get_entitlements(
         wallet_low=wallet_low,
         wallet_empty=wallet_empty,
         switching_to_prepaid=switching_to_prepaid,
+        premium_multiplier=ent.premium_multiplier,
     )
 
 

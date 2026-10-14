@@ -16,7 +16,7 @@ interface Contact {
   total_calls: number
   completed_calls: number
   total_duration_seconds: number
-  total_cost: number
+  total_cost: number | null
   avg_sentiment_score: number | null
   last_call_at: string | null
 }

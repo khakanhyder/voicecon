@@ -342,7 +342,8 @@ class TestCatalog:
             slug: doc["overage"]["per_minute"]
             for slug, doc in catalog.PLAN_ENTITLEMENTS.items()
         }
-        assert rates == {"starter": 0.30, "growth": 0.25, "scale": 0.20, "agency": 0.15}
+        # Pricing review, 14 Oct 2026.
+        assert rates == {"starter": 0.25, "growth": 0.22, "scale": 0.19, "agency": 0.17}
 
     def test_each_plan_includes_everything_in_the_one_before(self):
         slugs = list(catalog.PLAN_ENTITLEMENTS)

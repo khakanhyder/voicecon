@@ -32,9 +32,20 @@ from app.core.entitlement_guard import require_entitlement
 from app.services.billing import catalog
 from app.core.time import utc_iso, utc_today
 from app.services.call.call_export import build_calls_csv
+from app.services.billing import call_pricing
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _call_view(call: Call, show_prices: bool) -> CallResponse:
+    """A call as the customer sees it: the price they paid, never our costs.
+
+    Built as a response model rather than by blanking the ORM row, which would
+    stage the blanked columns for the next commit on this session.
+    """
+    response = CallResponse.model_validate(call)
+    return call_pricing.present_call(response, call, show_prices)
 
 
 @router.websocket("/ws/{agent_id}")
@@ -262,7 +273,7 @@ async def create_call(
             detail="An internal error occurred. Please try again.",
         )
 
-    return call
+    return _call_view(call, await call_pricing.shows_call_prices(db, org_id))
 
 
 @router.get("", response_model=CallListResponse)
@@ -309,10 +320,11 @@ async def list_calls(
     query = query.offset(skip).limit(limit)
     rows = (await db.execute(query)).all()
 
+    show_prices = await call_pricing.shows_call_prices(db, org_id)
     calls = []
     for call, agent_name in rows:
         call.agent_name = agent_name
-        calls.append(call)
+        calls.append(_call_view(call, show_prices))
 
     return {
         "calls": calls,
@@ -353,10 +365,15 @@ async def get_call_stats(
     )
     total_duration = duration_result.scalar() or 0
 
-    cost_result = await db.execute(
-        select(func.sum(Call.cost_total)).where(Call.organization_id == org_id)
-    )
-    total_cost = cost_result.scalar() or 0
+    # What the workspace has been charged for calls (Pay As You Go only);
+    # never the provider cost, which is internal.
+    show_prices = await call_pricing.shows_call_prices(db, org_id)
+    total_cost = None
+    if show_prices:
+        cost_result = await db.execute(
+            select(func.sum(call_pricing.PRICE_COLUMN)).where(Call.organization_id == org_id)
+        )
+        total_cost = call_pricing.present_total(cost_result.scalar(), show_prices)
 
     # From the database, scoped to this workspace. The in-memory call manager
     # counted every tenant's calls on one server process, and the phone path
@@ -371,7 +388,7 @@ async def get_call_stats(
         "active_calls": active_calls,
         "total_duration_seconds": total_duration,
         "total_duration_minutes": round(total_duration / 60, 2),
-        "total_cost": float(total_cost),
+        "total_cost": total_cost,
         "average_duration_seconds": round(total_duration / total_calls, 2) if total_calls > 0 else 0,
         "completion_rate": round(completed_calls / total_calls * 100, 2) if total_calls > 0 else 0,
     }
@@ -408,7 +425,7 @@ async def export_calls(
             Call.started_at,
             Call.created_at,
             Call.duration_seconds,
-            Call.cost_total,
+            call_pricing.PRICE_COLUMN.label("cost_total"),
         )
         .outerjoin(Agent, Agent.id == Call.agent_id)
         .where(Call.organization_id == org_id)
@@ -426,9 +443,10 @@ async def export_calls(
     query = query.order_by(Call.started_at.desc().nullslast(), Call.created_at.desc())
 
     rows = (await db.execute(query)).mappings().all()
+    show_prices = await call_pricing.shows_call_prices(db, org_id)
 
     return Response(
-        content=build_calls_csv(rows, tz),
+        content=build_calls_csv(rows, tz, include_cost=show_prices),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="calls-{utc_today().isoformat()}.csv"',
@@ -554,7 +572,7 @@ async def list_call_contacts(
             func.count(Call.id).label("total_calls"),
             func.sum(case((Call.status == "completed", 1), else_=0)).label("completed_calls"),
             func.sum(func.coalesce(Call.duration_seconds, 0)).label("total_duration"),
-            func.sum(func.coalesce(Call.cost_total, 0)).label("total_cost"),
+            func.sum(func.coalesce(call_pricing.PRICE_COLUMN, 0)).label("total_cost"),
             func.avg(Call.sentiment_score).label("avg_sentiment"),
             func.max(Call.started_at).label("last_call_at"),
         )
@@ -565,6 +583,7 @@ async def list_call_contacts(
 
     result = await db.execute(query)
     rows = result.all()
+    show_prices = await call_pricing.shows_call_prices(db, org_id)
 
     contacts = [
         {
@@ -572,7 +591,7 @@ async def list_call_contacts(
             "total_calls": row.total_calls or 0,
             "completed_calls": row.completed_calls or 0,
             "total_duration_seconds": int(row.total_duration or 0),
-            "total_cost": float(row.total_cost or 0),
+            "total_cost": call_pricing.present_total(row.total_cost, show_prices),
             "avg_sentiment_score": float(row.avg_sentiment) if row.avg_sentiment is not None else None,
             "last_call_at": utc_iso(row.last_call_at),
         }
@@ -612,7 +631,8 @@ async def get_contact_calls(
         .offset(skip)
         .limit(limit)
     )
-    calls = result.scalars().all()
+    show_prices = await call_pricing.shows_call_prices(db, org_id)
+    calls = [_call_view(c, show_prices) for c in result.scalars().all()]
 
     return {
         "calls": calls,
@@ -653,7 +673,7 @@ async def get_call(
     call, agent_name = row
     call.agent_name = agent_name
 
-    return call
+    return _call_view(call, await call_pricing.shows_call_prices(db, org_id))
 
 
 @router.delete("/{call_id}", status_code=status.HTTP_204_NO_CONTENT)

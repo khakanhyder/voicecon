@@ -22,7 +22,7 @@ export default function CallsPage() {
           ['Answered', <><C>answered_at</C> is set. Billing starts here, not at initiation.</>],
           ['In progress', 'Transcript and event log accumulate turn by turn.'],
           ['Ended', <><C>ended_at</C>, duration, and a disconnection reason.</>],
-          ['Processed', 'Recording stored, summary written, analysis run, costs totalled.'],
+          ['Processed', 'Recording stored, summary written, analysis run, call priced.'],
         ]}
       />
       <Callout kind="note" title="Summaries arrive slightly late">
@@ -210,30 +210,21 @@ export default function CallsPage() {
 # The fix here is a faster model, not a faster voice.`}
       />
 
-      <H2 id="costs">Cost breakdown</H2>
-      <P>Every call is costed across four components, so you can see where the money goes.</P>
-      <Table
-        headers={['Field', 'Covers']}
-        widths={['w-[24%]']}
-        rows={[
-          [<C key="c0">cost_stt</C>, 'Transcribing caller audio.'],
-          [<C key="c0">cost_llm</C>, 'Model calls — usually the largest share on a conversational agent.'],
-          [<C key="c0">cost_tts</C>, 'Speech synthesis. Scales with how much the agent says.'],
-          [<C key="c0">cost_telephony</C>, 'Carrier charges. Zero on browser tests.'],
-          [<C key="c0">cost_total</C>, 'The sum.'],
-        ]}
-      />
+      <H2 id="costs">Call price</H2>
+      <P>
+        On <Strong>Pay As You Go</Strong>, each call shows what it was charged: its minutes,
+        rounded up to the next started minute, at your plan&rsquo;s per-minute rate when the
+        call ended. The same amount appears as <C>cost_total</C> in the API and the CSV
+        export, and as a line under <Strong>Balance</Strong> &rarr; <Strong>History</Strong>.
+      </P>
+      <P>
+        On a subscription plan your minutes are covered by the plan, so calls show no price
+        and <C>cost_total</C> is empty. <C>cost_stt</C>, <C>cost_llm</C>, <C>cost_tts</C> and{' '}
+        <C>cost_telephony</C> are always empty.
+      </P>
       <UL>
         <LI>
-          <Strong>LLM cost high?</Strong> Use a smaller model, shorten the system prompt, or
-          reduce the number of assigned tools — all three shrink every request.
-        </LI>
-        <LI>
-          <Strong>TTS cost high?</Strong> The agent is talking too much. Ask for shorter
-          replies in the prompt; the caller will prefer it too.
-        </LI>
-        <LI>
-          <Strong>Telephony cost high?</Strong> Calls are running long. Check{' '}
+          <Strong>Calls costing more than expected?</Strong> They are running long. Check{' '}
           <C>max_call_duration</C> and look for flows where callers get stuck.
         </LI>
       </UL>

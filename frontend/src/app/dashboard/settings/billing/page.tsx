@@ -89,6 +89,8 @@ interface Usage {
   /** False on a trial: usage stops at the allowance instead of overflowing. */
   overage_allowed?: boolean;
   overage_rate_per_minute?: number;
+  /** Minutes on a premium AI model count this many times (1 = no difference). */
+  premium_multiplier?: number;
   /** Pay As You Go: no allowance; minutes are paid from the balance. */
   prepaid?: boolean;
   rate_per_minute?: number;
@@ -649,6 +651,12 @@ export default function BillingPage() {
                   ? `Minutes past your allowance are billed at ${perMinute(usage.overage_rate_per_minute ?? 0)} each`
                   : 'Calls stop when the allowance is used up — choose a plan for more'
                 : 'What your workspace has used since the period started'}
+              {usage && (usage.premium_multiplier ?? 1) > 1 && (
+                <>
+                  {'. '}
+                  Calls on a premium AI model (GPT-5.5, GPT-4o, Claude Sonnet or Opus) count {usage.premium_multiplier}× their minutes.
+                </>
+              )}
             </p>
           </div>
 
@@ -712,7 +720,7 @@ export default function BillingPage() {
                   </h4>
                   <p className="text-sm text-yellow-800">
                     {usage.overage_allowed
-                      ? `You've used ${usage.minutes_overage} minutes past your allowance this period. Estimated additional charges: $${usage.estimated_overage_cost.toFixed(2)}.`
+                      ? `You've used ${usage.minutes_overage} minutes past your allowance this period. $${usage.estimated_overage_cost.toFixed(2)} will be added to your next invoice.`
                       : 'New calls are declined until you choose a plan.'}
                   </p>
                 </div>

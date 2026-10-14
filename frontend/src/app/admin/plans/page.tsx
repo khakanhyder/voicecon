@@ -37,6 +37,8 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
     highlights: plan.highlights.join('\n'),
     polar_product_id: plan.polar_product_id ?? '',
     polar_product_id_yearly: plan.polar_product_id_yearly ?? '',
+    overage_per_minute: plan.overage_per_minute == null ? '' : String(plan.overage_per_minute),
+    premium_multiplier: String(plan.premium_multiplier ?? 1),
   })
   // Pay As You Go has no monthly or yearly price and cannot carry a trial;
   // what it charges lives in `billing` instead.
@@ -85,7 +87,11 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
               ...(form.price_yearly !== '' ? { price_yearly: Number(form.price_yearly) } : {}),
               trial_days: Number(form.trial_days),
               is_trialable: form.is_trialable,
+              ...(plan.overage_allowed && form.overage_per_minute !== ''
+                ? { overage_per_minute: Number(form.overage_per_minute) }
+                : {}),
             }),
+        premium_multiplier: Number(form.premium_multiplier || 1),
         is_active: form.is_active,
         is_public: form.is_public,
         sort_order: Number(form.sort_order),
@@ -160,8 +166,22 @@ function PlanEditor({ plan, catalog, stripeConfigured, onClose }: { plan: Plan; 
                 <input type="number" min={0} step="0.01" className={inputClass} value={form.price_yearly} onChange={(e) => set('price_yearly', e.target.value)} />
               </Field>
               <Field label="Trial length (days)"><input type="number" min={1} max={365} className={inputClass} value={form.trial_days} onChange={(e) => set('trial_days', e.target.value)} /></Field>
+              {plan.overage_allowed && (
+                <Field
+                  label={`Overage per minute (${plan.currency.toUpperCase()})`}
+                  hint="Charged for each minute past the monthly allowance, on the customer's next invoice."
+                >
+                  <input type="number" min={0} step="0.01" className={inputClass} value={form.overage_per_minute} onChange={(e) => set('overage_per_minute', e.target.value)} />
+                </Field>
+              )}
             </>
           )}
+          <Field
+            label="Premium model multiplier"
+            hint="Minutes on GPT-5.5, GPT-5.4, GPT-4o or Claude Sonnet/Opus count this many times. 1 turns it off."
+          >
+            <input type="number" min={1} max={5} step="0.1" className={inputClass} value={form.premium_multiplier} onChange={(e) => set('premium_multiplier', e.target.value)} />
+          </Field>
         </div>
 
         {prepaid && (
@@ -367,6 +387,9 @@ export default function PlansPage() {
                 {plan.price_yearly != null && (
                   <span className="ml-2 text-sm font-normal text-slate-500">· {formatMoney(plan.price_yearly, plan.currency)} / year</span>
                 )}
+                {plan.overage_allowed && plan.overage_per_minute != null && (
+                  <span className="ml-2 text-sm font-normal text-slate-500">· overage {perMinute(plan.overage_per_minute)}</span>
+                )}
               </p>
             )}
           </div>
@@ -408,6 +431,7 @@ export default function PlansPage() {
         <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
           <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {plan.subscribers} live subscription{plan.subscribers === 1 ? '' : 's'}</span>
           <span>Trial: {plan.is_trialable ? `${plan.trial_days} days` : 'none'}</span>
+          <span>Premium models: {(plan.premium_multiplier ?? 1) > 1 ? `${plan.premium_multiplier}× minutes` : 'same rate'}</span>
           <span className="font-mono">{plan.slug}</span>
           {plan.prepaid ? (
             <span>

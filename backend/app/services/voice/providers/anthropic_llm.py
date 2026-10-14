@@ -35,8 +35,20 @@ class AnthropicLLM(BaseLLMProvider):
     - Token counting and cost tracking
     """
 
-    # Pricing per 1M tokens (as of 2025)
+    # Price per 1M tokens (claude.com/pricing, checked 2026-10-14). Looked up
+    # by prefix, so dated ids (claude-haiku-4-5-20251001) find their row.
     PRICING = {
+        "claude-haiku-5-5": {"prompt": 0.10, "completion": 0.50},
+        "claude-haiku-4-5": {"prompt": 1.00, "completion": 5.00},
+        "claude-sonnet-5-5": {"prompt": 2.00, "completion": 10.00},
+        "claude-fable-5": {"prompt": 10.00, "completion": 50.00},
+        "claude-opus-4-8": {"prompt": 5.00, "completion": 25.00},
+        "claude-opus-4-7": {"prompt": 5.00, "completion": 25.00},
+        "claude-opus-5-5": {"prompt": 4.00, "completion": 20.00},
+        "claude-opus-5": {"prompt": 5.00, "completion": 25.00},
+        "claude-sonnet-4-6": {"prompt": 3.00, "completion": 15.00},
+        "claude-opus-4-6": {"prompt": 5.00, "completion": 25.00},
+        "claude-sonnet-5": {"prompt": 2.00, "completion": 10.00},
         "claude-3-opus-20240229": {"prompt": 15.00, "completion": 75.00},
         "claude-3-sonnet-20240229": {"prompt": 3.00, "completion": 15.00},
         "claude-3-haiku-20240307": {"prompt": 0.25, "completion": 1.25},
@@ -68,6 +80,56 @@ class AnthropicLLM(BaseLLMProvider):
         # Low effort keeps thinking short: these answer a caller in real time.
         # extra_body because the pinned SDK predates output_config.
         request_params["extra_body"] = {"output_config": {"effort": "low"}}
+
+    #: Cache reads cost this share of the input price; writes (5-minute TTL)
+    #: cost 1.25x. Opus 5.5 reads are cheaper than the usual 0.1x.
+    _CACHE_READ_SHARE = {"claude-opus-5-5": 0.05}
+    _CACHE_WRITE_SHARE = 1.25
+
+    @staticmethod
+    def _apply_caching(request_params: Dict[str, Any]) -> None:
+        """Mark the prompt for Anthropic prompt caching.
+
+        Two breakpoints: the system prompt (which, rendered after the tools,
+        caches tools + system: the agent's instructions, knowledge and tool
+        list, identical on every turn of a call) and the newest message
+        (the conversation so far, which the next turn re-sends unchanged).
+        A voice call re-sends both on every turn, so from the second turn
+        on most input tokens are read from cache at a tenth of the price.
+        Prefixes under the model's minimum (512-4096 tokens) are silently
+        not cached; nothing fails.
+        """
+        marker = {"type": "ephemeral"}
+        system = request_params.get("system")
+        if isinstance(system, str) and system:
+            request_params["system"] = [{"type": "text", "text": system, "cache_control": marker}]
+
+        messages = request_params.get("messages") or []
+        if not messages:
+            return
+        last = dict(messages[-1])
+        content = last.get("content")
+        if isinstance(content, str):
+            if not content:
+                return
+            blocks = [{"type": "text", "text": content}]
+        elif isinstance(content, list) and content:
+            blocks = [dict(b) if isinstance(b, dict) else b for b in content]
+        else:
+            return
+        if not isinstance(blocks[-1], dict):
+            return
+        blocks[-1] = {**blocks[-1], "cache_control": marker}
+        last["content"] = blocks
+        request_params["messages"] = [*messages[:-1], last]
+
+    @staticmethod
+    def _cache_tokens(usage: Any) -> tuple[int, int]:
+        """(written, read) cache tokens from a response's usage."""
+        return (
+            int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+            int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+        )
 
     def __init__(
         self,
@@ -304,6 +366,7 @@ class AnthropicLLM(BaseLLMProvider):
                 request_params["tools"] = tools
 
             self._apply_model_rules(request_params)
+            self._apply_caching(request_params)
 
             # Call Anthropic API
             response: Message = await self.client.messages.create(**request_params)
@@ -325,10 +388,13 @@ class AnthropicLLM(BaseLLMProvider):
                         )
 
             # Calculate cost
+            cache_written, cache_read = self._cache_tokens(response.usage)
             cost = self._calculate_cost(
                 model=response.model,
                 prompt_tokens=response.usage.input_tokens,
                 completion_tokens=response.usage.output_tokens,
+                cache_write_tokens=cache_written,
+                cache_read_tokens=cache_read,
             )
 
             # Track usage
@@ -425,6 +491,7 @@ class AnthropicLLM(BaseLLMProvider):
 
             # Stream response
             self._apply_model_rules(request_params)
+            self._apply_caching(request_params)
             async with self.client.messages.stream(**request_params) as stream:
                 async for event in stream:
                     event: MessageStreamEvent
@@ -450,10 +517,13 @@ class AnthropicLLM(BaseLLMProvider):
                     }
 
                 # Track usage
+                cache_written, cache_read = self._cache_tokens(final_message.usage)
                 cost = self._calculate_cost(
                     model=final_message.model,
                     prompt_tokens=final_message.usage.input_tokens,
                     completion_tokens=final_message.usage.output_tokens,
+                    cache_write_tokens=cache_written,
+                    cache_read_tokens=cache_read,
                 )
 
                 self._track_usage(
@@ -481,21 +551,43 @@ class AnthropicLLM(BaseLLMProvider):
                 logger.error(f"Anthropic streaming error: {error_msg}")
                 raise ProviderError(f"Anthropic streaming error: {error_msg}")
 
-    def _calculate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    def _calculate_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_write_tokens: int = 0,
+        cache_read_tokens: int = 0,
+    ) -> float:
         """
         Calculate cost based on token usage.
 
         Args:
             model: Model used
-            prompt_tokens: Number of prompt tokens
+            prompt_tokens: Uncached input tokens (``usage.input_tokens``,
+                which excludes cache reads and writes)
             completion_tokens: Number of completion tokens
+            cache_write_tokens: Input tokens written to the prompt cache
+            cache_read_tokens: Input tokens served from the prompt cache
 
         Returns:
             Cost in USD
         """
-        pricing = self.PRICING.get(model, self.PRICING["claude-3-sonnet-20240229"])
+        pricing = self.PRICING.get(model) or next(
+            (price for name, price in self.PRICING.items() if model.startswith(name)),
+            # Unknown model: the dearest current row, so cost is never understated.
+            self.PRICING["claude-opus-4-6"],
+        )
 
-        prompt_cost = (prompt_tokens / 1_000_000) * pricing["prompt"]
+        read_share = next(
+            (share for name, share in self._CACHE_READ_SHARE.items() if model.startswith(name)),
+            0.1,
+        )
+        prompt_cost = (
+            prompt_tokens
+            + cache_write_tokens * self._CACHE_WRITE_SHARE
+            + cache_read_tokens * read_share
+        ) / 1_000_000 * pricing["prompt"]
         completion_cost = (completion_tokens / 1_000_000) * pricing["completion"]
 
         return prompt_cost + completion_cost

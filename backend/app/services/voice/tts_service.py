@@ -278,7 +278,7 @@ class TTSService:
             return await provider_instance.get_voices()
         return []
 
-    async def get_usage_stats(self, provider: Optional[str] = None) -> list:
+    async def get_usage_stats(self, provider: Optional[str] = None, call_id: Optional[str] = None) -> list:
         """
         Get usage statistics for cost tracking.
 
@@ -293,9 +293,21 @@ class TTSService:
         for provider_instance in self._active_providers.values():
             if provider is None or provider_instance.__class__.__name__.lower().startswith(provider):
                 stats = provider_instance.get_usage_stats()
+                if call_id is not None:
+                    # Shared provider: keep only this call's records.
+                    stats = [s for s in stats if getattr(s, "call_id", None) == call_id]
                 all_stats.extend(stats)
 
         return all_stats
+
+    def forget_call_usage(self, call_id: str) -> None:
+        """Drop a finished call's usage records so the lists do not grow forever."""
+        from app.services.voice.providers.base import forget_call_usage
+
+        for provider_instance in self._active_providers.values():
+            stats = getattr(provider_instance, "_usage_stats", None)
+            if isinstance(stats, list):
+                forget_call_usage(stats, call_id)
 
     def clear_cache(self, provider: Optional[str] = None):
         """

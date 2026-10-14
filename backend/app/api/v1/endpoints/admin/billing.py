@@ -19,6 +19,7 @@ from app.models.subscription import (
     Subscription,
     SubscriptionEvent,
     SubscriptionPlan,
+    UsageRecord,
 )
 from app.models.user import Organization
 from app.services.billing import catalog
@@ -57,6 +58,13 @@ def _plan_view(plan: SubscriptionPlan, subscribers: int = 0) -> Dict[str, Any]:
         #: Pay As You Go: no monthly price; ``billing`` holds what it charges.
         "prepaid": catalog.is_prepaid(document),
         "billing": catalog.billing_config(document) if catalog.is_prepaid(document) else None,
+        #: Subscription plans: price of a minute past the allowance.
+        "overage_allowed": bool((document.get("overage") or {}).get("allowed", False)),
+        "overage_per_minute": num(
+            (document.get("overage") or {}).get("per_minute", plan.overage_rate_per_minute)
+        ),
+        #: Minutes on a premium model count this many times (1 = off).
+        "premium_multiplier": catalog.premium_multiplier(document),
         "subscribers": subscribers,
         "created_at": iso(plan.created_at),
     }
@@ -142,6 +150,11 @@ class PlanPatch(BaseModel):
     #: ``topup_presets``, ``topup_min``, ``topup_max``, ``low_balance``. Only
     #: the keys sent are changed. Refused on a subscription plan.
     billing: Optional[Dict[str, Any]] = None
+    #: A subscription plan's price per minute past its allowance. Refused on a
+    #: prepaid plan, whose per-minute price is ``billing.per_minute``.
+    overage_per_minute: Optional[Decimal] = Field(None, ge=0, le=100)
+    #: How many times a minute on a premium model counts; 1 turns it off.
+    premium_multiplier: Optional[Decimal] = Field(None, ge=1, le=5)
 
 
 #: Billing keys an admin may edit, and the most each may be. ``mode`` is not
@@ -242,6 +255,11 @@ async def update_plan(
 
     if "billing" in changes and not is_prepaid:
         raise HTTPException(status_code=422, detail="Only a prepaid plan has billing settings.")
+    if changes.get("overage_per_minute") is not None and is_prepaid:
+        raise HTTPException(
+            status_code=422,
+            detail="A prepaid plan has no overage. Set its price per minute instead.",
+        )
     if is_prepaid and (
         Decimal(str(changes.get("price_monthly") or 0)) != 0 or changes.get("price_yearly")
     ):
@@ -336,6 +354,21 @@ async def update_plan(
             plan.max_agents = limits.get(catalog.LIMIT_AGENTS, plan.max_agents)
             plan.max_phone_numbers = limits.get(catalog.LIMIT_PHONE_NUMBERS, plan.max_phone_numbers)
             plan.max_knowledge_bases = limits.get(catalog.LIMIT_KNOWLEDGE_BASES, plan.max_knowledge_bases)
+        plan.entitlements = document
+
+    if changes.get("overage_per_minute") is not None:
+        document = dict(plan.entitlements or {})
+        document["overage"] = {
+            **dict(document.get("overage") or {}),
+            "per_minute": float(changes["overage_per_minute"]),
+        }
+        plan.entitlements = document  # JSON column: reassign
+        # The column the billing page and older code read.
+        plan.overage_rate_per_minute = Decimal(str(changes["overage_per_minute"]))
+
+    if changes.get("premium_multiplier") is not None:
+        document = dict(plan.entitlements or {})
+        document["premium"] = {"multiplier": float(changes["premium_multiplier"])}
         plan.entitlements = document
 
     if new_billing is not None:
@@ -449,6 +482,89 @@ async def list_payment_failures(
         for f, org_name, inv in rows
     ]
     return paginated(items, total, params)
+
+
+@router.get("/billing/overage")
+async def list_overage_charges(
+    status_filter: Optional[str] = Query(None, alias="status", pattern="^(billed|failed|unbillable|pending)$"),
+    params: PageParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    """Subscription overage and where its charge stands at Stripe/Polar.
+
+    ``pending`` has not been pushed yet (the sweep picks it up within 15
+    minutes), ``failed`` will be retried, ``unbillable`` needs a person.
+    """
+    from datetime import timedelta
+
+    from app.services.billing import overage_billing
+
+    rows = (
+        await db.execute(
+            select(UsageRecord, Organization.name, Subscription.source)
+            .join(Subscription, Subscription.id == UsageRecord.subscription_id)
+            .join(Organization, Organization.id == UsageRecord.organization_id)
+            .where(
+                UsageRecord.usage_type == "minutes",
+                UsageRecord.total_amount > 0,
+                UsageRecord.created_at >= utcnow() - timedelta(days=90),
+            )
+            .order_by(UsageRecord.created_at.desc())
+        )
+    ).all()
+    items = []
+    for record, org_name, source in rows:
+        meta = record.stripe_metadata or {}
+        if not meta.get("bill_overage"):
+            continue  # prepaid usage, or overage from before overage billing
+        state = overage_billing.billing_state(record)
+        status_value = "billed" if record.reported_to_stripe else state.get("status") or "pending"
+        if status_filter and status_value != status_filter:
+            continue
+        items.append(
+            {
+                "id": str(record.id),
+                "organization_id": str(record.organization_id),
+                "organization_name": org_name,
+                "provider": source,
+                "call_id": str(record.resource_id) if record.resource_id else None,
+                "minutes": meta.get("overage_minutes"),
+                "rate": num(record.unit_price),
+                "amount": num(record.total_amount),
+                "status": status_value,
+                "reason": state.get("reason") or None,
+                "attempts": state.get("attempts") or 0,
+                "reference": record.stripe_usage_record_id,
+                "created_at": iso(record.created_at),
+            }
+        )
+    total = len(items)
+    return paginated(items[params.offset: params.offset + params.page_size], total, params)
+
+
+@router.post("/billing/overage/{record_id}/retry")
+async def retry_overage_charge(
+    record_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    """Push one overage charge again now (e.g. after moving a Polar customer
+    onto the price that carries overage)."""
+    from app.services.billing import overage_billing
+
+    record = await db.get(UsageRecord, parse_uuid(record_id, "usage record"))
+    if record is None or not (record.stripe_metadata or {}).get("bill_overage"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Overage charge not found")
+    if record.reported_to_stripe:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This charge has already been billed.")
+    result = await overage_billing.push_record(db, record)
+    audit(db, admin, "billing.overage_retry", target_type="usage_record", target_id=record.id,
+          summary=f"Retried an overage charge: {result}",
+          details={"status": result, **overage_billing.billing_state(record)}, request=request)
+    await db.commit()
+    return {"id": str(record.id), "status": result, **overage_billing.billing_state(record)}
 
 
 class ResolveBody(BaseModel):

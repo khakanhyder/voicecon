@@ -618,7 +618,7 @@ export const DOCS_NAV: DocGroup[] = [
           { id: 'transcripts', title: 'Transcripts and recordings' },
           { id: 'analysis', title: 'Summary and analysis' },
           { id: 'event-log', title: 'The event log' },
-          { id: 'costs', title: 'Cost breakdown' },
+          { id: 'costs', title: 'Call price' },
           { id: 'contacts', title: 'Contacts' },
         ],
         keywords: [

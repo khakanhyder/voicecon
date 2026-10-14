@@ -131,6 +131,8 @@ async def get_call(
             "tts": num(c.cost_tts),
             "telephony": num(c.cost_telephony),
             "total": num(c.cost_total),
+            # What the customer was charged (Pay As You Go); total above is our cost.
+            "billed": num(c.billed_amount),
         },
         "created_at": iso(c.created_at),
     }

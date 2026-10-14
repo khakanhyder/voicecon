@@ -84,7 +84,31 @@ from app.services.billing.usage_tracker import UsageTracker
 
 pytestmark = [pytest.mark.unit, pytest.mark.billing]
 
-RATE = Decimal(str(catalog.PAYG_BILLING["per_minute"]))  # 0.35 a minute
+#: The scenarios below are worked out at 35 cents a minute, so the rate is
+#: pinned to that (``pinned_rate``) rather than following the shipped default,
+#: which is asserted on its own in ``TestShippedRate``.
+RATE = Decimal("0.35")
+
+
+@pytest.fixture(autouse=True)
+def pinned_rate(monkeypatch):
+    monkeypatch.setitem(catalog.PAYG_BILLING, "per_minute", float(RATE))
+    monkeypatch.setitem(
+        catalog.PREPAID_PLAN_ENTITLEMENTS[catalog.PREPAID_PLAN_SLUG]["billing"],
+        "per_minute",
+        float(RATE),
+    )
+
+
+class TestShippedRate:
+    def test_pay_as_you_go_ships_at_29_cents(self, monkeypatch):
+        monkeypatch.undo()
+        assert catalog.PAYG_BILLING["per_minute"] == 0.29
+        assert catalog.PREPAID_PLAN_ENTITLEMENTS["payg"]["billing"]["per_minute"] == 0.29
+        # Above every subscription's overage rate: subscribing stays cheaper.
+        assert all(
+            doc["overage"]["per_minute"] < 0.29 for doc in catalog.PLAN_ENTITLEMENTS.values()
+        )
 
 
 class Obj(dict):
@@ -610,6 +634,10 @@ class TestCallCharges:
         subscription = await prepaid.current_subscription(db, org.id)
         assert subscription.current_period_minutes == 3
 
+        # The call carries the price the customer sees, the same as the debit.
+        await db.refresh(call)
+        assert Decimal(str(call.billed_amount)) == Decimal("1.05")
+
     async def test_a_repeated_callback_does_not_charge_twice(self, db, org, owner):
         await put_on_payg(db, org, balance_cents=1000)
         call = await make_call(db, org, owner, seconds=60)
@@ -656,6 +684,9 @@ class TestCallCharges:
 
         assert await balance(db, org) == 1000
         assert await ledger(db, org, TXN_USAGE) == []
+        # A subscriber pays for the plan, not the call: no price on it.
+        await db.refresh(call)
+        assert call.billed_amount is None
 
     async def test_a_trial_call_never_touches_a_wallet(self, db, org, owner):
         await start_trial(db, org, owner)
@@ -675,6 +706,9 @@ class TestCallCharges:
 
         await UsageTracker.record_call_usage(db, call.id, org.id)
         assert await balance(db, org) == 1000 - 100
+        # The price shown on the call follows the configured rate too.
+        await db.refresh(call)
+        assert Decimal(str(call.billed_amount)) == Decimal("1.00")
 
     async def test_the_usage_period_rolls_without_a_provider(self, db, org):
         subscription = await put_on_payg(db, org, balance_cents=1000)
@@ -1678,6 +1712,15 @@ class TestConcurrentDebits:
     async def _org_on_payg(self, factory, balance_cents):
         async with factory() as db:
             await seed_default_plans(db)
+            # This database outlives the run: a plan row seeded earlier keeps
+            # whatever rate it was created with, so set the one these sums use.
+            plan = await payg_plan(db)
+            plan.entitlements = {
+                **plan.entitlements,
+                "billing": {**plan.entitlements["billing"], "per_minute": float(RATE)},
+            }
+            await db.commit()
+            get_entitlement_service().invalidate_all()
             org, owner = await make_org(db, f"Concurrent {uuid.uuid4().hex[:6]}")
             await put_on_payg(db, org, balance_cents=balance_cents)
             return org, owner
@@ -1754,3 +1797,79 @@ class TestConcurrentDebits:
         assert held <= 105
         assert sum(granted) // 60 * 35 == held
         assert 0 in granted  # some were turned away
+
+
+# ==================== What a call shows the customer ====================
+
+
+class TestCallPriceOnScreen:
+    """A call shows its price only to a workspace that pays per call, and the
+    price is the wallet charge at the plan's rate, never our provider cost."""
+
+    async def _get(self, db, org, owner, path):
+        from httpx import ASGITransport, AsyncClient
+
+        from app.core.dependencies import get_current_org_id, get_current_user
+        from app.database import get_db
+        from app.main import app
+
+        async def _db():
+            yield db
+
+        app.dependency_overrides[get_db] = _db
+        app.dependency_overrides[get_current_user] = lambda: owner
+        app.dependency_overrides[get_current_org_id] = lambda: org.id
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                res = await client.get(f"/api/v1/calls{path}")
+        finally:
+            app.dependency_overrides.clear()
+        assert res.status_code == 200, res.text
+        return res.json()
+
+    async def _priced_call(self, db, org, owner, seconds):
+        call = await make_call(db, org, owner, seconds=seconds)
+        # What the providers charged Voicecon for it.
+        call.cost_stt, call.cost_llm, call.cost_tts = Decimal("0.01"), Decimal("0.002"), Decimal("0.03")
+        call.cost_telephony, call.cost_total = Decimal("0.0129"), Decimal("0.0549")
+        await db.commit()
+        await UsageTracker.record_call_usage(db, call.id, org.id)
+        return call
+
+    async def test_pay_as_you_go_sees_what_it_was_charged(self, db, org, owner):
+        await put_on_payg(db, org, balance_cents=1000)
+        call = await self._priced_call(db, org, owner, seconds=61)  # 2 minutes at 0.35
+
+        detail = await self._get(db, org, owner, f"/{call.id}")
+        listed = (await self._get(db, org, owner, ""))["calls"][0]
+        stats = await self._get(db, org, owner, "/stats")
+
+        for shown in (detail, listed):
+            assert shown["cost_total"] == 0.70
+            assert shown["cost_stt"] is None and shown["cost_llm"] is None
+            assert shown["cost_tts"] is None and shown["cost_telephony"] is None
+        assert stats["total_cost"] == 0.70
+
+    async def test_the_price_follows_the_rate_set_on_the_plan(self, db, org, owner):
+        plan = await payg_plan(db)
+        plan.entitlements = {
+            **plan.entitlements,
+            "billing": {**plan.entitlements["billing"], "per_minute": 0.40},
+        }
+        await db.commit()
+        await put_on_payg(db, org, balance_cents=1000)
+        call = await self._priced_call(db, org, owner, seconds=180)  # 3 minutes at 0.40
+
+        assert (await self._get(db, org, owner, f"/{call.id}"))["cost_total"] == 1.20
+
+    async def test_a_subscriber_sees_no_cost_at_all(self, db, org, owner):
+        await paid_subscription(db, org)
+        call = await self._priced_call(db, org, owner, seconds=300)
+
+        detail = await self._get(db, org, owner, f"/{call.id}")
+        stats = await self._get(db, org, owner, "/stats")
+        contacts = await self._get(db, org, owner, "/contacts")
+
+        assert all(detail[k] is None for k in ("cost_total", "cost_stt", "cost_llm", "cost_tts", "cost_telephony"))
+        assert stats["total_cost"] is None
+        assert contacts["contacts"][0]["total_cost"] is None

@@ -16,10 +16,20 @@ from app.core.dependencies import get_current_active_user, get_current_user_orga
 from app.models.user import User, Organization
 from app.services.analytics import AnalyticsService
 from app.core.time import utc_iso, utc_today
+from app.services.billing import call_pricing
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _money(value, show: bool):
+    """A call-spend figure, or ``None`` for a workspace that doesn't pay per
+    call. The figures are what the workspace was charged (``Call.billed_amount``),
+    never what the providers charged Voicecon."""
+    if not show or value is None:
+        return None
+    return float(value)
 
 
 # ==================== SCHEMAS ====================
@@ -32,7 +42,7 @@ class CallMetricsResponse(BaseModel):
     missed_calls: int
     total_duration_seconds: int
     avg_duration_seconds: Optional[float]
-    total_cost: float
+    total_cost: Optional[float]
     avg_cost_per_call: Optional[float]
     success_rate: Optional[float]
     avg_sentiment_score: Optional[float]
@@ -53,7 +63,7 @@ class AgentMetricsResponse(BaseModel):
     successful_function_calls: int
     failed_function_calls: int
     function_success_rate: Optional[float]
-    total_cost: float
+    total_cost: Optional[float]
     cost_per_interaction: Optional[float]
     avg_user_rating: Optional[float]
 
@@ -77,7 +87,7 @@ class DailySummaryResponse(BaseModel):
     summary_date: str
     total_calls: int
     total_call_minutes: int
-    total_call_cost: float
+    total_call_cost: Optional[float]
     active_agents_count: int
     total_agent_interactions: int
     avg_agent_performance: Optional[float]
@@ -99,8 +109,8 @@ class RealTimeMetricsResponse(BaseModel):
     calls_today: int
     calls_last_hour: int
     calls_last_5_minutes: int
-    cost_today: float
-    cost_last_hour: float
+    cost_today: Optional[float]
+    cost_last_hour: Optional[float]
     active_agents: int
     active_integrations: int
     system_health: str
@@ -113,7 +123,7 @@ class MetricsTimeSeriesResponse(BaseModel):
     """Time series metrics response."""
     dates: List[str]
     call_volumes: List[int]
-    costs: List[float]
+    costs: List[Optional[float]]
     success_rates: List[float]
     sentiment_scores: List[float]
 
@@ -136,6 +146,7 @@ async def get_call_metrics(
     """
     try:
         analytics_service = AnalyticsService(db)
+        show_prices = await call_pricing.shows_call_prices(db, organization.id)
 
         # Convert agent_id to UUID if provided
         agent_uuid = uuid.UUID(agent_id) if agent_id else None
@@ -157,7 +168,7 @@ async def get_call_metrics(
                 missed_calls=0,
                 total_duration_seconds=0,
                 avg_duration_seconds=None,
-                total_cost=0,
+                total_cost=None,
                 avg_cost_per_call=None,
                 success_rate=None,
                 avg_sentiment_score=None,
@@ -194,8 +205,8 @@ async def get_call_metrics(
             missed_calls=missed_calls,
             total_duration_seconds=total_duration,
             avg_duration_seconds=avg_duration,
-            total_cost=float(total_cost),
-            avg_cost_per_call=avg_cost,
+            total_cost=_money(total_cost, show_prices),
+            avg_cost_per_call=_money(avg_cost, show_prices),
             success_rate=success_rate,
             avg_sentiment_score=avg_sentiment,
             positive_sentiment_count=positive_sentiment,
@@ -225,6 +236,7 @@ async def get_agent_metrics(
     """
     try:
         analytics_service = AnalyticsService(db)
+        show_prices = await call_pricing.shows_call_prices(db, organization.id)
         agent_uuid = uuid.UUID(agent_id)
 
         # Get metrics for the date range and aggregate
@@ -270,8 +282,8 @@ async def get_agent_metrics(
             successful_function_calls=successful_functions,
             failed_function_calls=failed_functions,
             function_success_rate=function_success_rate,
-            total_cost=float(total_cost),
-            cost_per_interaction=cost_per_interaction,
+            total_cost=_money(total_cost, show_prices),
+            cost_per_interaction=_money(cost_per_interaction, show_prices),
             avg_user_rating=None  # TODO: Add user ratings
         )
 
@@ -364,6 +376,7 @@ async def get_daily_summary(
     """
     try:
         analytics_service = AnalyticsService(db)
+        show_prices = await call_pricing.shows_call_prices(db, organization.id)
 
         summary = await analytics_service.generate_daily_summary(
             organization_id=organization.id,
@@ -374,7 +387,7 @@ async def get_daily_summary(
             summary_date=summary.summary_date.isoformat(),
             total_calls=summary.total_calls,
             total_call_minutes=summary.total_call_minutes,
-            total_call_cost=float(summary.total_call_cost),
+            total_call_cost=_money(summary.total_call_cost, show_prices),
             active_agents_count=summary.active_agents_count,
             total_agent_interactions=summary.total_agent_interactions,
             avg_agent_performance=float(summary.avg_agent_performance) if summary.avg_agent_performance else None,
@@ -386,7 +399,7 @@ async def get_daily_summary(
             workflow_success_rate=float(summary.workflow_success_rate) if summary.workflow_success_rate else None,
             top_agents=summary.top_agents,
             call_volume_change=float(summary.call_volume_change) if summary.call_volume_change else None,
-            cost_change=float(summary.cost_change) if summary.cost_change else None,
+            cost_change=float(summary.cost_change) if summary.cost_change and show_prices else None,
             sentiment_change=float(summary.sentiment_change) if summary.sentiment_change else None
         )
 
@@ -411,6 +424,7 @@ async def get_realtime_metrics(
     """
     try:
         analytics_service = AnalyticsService(db)
+        show_prices = await call_pricing.shows_call_prices(db, organization.id)
 
         metrics = await analytics_service.update_realtime_metrics(
             organization_id=organization.id
@@ -421,8 +435,8 @@ async def get_realtime_metrics(
             calls_today=metrics.calls_today,
             calls_last_hour=metrics.calls_last_hour,
             calls_last_5_minutes=metrics.calls_last_5_minutes,
-            cost_today=float(metrics.cost_today),
-            cost_last_hour=float(metrics.cost_last_hour),
+            cost_today=_money(metrics.cost_today, show_prices),
+            cost_last_hour=_money(metrics.cost_last_hour, show_prices),
             active_agents=metrics.active_agents,
             active_integrations=metrics.active_integrations,
             system_health=metrics.system_health,
@@ -492,6 +506,7 @@ async def get_dashboard_summary(
     """
     try:
         analytics_service = AnalyticsService(db)
+        show_prices = await call_pricing.shows_call_prices(db, organization.id)
         # Calls are stored in UTC, so "today" has to be the UTC day too.
         today = utc_today()
 
@@ -519,14 +534,14 @@ async def get_dashboard_summary(
                 "active_calls": realtime.current_active_calls,
                 "calls_today": realtime.calls_today,
                 "calls_last_hour": realtime.calls_last_hour,
-                "cost_today": float(realtime.cost_today),
+                "cost_today": _money(realtime.cost_today, show_prices),
                 "system_health": realtime.system_health,
                 "error_rate": float(realtime.error_rate_last_hour) if realtime.error_rate_last_hour else 0,
             },
             "today": {
                 "total_calls": summary.total_calls,
                 "total_minutes": summary.total_call_minutes,
-                "total_cost": float(summary.total_call_cost),
+                "total_cost": _money(summary.total_call_cost, show_prices),
                 "success_rate": float(summary.call_success_rate) if summary.call_success_rate else 0,
                 "sentiment_score": float(summary.avg_sentiment_score) if summary.avg_sentiment_score else None,
             },
@@ -542,7 +557,7 @@ async def get_dashboard_summary(
             },
             "trends": {
                 "call_volume_change": float(summary.call_volume_change) if summary.call_volume_change else 0,
-                "cost_change": float(summary.cost_change) if summary.cost_change else 0,
+                "cost_change": (float(summary.cost_change) if summary.cost_change else 0) if show_prices else None,
                 "sentiment_change": float(summary.sentiment_change) if summary.sentiment_change else 0,
             }
         }

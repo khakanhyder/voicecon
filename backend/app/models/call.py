@@ -135,6 +135,10 @@ class Call(Base):
     cost_tts: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
     cost_telephony: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
     cost_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
+    # What the customer was charged for this call at their plan's per-minute
+    # rate (Pay As You Go wallet debit). The cost_* columns above are what the
+    # providers charge *us*; they are internal and never shown to customers.
+    billed_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))
 
     # Provider Details
     provider: Mapped[Optional[str]] = mapped_column(String(50))

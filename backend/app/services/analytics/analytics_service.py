@@ -136,8 +136,8 @@ class AnalyticsService:
             func.avg(Call.duration_seconds).label('avg_duration'),
             func.max(Call.duration_seconds).label('max_duration'),
             func.min(Call.duration_seconds).label('min_duration'),
-            func.sum(Call.cost_total).label('total_cost'),
-            func.avg(Call.cost_total).label('avg_cost_per_call'),
+            func.sum(Call.billed_amount).label('total_cost'),
+            func.avg(Call.billed_amount).label('avg_cost_per_call'),
             func.avg(Call.sentiment_score).label('avg_sentiment_score'),
             func.sum(case((Call.sentiment_score > 0.6, 1), else_=0)).label('positive_sentiment'),
             func.sum(case((Call.sentiment_score < 0.4, 1), else_=0)).label('negative_sentiment'),
@@ -241,7 +241,7 @@ class AnalyticsService:
             func.sum(case((Call.status == 'failed', 1), else_=0)).label('failed_calls'),
             func.sum(Call.duration_seconds).label('total_duration'),
             func.avg(Call.duration_seconds).label('avg_duration'),
-            func.sum(Call.cost_total).label('total_cost'),
+            func.sum(Call.billed_amount).label('total_cost'),
             func.avg(Call.sentiment_score).label('avg_sentiment_score'),
         ).where(
             and_(
@@ -319,7 +319,7 @@ class AnalyticsService:
             func.sum(case((Call.status == 'completed', 1), else_=0)).label('successful'),
             func.sum(case((Call.status == 'failed', 1), else_=0)).label('failed'),
             func.avg(Call.sentiment_score).label('avg_sentiment'),
-            func.sum(Call.cost_total).label('total_cost'),
+            func.sum(Call.billed_amount).label('total_cost'),
         ).where(
             and_(
                 Call.agent_id == agent_id,
@@ -752,7 +752,7 @@ class AnalyticsService:
         # Calls last hour
         calls_hour_query = select(
             func.count(Call.id).label('count'),
-            func.sum(Call.cost_total).label('cost')
+            func.sum(Call.billed_amount).label('cost')
         ).where(
             and_(
                 Call.organization_id == organization_id,
@@ -775,7 +775,7 @@ class AnalyticsService:
         metrics.calls_last_5_minutes = calls_5min.scalar() or 0
 
         # Cost today
-        cost_today_query = select(func.sum(Call.cost_total)).where(
+        cost_today_query = select(func.sum(Call.billed_amount)).where(
             and_(
                 Call.organization_id == organization_id,
                 func.date(Call.started_at) == today

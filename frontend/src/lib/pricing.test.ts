@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planBullets, toPricingPlan, trialBullets, type PricingPlan } from './pricing'
+import { planBullets, premiumLine, toPricingPlan, trialBullets, type PricingPlan } from './pricing'
 
 const features = {
   inbound_calls: true,
@@ -120,5 +120,32 @@ describe('trialBullets', () => {
     const bullets = trialBullets({ days: 14, limits: { minutes_per_month: 30, agents: 1 }, payment_provider: null })
     expect(bullets[0]).toBe('14 days, no credit card required')
     expect(bullets).toContain('30 call minutes included')
+  })
+})
+
+describe('premium model line', () => {
+  it('tells the customer premium models use minutes faster', () => {
+    expect(premiumLine({ premium_multiplier: 1.5 })).toBe(
+      'Premium AI models (GPT-5.5, GPT-4o, Claude Sonnet and Opus) use minutes at 1.5×'
+    )
+  })
+
+  it('says nothing when the plan charges premium models the same', () => {
+    expect(premiumLine({ premium_multiplier: 1 })).toBeNull()
+    expect(premiumLine({})).toBeNull()
+  })
+
+  it('reads the multiplier from the plan the API returns', () => {
+    const plan = toPricingPlan({
+      slug: 'growth',
+      name: 'Growth',
+      description: null,
+      price_monthly: 149,
+      price_yearly: null,
+      entitlements: { features: {}, limits: {}, overage: { allowed: true, per_minute: 0.22 }, premium: { multiplier: 1.5 } },
+    } as Parameters<typeof toPricingPlan>[0])
+    expect(plan.premium_multiplier).toBe(1.5)
+    expect(plan.overage_per_minute).toBe(0.22)
+    expect(planBullets(plan)).toContain(premiumLine(plan))
   })
 })

@@ -34,13 +34,19 @@ class DeepgramSTT(BaseSTTProvider):
     - Support for multiple languages and models
     """
 
-    # Deepgram pricing (per minute)
+    # Streaming price per minute, pay-as-you-go (deepgram.com/pricing,
+    # checked 2026-10-14). nova-3 is what live calls use.
     PRICING = {
-        "nova-2": 0.0043,  # $0.0043 per minute
-        "nova": 0.0043,
-        "enhanced": 0.0125,
-        "base": 0.0125,
+        "nova-3": 0.0048,
+        "nova-3-general": 0.0048,
+        "nova-3-multilingual": 0.0058,
+        "nova-2": 0.0058,
+        "nova": 0.0058,
+        "enhanced": 0.0165,
+        "base": 0.0145,
     }
+    #: Unknown models are priced high, so cost is never understated.
+    DEFAULT_PRICE_PER_MINUTE = 0.0165
 
     def __init__(
         self,
@@ -343,7 +349,7 @@ class DeepgramSTT(BaseSTTProvider):
         if self._audio_duration > 0:
             # Calculate cost based on duration (in minutes)
             duration_minutes = self._audio_duration / 60
-            cost_per_minute = self.PRICING.get(self.model, 0.0125)
+            cost_per_minute = self.PRICING.get(self.model, self.DEFAULT_PRICE_PER_MINUTE)
             total_cost = duration_minutes * cost_per_minute
 
             self._track_usage(
@@ -410,7 +416,7 @@ class DeepgramSTT(BaseSTTProvider):
 
                     # Track usage
                     duration = data["metadata"]["duration"]
-                    cost = (duration / 60) * self.PRICING.get(self.model, 0.0125)
+                    cost = (duration / 60) * self.PRICING.get(self.model, self.DEFAULT_PRICE_PER_MINUTE)
                     self._track_usage(duration, cost)
 
                     return result

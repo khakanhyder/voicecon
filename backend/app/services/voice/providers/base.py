@@ -6,6 +6,21 @@ from typing import AsyncIterator, Optional, Dict, Any
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
+import contextvars
+
+
+#: The call whose work is running in this task. The STT, LLM and TTS services
+#: are process-wide singletons shared by every live call, so each usage record
+#: is tagged with this to let a call add up its own cost and nobody else's.
+#: Set by the voice session; tasks it starts inherit it.
+current_call_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "voicecon_current_call_id", default=None
+)
+
+
+def forget_call_usage(stats: list, call_id: str) -> None:
+    """Drop one call's usage records from a provider's list, in place."""
+    stats[:] = [s for s in stats if getattr(s, "call_id", None) != call_id]
 
 
 class STTProvider(str, Enum):
@@ -68,10 +83,13 @@ class STTUsage:
     cost: float
     request_id: Optional[str] = None
     timestamp: datetime = None
+    call_id: Optional[str] = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+        if self.call_id is None:
+            self.call_id = current_call_id.get()
 
 
 @dataclass
@@ -83,10 +101,13 @@ class TTSUsage:
     voice_id: Optional[str] = None
     request_id: Optional[str] = None
     timestamp: datetime = None
+    call_id: Optional[str] = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+        if self.call_id is None:
+            self.call_id = current_call_id.get()
 
 
 @dataclass
@@ -116,10 +137,13 @@ class LLMUsage:
     cost: float
     request_id: Optional[str] = None
     timestamp: datetime = None
+    call_id: Optional[str] = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+        if self.call_id is None:
+            self.call_id = current_call_id.get()
 
 
 @dataclass

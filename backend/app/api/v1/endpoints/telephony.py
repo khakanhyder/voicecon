@@ -208,8 +208,10 @@ _PROVIDER_CALL_STATUS = {
     "cancelled": "failed",
 }
 
-#: Per-minute carrier rates used when the provider does not price the call for us.
-_TELEPHONY_RATE_PER_MINUTE = {"inbound": 0.0085, "outbound": 0.0140}
+#: Per-minute carrier rates used when the provider does not price the call for us:
+#: Twilio US voice (inbound local $0.0085, outbound $0.0140) plus Media Streams
+#: ($0.0044), which every AI call uses. twilio.com/en-us/voice/pricing/us, 2026-10-14.
+_TELEPHONY_RATE_PER_MINUTE = {"inbound": 0.0129, "outbound": 0.0184}
 
 #: Ceiling on a duration reconstructed from timestamps. A late or duplicated
 #: final callback would otherwise measure "row created until now" and bill a

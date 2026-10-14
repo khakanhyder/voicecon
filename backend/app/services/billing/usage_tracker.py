@@ -111,15 +111,32 @@ class UsageTracker:
                 logger.error(f"Plan not found for subscription {subscription.id}")
                 return None
 
+            from app.services.billing import catalog
+            from app.services.billing.entitlements import resolve_entitlements
+
+            ent = await resolve_entitlements(db, organization_id, fresh=True)
+
+            # A call on a flagship model costs us several times what one on a
+            # small model does, so its minutes count the plan's premium
+            # multiplier times: against the allowance, as overage, and on the
+            # Pay As You Go charge (see ``catalog.is_premium_model``).
+            premium = False
+            llm_model = None
+            if call.agent_id:
+                from app.models.agent import Agent
+
+                agent = await db.get(Agent, call.agent_id)
+                if agent is not None:
+                    llm_model = agent.llm_model
+                    premium = catalog.is_premium_model(agent.llm_provider, agent.llm_model)
+            talk_minutes = minutes
+            minutes = catalog.billable_minutes(talk_minutes, ent.premium_multiplier, premium)
+
             # Minutes past the plan's monthly allowance are overage, priced at
             # the plan's per-minute rate. Only the part of *this* call that
             # crosses the allowance counts: a call that starts inside it and
             # ends past it is split. Unlimited plans and trials (no card, no
             # overage) never price anything.
-            from app.services.billing import catalog
-            from app.services.billing.entitlements import resolve_entitlements
-
-            ent = await resolve_entitlements(db, organization_id, fresh=True)
             allowance = ent.limit(catalog.LIMIT_MINUTES)
             before = subscription.current_period_minutes or 0
             minutes_overage = 0
@@ -129,9 +146,20 @@ class UsageTracker:
                 )
             calls_overage = 0
 
-            unit_price = plan.overage_rate_per_minute if minutes_overage > 0 else 0
+            # The rate set on the plan in /admin/plans (or a per-workspace
+            # override); the legacy column only for a document without one.
+            overage_rate = Decimal(
+                str(
+                    ent.overage_per_minute
+                    if ent.overage_per_minute is not None
+                    else plan.overage_rate_per_minute or 0
+                )
+            )
+            unit_price = overage_rate if minutes_overage > 0 else Decimal("0")
             total_amount = (
-                plan.overage_rate_per_minute * minutes_overage if minutes_overage > 0 else 0
+                (overage_rate * minutes_overage).quantize(Decimal("0.01"))
+                if minutes_overage > 0
+                else Decimal("0")
             )
 
             # Pay As You Go: there is no allowance, every minute is paid for
@@ -159,12 +187,19 @@ class UsageTracker:
                         idempotency_key=f"usage:call:{call_id}",
                         description=(
                             f"{'Call from' if call.direction == 'inbound' else 'Call to'} "
-                            f"{other_party or 'unknown'}, {minutes} min"
+                            f"{other_party or 'unknown'}, {talk_minutes} min"
+                            + (
+                                f" (premium model, billed as {minutes} min)"
+                                if minutes != talk_minutes
+                                else ""
+                            )
                         ),
                         reference_type="call",
                         reference_id=str(call_id),
                         details={
                             "minutes": minutes,
+                            "talk_minutes": talk_minutes,
+                            "premium_model": premium,
                             "per_minute": str(unit_price),
                             "duration_seconds": duration_seconds,
                             "direction": call.direction,
@@ -179,6 +214,10 @@ class UsageTracker:
                         # lock (a rollback would expire the caller's objects).
                         await db.commit()
                         return None
+                # The price the customer sees on the call, at the rate their
+                # plan had when the call ended. Staged with the debit, so the
+                # call never shows a charge the ledger does not have.
+                call.billed_amount = total_amount
 
             # Record minutes usage
             if minutes > 0:
@@ -197,6 +236,16 @@ class UsageTracker:
                         "call_duration_seconds": duration_seconds,
                         "from_number": call.from_number,
                         "to_number": call.to_number,
+                        "talk_minutes": talk_minutes,
+                        "premium_model": premium,
+                        "llm_model": llm_model,
+                        "overage_minutes": minutes_overage,
+                        # Subscription overage still to be charged through
+                        # the payment provider (``overage_billing``). The
+                        # wallet has already taken a prepaid call's money.
+                        "bill_overage": bool(
+                            minutes_overage > 0 and total_amount > 0 and not ent.is_prepaid
+                        ),
                     },
                 )
                 db.add(minutes_record)
@@ -236,6 +285,18 @@ class UsageTracker:
             logger.info(
                 f"Recorded usage for call {call_id}: {minutes} minutes, 1 call"
             )
+
+            if minutes_overage > 0 and not ent.is_prepaid:
+                # Now that the usage is committed, put the overage on the
+                # customer's next invoice. A failure here is retried by the
+                # billing sweep; it must never undo the usage just recorded.
+                try:
+                    from app.services.billing import overage_billing
+
+                    await overage_billing.push_for_call(db, call_id)
+                except Exception as exc:
+                    logger.warning(f"Overage push for call {call_id} deferred to the sweep: {exc}")
+                    await db.rollback()
 
             if movement is not None:
                 # Only now that the charge is committed: the low-balance notice

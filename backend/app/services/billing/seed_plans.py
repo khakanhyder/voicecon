@@ -50,7 +50,7 @@ DEFAULT_PLANS = [
         "price_monthly": Decimal("49.00"),
         "price_yearly": Decimal("468.00"),  # $39/mo billed yearly
         "included_minutes": 200,
-        "overage_rate_per_minute": Decimal("0.30"),
+        "overage_rate_per_minute": Decimal("0.25"),
         "sort_order": 1,
         "features": {
             "support": "Email support",
@@ -69,7 +69,7 @@ DEFAULT_PLANS = [
         "price_monthly": Decimal("149.00"),
         "price_yearly": Decimal("1428.00"),  # $119/mo billed yearly
         "included_minutes": 750,
-        "overage_rate_per_minute": Decimal("0.25"),
+        "overage_rate_per_minute": Decimal("0.22"),
         "sort_order": 2,
         "features": {
             "support": "Priority email support",
@@ -90,7 +90,7 @@ DEFAULT_PLANS = [
         "price_monthly": Decimal("349.00"),
         "price_yearly": Decimal("3348.00"),  # $279/mo billed yearly
         "included_minutes": 2000,
-        "overage_rate_per_minute": Decimal("0.20"),
+        "overage_rate_per_minute": Decimal("0.19"),
         "sort_order": 3,
         "features": {
             "support": "Chat support and an onboarding call",
@@ -109,7 +109,7 @@ DEFAULT_PLANS = [
         "price_monthly": Decimal("499.00"),
         "price_yearly": Decimal("4788.00"),  # $399/mo billed yearly
         "included_minutes": 3000,
-        "overage_rate_per_minute": Decimal("0.15"),
+        "overage_rate_per_minute": Decimal("0.17"),
         "sort_order": 4,
         "features": {
             "support": "Slack support and an account manager",
@@ -438,6 +438,8 @@ async def _create_plan(spec: dict, stripe_service) -> SubscriptionPlan:
         "limits": dict(limits),
         "overage": dict(entitlements["overage"]),
     }
+    if entitlements.get("premium"):
+        document["premium"] = dict(entitlements["premium"])
     if entitlements.get("billing"):
         document["billing"] = dict(entitlements["billing"])
     return SubscriptionPlan(

@@ -596,7 +596,11 @@ class StripeService:
             "calls_included": catalog.UNLIMITED,
             "calls_overage": 0,
             "overage_allowed": ent.overage_allowed,
-            "overage_rate_per_minute": float(plan.overage_rate_per_minute) if plan else 0.0,
+            "overage_rate_per_minute": (
+                ent.overage_per_minute
+                if ent.overage_per_minute is not None
+                else float(plan.overage_rate_per_minute) if plan else 0.0
+            ),
         }
 
     async def check_usage_limits(

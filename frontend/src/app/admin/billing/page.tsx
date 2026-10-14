@@ -124,6 +124,78 @@ function PaymentFailures() {
   )
 }
 
+const OVERAGE_TONE = { billed: 'success', pending: undefined, failed: 'warning', unbillable: 'danger' } as const
+
+function OverageCharges() {
+  const qc = useQueryClient()
+  const [status, setStatus] = useState('')
+  const [page, setPage] = useState(1)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin', 'overage', { status, page }],
+    queryFn: () => adminApi.overageCharges({ status, page, page_size: 25 }),
+    placeholderData: keepPreviousData,
+  })
+  const retry = useMutation({
+    mutationFn: (id: string) => adminApi.retryOverageCharge(id),
+    onSuccess: (r) => {
+      toast[r.status === 'billed' ? 'success' : 'error'](r.status === 'billed' ? 'Charge sent' : `Still ${r.status}`)
+      qc.invalidateQueries({ queryKey: ['admin', 'overage'] })
+    },
+    onError: (e) => toast.error(errorText(e)),
+  })
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 p-4">
+        <p className="text-sm text-slate-500">
+          Minutes past a subscription&apos;s allowance, and whether they reached the customer&apos;s next Stripe or Polar invoice. Failed pushes are retried every 15 minutes.
+        </p>
+        <FilterSelect
+          label="Status"
+          value={status}
+          onChange={(v) => { setStatus(v); setPage(1) }}
+          options={[
+            { value: '', label: 'All' },
+            { value: 'billed', label: 'Billed' },
+            { value: 'pending', label: 'Pending' },
+            { value: 'failed', label: 'Failed' },
+            { value: 'unbillable', label: 'Needs attention' },
+          ]}
+        />
+      </div>
+      <Table>
+        <thead>
+          <tr><Th>When</Th><Th>Organization</Th><Th>Provider</Th><Th>Minutes</Th><Th>Amount</Th><Th>Status</Th><Th /></tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          <TableState colSpan={7} loading={isLoading} error={error} empty={data?.items.length === 0} emptyText="No overage charges." />
+          {data?.items.map((o) => (
+            <Tr key={o.id}>
+              <Td className="text-slate-500">{formatDate(o.created_at, true)}</Td>
+              <Td><Link href={`/admin/organizations/${o.organization_id}`} className="font-medium text-slate-900 hover:underline">{o.organization_name}</Link></Td>
+              <Td>{humanize(o.provider)}</Td>
+              <Td className="tabular-nums">{o.minutes ?? '—'}{o.rate != null && <span className="ml-1 text-xs text-slate-400">@ {formatMoney(o.rate)}</span>}</Td>
+              <Td className="tabular-nums">{formatMoney(o.amount)}</Td>
+              <Td className="max-w-xs whitespace-normal">
+                <Badge tone={OVERAGE_TONE[o.status]}>{o.status === 'unbillable' ? 'Needs attention' : humanize(o.status)}</Badge>
+                {o.reason && <p className="mt-1 text-xs text-slate-500">{o.reason}</p>}
+                {o.reference && <p className="mt-1 font-mono text-xs text-slate-400">{o.reference}</p>}
+              </Td>
+              <Td className="text-right">
+                {o.status !== 'billed' && (
+                  <AdminButton icon={RefreshCcw} loading={retry.isPending && retry.variables === o.id} onClick={() => retry.mutate(o.id)}>
+                    Retry
+                  </AdminButton>
+                )}
+              </Td>
+            </Tr>
+          ))}
+        </tbody>
+      </Table>
+      {data && data.total > 0 && <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} />}
+    </div>
+  )
+}
+
 function EventLedger() {
   const [eventType, setEventType] = useState('')
   const [page, setPage] = useState(1)
@@ -165,7 +237,7 @@ function EventLedger() {
 
 export default function BillingPage() {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'failures' | 'events'>('failures')
+  const [tab, setTab] = useState<'failures' | 'overage' | 'events'>('failures')
   const reconcile = useMutation({
     mutationFn: adminApi.reconcile,
     onSuccess: (r) => {
@@ -187,7 +259,7 @@ export default function BillingPage() {
         }
       />
       <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-        {([['failures', 'Payment failures'], ['events', 'Billing events']] as const).map(([key, label]) => (
+        {([['failures', 'Payment failures'], ['overage', 'Overage charges'], ['events', 'Billing events']] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -198,7 +270,7 @@ export default function BillingPage() {
           </button>
         ))}
       </div>
-      {tab === 'failures' ? <PaymentFailures /> : <EventLedger />}
+      {tab === 'failures' ? <PaymentFailures /> : tab === 'overage' ? <OverageCharges /> : <EventLedger />}
     </>
   )
 }

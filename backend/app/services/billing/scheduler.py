@@ -75,6 +75,19 @@ class BillingScheduler:
                 break
             except Exception as exc:
                 logger.error(f"Subscription reconcile failed: {exc}", exc_info=True)
+            # Subscription overage whose push to Stripe/Polar failed (or never
+            # ran) is retried on the same beat.
+            try:
+                from app.services.billing.overage_billing import retry_pending
+
+                async with get_db_session() as db:
+                    billed = await retry_pending(db)
+                if billed:
+                    logger.info(f"Overage sweep billed {billed} usage record(s)")
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error(f"Overage billing sweep failed: {exc}", exc_info=True)
             # Affiliate commissions leave their refund hold on the same beat.
             try:
                 from app.services.affiliates.commissions import mature_and_commit

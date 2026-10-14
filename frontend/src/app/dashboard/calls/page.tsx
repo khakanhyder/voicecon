@@ -7,6 +7,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { filenameFromDisposition, saveBlob } from '@/lib/knowledge-files'
+import { formatCallPrice, useShowsCallPrices } from '@/hooks/useCallPrices'
 import Link from 'next/link'
 import {
   Phone, Search,
@@ -36,6 +37,8 @@ export default function CallsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [isExporting, setIsExporting] = useState(false)
+  // Only Pay As You Go pays per call, so only it sees what each call cost.
+  const showPrices = useShowsCallPrices()
 
   useEffect(() => {
     Promise.all([fetchCalls(), fetchStats()])
@@ -105,14 +108,14 @@ export default function CallsPage() {
     { label: 'Completed', value: stats.completed, icon: Phone },
     { label: 'Active Now', value: stats.active, icon: Phone },
     { label: 'Total Minutes', value: stats.duration.toFixed(1), icon: Clock },
-    { label: 'Total Cost', value: `$${stats.cost.toFixed(2)}`, icon: DollarSign },
+    ...(showPrices ? [{ label: 'Total Cost', value: formatCallPrice(stats.cost), icon: DollarSign }] : []),
   ]
 
   return (
     <div className="space-y-6">
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 gap-4 ${showPrices ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         {statCards.map((card) => {
           const Icon = card.icon
           return (
@@ -181,7 +184,7 @@ export default function CallsPage() {
             {/* Table Header Always Visible. There is no selection column: nothing
                 acts on selected calls, so the checkboxes that used to sit here
                 selected nothing. */}
-            <div className="grid grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200 text-[14px] font-poppins text-[#000000] uppercase tracking-wide">
+            <div className={`grid ${showPrices ? 'grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem]' : 'grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem]'} gap-4 px-6 py-4 bg-slate-50 border-b border-slate-200 text-[14px] font-poppins text-[#000000] uppercase tracking-wide`}>
               <div>Call ID</div>
               <div>Assistant</div>
               <div>Assistant Phone Number</div>
@@ -190,7 +193,7 @@ export default function CallsPage() {
               <div>Success Evaluation</div>
               <div>Start Time</div>
               <div>Duration</div>
-              <div>Cost</div>
+              {showPrices && <div>Cost</div>}
             </div>
 
             {isLoading ? (
@@ -241,7 +244,7 @@ export default function CallsPage() {
 
                   return (
                     <Link key={call.id} href={`/dashboard/calls/${call.id}`} className="block">
-                      <div className="grid grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem] gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center">
+                      <div className={`grid ${showPrices ? 'grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem_5rem]' : 'grid-cols-[6rem_2fr_3fr_3fr_2fr_2fr_2fr_6rem]'} gap-4 px-6 py-4 hover:bg-[#0F6A5908] transition-colors group cursor-pointer items-center`}>
                         <div className="text-[13px] font-poppins text-black/80 truncate font-medium" title={call.id}>
                           {call.id.slice(0, 8).toUpperCase()}
                         </div>
@@ -293,9 +296,11 @@ export default function CallsPage() {
                           {formatDuration(call.duration_seconds)}
                         </div>
 
-                        <div className="text-[13px] font-poppins font-semibold text-[#000000]">
-                          {call.cost_total != null ? `$${Number(call.cost_total).toFixed(4)}` : '—'}
-                        </div>
+                        {showPrices && (
+                          <div className="text-[13px] font-poppins font-semibold text-[#000000]">
+                            {formatCallPrice(call.cost_total)}
+                          </div>
+                        )}
                       </div>
                     </Link>
                   )

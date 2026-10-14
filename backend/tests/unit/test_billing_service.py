@@ -172,6 +172,9 @@ class TestUsageTracker:
         self, db_session, test_user, test_organization, test_agent
     ):
         """Test recording call usage."""
+        # A standard model: premium minutes count more (see test_pricing_plans).
+        test_agent.llm_model = "gpt-5.4-nano"
+        await db_session.commit()
         # Create plan
         plan = SubscriptionPlan(
             name="Test Plan",
@@ -239,6 +242,9 @@ class TestUsageTracker:
         self, db_session, test_user, test_organization, test_agent
     ):
         """Usage past the old allowance is recorded, but costs nothing."""
+        # A standard model: premium minutes count more (see test_pricing_plans).
+        test_agent.llm_model = "gpt-5.4-nano"
+        await db_session.commit()
         # Create plan with low limits
         plan = SubscriptionPlan(
             name="Test Plan",

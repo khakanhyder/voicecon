@@ -1,6 +1,7 @@
 export interface DashboardSummary {
   totalCalls: number
-  totalCost: number
+  /** Call spend; only Pay As You Go workspaces get one. */
+  totalCost?: number | null
   avgDuration: number
   successRate: number
   [key: string]: any
@@ -18,7 +19,6 @@ export function exportDashboardSummary(
     const dateRange = dateRangeOrFormat as { start: string; end: string } | undefined
     const summary: DashboardSummary = {
       totalCalls: 0,
-      totalCost: 0,
       avgDuration: 0,
       successRate: 0,
       exportedAt: new Date().toISOString(),

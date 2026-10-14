@@ -383,6 +383,30 @@ class TestPlans:
         assert plan.entitlements["features"]["workflow_scheduling"] is True
         assert plan.max_agents == 12
 
+    async def test_overage_rate_and_premium_multiplier_are_editable(self, client, admin, plan, db_session):
+        res = await as_user(client, admin).patch(
+            f"/api/v1/admin/plans/{plan.id}",
+            json={"overage_per_minute": "0.31", "premium_multiplier": "2"},
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["overage_per_minute"] == 0.31
+        assert body["premium_multiplier"] == 2.0
+
+        db_session.expire_all()
+        await db_session.refresh(plan)
+        # The document the usage tracker reads, and the column the pricing
+        # cards read, move together.
+        assert plan.entitlements["overage"]["per_minute"] == 0.31
+        assert plan.overage_rate_per_minute == Decimal("0.31")
+        assert plan.entitlements["premium"] == {"multiplier": 2.0}
+
+    async def test_premium_multiplier_below_one_rejected(self, client, admin, plan):
+        res = await as_user(client, admin).patch(
+            f"/api/v1/admin/plans/{plan.id}", json={"premium_multiplier": "0.5"}
+        )
+        assert res.status_code == 422
+
     async def test_unknown_feature_rejected(self, client, admin, plan):
         res = await as_user(client, admin).patch(f"/api/v1/admin/plans/{plan.id}", json={"features": {"nope": True}})
         assert res.status_code == 422

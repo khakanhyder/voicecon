@@ -11,6 +11,7 @@ import {
 import { exportDashboardSummary } from '@/lib/analytics-export'
 import CallerHistory from '@/components/analytics/CallerHistory'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { useShowsCallPrices } from '@/hooks/useCallPrices'
 
 // ---- API types matching the backend ----
 interface DashboardData {
@@ -18,14 +19,14 @@ interface DashboardData {
     active_calls: number
     calls_today: number
     calls_last_hour: number
-    cost_today: number
+    cost_today: number | null
     system_health: string
     error_rate: number
   }
   today: {
     total_calls: number
     total_minutes: number
-    total_cost: number
+    total_cost: number | null
     success_rate: number
     sentiment_score: number | null
   }
@@ -41,7 +42,7 @@ interface DashboardData {
   }
   trends: {
     call_volume_change: number
-    cost_change: number
+    cost_change: number | null
     sentiment_change: number
   }
 }
@@ -53,7 +54,7 @@ interface CallMetrics {
   missed_calls: number
   total_duration_seconds: number
   avg_duration_seconds: number | null
-  total_cost: number
+  total_cost: number | null
   avg_cost_per_call: number | null
   success_rate: number | null
   avg_sentiment_score: number | null
@@ -67,8 +68,8 @@ interface RealtimeMetrics {
   calls_today: number
   calls_last_hour: number
   calls_last_5_minutes: number
-  cost_today: number
-  cost_last_hour: number
+  cost_today: number | null
+  cost_last_hour: number | null
   active_agents: number
   active_integrations: number
   system_health: string
@@ -139,6 +140,8 @@ export default function AnalyticsPage() {
   const [callMetrics, setCallMetrics] = useState<CallMetrics | null>(null)
   const [realtime, setRealtime] = useState<RealtimeMetrics | null>(null)
   const [loading, setLoading] = useState(true)
+  // Only Pay As You Go pays per call, so only it sees call spend.
+  const showPrices = useShowsCallPrices()
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   // Sections whose request failed on the last load. Without this a server
@@ -215,7 +218,7 @@ export default function AnalyticsPage() {
     if (!callMetrics) return
     exportDashboardSummary({
       totalCalls: callMetrics.total_calls,
-      totalCost: callMetrics.total_cost,
+      ...(showPrices ? { totalCost: callMetrics.total_cost } : {}),
       avgDuration: callMetrics.avg_duration_seconds ?? 0,
       successRate: callMetrics.success_rate ?? 0,
     }, 'csv')
@@ -305,8 +308,8 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* KPI cards — 4 columns */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI cards — 4 columns (3 when the workspace isn't charged per call) */}
+      <div className={`grid grid-cols-2 gap-4 ${showPrices ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
         {[
           {
             label: 'Total Calls',
@@ -335,7 +338,7 @@ export default function AnalyticsPage() {
             bg: 'bg-emerald-50',
             trend: null,
           },
-          {
+          ...(showPrices ? [{
             label: 'Total Cost',
             value: loading ? null : fmtCost(callMetrics?.total_cost),
             sub: loading ? null : `Avg ${fmtCost(callMetrics?.avg_cost_per_call)}/call`,
@@ -343,7 +346,7 @@ export default function AnalyticsPage() {
             color: 'text-amber-600',
             bg: 'bg-amber-50',
             trend: dashboard?.trends.cost_change,
-          },
+          }] : []),
         ].map((card) => {
           const Icon = card.icon
           return (
@@ -475,7 +478,7 @@ export default function AnalyticsPage() {
               {[
                 { label: 'Calls today', value: fmt(dashboard?.today.total_calls) },
                 { label: 'Minutes today', value: fmt(dashboard?.today.total_minutes) + 'm' },
-                { label: 'Cost today', value: fmtCost(dashboard?.today.total_cost) },
+                ...(showPrices ? [{ label: 'Cost today', value: fmtCost(dashboard?.today.total_cost) }] : []),
                 { label: 'Success rate', value: fmtPct(dashboard?.today.success_rate) },
                 { label: 'Active agents', value: fmt(dashboard?.agents.active_count) },
                 { label: 'Active integrations', value: fmt(dashboard?.integrations.active_count) },
@@ -514,7 +517,9 @@ export default function AnalyticsPage() {
               {[
                 { label: 'Active calls', value: fmt(realtime?.current_active_calls), icon: Phone, color: 'text-blue-600', bg: 'bg-blue-50' },
                 { label: 'Last 5 min', value: fmt(realtime?.calls_last_5_minutes), icon: Clock, color: 'text-violet-600', bg: 'bg-violet-50' },
-                { label: 'Cost last hour', value: fmtCost(realtime?.cost_last_hour), icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' },
+                showPrices
+                  ? { label: 'Cost last hour', value: fmtCost(realtime?.cost_last_hour), icon: DollarSign, color: 'text-amber-600', bg: 'bg-amber-50' }
+                  : { label: 'Last hour', value: fmt(realtime?.calls_last_hour), icon: Phone, color: 'text-amber-600', bg: 'bg-amber-50' },
                 { label: 'Active agents', value: fmt(realtime?.active_agents), icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
               ].map((item) => {
                 const Icon = item.icon

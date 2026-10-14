@@ -169,6 +169,8 @@ export interface Entitlements {
   wallet_empty?: boolean
   /** The paid plan ends at the period end and Pay As You Go takes over. */
   switching_to_prepaid?: boolean
+  /** Minutes on a premium AI model count this many times (1 = no difference). */
+  premium_multiplier?: number
 }
 
 /** The structured body a 402 carries. See `app/core/entitlement_guard.py`. */

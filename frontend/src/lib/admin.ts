@@ -295,6 +295,11 @@ export interface Plan {
   /** Pay As You Go: no monthly price; `billing` holds what it charges. */
   prepaid?: boolean
   billing?: PlanBilling | null
+  /** Subscriptions: whether minutes past the allowance are billed, and at what rate. */
+  overage_allowed?: boolean
+  overage_per_minute?: number | null
+  /** Minutes on a premium model (GPT-5.5, Claude Sonnet/Opus...) count this many times. */
+  premium_multiplier?: number
   subscribers: number
   created_at: string
 }
@@ -358,6 +363,23 @@ export interface PaymentFailureRow {
   resolved: boolean
   resolved_at: string | null
   resolution_notes: string | null
+  created_at: string
+}
+
+export interface OverageChargeRow {
+  id: string
+  organization_id: string
+  organization_name: string
+  provider: string
+  call_id: string | null
+  minutes: number | null
+  rate: number | null
+  amount: number | null
+  /** billed: on the provider's next invoice; pending: not pushed yet; failed: retried by the sweep; unbillable: needs a person. */
+  status: 'billed' | 'pending' | 'failed' | 'unbillable'
+  reason: string | null
+  attempts: number
+  reference: string | null
   created_at: string
 }
 
@@ -786,6 +808,8 @@ export const adminApi = {
   setTrialLength: (days: number) => send<{ days: number; plans_updated: number }>('put', '/plans/trial', { days }),
 
   paymentFailures: (params: Query) => get<Page<PaymentFailureRow>>('/billing/payment-failures', params),
+  overageCharges: (params: Query) => get<Page<OverageChargeRow>>('/billing/overage', params),
+  retryOverageCharge: (id: string) => send<{ id: string; status: string }>('post', `/billing/overage/${id}/retry`),
   resolvePaymentFailure: (id: string, notes?: string) =>
     send('post', `/billing/payment-failures/${id}/resolve`, { notes }),
   billingEvents: (params: Query) => get<Page<BillingEventRow>>('/billing/events', params),

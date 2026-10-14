@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { apiClient } from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
 import { VoiceSelection } from './VoiceSelection'
+import { premiumTag } from '@/lib/premiumModels'
+import { useEntitlementStore } from '@/store/entitlementStore'
 
 // ── LLM Providers & Models ────────────────────────────────────────────────────
 
@@ -498,6 +500,17 @@ function ProviderBadge({ badge }: { badge: string }) {
 export function AgentTabContent({ tab, form, set }: {
   tab: AgentTabId; form: AgentFormState; set: (key: keyof AgentFormState, value: any) => void
 }) {
+  // Premium models use minutes faster on the workspace's plan; say so where
+  // the model is picked rather than on the invoice.
+  const premiumMultiplier = useEntitlementStore((s) => s.entitlements?.premium_multiplier ?? 1)
+  const loadEntitlements = useEntitlementStore((s) => s.load)
+  useEffect(() => { loadEntitlements() }, [loadEntitlements])
+  const selectedPremium = premiumTag(form.llm_provider, form.llm_model, premiumMultiplier)
+  const premiumNote = selectedPremium && (
+    <p className="text-xs text-amber-700">
+      This model uses your minutes at {premiumMultiplier.toLocaleString('en-US')}× the normal rate. A Mini or Nano model is quicker on calls and uses minutes at 1×.
+    </p>
+  )
 
   if (tab === 'basic') {
     return (
@@ -553,11 +566,17 @@ export function AgentTabContent({ tab, form, set }: {
                 <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
                   <SelectTrigger id="agent-prompt-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-4 font-medium"><SelectValue/></SelectTrigger>
                   <SelectContent>
-                    {(LLM_MODELS[form.llm_provider] || []).map(m => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
+                    {(LLM_MODELS[form.llm_provider] || []).map(m => {
+                      const tag = premiumTag(form.llm_provider, m.value, premiumMultiplier)
+                      return (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}{tag && <span className="ml-2 text-xs text-amber-700">{tag}</span>}
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
+                {premiumNote}
               </div>
 
               <div className="space-y-2">
@@ -618,13 +637,21 @@ export function AgentTabContent({ tab, form, set }: {
           <Select value={form.llm_model || (LLM_MODELS[form.llm_provider] || [])[0]?.value || ''} onValueChange={v => set('llm_model', v)}>
             <SelectTrigger id="agent-llm-model" className="w-full h-[45px] rounded-xl border border-slate-200 bg-white outline-none transition-colors focus:border-[#0F6A59] focus:ring-2 focus:ring-[#0F6A59]/15 text-[#000000] font-poppins px-3"><SelectValue/></SelectTrigger>
             <SelectContent>
-              {(LLM_MODELS[form.llm_provider] || []).map(m => (
-                <SelectItem key={m.value} value={m.value}>
-                  <div><span className="font-medium">{m.label}</span><span className="ml-2 text-xs text-slate-400">{m.latency}</span></div>
-                </SelectItem>
-              ))}
+              {(LLM_MODELS[form.llm_provider] || []).map(m => {
+                const tag = premiumTag(form.llm_provider, m.value, premiumMultiplier)
+                return (
+                  <SelectItem key={m.value} value={m.value}>
+                    <div>
+                      <span className="font-medium">{m.label}</span>
+                      <span className="ml-2 text-xs text-slate-400">{m.latency}</span>
+                      {tag && <span className="ml-2 text-xs text-amber-700">{tag}</span>}
+                    </div>
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
+          {premiumNote}
         </div>
       </div>
 

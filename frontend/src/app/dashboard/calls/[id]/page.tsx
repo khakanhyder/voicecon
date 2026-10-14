@@ -9,11 +9,12 @@ import { API_BASE, API_ENDPOINTS } from '@/lib/constants'
 import { toast } from 'sonner'
 import { IntegrationChanges } from '@/components/calls/IntegrationChanges'
 import {
-  ArrowLeft, Phone, PhoneIncoming, PhoneOutgoing, DollarSign,
+  ArrowLeft, Phone, PhoneIncoming, PhoneOutgoing,
   Bot, User, Play, Pause, Volume2, Activity, FileText, ChevronRight,
-  Mic, Cpu, Tag, Sparkles,
+  Tag, Sparkles,
 } from 'lucide-react'
 import { formatDateTime, formatTime } from '@/lib/datetime'
+import { formatCallPrice, useShowsCallPrices } from '@/hooks/useCallPrices'
 
 interface CallDetail {
   id: string
@@ -34,10 +35,7 @@ interface CallDetail {
   summary: string | null
   sentiment_score: number | null
   sentiment_label: string | null
-  cost_stt: number | null
-  cost_llm: number | null
-  cost_tts: number | null
-  cost_telephony: number | null
+  /** What this call was charged at the plan's per-minute rate. Pay As You Go only. */
   cost_total: number | null
   tags: string[]
   created_at: string
@@ -203,6 +201,7 @@ export default function CallDetailPage() {
   const callId = params.id as string
 
   const [call, setCall] = useState<CallDetail | null>(null)
+  const showPrices = useShowsCallPrices()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -234,8 +233,6 @@ export default function CallDetailPage() {
   const status = statusConfig[call.status] || statusConfig.initiated
   const transcript: TranscriptEntry[] = normalizeTranscript(call.transcript_json, call.transcript)
 
-  const totalCost = call.cost_total
-    ?? ((call.cost_stt || 0) + (call.cost_llm || 0) + (call.cost_tts || 0) + (call.cost_telephony || 0))
 
   return (
     <div className="w-full space-y-5">
@@ -275,12 +272,14 @@ export default function CallDetailPage() {
               <p className="text-[18px] font-bold font-poppins text-[#000000]">{fmtDur(call.duration_seconds)}</p>
               <p className="text-[12px] font-poppins text-black/50">Duration</p>
             </div>
-            <div className="text-center">
-              <p className="text-[18px] font-bold font-poppins text-[#000000]">
-                {totalCost ? `$${Number(totalCost).toFixed(4)}` : '—'}
-              </p>
-              <p className="text-[12px] font-poppins text-black/50">Cost</p>
-            </div>
+            {showPrices && (
+              <div className="text-center">
+                <p className="text-[18px] font-bold font-poppins text-[#000000]">
+                  {formatCallPrice(call.cost_total)}
+                </p>
+                <p className="text-[12px] font-poppins text-black/50">Cost</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -426,36 +425,6 @@ export default function CallDetailPage() {
               Sentiment
             </h3>
             <SentimentBar score={call.sentiment_score} label={call.sentiment_label} />
-          </div>
-
-          {/* Cost breakdown */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="flex items-center gap-2 text-[14px] font-bold font-poppins text-[#000000] mb-3">
-              <DollarSign className="h-4 w-4 text-black/50" />
-              Cost Breakdown
-            </h3>
-            {[
-              { label: 'STT',       value: call.cost_stt,       icon: Mic },
-              { label: 'LLM',       value: call.cost_llm,       icon: Cpu },
-              { label: 'TTS',       value: call.cost_tts,       icon: Volume2 },
-              { label: 'Telephony', value: call.cost_telephony, icon: Phone },
-            ].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
-                <div className="flex items-center gap-1.5 text-[12px] font-poppins text-black/60">
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </div>
-                <span className="text-[14px] font-bold font-poppins text-black/80">
-                  {value != null ? `$${Number(value).toFixed(4)}` : '—'}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-200">
-              <span className="text-[12px] font-bold font-poppins text-[#000000]">Total</span>
-              <span className="text-[14px] font-bold font-poppins text-[#000000]">
-                {totalCost ? `$${Number(totalCost).toFixed(4)}` : '—'}
-              </span>
-            </div>
           </div>
 
           {/* Tags */}

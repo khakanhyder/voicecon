@@ -131,7 +131,7 @@ class TestSeeding:
 
         growth = plans["growth"]
         assert (growth.price_monthly, growth.price_yearly) == (Decimal("149.00"), Decimal("1428.00"))
-        assert growth.overage_rate_per_minute == Decimal("0.25")
+        assert growth.overage_rate_per_minute == Decimal("0.22")
         assert growth.entitlements["limits"][catalog.LIMIT_MINUTES] == 750
         assert growth.features["popular"] is True
         assert growth.trial_days == catalog.DEFAULT_TRIAL_DAYS == 14
@@ -279,7 +279,7 @@ class TestMinuteMetering:
     async def test_only_the_minutes_past_the_allowance_are_priced(self, db, org):
         await seed_default_plans(db)
         plans = await plans_by_slug(db)
-        # Growth: 750 minutes, then $0.25. 748 used, a 5-minute call → 3 over.
+        # Growth: 750 minutes, then $0.22. 748 used, a 5-minute call → 3 over.
         await subscribe(db, org, plans["growth"], minutes_used=748)
         call = await finished_call(db, org, seconds=300)
 
@@ -287,8 +287,8 @@ class TestMinuteMetering:
 
         (record,) = await minute_records(db, call.id)
         assert record.quantity == 5
-        assert record.unit_price == Decimal("0.25")
-        assert record.total_amount == Decimal("0.75")
+        assert record.unit_price == Decimal("0.22")
+        assert record.total_amount == Decimal("0.66")
 
     async def test_a_call_inside_the_allowance_costs_nothing(self, db, org):
         await seed_default_plans(db)

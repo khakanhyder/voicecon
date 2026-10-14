@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.services.voice.stt_service import get_stt_service
 from app.services.voice.tts_service import get_tts_service
 from app.services.voice.voice_library import resolve_tts_api_key
+from app.services.voice.providers.base import current_call_id
 from app.services.voice.guardrails import VOICE_RULES, strip_for_speech
 from app.services.voice.conversation_context import (
     current_time_note,
@@ -330,6 +331,9 @@ class VoiceSession:
 
     async def start(self) -> None:
         """Start the voice session."""
+        # Tag every STT/LLM/TTS usage record made for this call (the services
+        # are shared by all live calls); tasks started from here inherit it.
+        current_call_id.set(str(self.call_id))
         try:
             # Load agent webhook functions
             self.agent_functions = await self.function_executor.get_agent_functions(
@@ -390,6 +394,7 @@ class VoiceSession:
         Args:
             message: WebSocket message from Twilio
         """
+        current_call_id.set(str(self.call_id))
         try:
             event = message.get("event")
 
@@ -2052,10 +2057,13 @@ class VoiceSession:
     async def _update_call_costs(self) -> None:
         """Update call costs in database."""
         try:
-            # Get usage stats from services
-            stt_stats = await self.stt_service.get_usage_stats(provider=self.agent.stt_provider)
-            llm_stats = await self.llm_service.get_usage_stats(provider=self.agent.llm_provider)
-            tts_stats = await self.tts_service.get_usage_stats(provider=self.agent.tts_provider)
+            # This call's usage only: the services are shared by every live
+            # call, and summing all their records billed each call for every
+            # call made since the process started.
+            call_key = str(self.call_id)
+            stt_stats = await self.stt_service.get_usage_stats(call_id=call_key)
+            llm_stats = await self.llm_service.get_usage_stats(call_id=call_key)
+            tts_stats = await self.tts_service.get_usage_stats(call_id=call_key)
 
             # Calculate total costs
             stt_cost = sum(stat.cost for stat in stt_stats)
@@ -2116,6 +2124,7 @@ class VoiceSession:
 
     async def cleanup(self) -> None:
         """Clean up session resources."""
+        current_call_id.set(str(self.call_id))
         try:
             logger.info(f"Cleaning up voice session: call_id={self.call_id}")
 
@@ -2163,8 +2172,13 @@ class VoiceSession:
 
                 await self.db.commit()
 
-            # Update final costs
+            # Update final costs, then let go of this call's usage records.
             await self._update_call_costs()
+            for service in (self.stt_service, self.llm_service, self.tts_service):
+                try:
+                    service.forget_call_usage(str(self.call_id))
+                except Exception as exc:  # pragma: no cover - housekeeping only
+                    logger.debug(f"Could not drop usage records for {self.call_id}: {exc}")
 
             # Update call status
             self.call.status = "completed"

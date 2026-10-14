@@ -502,15 +502,6 @@ async def test_agent(
         end_time = datetime.utcnow()
         latency_ms = int((end_time - start_time).total_seconds() * 1000)
 
-        # Get usage stats
-        llm_stats = await llm_service.get_usage_stats(provider=agent.llm_provider)
-        last_usage = llm_stats[-1] if llm_stats else None
-
-        costs = {
-            "llm": float(last_usage.cost) if last_usage else 0,
-            "total": float(last_usage.cost) if last_usage else 0,
-        }
-
         # Test TTS if requested
         if test_request.test_mode == "audio":
             tts_service = get_tts_service()
@@ -526,18 +517,14 @@ async def test_agent(
                 ),
             )
 
-            tts_stats = await tts_service.get_usage_stats(provider=agent.tts_provider)
-            last_tts = tts_stats[-1] if tts_stats else None
-
-            costs["tts"] = float(last_tts.cost) if last_tts else 0
-            costs["total"] += costs["tts"]
-
         return AgentTestResponse(
             success=True,
             test_id=uuid.uuid4(),
             agent_response=response_text,
             latency_ms=latency_ms,
-            costs=costs,
+            # What the providers charge Voicecon is internal; customers are
+            # only ever shown their own price (see billing.call_pricing).
+            costs={},
             metadata={
                 "agent_id": str(agent_id),
                 "test_message": test_request.test_message,

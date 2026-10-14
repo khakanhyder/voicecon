@@ -7,6 +7,10 @@ it came from. Two things differ on purpose:
 * Start time is a real timestamp, not "10m ago", in the timezone the browser
   asked for (stored values are naive UTC — see ``app.core.time``).
 * Duration and cost are plain numbers, so a spreadsheet can sum them.
+
+"Cost" is what the workspace was charged for the call (Pay As You Go), never
+what the providers charged Voicecon. Workspaces on a subscription don't pay per
+call, so their file has no cost column at all.
 """
 from __future__ import annotations
 
@@ -75,7 +79,7 @@ def _parties(direction: str, from_number: str, to_number: str) -> tuple[str, str
     return "Web Test", "Web Test"
 
 
-def _row(call: Mapping[str, Any], tz: Any) -> list[str]:
+def _row(call: Mapping[str, Any], tz: Any, include_cost: bool = True) -> list[str]:
     assistant_phone, customer_phone = _parties(
         call["direction"], call["from_number"], call["to_number"]
     )
@@ -83,7 +87,7 @@ def _row(call: Mapping[str, Any], tz: Any) -> list[str]:
     started: Optional[datetime] = call.get("started_at") or call.get("created_at")
     cost = call.get("cost_total")
     duration = call.get("duration_seconds")
-    return [
+    row = [
         _cell(call["id"]),
         _cell(call.get("agent_name") or call.get("agent_id") or "Unknown"),
         _cell(_label(call["direction"])),
@@ -94,11 +98,17 @@ def _row(call: Mapping[str, Any], tz: Any) -> list[str]:
         _cell(_label(call.get("sentiment_label"))),
         as_utc(started).astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if started else "",
         "" if duration is None else str(duration),
-        "" if cost is None else f"{cost:.4f}",
     ]
+    if include_cost:
+        row.append("" if cost is None else f"{cost:.2f}")
+    return row
 
 
-def build_calls_csv(calls: Iterable[Mapping[str, Any]], timezone_name: Optional[str] = None) -> bytes:
+def build_calls_csv(
+    calls: Iterable[Mapping[str, Any]],
+    timezone_name: Optional[str] = None,
+    include_cost: bool = True,
+) -> bytes:
     """CSV bytes for ``calls`` (mappings of the columns the export selects).
 
     Encoded with a UTF-8 BOM: without it Excel reads the file as the system
@@ -107,9 +117,10 @@ def build_calls_csv(calls: Iterable[Mapping[str, Any]], timezone_name: Optional[
     tz, tz_label = resolve_timezone(timezone_name)
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
+    headers = HEADERS if include_cost else HEADERS[:-1]
     writer.writerow(
-        f"{h} ({tz_label})" if h == "Start Time" else h for h in HEADERS
+        f"{h} ({tz_label})" if h == "Start Time" else h for h in headers
     )
     for call in calls:
-        writer.writerow(_row(call, tz))
+        writer.writerow(_row(call, tz, include_cost))
     return out.getvalue().encode("utf-8-sig")
